@@ -1,0 +1,36 @@
+{
+  "name": "peak-fettle",
+  "version": "1.0.0",
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "lint": "eslint . --ext .ts,.tsx",
+    "format": "prettier --write '**/*.{ts,tsx,json}'"
+  },
+  "dependencies": {
+    "expo": "~53.0.0",
+    "expo-router": "~4.0.0",
+    "expo-secure-store": "~14.0.0",
+    "expo-status-bar": "~2.0.1",
+    "react": "18.3.1",
+    "react-native": "0.76.9",
+    "axios": "^1.7.9",
+    "@react-native-async-storage/async-storage": "1.23.1",
+    "@powersync/react-native": "~1.4.0",
+    "@powersync/common": "~1.18.0",
+    "react-native-quick-sqlite": "^8.0.6"
+  },
+  "devDependencies": {
+    "@types/react": "~18.3.12",
+    "@types/react-native": "~0.73.0",
+    "typescript": "^5.3.3",
+    "eslint": "^8.57.0",
+    "eslint-config-expo": "~8.0.0",
+    "prettier": "^3.3.3",
+    "@babel/core": "^7.25.0"
+  },
+  "private": true
+}

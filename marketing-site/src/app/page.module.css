@@ -1,0 +1,367 @@
+/* Peak Fettle marketing site — page-level styles */
+/* Nav styles now live in Nav.module.css (Nav.tsx is a client component) */
+
+/* ---- Hero ---- */
+.hero {
+    padding-block: clamp(4rem, 10vw, 8rem);
+}
+
+.heroInner {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 3rem;
+    align-items: center;
+}
+
+@media (min-width: 768px) {
+    .heroInner {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+.eyebrow {
+    font-size: 0.8rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--turquoise);
+    font-weight: 600;
+    margin-bottom: 1rem;
+}
+
+.headline {
+    font-family: var(--display);
+    font-size: clamp(2.5rem, 5vw, 4rem);
+    font-weight: 700;
+    line-height: 1.1;
+    margin-bottom: 1.5rem;
+    color: var(--white);
+}
+
+.accent { color: var(--turquoise); }
+
+.subhead {
+    font-size: clamp(1rem, 2vw, 1.15rem);
+    color: var(--muted);
+    line-height: 1.7;
+    margin-bottom: 2rem;
+    max-width: 48ch;
+}
+
+.heroActions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.btnPrimary {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.75rem 1.75rem;
+    background: var(--turquoise);
+    color: var(--ink);
+    font-weight: 700;
+    font-size: 1rem;
+    border-radius: 12px;
+    transition: background 0.2s, transform 0.15s var(--ease);
+}
+
+.btnPrimary:hover {
+    background: var(--turquoise-hi);
+    transform: translateY(-1px);
+}
+
+.btnSecondary {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.75rem 1.75rem;
+    background: transparent;
+    color: var(--white);
+    font-weight: 600;
+    font-size: 1rem;
+    border-radius: 12px;
+    border: 1px solid var(--line-strong);
+    transition: border-color 0.2s, color 0.2s;
+}
+
+.btnSecondary:hover {
+    border-color: var(--turquoise);
+    color: var(--turquoise);
+}
+
+.heroMeta {
+    font-size: 0.8rem;
+    color: var(--muted);
+    opacity: 0.7;
+}
+
+/* Mock UI card */
+.heroVisual {
+    display: flex;
+    justify-content: center;
+}
+
+.mockCard {
+    background: var(--ink-2);
+    border: 1px solid var(--line-strong);
+    border-radius: 16px;
+    padding: 1.5rem;
+    width: 100%;
+    max-width: 360px;
+    font-family: var(--body);
+}
+
+.mockHeader {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--line);
+}
+
+.mockDot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--turquoise);
+    display: inline-block;
+}
+
+.mockTitle {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--white);
+}
+
+.mockRow {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding-block: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--muted);
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+.mockRow span:nth-child(1) { width: 3.5rem; }
+.mockAccent { color: var(--turquoise); font-weight: 600; flex: 1; }
+.mockRow span:not(.mockAccent):not(.mockBadge):nth-child(2) { flex: 1; }
+
+.mockBadge {
+    background: rgba(255, 215, 0, 0.18);
+    border: 1px solid rgba(255, 215, 0, 0.55);
+    color: #FFD700;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 6px;
+}
+
+.mockStat {
+    margin-top: 0.875rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.mockStat strong { color: var(--white); }
+
+.mockPercentile {
+    margin-left: auto;
+    color: var(--turquoise);
+    font-weight: 600;
+}
+
+/* ---- Definition section ---- */
+.defSection {
+    padding-block: 3rem;
+}
+
+.defCard {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    background: rgba(45, 212, 191, 0.05);
+    border: 1px solid var(--line-strong);
+    border-radius: 20px;
+    padding: clamp(1.5rem, 4vw, 2.5rem);
+}
+
+@media (min-width: 640px) {
+    .defCard {
+        flex-direction: row;
+        gap: 3rem;
+    }
+}
+
+.defLeft {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    flex-shrink: 0;
+}
+
+.defWord {
+    font-family: var(--display);
+    font-size: 1.6rem;
+    font-weight: 700;
+    font-style: italic;
+    color: var(--white);
+}
+
+.defPhonetic {
+    font-size: 0.85rem;
+    color: var(--muted);
+}
+
+.defPos {
+    font-size: 0.8rem;
+    color: var(--turquoise);
+    font-style: italic;
+}
+
+.defRight {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    font-size: 0.95rem;
+    color: var(--white);
+    line-height: 1.65;
+}
+
+.defEtym {
+    color: var(--muted);
+    font-size: 0.85rem;
+    font-style: italic;
+}
+
+/* ---- Features ---- */
+.featuresSection {
+    padding-block: clamp(4rem, 8vw, 7rem);
+}
+
+.sectionTitle {
+    font-family: var(--display);
+    font-size: clamp(1.75rem, 3.5vw, 2.5rem);
+    font-weight: 700;
+    text-align: center;
+    margin-bottom: 0.75rem;
+    color: var(--white);
+}
+
+.sectionSub {
+    text-align: center;
+    color: var(--muted);
+    font-size: 1rem;
+    max-width: 54ch;
+    margin-inline: auto;
+    margin-bottom: 3rem;
+    line-height: 1.65;
+}
+
+.featureGrid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1.5rem;
+}
+
+.featureCard {
+    background: var(--ink-2);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 1.75rem;
+    transition: border-color 0.25s, transform 0.2s var(--ease);
+}
+
+.featureCard:hover {
+    border-color: var(--line-strong);
+    transform: translateY(-2px);
+}
+
+.featureIcon {
+    display: block;
+    font-size: 1.75rem;
+    margin-bottom: 0.875rem;
+}
+
+.featureTitle {
+    font-family: var(--display);
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--white);
+    margin-bottom: 0.5rem;
+}
+
+.featureBody {
+    font-size: 0.875rem;
+    color: var(--muted);
+    line-height: 1.6;
+}
+
+/* ---- Waitlist ---- */
+.waitlistSection {
+    padding-block: clamp(4rem, 8vw, 7rem);
+    background: linear-gradient(180deg, transparent, var(--ink-2) 30%, var(--ink-2) 70%, transparent);
+}
+
+.waitlistInner {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 3rem;
+    align-items: start;
+}
+
+@media (min-width: 768px) {
+    .waitlistInner {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+.waitlistTitle {
+    font-family: var(--display);
+    font-size: clamp(1.75rem, 3.5vw, 2.5rem);
+    font-weight: 700;
+    color: var(--white);
+    margin-bottom: 1rem;
+}
+
+.waitlistSub {
+    color: var(--muted);
+    font-size: 0.95rem;
+    line-height: 1.7;
+    margin-bottom: 1.5rem;
+}
+
+.waitlistPerks {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--white);
+}
+
+.waitlistPerks li { opacity: 0.85; }
+
+/* ---- Footer ---- */
+.footer {
+    padding-block: 2rem;
+    border-top: 1px solid var(--line);
+}
+
+.footerInner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.footerMeta {
+    font-size: 0.8rem;
+    color: var(--muted);
+}
+
+.footerMeta a:hover { color: var(--turquoise); }

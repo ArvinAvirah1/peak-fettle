@@ -1,0 +1,119 @@
+# Peak Fettle — PowerSync Sync Rules v2
+# Generated: 2026-05-03
+#
+# PowerSync requirements applied:
+#   * Every data query must return an "id" column — tables with composite or
+#     non-standard PKs get a synthetic id alias (see comments below).
+#   * OR conditions across different parameter sets are not allowed — template
+#     plans moved to global_library bucket.
+#   * No table aliases in parameter queries.
+#   * Data queries in global_library reference bucket.singleton so PowerSync
+#     can verify parameter coverage.
+# ---------------------------------------------------------------------------
+
+bucket_definitions:
+
+  # ── 1. User's own private data ─────────────────────────────────────────────
+  user_private:
+    parameters: select request.user_id() as user_id
+    data:
+      # Profile — id is UUID PK; password_hash deliberately excluded
+      - select id, email, display_name, sex, birth_date, weight_class_kg,
+               years_in_sport, experience_level, tier, unit_pref, score_pref,
+               created_at, updated_at
+          from users
+         where id = bucket.user_id
+
+      # Workout log — both have id UUID PK
+      - select * from workouts where user_id = bucket.user_id
+      - select * from sets     where user_id = bucket.user_id
+
+      # User's own plans only; global templates live in global_library bucket
+      - select * from plans where user_id = bucket.user_id
+
+      # streaks: PK is user_id (no id column) — alias user_id as id
+      - select user_id         as id,
+               current_streak_days,
+               longest_streak_days,
+               last_session_date,
+               pending_makeup,
+               updated_at
+          from streaks
+         where user_id = bucket.user_id
+
+      # streak_overrides has id UUID PK
+      - select * from streak_overrides where user_id = bucket.user_id
+
+      # Health suite — both have id UUID PK
+      - select * from habits           where user_id = bucket.user_id
+      - select * from daily_health_log where user_id = bucket.user_id
+
+      # user_weekly_goals: PK is user_id — alias as id
+      - select user_id                  as id,
+               workouts_per_week,
+               pending_workouts_per_week,
+               pending_applies_at,
+               created_at,
+               updated_at
+          from user_weekly_goals
+         where user_id = bucket.user_id
+
+      # credit_ledger has id UUID PK
+      - select * from credit_ledger where user_id = bucket.user_id
+
+      # user_percentile_rankings: composite PK (user_id, lift_id, model_version)
+      # — synthesise a stable id string
+      - select user_id::text || '_' || lift_id || '_' || model_version::text as id,
+               user_id, lift_id, percentile, model_version, computed_at
+          from user_percentile_rankings
+         where user_id = bucket.user_id
+
+      # User's own membership rows — composite PK (group_id, user_id)
+      - select group_id::text || '_' || user_id::text as id,
+               group_id, user_id, joined_at, left_at, status, kick_cooldown_until
+          from group_memberships
+         where user_id = bucket.user_id
+
+
+  # ── 2. Group data ───────────────────────────────────────────────────────────
+  # One bucket per group the user is actively in.
+  # No table alias in the parameter query (PowerSync restriction).
+  user_groups:
+    parameters: >
+      select group_id
+        from group_memberships
+       where user_id = request.user_id()
+         and status  = 'active'
+    data:
+      # groups has id UUID PK
+      - select * from groups where id = bucket.group_id
+
+      # Full member roster for this group — composite PK, synthesise id
+      - select group_id::text || '_' || user_id::text as id,
+               group_id, user_id, joined_at, left_at, status, kick_cooldown_until
+          from group_memberships
+         where group_id = bucket.group_id
+
+      # Weekly evaluation history — composite PK (group_id, week_start)
+      - select group_id::text || '_' || week_start::text as id,
+               group_id, week_start, eligible_members, members_hit_goal,
+               streak_weeks_after, credits_per_member, evaluated_at
+          from group_week_evaluations
+         where group_id = bucket.group_id
+
+
+  # ── 3. Global read-only data ─────────────────────────────────────────────
+  # Singleton bucket — one instance shared by all users.
+  # Data queries must reference bucket.singleton (PowerSync parameter coverage rule).
+  global_library:
+    parameters: select 1 as singleton
+    data:
+      # Exercise library — both have id UUID PK
+      - select * from exercises       where 1 = bucket.singleton
+      - select * from exercise_aliases where 1 = bucket.singleton
+
+      # Global template plans (is_template = true, user_id IS NULL)
+      # Separated from user_private to avoid OR across different parameter sets
+      - select * from plans
+         where is_template = true
+           and 1 = bucket.singleton
