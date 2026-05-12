@@ -1,0 +1,72 @@
+# Peak Fettle — Orphaned Auth Cleanup Cron
+#
+# AA-01 (2026-05-11): closes the operational gap flagged in the
+# 2026-05-10 tester run. The `server/cron/cleanup-orphaned-auth.js` script
+# existed but was never scheduled, so orphaned Supabase auth records (left
+# behind when DELETE /user/account's post-commit deleteUser() call fails)
+# accumulated silently. At scale this is a GDPR-compliance gap.
+#
+# We schedule via GitHub Actions (Option B from the roadmap) rather than
+# an in-process node-cron / setInterval because:
+#   * The server process stays clean — no long-lived timer state.
+#   * Run history (success / failure / log output) is visible in the
+#     Actions tab without needing log aggregation.
+#   * Manual reruns are one click away (workflow_dispatch).
+#
+# Required GitHub Secrets:
+#   SUPABASE_URL                 — project URL (https://xxxxx.supabase.co)
+#   SUPABASE_SERVICE_ROLE_KEY    — service-role key (NEVER use anon key here)
+#   DATABASE_URL                 — postgres connection string used by server/db.js
+#
+# Manual trigger:
+#   Actions tab → Cleanup orphaned auth records → Run workflow
+
+name: Cleanup orphaned auth records
+
+on:
+  schedule:
+    # Every 6 hours, on the hour. Matches the schedule recommended in the
+    # cleanup-orphaned-auth.js header (cron: "0 */6 * * *").
+    - cron: "0 */6 * * *"
+  # Allow manual runs from the Actions UI for ad-hoc cleanup.
+  workflow_dispatch:
+
+# Make sure a slow run doesn't pile up if the previous one is still going.
+concurrency:
+  group: cleanup-orphaned-auth
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    name: "Retry deleteUser() for orphaned auth records"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: peak-fettle-agents/server
+
+    # Hard cap so a Supabase Admin API outage can't hold the runner for hours.
+    timeout-minutes: 10
+
+    env:
+      NODE_ENV:                  production
+      SUPABASE_URL:              ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      DATABASE_URL:              ${{ secrets.DATABASE_URL }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: peak-fettle-agents/server/package-lock.json
+
+      - name: Install dependencies (production only)
+        run: npm ci --omit=dev
+
+      - name: Run cleanup-orphaned-auth
+        # Cron job is idempotent: it only acts on rows with resolved_at IS NULL,
+        # and the per-run cap (MAX_PER_RUN=50) prevents API hammering.
+        run: node cron/cleanup-orphaned-auth.js
