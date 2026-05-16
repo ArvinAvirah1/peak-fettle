@@ -291,8 +291,12 @@ $$;
 -- 5. Rebuild v_user_lift_inputs to expose primary_discipline
 --
 -- The existing view was created in 20260503_lift_inputs_view.sql.
--- We replace it here to add the discipline column the batch function needs.
+-- We DROP first because the column order changes significantly (exercise_id
+-- and exercise_name are removed; sex moves to col 2; primary_discipline is
+-- added). CREATE OR REPLACE cannot rename or reorder existing columns.
 -- ---------------------------------------------------------------------------
+
+DROP VIEW IF EXISTS v_user_lift_inputs;
 
 CREATE OR REPLACE VIEW v_user_lift_inputs AS
 SELECT
@@ -301,14 +305,16 @@ SELECT
     u.primary_discipline,                       -- 'powerlifting' | 'running' | … | NULL
     EXTRACT(YEAR FROM AGE(NOW(), u.birth_date)) AS age,
     u.years_in_sport                            AS training_years,
-    -- bodyweight: prefer weight_class_kg midpoint, fall back to stored weight_kg if present
-    COALESCE(u.weight_class_kg, 75)             AS bodyweight_kg,
-    e.lift_id,
+    -- BUG-001 fix: use weight_raw / 8.0 (weight_kg was dropped in 20260505_sets_weight_raw.sql)
+    -- BUG-006 fix: sex-based bodyweight fallback (was hardcoded 75 kg, distorted runner/beginner percentiles)
+    COALESCE(u.weight_class_kg, CASE u.sex WHEN 'MALE' THEN 83 ELSE 66 END) AS bodyweight_kg,
+    REPLACE(LOWER(e.name), ' ', '_')            AS lift_id,
     -- Best estimated 1RM across all sets for this exercise
+    -- Uses weight_raw (SMALLINT, kg × 8) — weight_kg dropped in 20260505_sets_weight_raw.sql (BUG-001)
     MAX(
         CASE
-            WHEN s.reps = 1 THEN s.weight_kg
-            ELSE s.weight_kg * (1 + s.reps::float / 30.0)   -- Epley E1RM
+            WHEN s.reps = 1 THEN s.weight_raw / 8.0
+            ELSE (s.weight_raw / 8.0) * (1.0 + s.reps::float / 30.0)   -- Epley E1RM
         END
     )                                           AS best_one_rm_kg,
     -- Account creation date — used by cohort-graduation cron
@@ -317,11 +323,11 @@ FROM users u
 JOIN workouts w ON w.user_id = u.id
 JOIN sets s     ON s.workout_id = w.id
 JOIN exercises e ON e.id = s.exercise_id
-WHERE s.weight_kg > 0
+WHERE s.weight_raw > 0
   AND s.reps >= 1
-  AND e.lift_id IS NOT NULL
+  AND REPLACE(LOWER(e.name), ' ', '_') IS NOT NULL
 GROUP BY u.id, u.sex, u.primary_discipline, u.birth_date,
-         u.years_in_sport, u.weight_class_kg, e.lift_id, u.created_at;
+         u.years_in_sport, u.weight_class_kg, REPLACE(LOWER(e.name), ' ', '_'), u.created_at;
 
 
 -- ---------------------------------------------------------------------------
@@ -334,6 +340,9 @@ GROUP BY u.id, u.sex, u.primary_discipline, u.birth_date,
 --     (lift_id, sex, discipline, age_band, experience_band) cohort
 --   • model_version default remains 2
 -- ---------------------------------------------------------------------------
+
+-- DROP required: return shape changes (adds cohort_size_internal).
+DROP FUNCTION IF EXISTS compute_percentile_batch(INTEGER);
 
 CREATE OR REPLACE FUNCTION compute_percentile_batch(
     p_model_version INTEGER DEFAULT 2

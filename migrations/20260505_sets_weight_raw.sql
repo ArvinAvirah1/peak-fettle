@@ -57,9 +57,11 @@ $$;
 
 -- ---------------------------------------------------------------------------
 -- STEP 4 — Drop weight_kg
+--   CASCADE drops v_user_lift_inputs, which references this column.
+--   Step 7 recreates the view using weight_raw instead.
 -- ---------------------------------------------------------------------------
 ALTER TABLE sets
-    DROP COLUMN IF EXISTS weight_kg;
+    DROP COLUMN IF EXISTS weight_kg CASCADE;
 
 -- ---------------------------------------------------------------------------
 -- STEP 5 — Add the rebuilt kind/fields CHECK using weight_raw
