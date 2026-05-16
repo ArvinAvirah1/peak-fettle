@@ -108,6 +108,10 @@ $$;
 --     because training_floor is nullable (v1 bug: DEFAULT 0.55 short-circuited)
 -- ---------------------------------------------------------------------------
 
+-- DROP required: return shape changes (10 cols → 12, adds pop_mu/pop_sigma).
+-- CREATE OR REPLACE cannot change the return type.
+DROP FUNCTION IF EXISTS resolve_lift_vector(TEXT, CHAR(1), INTEGER);
+
 CREATE OR REPLACE FUNCTION resolve_lift_vector(
     p_lift_id        TEXT,
     p_sex            CHAR(1),
@@ -307,6 +311,9 @@ $$;
 --     Default model_version changed 1 → 2.
 --     The cron job upserts both values into user_percentile_rankings.
 -- ---------------------------------------------------------------------------
+
+-- DROP required: return shape changes between v1 and v2.
+DROP FUNCTION IF EXISTS compute_percentile_batch(INTEGER);
 
 CREATE OR REPLACE FUNCTION compute_percentile_batch(
     p_model_version INTEGER DEFAULT 2
@@ -608,7 +615,14 @@ VALUES
 
 -- ---------------------------------------------------------------------------
 -- 5. Refresh v_lift_vector_summary to expose v2 rows
+--
+-- DROP first: v2 inserts new columns before fit_sample_size, which shifts
+-- the column positions Postgres recorded for the v1 view.  CREATE OR REPLACE
+-- cannot handle that — it would error with "cannot change name of view column
+-- 'fit_sample_size' to 'mu'".  Dropping cleanly avoids the conflict.
 -- ---------------------------------------------------------------------------
+
+DROP VIEW IF EXISTS v_lift_vector_summary;
 
 CREATE OR REPLACE VIEW v_lift_vector_summary AS
 SELECT

@@ -17,8 +17,18 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 -- ---------------------------------------------------------------------------
 -- EXERCISES
 -- ---------------------------------------------------------------------------
--- Helper: insert exercises idempotently by name.
--- We use a temp table + merge pattern for readability.
+-- Unique index on exercises.name required for the ON CONFLICT (name) clause
+-- in the INSERT below. Must be created before the INSERT runs.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes
+        WHERE tablename = 'exercises'
+          AND indexname  = 'idx_exercises_name_unique'
+    ) THEN
+        CREATE UNIQUE INDEX idx_exercises_name_unique ON exercises (name);
+    END IF;
+END $$;
 
 INSERT INTO exercises (name, category, muscle_groups, is_compound) VALUES
 -- ======================== CHEST ========================
@@ -238,20 +248,7 @@ INSERT INTO exercises (name, category, muscle_groups, is_compound) VALUES
 ('Shoulder Dislocates',             'mobility', ARRAY['shoulders'],                      FALSE),
 ('Hamstring Stretch',               'mobility', ARRAY['hamstrings'],                     FALSE),
 ('Calf Stretch',                    'mobility', ARRAY['calves'],                         FALSE)
-ON CONFLICT (name) DO NOTHING;   -- idempotent; name is not UNIQUE in schema, so add:
-
--- If not already present, add a unique index on exercises.name for the ON CONFLICT clause.
--- (The initial schema only has a trgm GIN index, not a unique constraint.)
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_indexes
-        WHERE tablename = 'exercises'
-          AND indexname  = 'idx_exercises_name_unique'
-    ) THEN
-        CREATE UNIQUE INDEX idx_exercises_name_unique ON exercises (name);
-    END IF;
-END $$;
+ON CONFLICT (name) DO NOTHING;
 
 -- ---------------------------------------------------------------------------
 -- EXERCISE ALIASES (TICKET-007)
