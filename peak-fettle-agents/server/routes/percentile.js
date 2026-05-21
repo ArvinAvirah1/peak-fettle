@@ -55,9 +55,11 @@ const DOTS_NOTE =
     'powerlifting federations. Wilks and the Peak Fettle Score are available ' +
     'as display options in settings but do not change your rank.';
 
+const WILKS_NOTE = 'Wilks2 (2020) score — compares strength across bodyweight classes. Higher = stronger relative to bodyweight.';
+
 const COHORT_NOTE =
     'Rankings compare you against athletes in your age group, experience tier, ' +
-    'and primary discipline. ' + DOTS_NOTE + ' Updated every Sunday at 03:00 UTC.';
+    'and primary discipline. ' + DOTS_NOTE + ' Updated every Sunday night (UTC).';
 
 // ---------------------------------------------------------------------------
 // GET /percentile
@@ -100,15 +102,56 @@ router.get('/', async (req, res, next) => {
                 ucr.confirmed_kg                                        AS confirmed_1rm_kg,
                 -- Best Epley estimate from the user's logged sets for this lift.
                 -- Lightweight arithmetic — not a percentile computation (CTO guardrail exempt).
+                -- BUG-002 fix: e1rm_kg column was dropped; compute Epley inline from
+                -- weight_raw (SMALLINT, kg × 8). reps == 1 returns the raw weight directly.
+                -- EPLEY-001 fix (2026-05-16): explicit `s.kind = 'lift'` guard.
+                -- `weight_raw > 0` filters most cardio rows today (cardio sets have
+                -- NULL weight_raw), but if an exercise is ever logged as both kinds
+                -- the exercise_id join could pull in a cardio row with non-null
+                -- weight. The explicit kind filter makes this defensive.
                 (
-                    SELECT MAX(s.e1rm_kg)
+                    SELECT MAX(
+                        CASE
+                            WHEN s.reps = 1 THEN s.weight_raw / 8.0
+                            ELSE (s.weight_raw / 8.0) * (1.0 + s.reps::float / 30.0)
+                        END
+                    )
                     FROM sets s
                     JOIN workouts w ON w.id = s.workout_id
                     WHERE w.user_id = upr.user_id
                       AND s.exercise_id = upr.lift_id
-                      AND s.e1rm_kg IS NOT NULL
-                )                                                       AS epley_estimate_kg
+                      AND s.kind = 'lift'
+                      AND s.weight_raw > 0
+                      AND s.reps >= 1
+                )                                                       AS epley_estimate_kg,
+                -- OD-2: Wilks2 (2020) score for cross-bodyweight-class comparison.
+                -- Uses confirmed_kg if available, else falls back to epley estimate.
+                ROUND(
+                  compute_wilks_score(
+                    u.sex,
+                    COALESCE(u.weight_class_kg, CASE u.sex WHEN 'MALE' THEN 83.0 ELSE 66.0 END),
+                    COALESCE(
+                      ucr.confirmed_kg,
+                      (
+                        SELECT MAX(
+                          CASE
+                            WHEN s2.reps = 1 THEN s2.weight_raw / 8.0
+                            ELSE (s2.weight_raw / 8.0) * (1.0 + s2.reps::float / 30.0)
+                          END
+                        )
+                        FROM sets s2
+                        JOIN workouts w2 ON w2.id = s2.workout_id
+                        WHERE w2.user_id = upr.user_id
+                          AND s2.exercise_id = upr.lift_id
+                          AND s2.kind = 'lift'
+                          AND s2.weight_raw > 0
+                          AND s2.reps >= 1
+                      )
+                    )
+                  )::NUMERIC, 2
+                )::DOUBLE PRECISION                                      AS wilks_score
              FROM user_percentile_rankings upr
+             JOIN users u ON u.id = upr.user_id
              LEFT JOIN user_confirmed_1rm ucr
                 ON  ucr.user_id = upr.user_id
                 AND ucr.lift_id = upr.lift_id
@@ -123,6 +166,7 @@ router.get('/', async (req, res, next) => {
             cohort_note: COHORT_NOTE,
             // Standalone DOTS note for the 2.3 "How is this calculated?" modal.
             dots_note: DOTS_NOTE,
+            wilks_note: WILKS_NOTE,
         });
     } catch (err) { next(err); }
 });
@@ -136,8 +180,11 @@ router.get('/', async (req, res, next) => {
 //
 // Response includes is_estimated, epley_estimate_kg, confirmed_1rm_kg,
 // and dots_note for the 2.3 transparency modal. (TICKET-041)
+//
+// Handler is extracted as a named function so the REST-friendly alias
+// GET /percentile/lift/:liftId (BUG-012) can share the exact same logic.
 // ---------------------------------------------------------------------------
-router.get('/:liftId', async (req, res, next) => {
+async function percentileByLift(req, res, next) {
     try {
         const { rows } = await pool.query(
             `SELECT
@@ -149,15 +196,51 @@ router.get('/:liftId', async (req, res, next) => {
                 upr.computed_at,
                 upr.model_version,
                 ucr.confirmed_kg AS confirmed_1rm_kg,
+                -- BUG-002 fix: compute Epley inline from weight_raw (e1rm_kg dropped).
+                -- EPLEY-001 fix (2026-05-16): explicit `s.kind = 'lift'` guard
+                -- (matches the GET / route — see comment there for rationale).
                 (
-                    SELECT MAX(s.e1rm_kg)
+                    SELECT MAX(
+                        CASE
+                            WHEN s.reps = 1 THEN s.weight_raw / 8.0
+                            ELSE (s.weight_raw / 8.0) * (1.0 + s.reps::float / 30.0)
+                        END
+                    )
                     FROM sets s
                     JOIN workouts w ON w.id = s.workout_id
                     WHERE w.user_id = upr.user_id
                       AND s.exercise_id = upr.lift_id
-                      AND s.e1rm_kg IS NOT NULL
-                )                AS epley_estimate_kg
+                      AND s.kind = 'lift'
+                      AND s.weight_raw > 0
+                      AND s.reps >= 1
+                )                AS epley_estimate_kg,
+                -- OD-2: Wilks2 (2020) score for cross-bodyweight-class comparison.
+                ROUND(
+                  compute_wilks_score(
+                    u.sex,
+                    COALESCE(u.weight_class_kg, CASE u.sex WHEN 'MALE' THEN 83.0 ELSE 66.0 END),
+                    COALESCE(
+                      ucr.confirmed_kg,
+                      (
+                        SELECT MAX(
+                          CASE
+                            WHEN s2.reps = 1 THEN s2.weight_raw / 8.0
+                            ELSE (s2.weight_raw / 8.0) * (1.0 + s2.reps::float / 30.0)
+                          END
+                        )
+                        FROM sets s2
+                        JOIN workouts w2 ON w2.id = s2.workout_id
+                        WHERE w2.user_id = upr.user_id
+                          AND s2.exercise_id = upr.lift_id
+                          AND s2.kind = 'lift'
+                          AND s2.weight_raw > 0
+                          AND s2.reps >= 1
+                      )
+                    )
+                  )::NUMERIC, 2
+                )::DOUBLE PRECISION AS wilks_score
              FROM user_percentile_rankings upr
+             JOIN users u ON u.id = upr.user_id
              LEFT JOIN user_confirmed_1rm ucr
                 ON  ucr.user_id = upr.user_id
                 AND ucr.lift_id = upr.lift_id
@@ -176,9 +259,18 @@ router.get('/:liftId', async (req, res, next) => {
             });
         }
 
-        res.json({ ...rows[0], dots_note: DOTS_NOTE });
+        res.json({ ...rows[0], dots_note: DOTS_NOTE, wilks_note: WILKS_NOTE });
     } catch (err) { next(err); }
-});
+}
+
+// ---------------------------------------------------------------------------
+// Alias: GET /percentile/lift/:liftId → same handler as GET /percentile/:liftId
+// More REST-friendly path; registered BEFORE /:liftId so Express does not
+// capture the literal string "lift" as a liftId param value. (BUG-012)
+// ---------------------------------------------------------------------------
+router.get('/lift/:liftId', percentileByLift);
+
+router.get('/:liftId', percentileByLift);
 
 // ---------------------------------------------------------------------------
 // POST /percentile/confirm-1rm

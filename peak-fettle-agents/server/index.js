@@ -1,6 +1,7 @@
 // Peak Fettle — Express server
 // Author: dev-backend
 // Date: 2026-04-30 (updated 2026-05-04 — Phase C routes: constraints, health-metrics, user)
+//                  (updated 2026-05-17 — PL-1/PL-2/PL-3: templates, csv import, rest day)
 
 require('dotenv').config();
 const express = require('express');
@@ -20,6 +21,9 @@ const cosmeticsRoutes   = require('./routes/cosmetics');
 const constraintsRoutes  = require('./routes/constraints');   // TICKET-012
 const healthMetricsRoutes = require('./routes/healthMetrics'); // TICKET-013
 const userRoutes         = require('./routes/user');           // TICKET-014
+// PL-1/PL-2/PL-3 routes
+const templateRoutes     = require('./routes/templates');      // PL-1
+const csvImportRoutes    = require('./routes/csvImport');      // PL-2
 const { errorHandler } = require('./middleware/errorHandler');
 const { requireAuth }  = require('./middleware/requireAuth');
 
@@ -65,6 +69,9 @@ app.use('/auth', authLimiter, authRoutes);
 // Public routes (exercises are a global read-only library — no auth needed for reads)
 app.use('/exercises', exercisesRoutes);
 
+// PL-1: Template library — public read, no auth required
+app.use('/templates', templateRoutes);
+
 // Protected routes — JWT required
 app.use('/workouts',   requireAuth, workoutsRoutes);
 app.use('/sets',       requireAuth, setsRoutes);
@@ -87,6 +94,9 @@ app.use('/health-metrics', requireAuth, healthMetricsRoutes);
 
 // Phase C — TICKET-014: GDPR data export + account deletion
 app.use('/user', requireAuth, userRoutes);
+
+// PL-2: CSV import (Garmin / Strava) — auth required
+app.use('/import', requireAuth, csvImportRoutes);
 
 // Centralized error handler — last middleware
 app.use(errorHandler);

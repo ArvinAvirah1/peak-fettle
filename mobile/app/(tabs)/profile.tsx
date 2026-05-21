@@ -18,6 +18,10 @@
  *   GET    /user/data-export    — JSON attachment
  *   DELETE /user/account        — requires { confirm: "DELETE MY ACCOUNT" } body
  *   PATCH  /user/profile        — unit_pref, use_1rm_confirmation (now implemented, TICKET-041)
+ *
+ * P2-005: Root ScrollView wrapped in ScreenLayout for consistent safe area.
+ * P2-006: TextInput in AddConstraintModal replaced with PFInput.
+ * P2-007: Reanimated spring slide-up on AddConstraintModal open.
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
@@ -26,18 +30,24 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
+  Pressable,
   ScrollView,
   Alert,
   ActivityIndicator,
   Share,
   Modal,
   SafeAreaView,
-  TextInput,
   KeyboardAvoidingView,
   Platform,
   Switch,
 } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/hooks/useAuth';
 import {
   getConstraints,
@@ -46,6 +56,12 @@ import {
   UserConstraint,
 } from '../../src/api/constraints';
 import { fetchDataExport, deleteAccount, patchProfile } from '../../src/api/user';
+import { useTheme } from '../../src/theme/ThemeContext';
+import { ThemeSelectorModal } from '../../src/components/ThemeSelector';
+import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
+import { haptics } from '../../src/utils/haptics';
+import { ScreenLayout, PFInput } from '../../src/components/ui';
+import { useReduceMotion } from '../../src/hooks/useReduceMotion';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -73,7 +89,8 @@ const PRESET_CONSTRAINTS = [
 // ---------------------------------------------------------------------------
 
 function SectionHeader({ label }: { label: string }): React.ReactElement {
-  return <Text style={styles.sectionHeader}>{label}</Text>;
+  const { theme, themeName } = useTheme();
+  return <Text style={[styles.sectionHeader, { color: theme.colors.textTertiary }]}>{label}</Text>;
 }
 
 // ---------------------------------------------------------------------------
@@ -82,26 +99,40 @@ function SectionHeader({ label }: { label: string }): React.ReactElement {
 
 function UserInfoCard(): React.ReactElement {
   const { user } = useAuth();
+  const { theme } = useTheme();
   const initial = user?.display_name
     ? user.display_name.charAt(0).toUpperCase()
     : (user?.email?.charAt(0).toUpperCase() ?? '?');
 
   return (
-    <View style={styles.card}>
-      <View style={styles.avatar}>
-        <Text style={styles.avatarText}>{initial}</Text>
+    <View style={[
+      styles.card,
+      { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
+    ]}>
+      <View style={[styles.avatar, { backgroundColor: theme.colors.accentDefault }]}>
+        <Text style={[styles.avatarText, { color: theme.components.buttonPrimaryText }]}>{initial}</Text>
       </View>
       {user?.display_name ? (
-        <Text style={styles.displayName}>{user.display_name}</Text>
+        <Text style={[styles.displayName, { color: theme.colors.textPrimary }]}>{user.display_name}</Text>
       ) : null}
-      <Text style={styles.email}>{user?.email ?? '—'}</Text>
-      <View style={[styles.tierBadge, user?.is_paid ? styles.tierBadgePaid : styles.tierBadgeFree]}>
-        <Text style={[styles.tierText, user?.is_paid ? styles.tierTextPaid : styles.tierTextFree]}>
+      <Text style={[styles.email, { color: theme.colors.textSecondary }]}>{user?.email ?? '—'}</Text>
+      <View style={[
+        styles.tierBadge,
+        user?.is_paid
+          ? { backgroundColor: theme.colors.accentSecondary }
+          : { backgroundColor: theme.colors.bgSecondary },
+      ]}>
+        <Text style={[
+          styles.tierText,
+          user?.is_paid
+            ? { color: theme.colors.accentHover }
+            : { color: theme.colors.textTertiary },
+        ]}>
           {user?.is_paid ? '⭐ Pro' : 'Free tier'}
         </Text>
       </View>
       {user?.experience_level ? (
-        <Text style={styles.experienceLabel}>{user.experience_level}</Text>
+        <Text style={[styles.experienceLabel, { color: theme.colors.textTertiary }]}>{user.experience_level}</Text>
       ) : null}
     </View>
   );
@@ -122,37 +153,55 @@ function UnitToggleRow({
   onChange,
   isUpdating,
 }: UnitToggleRowProps): React.ReactElement {
+  const { theme } = useTheme();
   const isLbs = currentPref === 'lbs';
 
   return (
     <View style={styles.settingRow}>
       <View style={styles.settingLabelGroup}>
-        <Text style={styles.settingLabel}>Units</Text>
-        <Text style={styles.settingMeta}>
+        <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Units</Text>
+        <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
           {isLbs ? 'Pounds (lbs)' : 'Kilograms (kg)'}
         </Text>
       </View>
       {isUpdating ? (
-        <ActivityIndicator color="#818cf8" />
+        <ActivityIndicator color={theme.colors.accentDefault} />
       ) : (
-        <View style={styles.unitToggle}>
+        <View style={[
+          styles.unitToggle,
+          { backgroundColor: theme.colors.bgPrimary, borderColor: theme.colors.borderDefault },
+        ]}>
           <TouchableOpacity
-            style={[styles.unitButton, !isLbs && styles.unitButtonActive]}
+            style={[
+              styles.unitButton,
+              !isLbs && { backgroundColor: theme.colors.accentDefault },
+            ]}
             onPress={() => onChange('kg')}
             accessibilityRole="button"
             accessibilityLabel="Switch to kg"
           >
-            <Text style={[styles.unitButtonText, !isLbs && styles.unitButtonTextActive]}>
+            <Text style={[
+              styles.unitButtonText,
+              { color: theme.colors.textTertiary },
+              !isLbs && { color: theme.components.buttonPrimaryText },
+            ]}>
               kg
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.unitButton, isLbs && styles.unitButtonActive]}
+            style={[
+              styles.unitButton,
+              isLbs && { backgroundColor: theme.colors.accentDefault },
+            ]}
             onPress={() => onChange('lbs')}
             accessibilityRole="button"
             accessibilityLabel="Switch to lbs"
           >
-            <Text style={[styles.unitButtonText, isLbs && styles.unitButtonTextActive]}>
+            <Text style={[
+              styles.unitButtonText,
+              { color: theme.colors.textTertiary },
+              isLbs && { color: theme.components.buttonPrimaryText },
+            ]}>
               lbs
             </Text>
           </TouchableOpacity>
@@ -179,8 +228,26 @@ function AddConstraintModal({
   onAdd,
   onClose,
 }: AddConstraintModalProps): React.ReactElement {
+  const { theme } = useTheme();
+  const reduceMotion = useReduceMotion();
   const [customNote, setCustomNote] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+
+  // P2-007: spring slide-up animation
+  const translateY = useSharedValue(500);
+
+  useEffect(() => {
+    if (visible) {
+      translateY.value = 500;
+      translateY.value = reduceMotion
+        ? 0
+        : withSpring(0, { damping: 22, stiffness: 220 });
+    }
+  }, [visible, reduceMotion]);
+
+  const sheetAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+  }));
 
   const existingTypes = new Set(existing.map((c) => c.constraint_type));
 
@@ -213,96 +280,105 @@ function AddConstraintModal({
   return (
     <Modal
       visible={visible}
-      animationType="slide"
+      animationType="none"
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <SafeAreaView style={addConstraintStyles.container}>
-        <KeyboardAvoidingView
-          style={addConstraintStyles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          {/* Header */}
-          <View style={addConstraintStyles.header}>
-            <Text style={addConstraintStyles.headerTitle}>Add Restriction</Text>
-            <TouchableOpacity
-              style={addConstraintStyles.closeButton}
-              onPress={onClose}
-              accessibilityRole="button"
-              accessibilityLabel="Close"
-            >
-              <Text style={addConstraintStyles.closeButtonText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
+      {/* P2-007: Animated.View provides the spring slide-up entry */}
+      <Animated.View style={[{ flex: 1 }, sheetAnimStyle]}>
+        <SafeAreaView style={[addConstraintStyles.container, { backgroundColor: theme.colors.bgPrimary }]}>
+          <KeyboardAvoidingView
+            style={addConstraintStyles.flex}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          >
+            {/* Drag handle */}
+            <View style={[addConstraintStyles.handle, { backgroundColor: theme.colors.borderDefault }]} />
 
-          <ScrollView contentContainerStyle={addConstraintStyles.scrollContent} keyboardShouldPersistTaps="handled">
-            <Text style={addConstraintStyles.note}>
-              These restrictions are used by the AI planner to avoid exercises
-              that could aggravate your conditions.
-            </Text>
-
-            {/* Preset chips */}
-            <Text style={addConstraintStyles.chipSectionLabel}>QUICK ADD</Text>
-            <View style={addConstraintStyles.chipsWrap}>
-              {PRESET_CONSTRAINTS.map(({ type, label }) => {
-                const alreadyAdded = existingTypes.has(type);
-                return (
-                  <TouchableOpacity
-                    key={type}
-                    style={[
-                      addConstraintStyles.chip,
-                      alreadyAdded && addConstraintStyles.chipAdded,
-                    ]}
-                    onPress={() => !alreadyAdded && !isSaving && handlePreset(type)}
-                    disabled={alreadyAdded || isSaving}
-                    accessibilityRole="button"
-                    accessibilityLabel={
-                      alreadyAdded ? `${label} — already added` : `Add ${label}`
-                    }
-                  >
-                    <Text
-                      style={[
-                        addConstraintStyles.chipText,
-                        alreadyAdded && addConstraintStyles.chipTextAdded,
-                      ]}
-                    >
-                      {alreadyAdded ? `✓ ${label}` : label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
+            {/* Header */}
+            <View style={[addConstraintStyles.header, { borderBottomColor: theme.colors.bgSecondary }]}>
+              <Text style={[addConstraintStyles.headerTitle, { color: theme.colors.textPrimary }]}>Add Restriction</Text>
+              <TouchableOpacity
+                style={addConstraintStyles.closeButton}
+                onPress={onClose}
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+              >
+                <Text style={[addConstraintStyles.closeButtonText, { color: theme.colors.accentDefault }]}>Cancel</Text>
+              </TouchableOpacity>
             </View>
 
-            {/* Custom note */}
-            <Text style={addConstraintStyles.chipSectionLabel}>CUSTOM RESTRICTION</Text>
-            <TextInput
-              style={addConstraintStyles.customInput}
-              placeholder="e.g. avoid overhead pressing due to AC joint"
-              placeholderTextColor="#475569"
-              value={customNote}
-              onChangeText={setCustomNote}
-              multiline
-              numberOfLines={3}
-              returnKeyType="done"
-              accessibilityLabel="Custom restriction note"
-            />
-            <TouchableOpacity
-              style={[
-                addConstraintStyles.saveButton,
-                (customNote.trim().length === 0 || isSaving) && addConstraintStyles.saveButtonDisabled,
-              ]}
-              onPress={handleCustom}
-              disabled={customNote.trim().length === 0 || isSaving}
-            >
-              {isSaving ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={addConstraintStyles.saveButtonText}>Add Custom Restriction</Text>
-              )}
-            </TouchableOpacity>
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </SafeAreaView>
+            <ScrollView contentContainerStyle={addConstraintStyles.scrollContent} keyboardShouldPersistTaps="handled">
+              <Text style={[addConstraintStyles.note, { color: theme.colors.textTertiary }]}>
+                These restrictions are used by the AI planner to avoid exercises
+                that could aggravate your conditions.
+              </Text>
+
+              {/* Preset chips */}
+              <Text style={[addConstraintStyles.chipSectionLabel, { color: theme.colors.textTertiary }]}>QUICK ADD</Text>
+              <View style={addConstraintStyles.chipsWrap}>
+                {PRESET_CONSTRAINTS.map(({ type, label }) => {
+                  const alreadyAdded = existingTypes.has(type);
+                  return (
+                    <TouchableOpacity
+                      key={type}
+                      style={[
+                        addConstraintStyles.chip,
+                        { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
+                        alreadyAdded && { backgroundColor: theme.colors.accentSecondary, borderColor: theme.colors.accentDefault },
+                      ]}
+                      onPress={() => !alreadyAdded && !isSaving && handlePreset(type)}
+                      disabled={alreadyAdded || isSaving}
+                      accessibilityRole="button"
+                      accessibilityLabel={
+                        alreadyAdded ? `${label} — already added` : `Add ${label}`
+                      }
+                    >
+                      <Text
+                        style={[
+                          addConstraintStyles.chipText,
+                          { color: theme.colors.textSecondary },
+                          alreadyAdded && { color: theme.colors.accentHover },
+                        ]}
+                      >
+                        {alreadyAdded ? `✓ ${label}` : label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* P2-006: PFInput replaces raw TextInput for custom restriction */}
+              <Text style={[addConstraintStyles.chipSectionLabel, { color: theme.colors.textTertiary }]}>CUSTOM RESTRICTION</Text>
+              <PFInput
+                placeholder="e.g. avoid overhead pressing due to AC joint"
+                value={customNote}
+                onChangeText={setCustomNote}
+                multiline
+                numberOfLines={3}
+                returnKeyType="done"
+                accessibilityLabel="Custom restriction note"
+              />
+              <TouchableOpacity
+                style={[
+                  addConstraintStyles.saveButton,
+                  { backgroundColor: theme.colors.accentDefault },
+                  (customNote.trim().length === 0 || isSaving) && addConstraintStyles.saveButtonDisabled,
+                ]}
+                onPress={handleCustom}
+                accessibilityRole="button"
+                accessibilityLabel="Save constraint"
+                disabled={customNote.trim().length === 0 || isSaving}
+              >
+                {isSaving ? (
+                  <ActivityIndicator color={theme.components.buttonPrimaryText} />
+                ) : (
+                  <Text style={[addConstraintStyles.saveButtonText, { color: theme.components.buttonPrimaryText }]}>Add Custom Restriction</Text>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </Animated.View>
     </Modal>
   );
 }
@@ -313,7 +389,18 @@ function AddConstraintModal({
 
 export default function ProfileScreen(): React.ReactElement {
   const { user, logout, updateUser } = useAuth();
+  const { theme } = useTheme();
   const router = useRouter();
+
+  // Map camelCase theme keys to display names for the Appearance row
+  const THEME_DISPLAY_NAMES: Record<string, string> = {
+    deepOcean: 'Deep Ocean',
+    ember: 'Ember',
+    forest: 'Forest',
+    midnight: 'Midnight',
+    monochrome: 'Mono',
+  };
+  const activeThemeDisplayName = THEME_DISPLAY_NAMES[themeName] ?? 'Deep Ocean';
 
   const [unitPref, setUnitPref] = useState<'kg' | 'lbs'>(user?.unit_pref ?? 'kg');
   const [isUpdatingUnit, setIsUpdatingUnit] = useState(false);
@@ -324,6 +411,14 @@ export default function ProfileScreen(): React.ReactElement {
   );
   const [isUpdating1rm, setIsUpdating1rm] = useState(false);
 
+  // Notification preferences
+  const [streakNotifEnabled, setStreakNotifEnabled] = useState(
+    user?.streak_notifications_enabled !== false // default true
+  );
+  const [planNotifEnabled, setPlanNotifEnabled] = useState(
+    user?.plan_notifications_enabled !== false // default true
+  );
+
   const [constraints, setConstraints] = useState<UserConstraint[]>([]);
   const [constraintsLoading, setConstraintsLoading] = useState(true);
   const [constraintsError, setConstraintsError] = useState<string | null>(null);
@@ -332,6 +427,7 @@ export default function ProfileScreen(): React.ReactElement {
   const [isExportingData, setIsExportingData] = useState(false);
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [showThemePicker, setShowThemePicker] = useState(false);
 
   // Load constraints on mount
   useEffect(() => {
@@ -471,6 +567,7 @@ export default function ProfileScreen(): React.ReactElement {
           text: 'Delete My Account',
           style: 'destructive',
           onPress: () => {
+            haptics.warning(); // E-006: destructive confirmation
             // Second confirmation — belt-and-suspenders
             Alert.alert(
               'Are you sure?',
@@ -512,6 +609,7 @@ export default function ProfileScreen(): React.ReactElement {
         text: 'Sign Out',
         style: 'destructive',
         onPress: async () => {
+          haptics.warning(); // E-006: destructive confirmation
           setIsSigningOut(true);
           try {
             await logout();
@@ -526,18 +624,20 @@ export default function ProfileScreen(): React.ReactElement {
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.scrollContent}
-      showsVerticalScrollIndicator={false}
-    >
+    // P2-005: ScreenLayout replaces bare ScrollView root — provides SafeAreaView
+    // and bgPrimary background. horizontalPadding={false}: scrollContent manages
+    // its own 20pt padding so list items fill edge-to-edge.
+    <ScreenLayout scrollable horizontalPadding={false} contentStyle={styles.scrollContent}>
       {/* ── A. User info card ── */}
       <UserInfoCard />
 
       {/* ── B. Settings ── */}
       <View style={styles.section}>
         <SectionHeader label="SETTINGS" />
-        <View style={styles.settingsCard}>
+        <View style={[
+          styles.settingsCard,
+          { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
+        ]}>
           <UnitToggleRow
             currentPref={unitPref}
             onChange={handleUnitChange}
@@ -545,22 +645,27 @@ export default function ProfileScreen(): React.ReactElement {
           />
 
           {/* 1RM confirmation toggle — Option C (TICKET-041) */}
-          <View style={[styles.settingRow, styles.settingRowBordered, styles.settingRowTop]}>
+          <View style={[
+            styles.settingRow,
+            styles.settingRowBordered,
+            styles.settingRowTop,
+            { borderBottomColor: theme.colors.borderDefault, borderTopColor: theme.colors.borderDefault },
+          ]}>
             <View style={styles.settingLabelGroup}>
-              <Text style={styles.settingLabel}>Confirm estimated maxes</Text>
-              <Text style={styles.settingMeta}>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Confirm estimated maxes</Text>
+              <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
                 When on, you'll confirm each estimated 1RM before it affects your ranking.
                 Off by default — rankings use estimates automatically.
               </Text>
             </View>
             {isUpdating1rm ? (
-              <ActivityIndicator color="#818cf8" style={styles.toggleSpinner} />
+              <ActivityIndicator color={theme.colors.accentDefault} style={styles.toggleSpinner} />
             ) : (
               <Switch
                 value={use1rmConfirmation}
                 onValueChange={handle1rmConfirmationToggle}
-                trackColor={{ false: '#334155', true: '#4f46e5' }}
-                thumbColor={use1rmConfirmation ? '#818cf8' : '#64748b'}
+                trackColor={{ false: theme.colors.borderDefault, true: theme.colors.accentDefault }}
+                thumbColor={use1rmConfirmation ? theme.colors.accentDefault : theme.colors.textTertiary}
                 accessibilityLabel="Confirm estimated maxes"
               />
             )}
@@ -568,39 +673,72 @@ export default function ProfileScreen(): React.ReactElement {
         </View>
       </View>
 
+      {/* ── Appearance ── */}
+      <View style={styles.section}>
+        <SectionHeader label="APPEARANCE" />
+        <View style={[
+          styles.settingsCard,
+          { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
+        ]}>
+          <TouchableOpacity
+            style={styles.settingRow}
+            onPress={() => setShowThemePicker(true)}
+            accessibilityRole="button"
+            accessibilityLabel="Change theme"
+          >
+            <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Theme</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.s2 }}>
+              <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
+                {activeThemeDisplayName}
+              </Text>
+              <Ionicons name="chevron-forward" size={16} color={theme.colors.textTertiary} />
+            </View>
+          </TouchableOpacity>
+        </View>
+      </View>
+
       {/* ── C. Physical constraints ── */}
       <View style={styles.section}>
         <SectionHeader label="PHYSICAL RESTRICTIONS" />
-        <Text style={styles.sectionNote}>
+        <Text style={[styles.sectionNote, { color: theme.colors.textTertiary }]}>
           These constraints are shared with the AI planner to avoid incompatible exercises.
         </Text>
 
         {constraintsLoading ? (
           <View style={styles.constraintsLoading}>
-            <ActivityIndicator color="#64748b" />
+            <ActivityIndicator color={theme.colors.textTertiary} />
           </View>
         ) : constraintsError ? (
-          <View style={styles.constraintsError}>
-            <Text style={styles.constraintsErrorText}>{constraintsError}</Text>
-            <TouchableOpacity onPress={loadConstraints}>
-              <Text style={styles.retryLink}>Retry</Text>
+          <View style={[
+            styles.constraintsError,
+            { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
+          ]}>
+            <Text style={[styles.constraintsErrorText, { color: theme.colors.statusError }]}>{constraintsError}</Text>
+            <TouchableOpacity onPress={loadConstraints} accessibilityRole="button" accessibilityLabel="Retry loading constraints">
+              <Text style={[styles.retryLink, { color: theme.colors.accentDefault }]}>Retry</Text>
             </TouchableOpacity>
           </View>
         ) : (
-          <View style={styles.constraintsCard}>
+          <View style={[
+            styles.constraintsCard,
+            { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
+          ]}>
             {constraints.length === 0 ? (
-              <Text style={styles.noConstraints}>No restrictions added</Text>
+              <Text style={[styles.noConstraints, { color: theme.colors.textTertiary }]}>No restrictions added</Text>
             ) : (
               constraints.map((c) => (
-                <View key={c.id} style={styles.constraintRow}>
+                <View key={c.id} style={[
+                  styles.constraintRow,
+                  { borderBottomColor: theme.colors.borderDefault },
+                ]}>
                   <View style={styles.constraintLabelGroup}>
-                    <Text style={styles.constraintType}>
+                    <Text style={[styles.constraintType, { color: theme.colors.textPrimary }]}>
                       {c.constraint_type === 'custom'
                         ? 'Custom'
                         : c.constraint_type.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
                     </Text>
                     {c.custom_note ? (
-                      <Text style={styles.constraintNote}>{c.custom_note}</Text>
+                      <Text style={[styles.constraintNote, { color: theme.colors.textTertiary }]}>{c.custom_note}</Text>
                     ) : null}
                   </View>
                   <TouchableOpacity
@@ -610,7 +748,7 @@ export default function ProfileScreen(): React.ReactElement {
                     accessibilityRole="button"
                     accessibilityLabel="Remove restriction"
                   >
-                    <Text style={styles.removeConstraintIcon}>✕</Text>
+                    <Text style={[styles.removeConstraintIcon, { color: theme.colors.textTertiary }]}>✕</Text>
                   </TouchableOpacity>
                 </View>
               ))
@@ -623,54 +761,170 @@ export default function ProfileScreen(): React.ReactElement {
               accessibilityRole="button"
               accessibilityLabel="Add a physical restriction"
             >
-              <Text style={styles.addConstraintText}>+ Add Restriction</Text>
+              <Text style={[styles.addConstraintText, { color: theme.colors.accentDefault }]}>+ Add Restriction</Text>
             </TouchableOpacity>
           </View>
         )}
       </View>
 
+      {/* ── Notifications ── */}
+      <View style={styles.section}>
+        <SectionHeader label="NOTIFICATIONS" />
+        <View style={[
+          styles.settingsCard,
+          { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
+        ]}>
+          {/* Streak milestones */}
+          <View style={[styles.settingRow, { justifyContent: 'space-between' }]}>
+            <View style={styles.settingLabelGroup}>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Streak milestones</Text>
+              <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
+                Celebrate 7, 30, and 100-day streaks
+              </Text>
+            </View>
+            <Switch
+              value={streakNotifEnabled}
+              onValueChange={(val) => {
+                setStreakNotifEnabled(val);
+                patchProfile({ streak_notifications_enabled: val }).catch(() => {});
+              }}
+              trackColor={{ false: theme.colors.borderDefault, true: theme.colors.accentDefault }}
+              thumbColor={streakNotifEnabled ? theme.colors.accentDefault : theme.colors.textTertiary}
+              accessibilityLabel="Streak milestone notifications"
+            />
+          </View>
+
+          {/* Plan ready */}
+          <View style={[
+            styles.settingRow,
+            styles.settingRowBordered,
+            styles.settingRowTop,
+            { justifyContent: 'space-between', borderTopColor: theme.colors.borderDefault, borderBottomColor: theme.colors.borderDefault },
+          ]}>
+            <View style={styles.settingLabelGroup}>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Plan notifications</Text>
+              <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
+                Notify when your AI plan is ready
+              </Text>
+            </View>
+            <Switch
+              value={planNotifEnabled}
+              onValueChange={(val) => {
+                setPlanNotifEnabled(val);
+                patchProfile({ plan_notifications_enabled: val }).catch(() => {});
+              }}
+              trackColor={{ false: theme.colors.borderDefault, true: theme.colors.accentDefault }}
+              thumbColor={planNotifEnabled ? theme.colors.accentDefault : theme.colors.textTertiary}
+              accessibilityLabel="Plan ready notifications"
+            />
+          </View>
+        </View>
+      </View>
+
       {/* ── D. Data & privacy ── */}
       <View style={styles.section}>
         <SectionHeader label="DATA & PRIVACY" />
-        <View style={styles.settingsCard}>
+        <View style={[
+          styles.settingsCard,
+          { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
+        ]}>
           {/* Health metrics */}
           <TouchableOpacity
-            style={[styles.settingRow, styles.settingRowBordered]}
+            style={[styles.settingRow, styles.settingRowBordered, { borderBottomColor: theme.colors.borderDefault }]}
             onPress={() => router.push('/health-metrics')}
             accessibilityRole="button"
             accessibilityLabel="View health metrics"
           >
             <View style={styles.settingLabelGroup}>
-              <Text style={styles.settingLabel}>Health Metrics</Text>
-              <Text style={styles.settingMeta}>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Health Metrics</Text>
+              <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
                 {Platform.OS === 'ios' ? 'Sync from Apple Health · HR, HRV, sleep' : 'HR, HRV, sleep data'}
               </Text>
             </View>
-            <Text style={styles.settingChevron}>›</Text>
+            <Text style={[styles.settingChevron, { color: theme.colors.textTertiary }]}>›</Text>
           </TouchableOpacity>
+        </View>
 
-          {/* Download data */}
-          <TouchableOpacity
-            style={[styles.settingRow, styles.settingRowBordered]}
-            onPress={handleDataExport}
-            disabled={isExportingData}
-            accessibilityRole="button"
-            accessibilityLabel="Download your data"
-          >
-            <View style={styles.settingLabelGroup}>
-              <Text style={styles.settingLabel}>Download My Data</Text>
-              <Text style={styles.settingMeta}>
-                JSON export of all your Peak Fettle data
-              </Text>
+        {/* Your Data — data category table */}
+        <View style={[styles.card, { backgroundColor: theme.colors.bgSecondary, marginBottom: spacing.s4 }]}>
+          <Text style={[styles.sectionLabel, { color: theme.colors.textTertiary }]}>YOUR DATA</Text>
+
+          {/* Data category rows */}
+          {[
+            { label: 'Workouts', description: 'Session logs, sets, reps, weights' },
+            { label: 'Plans', description: 'AI-generated training plans' },
+            { label: 'Health Metrics', description: 'HealthKit data and manual entries' },
+            { label: 'Profile', description: 'Account info and preferences' },
+          ].map((category, i) => (
+            <View key={category.label} style={[styles.settingRow, i > 0 && { borderTopWidth: 1, borderTopColor: theme.colors.borderDefault }]}>
+              <View>
+                <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>{category.label}</Text>
+                <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.caption }}>{category.description}</Text>
+              </View>
             </View>
-            {isExportingData ? (
-              <ActivityIndicator color="#818cf8" />
-            ) : (
-              <Text style={styles.settingChevron}>›</Text>
-            )}
-          </TouchableOpacity>
+          ))}
 
-          {/* Delete account */}
+          {/* P2-002: Exercise Library nav entry */}
+          <Pressable
+            onPress={() => router.push('/exercise-library')}
+            style={[styles.settingRow, { borderTopWidth: 1, borderColor: theme.colors.borderDefault }]}
+            accessibilityRole="button"
+            accessibilityLabel="Browse exercise library"
+          >
+            <Ionicons name="barbell-outline" size={20} color={theme.colors.textSecondary} />
+            <Text style={[styles.settingLabel, { color: theme.colors.textPrimary, marginLeft: spacing.s3, flex: 1 }]}>
+              Exercise Library
+            </Text>
+            <Ionicons name="chevron-forward-outline" size={16} color={theme.colors.textTertiary} />
+          </Pressable>
+
+          {/* Achievements & cosmetics shop */}
+          <Pressable
+            onPress={() => router.push('/cosmetics')}
+            style={[styles.settingRow, { borderTopWidth: 1, borderColor: theme.colors.borderDefault }]}
+            accessibilityRole="button"
+            accessibilityLabel="View achievements and cosmetics shop"
+          >
+            <Ionicons name="trophy-outline" size={20} color={theme.colors.textSecondary} />
+            <Text style={[styles.settingLabel, { color: theme.colors.textPrimary, marginLeft: spacing.s3, flex: 1 }]}>
+              Achievements &amp; Shop
+            </Text>
+            <Ionicons name="chevron-forward-outline" size={16} color={theme.colors.textTertiary} />
+          </Pressable>
+
+          {/* PL-2: Import Activity Data nav entry */}
+          <Pressable
+            onPress={() => router.push('/csv-import')}
+            style={[styles.settingRow, { borderTopWidth: 1, borderColor: theme.colors.borderDefault }]}
+            accessibilityRole="button"
+            accessibilityLabel="Import activity data from Garmin or Strava"
+          >
+            <Ionicons name="cloud-upload-outline" size={20} color={theme.colors.textSecondary} />
+            <Text style={[styles.settingLabel, { color: theme.colors.textPrimary, marginLeft: spacing.s3, flex: 1 }]}>
+              Import Activity Data
+            </Text>
+            <Ionicons name="chevron-forward-outline" size={16} color={theme.colors.textTertiary} />
+          </Pressable>
+
+          {/* Export button */}
+          <TouchableOpacity
+            onPress={handleDataExport}
+            style={[styles.settingRow, { borderTopWidth: 1, borderTopColor: theme.colors.borderDefault }]}
+            accessibilityRole="button"
+            accessibilityLabel="Export all my data"
+          >
+            <Text style={{ color: theme.colors.accentDefault, fontSize: fontSize.bodyMd, fontWeight: fontWeight.medium }}>
+              Export All My Data
+            </Text>
+            <Ionicons name="download-outline" size={18} color={theme.colors.accentDefault} />
+          </TouchableOpacity>
+        </View>
+
+        {/* Delete account */}
+        <View style={[
+          styles.settingsCard,
+          { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
+        ]}>
           <TouchableOpacity
             style={[styles.settingRow, styles.settingRowDestructive]}
             onPress={handleDeleteAccount}
@@ -679,15 +933,15 @@ export default function ProfileScreen(): React.ReactElement {
             accessibilityLabel="Delete account"
           >
             <View style={styles.settingLabelGroup}>
-              <Text style={[styles.settingLabel, styles.destructiveLabel]}>
+              <Text style={[styles.settingLabel, { color: theme.colors.statusError }]}>
                 Delete Account
               </Text>
-              <Text style={styles.settingMeta}>Permanently removes all your data</Text>
+              <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>Permanently removes all your data</Text>
             </View>
             {isDeletingAccount ? (
-              <ActivityIndicator color="#ef4444" />
+              <ActivityIndicator color={theme.colors.statusError} />
             ) : (
-              <Text style={[styles.settingChevron, styles.destructiveChevron]}>›</Text>
+              <Text style={[styles.settingChevron, { color: theme.colors.statusError }]}>›</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -695,23 +949,33 @@ export default function ProfileScreen(): React.ReactElement {
 
       {/* ── E. Sign out ── */}
       <TouchableOpacity
-        style={[styles.signOutButton, isSigningOut && styles.buttonDisabled]}
+        style={[
+          styles.signOutButton,
+          { borderColor: theme.colors.statusError },
+          isSigningOut && styles.buttonDisabled,
+        ]}
         onPress={handleSignOut}
         disabled={isSigningOut}
         accessibilityRole="button"
         accessibilityLabel="Sign out"
       >
         {isSigningOut ? (
-          <ActivityIndicator color="#ef4444" />
+          <ActivityIndicator color={theme.colors.statusError} />
         ) : (
-          <Text style={styles.signOutText}>Sign Out</Text>
+          <Text style={[styles.signOutText, { color: theme.colors.statusError }]}>Sign Out</Text>
         )}
       </TouchableOpacity>
 
       {/* App version note */}
-      <Text style={styles.appVersion}>Peak Fettle · Claude Haiku 4.5</Text>
+      <Text style={[styles.appVersion, { color: theme.colors.borderDefault }]}>Peak Fettle · Claude Haiku 4.5</Text>
 
       <View style={styles.bottomPad} />
+
+      {/* ── Theme selector modal ── */}
+      <ThemeSelectorModal
+        visible={showThemePicker}
+        onClose={() => setShowThemePicker(false)}
+      />
 
       {/* ── Add constraint modal ── */}
       <AddConstraintModal
@@ -720,18 +984,17 @@ export default function ProfileScreen(): React.ReactElement {
         onAdd={handleAddConstraint}
         onClose={() => setShowAddConstraint(false)}
       />
-    </ScrollView>
+    </ScreenLayout>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Styles — main screen
+// Styles — main screen — layout only, no color values
 // ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f172a',
   },
   scrollContent: {
     padding: 20,
@@ -745,102 +1008,77 @@ const styles = StyleSheet.create({
     marginTop: 16,
   },
   sectionHeader: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#64748b',
+    fontSize: fontSize.caption,  // E-003: was 12
+    fontWeight: fontWeight.bold,  // E-003: was '700'
     letterSpacing: 1.1,
     textTransform: 'uppercase',
     marginBottom: 2,
   },
   sectionNote: {
-    fontSize: 13,
-    color: '#64748b',
+    fontSize: fontSize.bodySm,  // E-003: was 13
     lineHeight: 20,
   },
 
   // User info card
   card: {
-    backgroundColor: '#1e293b',
-    borderRadius: 16,
+    borderRadius: radius.lg,
     padding: 24,
     alignItems: 'center',
     gap: 8,
     borderWidth: 1,
-    borderColor: '#334155',
   },
   avatar: {
     width: 72,
     height: 72,
-    borderRadius: 36,
-    backgroundColor: '#6366f1',
+    borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 4,
   },
   avatarText: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#fff',
+    fontSize: fontSize.heading1,  // E-003: was 28
+    fontWeight: fontWeight.bold,  // E-003: was '700'
   },
   displayName: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#f8fafc',
+    fontSize: fontSize.heading3,  // E-003: was 20
+    fontWeight: fontWeight.bold,  // E-003: was '700'
   },
   email: {
-    fontSize: 14,
-    color: '#94a3b8',
+    fontSize: fontSize.bodySm,  // E-003: was 14
   },
   tierBadge: {
-    borderRadius: 20,
-    paddingHorizontal: 12,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.s3,
     paddingVertical: 4,
     marginTop: 4,
   },
-  tierBadgePaid: {
-    backgroundColor: '#1e1b4b',
-  },
-  tierBadgeFree: {
-    backgroundColor: '#1e293b',
-  },
   tierText: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  tierTextPaid: {
-    color: '#a78bfa',
-  },
-  tierTextFree: {
-    color: '#64748b',
+    fontSize: fontSize.bodySm,  // E-003: was 13
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
   },
   experienceLabel: {
-    fontSize: 13,
-    color: '#64748b',
+    fontSize: fontSize.bodySm,  // E-003: was 13
     textTransform: 'capitalize',
   },
 
   // Settings card
   settingsCard: {
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: '#334155',
     overflow: 'hidden',
   },
   settingRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: spacing.s4,
+    paddingVertical: spacing.s4,
     minHeight: 64,
   },
   settingRowBordered: {
     borderBottomWidth: 1,
-    borderBottomColor: '#334155',
   },
   settingRowTop: {
     borderTopWidth: 1,
-    borderTopColor: '#334155',
   },
   toggleSpinner: {
     marginLeft: 10,
@@ -853,58 +1091,40 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   settingLabel: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#f8fafc',
+    fontSize: fontSize.bodyMd,  // E-003: was 16
+    fontWeight: fontWeight.medium,  // E-003: was '500'
   },
   settingMeta: {
-    fontSize: 13,
-    color: '#64748b',
+    fontSize: fontSize.bodySm,  // E-003: was 13
   },
   settingChevron: {
-    fontSize: 22,
-    color: '#475569',
+    fontSize: fontSize.heading3,  // E-003: was 22
     marginLeft: 10,
-  },
-  destructiveLabel: {
-    color: '#ef4444',
-  },
-  destructiveChevron: {
-    color: '#ef4444',
   },
 
   // Units toggle
   unitToggle: {
     flexDirection: 'row',
-    backgroundColor: '#0f172a',
-    borderRadius: 8,
+    borderRadius: radius.sm,
     borderWidth: 1,
-    borderColor: '#334155',
     overflow: 'hidden',
   },
   unitButton: {
-    paddingHorizontal: 16,
+    paddingHorizontal: spacing.s4,
     paddingVertical: 8,
-    minWidth: 44,
-    minHeight: 36,
+    minWidth: 48,
+    minHeight: 48,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  unitButtonActive: {
-    backgroundColor: '#4f46e5',
-  },
   unitButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#64748b',
-  },
-  unitButtonTextActive: {
-    color: '#fff',
+    fontSize: fontSize.bodySm,  // E-003: was 14
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
   },
 
   // Constraints
   constraintsLoading: {
-    paddingVertical: 16,
+    paddingVertical: spacing.s4,
     alignItems: 'center',
   },
   constraintsError: {
@@ -912,40 +1132,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     padding: 12,
-    backgroundColor: '#1e293b',
-    borderRadius: 10,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: '#334155',
   },
   constraintsErrorText: {
     flex: 1,
-    fontSize: 14,
-    color: '#f87171',
+    fontSize: fontSize.bodySm,  // E-003: was 14
   },
   retryLink: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#818cf8',
+    fontSize: fontSize.bodySm,  // E-003: was 14
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
   },
   constraintsCard: {
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: '#334155',
     overflow: 'hidden',
   },
   noConstraints: {
-    fontSize: 14,
-    color: '#64748b',
+    fontSize: fontSize.bodySm,  // E-003: was 14
     padding: 16,
   },
   constraintRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: spacing.s4,
+    paddingVertical: spacing.s4,
     borderBottomWidth: 1,
-    borderBottomColor: '#334155',
     minHeight: 56,
   },
   constraintLabelGroup: {
@@ -953,118 +1165,127 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   constraintType: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#f8fafc',
+    fontSize: fontSize.bodyMd,  // E-003: was 15
+    fontWeight: fontWeight.medium,  // E-003: was '500'
   },
   constraintNote: {
-    fontSize: 13,
-    color: '#64748b',
+    fontSize: fontSize.bodySm,  // E-003: was 13
   },
   removeConstraintButton: {
-    minWidth: 44,
-    minHeight: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
+    padding: 4,
   },
   removeConstraintIcon: {
-    fontSize: 14,
-    color: '#64748b',
+    fontSize: fontSize.bodyMd,  // E-003: was 16
   },
   addConstraintRow: {
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    minHeight: 52,
+    paddingHorizontal: spacing.s4,
+    paddingVertical: spacing.s4,
+    minHeight: 48,
     justifyContent: 'center',
   },
   addConstraintText: {
-    fontSize: 15,
-    color: '#818cf8',
-    fontWeight: '500',
+    fontSize: fontSize.bodyMd,  // E-003: was 15
+    fontWeight: fontWeight.medium,  // E-003: was '500'
   },
 
-  // Sign out
+  // Section label (used in Your Data card)
+  sectionLabel: {
+    fontSize: fontSize.caption,  // E-003: was 12
+    fontWeight: fontWeight.bold,
+    letterSpacing: 1.1,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+    paddingHorizontal: spacing.s4,
+    paddingTop: spacing.s3,
+  },
+
+  // Sign out button
   signOutButton: {
-    backgroundColor: 'transparent',
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#ef4444',
-    borderRadius: 10,
     paddingVertical: 16,
     alignItems: 'center',
-    marginTop: 16,
+    justifyContent: 'center',
+    marginTop: 8,
     minHeight: 52,
   },
+  signOutText: {
+    fontSize: fontSize.bodyMd,  // E-003: was 16
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
+  },
+
+  // Footer
+  appVersion: {
+    fontSize: fontSize.caption,  // E-003: was 12
+    textAlign: 'center',
+    marginTop: 16,
+  },
+  bottomPad: {
+    height: 24,
+  },
+
+  // Shared disabled state
   buttonDisabled: {
     opacity: 0.6,
   },
-  signOutText: {
-    color: '#ef4444',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-
-  // App version
-  appVersion: {
-    fontSize: 12,
-    color: '#334155',
-    textAlign: 'center',
-    marginTop: 12,
-  },
-
-  bottomPad: { height: 24 },
 });
 
 // ---------------------------------------------------------------------------
-// Styles — add constraint modal
+// Styles — AddConstraintModal
 // ---------------------------------------------------------------------------
 
 const addConstraintStyles = StyleSheet.create({
-  flex: { flex: 1 },
   container: {
     flex: 1,
-    backgroundColor: '#0f172a',
+  },
+  flex: {
+    flex: 1,
+  },
+  // P2-007: visual drag handle at top of the sheet
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: radius.full,
+    alignSelf: 'center',
+    marginTop: 10,
+    marginBottom: 4,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: spacing.s4,
+    paddingVertical: spacing.s4,
     borderBottomWidth: 1,
-    borderBottomColor: '#1e293b',
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#f8fafc',
+    fontSize: fontSize.heading3,   // E-003: was 18
+    fontWeight: fontWeight.semibold, // E-003: was '600'
   },
   closeButton: {
-    minWidth: 44,
+    padding: 4,
     minHeight: 44,
-    alignItems: 'flex-end',
     justifyContent: 'center',
   },
   closeButtonText: {
-    fontSize: 16,
-    color: '#818cf8',
-    fontWeight: '500',
+    fontSize: fontSize.bodyMd,     // E-003: was 16
+    fontWeight: fontWeight.medium, // E-003: was '500'
   },
   scrollContent: {
-    padding: 20,
-    gap: 16,
-    paddingBottom: 40,
+    padding: spacing.s4,
+    gap: 12,
+    paddingBottom: 48,
   },
   note: {
-    fontSize: 14,
-    color: '#64748b',
-    lineHeight: 22,
+    fontSize: fontSize.bodySm,     // E-003: was 14
+    lineHeight: 20,
   },
   chipSectionLabel: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#64748b',
-    letterSpacing: 1.1,
+    fontSize: fontSize.caption,    // E-003: was 12
+    fontWeight: fontWeight.bold,   // E-003: was '700'
+    letterSpacing: 1.0,
     textTransform: 'uppercase',
+    marginTop: 8,
   },
   chipsWrap: {
     flexDirection: 'row',
@@ -1072,50 +1293,28 @@ const addConstraintStyles = StyleSheet.create({
     gap: 8,
   },
   chip: {
-    backgroundColor: '#1e293b',
+    borderWidth: 1,
     borderRadius: 20,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  chipAdded: {
-    backgroundColor: '#312e81',
-    borderColor: '#4f46e5',
   },
   chipText: {
-    fontSize: 14,
-    color: '#94a3b8',
-    fontWeight: '500',
+    fontSize: fontSize.bodySm,     // E-003: was 14
+    fontWeight: fontWeight.medium, // E-003: was '500'
   },
-  chipTextAdded: {
-    color: '#a5b4fc',
-  },
-  customInput: {
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 15,
-    color: '#f8fafc',
-    minHeight: 80,
-    borderWidth: 1,
-    borderColor: '#334155',
-    textAlignVertical: 'top',
-  },
+  // P2-006: customInput removed — replaced by PFInput component
   saveButton: {
-    backgroundColor: '#4f46e5',
-    borderRadius: 12,
-    paddingVertical: 15,
+    borderRadius: 10,
+    paddingVertical: 14,
     alignItems: 'center',
+    justifyContent: 'center',
     minHeight: 52,
   },
   saveButtonDisabled: {
-    opacity: 0.5,
+    opacity: 0.45,
   },
   saveButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#fff',
+    fontSize: fontSize.bodyMd,     // E-003: was 16
+    fontWeight: fontWeight.semibold, // E-003: was '600'
   },
 });

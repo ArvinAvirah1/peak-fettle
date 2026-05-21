@@ -7,22 +7,22 @@
  *   - Error messages are specific where possible (e.g. email already in use).
  *
  * On success: AuthContext.register() calls router.replace('/(tabs)/').
+ *
+ * E-005: ScreenLayout wrapper, PFInput, PFButton — replaces raw SafeAreaView,
+ *        TextInput, and TouchableOpacity.
  */
 
 import { useState, useCallback } from 'react';
 import {
   View,
   Text,
-  TextInput,
-  TouchableOpacity,
   StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
-  ActivityIndicator,
-  ScrollView,
 } from 'react-native';
-import { Link } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useAuth } from '../../src/hooks/useAuth';
+import { useTheme } from '../../src/theme/ThemeContext';
+import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
+import { ScreenLayout, PFButton, PFInput } from '../../src/components/ui';
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -57,6 +57,8 @@ function validate(email: string, password: string): FieldErrors {
 
 export default function RegisterScreen(): React.ReactElement {
   const { register } = useAuth();
+  const { theme } = useTheme();
+  const router = useRouter();
 
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -91,114 +93,108 @@ export default function RegisterScreen(): React.ReactElement {
   }, [email, password, displayName, register]);
 
   return (
-    <KeyboardAvoidingView
-      style={styles.flex}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <ScrollView
-        contentContainerStyle={styles.container}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* Header */}
-        <Text style={styles.title}>Create Account</Text>
-        <Text style={styles.subtitle}>Join Peak Fettle and start tracking</Text>
+    <ScreenLayout scrollable keyboardAvoiding contentStyle={styles.content}>
+      {/* Header */}
+      <Text style={[styles.title, { color: theme.colors.textPrimary }]}>
+        Create Account
+      </Text>
+      <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>
+        Join Peak Fettle and start tracking
+      </Text>
 
-        {/* Display name (optional) */}
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Display Name (optional)</Text>
-          <TextInput
-            style={styles.input}
-            value={displayName}
-            onChangeText={setDisplayName}
-            placeholder="Your name"
-            placeholderTextColor="#64748b"
-            autoCapitalize="words"
-            autoCorrect={false}
-            autoComplete="name"
-            editable={!isSubmitting}
-            returnKeyType="next"
-          />
-        </View>
-
-        {/* Email */}
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Email</Text>
-          <TextInput
-            style={[styles.input, fieldErrors.email ? styles.inputError : null]}
-            value={email}
-            onChangeText={(text) => {
-              setEmail(text);
-              if (fieldErrors.email) setFieldErrors((prev) => ({ ...prev, email: undefined }));
-            }}
-            placeholder="you@example.com"
-            placeholderTextColor="#64748b"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-            autoComplete="email"
-            editable={!isSubmitting}
-            returnKeyType="next"
-          />
-          {fieldErrors.email ? (
-            <Text style={styles.fieldError}>{fieldErrors.email}</Text>
-          ) : null}
-        </View>
-
-        {/* Password */}
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Password</Text>
-          <TextInput
-            style={[styles.input, fieldErrors.password ? styles.inputError : null]}
-            value={password}
-            onChangeText={(text) => {
-              setPassword(text);
-              if (fieldErrors.password)
-                setFieldErrors((prev) => ({ ...prev, password: undefined }));
-            }}
-            placeholder="Min. 8 characters"
-            placeholderTextColor="#64748b"
-            secureTextEntry
-            autoComplete="new-password"
-            editable={!isSubmitting}
-            returnKeyType="done"
-            onSubmitEditing={handleRegister}
-          />
-          {fieldErrors.password ? (
-            <Text style={styles.fieldError}>{fieldErrors.password}</Text>
-          ) : null}
-        </View>
-
-        {/* Server error */}
-        {serverError ? (
-          <View style={styles.errorBox}>
-            <Text style={styles.errorText}>{serverError}</Text>
-          </View>
-        ) : null}
-
-        {/* Submit */}
-        <TouchableOpacity
-          style={[styles.button, isSubmitting ? styles.buttonDisabled : null]}
-          onPress={handleRegister}
+      {/* Display name (optional) */}
+      <View style={styles.fieldGroup}>
+        <PFInput
+          label="Display Name (optional)"
+          value={displayName}
+          onChangeText={setDisplayName}
+          placeholder="Your name"
+          autoCapitalize="words"
+          autoCorrect={false}
+          autoComplete="name"
           disabled={isSubmitting}
-          accessibilityRole="button"
-          accessibilityLabel="Create account"
-        >
-          {isSubmitting ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Create Account</Text>
-          )}
-        </TouchableOpacity>
+          returnKeyType="next"
+        />
+      </View>
 
-        {/* Login link */}
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>Already have an account? </Text>
-          <Link href="/(auth)/login" style={styles.link}>
-            Sign in
-          </Link>
+      {/* Email */}
+      <View style={styles.fieldGroup}>
+        <PFInput
+          label="Email"
+          value={email}
+          onChangeText={(text) => {
+            setEmail(text);
+            if (fieldErrors.email) setFieldErrors((prev) => ({ ...prev, email: undefined }));
+          }}
+          error={fieldErrors.email}
+          placeholder="you@example.com"
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="email"
+          disabled={isSubmitting}
+          returnKeyType="next"
+        />
+      </View>
+
+      {/* Password */}
+      <View style={styles.fieldGroup}>
+        <PFInput
+          label="Password"
+          value={password}
+          onChangeText={(text) => {
+            setPassword(text);
+            if (fieldErrors.password)
+              setFieldErrors((prev) => ({ ...prev, password: undefined }));
+          }}
+          error={fieldErrors.password}
+          placeholder="Min. 8 characters"
+          secureTextEntry
+          autoComplete="new-password"
+          disabled={isSubmitting}
+          returnKeyType="done"
+          onSubmitEditing={handleRegister}
+        />
+      </View>
+
+      {/* Server error */}
+      {serverError ? (
+        <View
+          style={[
+            styles.errorBox,
+            {
+              backgroundColor: theme.colors.bgPrimary,
+              borderColor: theme.colors.statusError,
+            },
+          ]}
+        >
+          <Text style={[styles.errorText, { color: theme.colors.statusError }]}>
+            {serverError}
+          </Text>
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      ) : null}
+
+      {/* Submit */}
+      <PFButton
+        variant="primary"
+        label="Create Account"
+        onPress={handleRegister}
+        loading={isSubmitting}
+      />
+
+      {/* Login link */}
+      <View style={styles.footer}>
+        <Text style={[styles.footerText, { color: theme.colors.textSecondary }]}>
+          Already have an account?
+        </Text>
+        <PFButton
+          variant="ghost"
+          label="Sign in"
+          onPress={() => router.push('/(auth)/login')}
+          size="sm"
+        />
+      </View>
+    </ScreenLayout>
   );
 }
 
@@ -221,100 +217,46 @@ function extractErrorMessage(err: unknown): string {
 }
 
 // ---------------------------------------------------------------------------
-// Styles
+// Styles — layout only, no hardcoded colors or font sizes
 // ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
-  flex: {
-    flex: 1,
-    backgroundColor: '#0f172a',
-  },
-  container: {
-    flexGrow: 1,
+  content: {
     justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 48,
+    paddingVertical: spacing.s12,
   },
   title: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: '#f8fafc',
+    fontSize: fontSize.heading1,
+    fontWeight: fontWeight.bold,
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: spacing.s2,
     letterSpacing: -0.5,
   },
   subtitle: {
-    fontSize: 16,
-    color: '#94a3b8',
+    fontSize: fontSize.bodyMd,
     textAlign: 'center',
-    marginBottom: 40,
+    marginBottom: spacing.s8,
   },
   fieldGroup: {
-    marginBottom: 20,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#cbd5e1',
-    marginBottom: 6,
-  },
-  input: {
-    backgroundColor: '#1e293b',
-    borderWidth: 1,
-    borderColor: '#334155',
-    borderRadius: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: '#f8fafc',
-  },
-  inputError: {
-    borderColor: '#ef4444',
-  },
-  fieldError: {
-    marginTop: 4,
-    fontSize: 13,
-    color: '#ef4444',
+    marginBottom: spacing.s5,
   },
   errorBox: {
-    backgroundColor: '#450a0a',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 20,
+    borderRadius: radius.sm,
+    padding: spacing.s3,
+    marginBottom: spacing.s5,
     borderWidth: 1,
-    borderColor: '#ef4444',
   },
   errorText: {
-    color: '#fca5a5',
-    fontSize: 14,
-  },
-  button: {
-    backgroundColor: '#6366f1',
-    borderRadius: 10,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: fontSize.bodySm,
   },
   footer: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 24,
+    marginTop: spacing.s4,
+    gap: spacing.s1,
   },
   footerText: {
-    color: '#94a3b8',
-    fontSize: 14,
-  },
-  link: {
-    color: '#818cf8',
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: fontSize.bodySm,
   },
 });

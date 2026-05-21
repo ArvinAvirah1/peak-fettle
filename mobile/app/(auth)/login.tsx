@@ -6,26 +6,26 @@
  *   - Password field uses secureTextEntry.
  *   - Submit button disabled while request is in flight (prevents double-tap).
  *   - Error message shown inline below the form.
- *   - "Create account" link navigates to the Register screen.
+ *   - "Create account" ghost button navigates to the Register screen.
  *
  * On success: AuthContext.login() calls router.replace('/(tabs)/').
  * On failure: we display the server error message (or a generic fallback).
+ *
+ * E-005: ScreenLayout wrapper, PFInput, PFButton — replaces raw SafeAreaView,
+ *        TextInput, and TouchableOpacity.
  */
 
 import { useState, useCallback } from 'react';
 import {
   View,
   Text,
-  TextInput,
-  TouchableOpacity,
   StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
-  ActivityIndicator,
-  ScrollView,
 } from 'react-native';
-import { Link } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useAuth } from '../../src/hooks/useAuth';
+import { useTheme } from '../../src/theme/ThemeContext';
+import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
+import { ScreenLayout, PFButton, PFInput } from '../../src/components/ui';
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -50,6 +50,8 @@ function validatePassword(password: string): string | null {
 
 export default function LoginScreen(): React.ReactElement {
   const { login } = useAuth();
+  const { theme } = useTheme();
+  const router = useRouter();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -75,7 +77,6 @@ export default function LoginScreen(): React.ReactElement {
       await login(email.trim().toLowerCase(), password);
       // On success, AuthContext calls router.replace('/(tabs)/') — no local nav needed.
     } catch (err: unknown) {
-      // Parse the server error body.
       const message = extractErrorMessage(err);
       setServerError(message);
     } finally {
@@ -84,97 +85,93 @@ export default function LoginScreen(): React.ReactElement {
   }, [email, password, login]);
 
   return (
-    <KeyboardAvoidingView
-      style={styles.flex}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <ScrollView
-        contentContainerStyle={styles.container}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* Header */}
-        <Text style={styles.title}>Peak Fettle</Text>
-        <Text style={styles.subtitle}>Sign in to your account</Text>
+    <ScreenLayout scrollable keyboardAvoiding contentStyle={styles.content}>
+      {/* Header */}
+      <Text style={[styles.title, { color: theme.colors.accentDefault }]}>
+        Peak Fettle
+      </Text>
+      <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>
+        Sign in to your account
+      </Text>
 
-        {/* Email */}
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Email</Text>
-          <TextInput
-            style={[styles.input, fieldErrors.email ? styles.inputError : null]}
-            value={email}
-            onChangeText={(text) => {
-              setEmail(text);
-              if (fieldErrors.email) setFieldErrors((prev) => ({ ...prev, email: undefined }));
-            }}
-            placeholder="you@example.com"
-            placeholderTextColor="#64748b"
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-            autoComplete="email"
-            editable={!isSubmitting}
-            returnKeyType="next"
-          />
-          {fieldErrors.email ? (
-            <Text style={styles.fieldError}>{fieldErrors.email}</Text>
-          ) : null}
-        </View>
-
-        {/* Password */}
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Password</Text>
-          <TextInput
-            style={[styles.input, fieldErrors.password ? styles.inputError : null]}
-            value={password}
-            onChangeText={(text) => {
-              setPassword(text);
-              if (fieldErrors.password)
-                setFieldErrors((prev) => ({ ...prev, password: undefined }));
-            }}
-            placeholder="••••••••"
-            placeholderTextColor="#64748b"
-            secureTextEntry
-            autoComplete="current-password"
-            editable={!isSubmitting}
-            returnKeyType="done"
-            onSubmitEditing={handleLogin}
-          />
-          {fieldErrors.password ? (
-            <Text style={styles.fieldError}>{fieldErrors.password}</Text>
-          ) : null}
-        </View>
-
-        {/* Server error */}
-        {serverError ? (
-          <View style={styles.errorBox}>
-            <Text style={styles.errorText}>{serverError}</Text>
-          </View>
-        ) : null}
-
-        {/* Submit */}
-        <TouchableOpacity
-          style={[styles.button, isSubmitting ? styles.buttonDisabled : null]}
-          onPress={handleLogin}
+      {/* Email */}
+      <View style={styles.fieldGroup}>
+        <PFInput
+          label="Email"
+          value={email}
+          onChangeText={(text) => {
+            setEmail(text);
+            if (fieldErrors.email) setFieldErrors((prev) => ({ ...prev, email: undefined }));
+          }}
+          error={fieldErrors.email}
+          placeholder="you@example.com"
+          keyboardType="email-address"
+          autoCapitalize="none"
+          autoCorrect={false}
+          autoComplete="email"
           disabled={isSubmitting}
-          accessibilityRole="button"
-          accessibilityLabel="Sign in"
-        >
-          {isSubmitting ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Sign In</Text>
-          )}
-        </TouchableOpacity>
+          returnKeyType="next"
+        />
+      </View>
 
-        {/* Register link */}
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>Don't have an account? </Text>
-          <Link href="/(auth)/register" style={styles.link}>
-            Create one
-          </Link>
+      {/* Password */}
+      <View style={styles.fieldGroup}>
+        <PFInput
+          label="Password"
+          value={password}
+          onChangeText={(text) => {
+            setPassword(text);
+            if (fieldErrors.password)
+              setFieldErrors((prev) => ({ ...prev, password: undefined }));
+          }}
+          error={fieldErrors.password}
+          placeholder="••••••••"
+          secureTextEntry
+          autoComplete="current-password"
+          disabled={isSubmitting}
+          returnKeyType="done"
+          onSubmitEditing={handleLogin}
+        />
+      </View>
+
+      {/* Server error */}
+      {serverError ? (
+        <View
+          style={[
+            styles.errorBox,
+            {
+              backgroundColor: theme.colors.bgPrimary,
+              borderColor: theme.colors.statusError,
+            },
+          ]}
+        >
+          <Text style={[styles.errorText, { color: theme.colors.statusError }]}>
+            {serverError}
+          </Text>
         </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+      ) : null}
+
+      {/* Submit */}
+      <PFButton
+        variant="primary"
+        label="Sign In"
+        onPress={handleLogin}
+        loading={isSubmitting}
+      />
+
+      {/* Register link */}
+      <View style={styles.footer}>
+        <Text style={[styles.footerText, { color: theme.colors.textSecondary }]}>
+          Don't have an account?
+        </Text>
+        <PFButton
+          variant="ghost"
+          label="Create one"
+          onPress={() => router.push('/(auth)/register')}
+          size="sm"
+        />
+      </View>
+    </ScreenLayout>
   );
 }
 
@@ -202,100 +199,46 @@ function extractErrorMessage(err: unknown): string {
 }
 
 // ---------------------------------------------------------------------------
-// Styles
+// Styles — layout only, no hardcoded colors or font sizes
 // ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
-  flex: {
-    flex: 1,
-    backgroundColor: '#0f172a',
-  },
-  container: {
-    flexGrow: 1,
+  content: {
     justifyContent: 'center',
-    paddingHorizontal: 24,
-    paddingVertical: 48,
+    paddingVertical: spacing.s12,
   },
   title: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: '#f8fafc',
+    fontSize: fontSize.heading1,
+    fontWeight: fontWeight.bold,
     textAlign: 'center',
-    marginBottom: 8,
+    marginBottom: spacing.s2,
     letterSpacing: -0.5,
   },
   subtitle: {
-    fontSize: 16,
-    color: '#94a3b8',
+    fontSize: fontSize.bodyMd,
     textAlign: 'center',
-    marginBottom: 40,
+    marginBottom: spacing.s8,
   },
   fieldGroup: {
-    marginBottom: 20,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#cbd5e1',
-    marginBottom: 6,
-  },
-  input: {
-    backgroundColor: '#1e293b',
-    borderWidth: 1,
-    borderColor: '#334155',
-    borderRadius: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: '#f8fafc',
-  },
-  inputError: {
-    borderColor: '#ef4444',
-  },
-  fieldError: {
-    marginTop: 4,
-    fontSize: 13,
-    color: '#ef4444',
+    marginBottom: spacing.s5,
   },
   errorBox: {
-    backgroundColor: '#450a0a',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 20,
+    borderRadius: radius.sm,
+    padding: spacing.s3,
+    marginBottom: spacing.s5,
     borderWidth: 1,
-    borderColor: '#ef4444',
   },
   errorText: {
-    color: '#fca5a5',
-    fontSize: 14,
-  },
-  button: {
-    backgroundColor: '#6366f1',
-    borderRadius: 10,
-    paddingVertical: 16,
-    alignItems: 'center',
-    marginTop: 8,
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: fontSize.bodySm,
   },
   footer: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 24,
+    marginTop: spacing.s4,
+    gap: spacing.s1,
   },
   footerText: {
-    color: '#94a3b8',
-    fontSize: 14,
-  },
-  link: {
-    color: '#818cf8',
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: fontSize.bodySm,
   },
 });

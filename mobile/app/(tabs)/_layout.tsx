@@ -3,7 +3,7 @@
  *
  * Tabs:
  *   Home     — today's workout + streak counter (TICKET-017)
- *   Log      — exercise picker + set logger (TICKET-018)
+ *   Log      — exercise picker + set logger (TICKET-018) — FAB center button
  *   Rankings — percentile display, free tier (TICKET-019)
  *   Plans    — AI plan viewer/generator, paid tier gated (TICKET-020)
  *   Profile  — settings, units toggle, sign out (TICKET-021)
@@ -12,18 +12,63 @@
  * If a user somehow lands here while unauthenticated, the Redirect below
  * sends them to login. This is a belt-and-suspenders guard — the primary
  * auth routing is driven by AuthContext.login() / logout() calls.
+ *
+ * Resolved TODOs:
+ *   TICKET-017–021: Replaced Unicode emoji placeholders with Ionicons (P0-001)
+ *   P0-001: FAB center tab for Log, 56pt tab bar height, active tint wired
+ *   TICKET-043: Glossary ? button added to every tab header
+ *   P1-012: Active tab icon scale animation — 180ms spring, 1.0 → 1.15
  */
 
-import { Redirect } from 'expo-router';
-import { Tabs } from 'expo-router';
+import React from 'react';
+import { View, TouchableOpacity } from 'react-native';
+import { Redirect, Tabs, useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import Animated, {
+  useAnimatedStyle,
+  withSpring,
+  useSharedValue,
+} from 'react-native-reanimated';
 import { useAuth } from '../../src/hooks/useAuth';
+import { useTheme } from '../../src/theme/ThemeContext';
 
-// Simple Unicode emoji icons as placeholders.
-// TODO(TICKET-017–021): Replace with a proper icon library (e.g. @expo/vector-icons
-//   Ionicons) once the design system is confirmed.
+// ---------------------------------------------------------------------------
+// AnimatedTabIcon — scale spring on focus, per spec §7 (P1-012)
+// ---------------------------------------------------------------------------
+
+function AnimatedTabIcon({
+  name,
+  color,
+  size,
+  focused,
+}: {
+  name: string;
+  color: string;
+  size: number;
+  focused: boolean;
+}): React.ReactElement {
+  const scale = useSharedValue(1);
+
+  React.useEffect(() => {
+    scale.value = withSpring(focused ? 1.15 : 1.0, { damping: 10, stiffness: 200 });
+  }, [focused]);
+
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  return (
+    <Animated.View style={animStyle}>
+      <Ionicons name={name as any} size={size} color={color} />
+    </Animated.View>
+  );
+}
 
 export default function TabsLayout(): React.ReactElement {
   const { isAuthenticated, isLoading } = useAuth();
+  const { theme, fontWeight } = useTheme();
+  const { colors } = theme;
+  const router = useRouter();
 
   // Don't render anything while the cold-start auth check is running —
   // the root layout is already showing a spinner.
@@ -39,15 +84,31 @@ export default function TabsLayout(): React.ReactElement {
   return (
     <Tabs
       screenOptions={{
+        tabBarActiveTintColor: colors.accentDefault,
+        tabBarInactiveTintColor: colors.textTertiary,
         tabBarStyle: {
-          backgroundColor: '#1e293b',
-          borderTopColor: '#334155',
+          height: 56,
+          backgroundColor: colors.bgSecondary,
+          borderTopColor: colors.borderDefault,
+          borderTopWidth: 1,
         },
-        tabBarActiveTintColor: '#818cf8',
-        tabBarInactiveTintColor: '#64748b',
-        headerStyle: { backgroundColor: '#0f172a' },
-        headerTintColor: '#f8fafc',
-        headerTitleStyle: { fontWeight: '700' },
+        headerStyle: { backgroundColor: colors.bgPrimary },
+        headerTintColor: colors.textPrimary,
+        headerTitleStyle: { fontWeight: fontWeight.bold }, // E-003: was '700'
+        headerRight: () => (
+          <TouchableOpacity
+            onPress={() => router.push('/glossary')}
+            style={{ marginRight: 16 }}
+            accessibilityLabel="Open glossary"
+            accessibilityRole="button"
+          >
+            <Ionicons
+              name="help-circle-outline"
+              size={24}
+              color={colors.textSecondary}
+            />
+          </TouchableOpacity>
+        ),
       }}
     >
       <Tabs.Screen
@@ -55,9 +116,13 @@ export default function TabsLayout(): React.ReactElement {
         options={{
           title: 'Home',
           tabBarLabel: 'Home',
-          tabBarIcon: ({ color }) => (
-            // Placeholder — replace with <Ionicons name="home" /> in TICKET-017
-            <TabIcon emoji="🏠" color={color} />
+          tabBarIcon: ({ color, size, focused }) => (
+            <AnimatedTabIcon
+              name={focused ? 'home' : 'home-outline'}
+              size={size}
+              color={color}
+              focused={focused}
+            />
           ),
         }}
       />
@@ -65,9 +130,40 @@ export default function TabsLayout(): React.ReactElement {
         name="log"
         options={{
           title: 'Log Workout',
-          tabBarLabel: 'Log',
-          tabBarIcon: ({ color }) => (
-            <TabIcon emoji="📝" color={color} />
+          tabBarLabel: () => null,
+          tabBarIcon: () => null,
+          tabBarButton: (props) => (
+            <TouchableOpacity
+              {...props}
+              style={{
+                top: -18,
+                justifyContent: 'center',
+                alignItems: 'center',
+              }}
+              activeOpacity={0.85}
+            >
+              <View
+                style={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: 28,
+                  backgroundColor: colors.accentDefault,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  shadowColor: colors.accentDefault,
+                  shadowOffset: { width: 0, height: 4 },
+                  shadowOpacity: 0.4,
+                  shadowRadius: 8,
+                  elevation: 8,
+                }}
+              >
+                <Ionicons
+                  name="flash"
+                  size={28}
+                  color={theme.components.buttonPrimaryText}
+                />
+              </View>
+            </TouchableOpacity>
           ),
         }}
       />
@@ -76,8 +172,13 @@ export default function TabsLayout(): React.ReactElement {
         options={{
           title: 'Rankings',
           tabBarLabel: 'Rankings',
-          tabBarIcon: ({ color }) => (
-            <TabIcon emoji="🏆" color={color} />
+          tabBarIcon: ({ color, size, focused }) => (
+            <AnimatedTabIcon
+              name={focused ? 'trophy' : 'trophy-outline'}
+              size={size}
+              color={color}
+              focused={focused}
+            />
           ),
         }}
       />
@@ -86,8 +187,13 @@ export default function TabsLayout(): React.ReactElement {
         options={{
           title: 'Plans',
           tabBarLabel: 'Plans',
-          tabBarIcon: ({ color }) => (
-            <TabIcon emoji="📋" color={color} />
+          tabBarIcon: ({ color, size, focused }) => (
+            <AnimatedTabIcon
+              name={focused ? 'calendar' : 'calendar-outline'}
+              size={size}
+              color={color}
+              focused={focused}
+            />
           ),
         }}
       />
@@ -96,23 +202,16 @@ export default function TabsLayout(): React.ReactElement {
         options={{
           title: 'Profile',
           tabBarLabel: 'Profile',
-          tabBarIcon: ({ color }) => (
-            <TabIcon emoji="👤" color={color} />
+          tabBarIcon: ({ color, size, focused }) => (
+            <AnimatedTabIcon
+              name={focused ? 'person' : 'person-outline'}
+              size={size}
+              color={color}
+              focused={focused}
+            />
           ),
         }}
       />
     </Tabs>
   );
-}
-
-// ---------------------------------------------------------------------------
-// Minimal emoji tab icon placeholder
-// ---------------------------------------------------------------------------
-
-import { Text } from 'react-native';
-
-function TabIcon({ emoji, color: _color }: { emoji: string; color: string }): React.ReactElement {
-  // `color` is unused here because emoji can't be tinted — swap this
-  // component for a proper icon component in TICKET-017–021.
-  return <Text style={{ fontSize: 20 }}>{emoji}</Text>;
 }

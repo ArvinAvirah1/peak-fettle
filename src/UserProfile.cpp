@@ -123,6 +123,31 @@ void UserProfile::setAvatarColorIndex(int v)
     emit profileChanged();
 }
 
+void UserProfile::setWorkoutSplit(const QString &v)
+{
+    // Only accept known split tokens; anything else clears the field.
+    const QStringList valid = { QStringLiteral("ppl"),
+                                QStringLiteral("ul"),
+                                QStringLiteral("other") };
+    const QString canon = valid.contains(v) ? v : QString();
+    if (canon == m_workoutSplit) return;
+    m_workoutSplit = canon;
+    // When switching away from "other", clear the custom name so stale text
+    // doesn't surface in search filters.
+    if (m_workoutSplit != QStringLiteral("other")) m_customSplitName.clear();
+    saveToSettings();
+    emit profileChanged();
+}
+
+void UserProfile::setCustomSplitName(const QString &v)
+{
+    const QString trimmed = v.trimmed().left(48);
+    if (trimmed == m_customSplitName) return;
+    m_customSplitName = trimmed;
+    saveToSettings();
+    emit profileChanged();
+}
+
 void UserProfile::reset()
 {
     m_ageYears              = 0;
@@ -132,6 +157,8 @@ void UserProfile::reset()
     m_bodyweightKg          = 0.0;
     m_displayName.clear();
     m_avatarColorIndex      = 0;
+    m_workoutSplit.clear();
+    m_customSplitName.clear();
     saveToSettings();
     emit profileChanged();
 }
@@ -150,6 +177,14 @@ void UserProfile::loadFromSettings()
     const QString s         =                 m_settings.value(QStringLiteral("sex"),                   "" ).toString();
     m_sex         = (s == QStringLiteral("M") || s == QStringLiteral("F")) ? s : QString();
     m_displayName =  m_settings.value(QStringLiteral("displayName"), "").toString().trimmed().left(32);
+    // Workout split — validate on load so a hand-edited config can't inject
+    // an arbitrary string into the filter UI.
+    {
+        const QString rawSplit = m_settings.value(QStringLiteral("workoutSplit"), "").toString();
+        const QStringList valid = { QStringLiteral("ppl"), QStringLiteral("ul"), QStringLiteral("other") };
+        m_workoutSplit = valid.contains(rawSplit) ? rawSplit : QString();
+    }
+    m_customSplitName = m_settings.value(QStringLiteral("customSplitName"), "").toString().trimmed().left(48);
     m_settings.endGroup();
 }
 
@@ -167,5 +202,7 @@ void UserProfile::saveToSettings() const
     s.setValue(QStringLiteral("bodyweightKg"),          m_bodyweightKg);
     s.setValue(QStringLiteral("displayName"),           m_displayName);
     s.setValue(QStringLiteral("avatarColorIndex"),      static_cast<int>(m_avatarColorIndex));
+    s.setValue(QStringLiteral("workoutSplit"),          m_workoutSplit);
+    s.setValue(QStringLiteral("customSplitName"),       m_customSplitName);
     s.endGroup();
 }

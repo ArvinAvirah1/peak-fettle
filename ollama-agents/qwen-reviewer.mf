@@ -1,0 +1,60 @@
+# qwen-reviewer.mf — 35B A3B MoE IQ3_S, REVIEWER role
+# Compatible template: avoids toJson (requires Ollama 0.5+).
+# num_ctx 16384: same VRAM envelope as coder. Safe on 16 GB.
+
+FROM qwen-reviewer
+
+TEMPLATE """{{- if or .System .Tools }}<|im_start|>system
+{{- if .System }}
+{{ .System }}
+{{- end }}
+{{- if .Tools }}
+
+# Tools
+
+You may call one or more functions to assist with the user query.
+
+You are provided with function signatures within <tools></tools> XML tags:
+<tools>
+{{- range .Tools }}
+{"type": "function", "function": {"name": "{{ .Function.Name }}", "description": "{{ .Function.Description }}", "parameters": {{ .Function.Parameters }}}}
+{{- end }}
+</tools>
+
+For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:
+<tool_call>
+{"name": <function-name>, "arguments": <args-json-object>}
+</tool_call>
+{{- end }}<|im_end|>
+{{ end }}
+{{- range .Messages }}
+{{- if eq .Role "user" }}<|im_start|>user
+{{ .Content }}<|im_end|>
+{{ else if eq .Role "assistant" }}<|im_start|>assistant
+{{ if .Content }}{{ .Content }}
+{{- else if .ToolCalls }}<tool_call>
+{{ range .ToolCalls }}{"name": "{{ .Function.Name }}", "arguments": {{ .Function.Arguments }}}
+{{ end }}</tool_call>
+{{- end }}<|im_end|>
+{{ else if eq .Role "tool" }}<|im_start|>user
+<tool_response>
+{{ .Content }}
+</tool_response><|im_end|>
+{{ end }}
+{{- end }}
+{{- if .Response }}<|im_start|>assistant
+{{ .Response }}
+{{- else }}<|im_start|>assistant
+{{ end }}"""
+
+SYSTEM You are an expert senior code reviewer with deep systems knowledge. Focus: subtle bugs, concurrency issues, memory saftey, performance regression detection
+
+PARAMETER temperature 0.08
+PARAMETER top_p 0.9
+PARAMETER top_k 40
+PARAMETER repeat_penalty 1.2
+
+# num_ctx reduced 32768 → 16384 for 16 GB VRAM headroom.
+PARAMETER num_ctx 8192
+PARAMETER num_batch 192
+PARAMETER num_predict -1

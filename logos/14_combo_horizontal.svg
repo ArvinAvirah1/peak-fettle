@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 300" width="1000" height="300" role="img" aria-label="Peak Fettle horizontal combination mark">
+  <g transform="translate(40,55) scale(0.37)">
+    <polygon points="320,120 480,408 160,408" fill="#13415C"/>
+    <polygon points="320,120 352,166 320,148 290,168" fill="#FFFFFF"/>
+    <polygon points="200,188 360,408 40,408" fill="#15B8A6"/>
+    <polygon points="200,188 230,232 200,214 172,234" fill="#FFFFFF"/>
+  </g>
+  <text x="278" y="150" font-family="'Helvetica Neue', Arial, sans-serif" font-size="96" font-weight="800" fill="#13415C" letter-spacing="2">PEAK</text>
+  <text x="278" y="248" font-family="'Helvetica Neue', Arial, sans-serif" font-size="96" font-weight="800" fill="#15B8A6" letter-spacing="2">FETTLE</text>
+</svg>

@@ -13,31 +13,49 @@
  *           server-side; PowerSync syncs it down so the reactive query picks it up.
  *
  * Sections:
- *   A. Workout header  — date, set count, sync indicator, "+" button
- *   B. Set list        — sets grouped by exercise, trash to delete
- *   C. ExercisePicker  — modal search + browse
- *   D. SetEntryForm    — modal lift/cardio form
+ *   A. Workout header  — date, set count, elapsed timer, sync indicator, "+" button
+ *   B. Rest day link   — shown when no sets logged yet
+ *   C. Set list        — sets grouped by exercise, trash to delete
+ *   D. ExercisePicker  — modal search + browse
+ *   E. SetEntryForm    — modal lift/cardio form
+ *   F. Rest timer banner — dismissible countdown after each set
  */
 
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   View,
   Text,
   ScrollView,
   TouchableOpacity,
+  Pressable,
   StyleSheet,
   ActivityIndicator,
   Alert,
+  Modal,
 } from 'react-native';
-import { usePowerSyncWorkout } from '../../src/hooks/usePowerSyncWorkout';
+import { useRouter } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/hooks/useAuth';
+import { usePowerSyncLog } from '../../src/hooks/usePowerSyncLog';
 import { ExercisePicker } from '../../src/components/ExercisePicker';
 import { SetEntryForm } from '../../src/components/SetEntryForm';
 import { SyncStatusIndicator } from '../../src/components/SyncStatusIndicator';
 import { formatWeight } from '../../src/constants/units';
-import { createWorkout } from '../../src/api/workouts';
-import { logSet as apiLogSet, deleteSet as apiDeleteSet } from '../../src/api/sets';
 import { Exercise, WorkoutSet, LiftSet, CardioSet, LogSetPayload } from '../../src/types/api';
+import { useTheme } from '../../src/theme/ThemeContext';
+import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
+import { haptics } from '../../src/utils/haptics';
+import { apiClient } from '../../src/api/client';
+import { ScreenLayout } from '../../src/components/ui';
+
+// MOCK-002 fix (2026-05-16): the previous `MOCK_WORKOUT` constant was
+// unconditionally injected as the active workout regardless of auth state.
+// `MOCK_WORKOUT.id = 'mock-workout-today'` is not a valid UUID, so every
+// POST /sets payload using it was rejected 403 by the server's T-03
+// ownership check — the Log tab was non-functional against any real
+// backend. Now we use the canonical `usePowerSyncLog()` hook (TICKET-027)
+// which calls `createWorkout()` on mount to obtain a real workout UUID and
+// reactively watches local SQLite for set changes synced from the server.
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -71,6 +89,13 @@ function formatDistance(distanceM: number | null, unitPref: 'kg' | 'lbs'): strin
     return `${(distanceM / 1609.344).toFixed(2)} mi`;
   }
   return `${(distanceM / 1000).toFixed(2)} km`;
+}
+
+// P1-001a: Format MM:SS for elapsed session timer and rest timer
+function formatElapsed(secs: number): string {
+  const m = Math.floor(secs / 60).toString().padStart(2, '0');
+  const s = (secs % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
 }
 
 // Group sets by exercise_id, preserving insertion order of first occurrence.
@@ -108,6 +133,8 @@ interface SetRowProps {
 }
 
 function SetRow({ set, setNumber, unitPref, onDelete }: SetRowProps): React.ReactElement {
+  const { theme } = useTheme();
+
   const handleDelete = useCallback(() => {
     Alert.alert('Delete Set', 'Remove this set from your workout?', [
       { text: 'Cancel', style: 'cancel' },
@@ -125,6 +152,7 @@ function SetRow({ set, setNumber, unitPref, onDelete }: SetRowProps): React.Reac
 
   if (set.kind === 'lift') {
     const liftSet = set as LiftSet;
+    // P1-009: tabular-nums applied via style on the Text elements below
     primaryLabel = `${formatWeight(liftSet.weight_kg, unitPref)} × ${liftSet.reps} reps`;
     if (liftSet.rir !== null && liftSet.rir >= 0) {
       rirLabel = liftSet.rir === 0 ? 'to failure' : `RIR ${liftSet.rir}`;
@@ -137,17 +165,18 @@ function SetRow({ set, setNumber, unitPref, onDelete }: SetRowProps): React.Reac
   }
 
   return (
-    <View style={rowStyles.container}>
-      <View style={rowStyles.setNum}>
-        <Text style={rowStyles.setNumText}>{setNumber}</Text>
+    <View style={[rowStyles.container, { borderBottomColor: theme.colors.bgSecondary }]}>
+      <View style={[rowStyles.setNum, { backgroundColor: theme.colors.accentSecondary }]}>
+        <Text style={[rowStyles.setNumText, { color: theme.colors.accentHover }]}>{setNumber}</Text>
       </View>
       <View style={rowStyles.labels}>
-        <Text style={rowStyles.primary}>{primaryLabel}</Text>
+        {/* P1-009: tabular-nums on weight/rep values */}
+        <Text style={[rowStyles.primary, { color: theme.colors.textPrimary, fontVariant: ['tabular-nums'] }]}>{primaryLabel}</Text>
         {secondaryLabel ? (
-          <Text style={rowStyles.secondary}>{secondaryLabel}</Text>
+          <Text style={[rowStyles.secondary, { color: theme.colors.textTertiary, fontVariant: ['tabular-nums'] }]}>{secondaryLabel}</Text>
         ) : null}
         {rirLabel ? (
-          <Text style={rowStyles.rir}>{rirLabel}</Text>
+          <Text style={[rowStyles.rir, { color: theme.colors.accentDefault }]}>{rirLabel}</Text>
         ) : null}
       </View>
       <TouchableOpacity
@@ -167,51 +196,45 @@ const rowStyles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingVertical: spacing.s3,
+    paddingHorizontal: spacing.s4,
     borderBottomWidth: 1,
-    borderBottomColor: '#1e293b',
-    minHeight: 56,
+    minHeight: 64, // P1-002: was 56
   },
   setNum: {
     width: 28,
     height: 28,
-    borderRadius: 14,
-    backgroundColor: '#312e81',
+    borderRadius: radius.md,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 14,
   },
   setNumText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#a5b4fc',
+    fontSize: fontSize.bodySm,       // E-003: was 13 (nearest token)
+    fontWeight: fontWeight.bold,     // E-003: was '700'
   },
   labels: {
     flex: 1,
     gap: 2,
   },
   primary: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#f8fafc',
+    fontSize: fontSize.bodyMd,       // E-003: was 16
+    fontWeight: fontWeight.medium,   // E-003: was '500'
   },
   secondary: {
-    fontSize: 13,
-    color: '#64748b',
+    fontSize: fontSize.bodySm,       // E-003: was 13 (nearest token)
   },
   rir: {
-    fontSize: 12,
-    color: '#818cf8',
+    fontSize: fontSize.caption,      // E-003: was 12
   },
   deleteButton: {
-    minWidth: 44,
-    minHeight: 44,
+    minWidth: 48,
+    minHeight: 48,
     alignItems: 'center',
     justifyContent: 'center',
   },
   deleteIcon: {
-    fontSize: 16,
+    fontSize: fontSize.bodyMd,       // E-003: was 16
   },
 });
 
@@ -232,12 +255,17 @@ function ExerciseGroupCard({
   unitPref,
   onDelete,
 }: ExerciseGroupCardProps): React.ReactElement {
+  const { theme } = useTheme();
   const name = exerciseNames.get(group.exerciseId) ?? group.exerciseId;
   return (
-    <View style={cardStyles.container}>
-      <View style={cardStyles.header}>
-        <Text style={cardStyles.exerciseName}>{name}</Text>
-        <Text style={cardStyles.setCount}>
+    <View style={[
+      cardStyles.container,
+      { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
+    ]}>
+      <View style={[cardStyles.header, { borderBottomColor: theme.colors.borderDefault }]}>
+        <Text style={[cardStyles.exerciseName, { color: theme.colors.textPrimary }]}>{name}</Text>
+        {/* P1-009: tabular-nums on set count */}
+        <Text style={[cardStyles.setCount, { color: theme.colors.textTertiary, fontVariant: ['tabular-nums'] }]}>
           {group.sets.length} set{group.sets.length !== 1 ? 's' : ''}
         </Text>
       </View>
@@ -256,33 +284,220 @@ function ExerciseGroupCard({
 
 const cardStyles = StyleSheet.create({
   container: {
-    backgroundColor: '#1e293b',
-    borderRadius: 14,
+    borderRadius: radius.md,
     marginHorizontal: 16,
     marginBottom: 12,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#334155',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: spacing.s4,
+    paddingVertical: spacing.s3,
     borderBottomWidth: 1,
-    borderBottomColor: '#334155',
   },
   exerciseName: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#f8fafc',
+    fontSize: fontSize.bodyMd,       // E-003: was 15 (nearest token: bodyMd=16)
+    fontWeight: fontWeight.bold,     // E-003: was '700'
     flex: 1,
   },
   setCount: {
-    fontSize: 13,
-    color: '#64748b',
+    fontSize: fontSize.bodySm,       // E-003: was 13 (nearest token)
     marginLeft: 8,
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Rest timer banner constants
+// ---------------------------------------------------------------------------
+
+const REST_DEFAULT = 90; // seconds
+
+// ---------------------------------------------------------------------------
+// PaywallUpgradeModal — Phase 1.5
+// Non-blocking sheet shown exactly once when the user crosses the free-tier
+// session limit (server signals paywall_trigger=true on POST /workouts).
+// ---------------------------------------------------------------------------
+
+interface PaywallUpgradeModalProps {
+  visible: boolean;
+  onDismiss: () => void;
+  onUpgrade: () => void;
+}
+
+function PaywallUpgradeModal({
+  visible,
+  onDismiss,
+  onUpgrade,
+}: PaywallUpgradeModalProps): React.ReactElement {
+  const { theme, fontSize, fontWeight, spacing, radius } = useTheme();
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onDismiss}
+      statusBarTranslucent
+    >
+      {/* Backdrop */}
+      <Pressable
+        style={[paywallStyles.backdrop, { backgroundColor: 'rgba(0,0,0,0.5)' }]}
+        onPress={onDismiss}
+        accessibilityLabel="Dismiss upgrade prompt"
+      />
+
+      {/* Sheet */}
+      <View
+        style={[
+          paywallStyles.sheet,
+          {
+            backgroundColor: theme.colors.bgPrimary,
+            borderTopLeftRadius: radius.xl,
+            borderTopRightRadius: radius.xl,
+            paddingHorizontal: spacing.s5,
+            paddingTop: spacing.s5,
+            paddingBottom: spacing.s7 ?? spacing.s6,
+          },
+        ]}
+      >
+        {/* Drag pill */}
+        <View
+          style={[
+            paywallStyles.pill,
+            {
+              backgroundColor: theme.colors.borderDefault,
+              borderRadius: radius.full ?? 999,
+              marginBottom: spacing.s5,
+            },
+          ]}
+        />
+
+        {/* Icon */}
+        <View style={[paywallStyles.iconRow, { marginBottom: spacing.s3 }]}>
+          <View
+            style={[
+              paywallStyles.iconCircle,
+              {
+                backgroundColor: theme.colors.accentSecondary,
+                borderRadius: radius.full ?? 999,
+              },
+            ]}
+          >
+            <Ionicons name="flash" size={28} color={theme.colors.accentDefault} />
+          </View>
+        </View>
+
+        {/* Headline */}
+        <Text
+          style={{
+            fontSize: fontSize.display,
+            fontWeight: fontWeight.bold,
+            color: theme.colors.textPrimary,
+            textAlign: 'center',
+            marginBottom: spacing.s2,
+          }}
+        >
+          You're on a roll!
+        </Text>
+
+        {/* Sub-copy */}
+        <Text
+          style={{
+            fontSize: fontSize.bodyMd,
+            color: theme.colors.textSecondary,
+            textAlign: 'center',
+            lineHeight: 22,
+            marginBottom: spacing.s5,
+          }}
+        >
+          You've hit your 5 free sessions. Upgrade to Peak Fettle Pro for{' '}
+          <Text style={{ fontWeight: fontWeight.bold, color: theme.colors.textPrimary }}>
+            personalized AI training plans
+          </Text>{' '}
+          that adapt to your progress.
+        </Text>
+
+        {/* Upgrade CTA */}
+        <TouchableOpacity
+          style={[
+            paywallStyles.upgradeBtn,
+            {
+              backgroundColor: theme.colors.accentDefault,
+              borderRadius: radius.md,
+              paddingVertical: spacing.s4,
+              marginBottom: spacing.s3,
+            },
+          ]}
+          onPress={onUpgrade}
+          accessibilityRole="button"
+          accessibilityLabel="Upgrade to Pro"
+        >
+          <Text
+            style={{
+              fontSize: fontSize.bodyLg,
+              fontWeight: fontWeight.bold,
+              color: theme.components.buttonPrimaryText,
+              textAlign: 'center',
+            }}
+          >
+            See Plans
+          </Text>
+        </TouchableOpacity>
+
+        {/* Dismiss */}
+        <TouchableOpacity
+          style={[paywallStyles.dismissBtn, { paddingVertical: spacing.s3 }]}
+          onPress={onDismiss}
+          accessibilityRole="button"
+          accessibilityLabel="Maybe later"
+        >
+          <Text
+            style={{
+              fontSize: fontSize.bodyMd,
+              color: theme.colors.textTertiary,
+              textAlign: 'center',
+            }}
+          >
+            Maybe later
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </Modal>
+  );
+}
+
+const paywallStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+  },
+  sheet: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+  },
+  pill: {
+    alignSelf: 'center',
+    width: 36,
+    height: 4,
+  },
+  iconRow: {
+    alignItems: 'center',
+  },
+  iconCircle: {
+    width: 60,
+    height: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  upgradeBtn: {
+    alignItems: 'center',
+  },
+  dismissBtn: {
+    alignItems: 'center',
   },
 });
 
@@ -292,41 +507,68 @@ const cardStyles = StyleSheet.create({
 
 export default function LogScreen(): React.ReactElement {
   const { user } = useAuth();
+  const { theme } = useTheme();
+  const router = useRouter();
   const unitPref = user?.unit_pref ?? 'kg';
 
-  // Stable today key — does not change for the lifetime of this screen mount.
-  const todayKey = useMemo(() => getTodayKey(), []);
+  // TICKET-027: PowerSync offline-first hook. Calls createWorkout() on mount
+  // to obtain a server-assigned workout UUID; reactively watches the local
+  // SQLite `sets` table (which is bidirectionally synced via PowerSync).
+  // Writes go to local SQLite first and PowerSync drains them to the server
+  // when the device is online.
+  const {
+    workout,
+    sets,
+    isLoading,
+    error: errorMessage,
+    logSet,
+    deleteSet,
+    paywallTriggered,
+  } = usePowerSyncLog();
 
-  // READ path — reactive from local PowerSync SQLite.
-  // Re-renders automatically when sync delivers new data or local writes land.
-  const { workout, sets, isLoading, error } = usePowerSyncWorkout(todayKey);
-
-  // Ensure today's workout exists server-side on mount. PowerSync will sync it
-  // down to local SQLite, which triggers usePowerSyncWorkout to return it.
-  // createWorkout is idempotent — safe to call every mount.
+  // Phase 1.5: show upgrade modal once when server flags paywall_trigger.
+  const [showPaywall, setShowPaywall] = useState(false);
   useEffect(() => {
-    createWorkout(todayKey).catch((err: unknown) => {
-      console.warn('[LogScreen] createWorkout failed:', err);
-    });
-  }, [todayKey]);
+    if (paywallTriggered) {
+      // Slight delay so the screen finishes loading before the modal appears.
+      const t = setTimeout(() => setShowPaywall(true), 800);
+      return () => clearTimeout(t);
+    }
+  }, [paywallTriggered]);
 
   // Modal state
   const [pickerVisible, setPickerVisible] = useState(false);
   const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
-
-  // Cache exercise names so group cards can display them without a library fetch.
   const [exerciseNames, setExerciseNames] = useState<Map<string, string>>(new Map());
 
-  // ---------------------------------------------------------------------------
-  // Derived data
-  // ---------------------------------------------------------------------------
+  // P1-001a: Elapsed session timer
+  const [elapsedSeconds, setElapsedSeconds] = React.useState(0);
+  const [timerActive, setTimerActive] = React.useState(false);
+
+  useEffect(() => {
+    if (!timerActive) return;
+    const interval = setInterval(() => setElapsedSeconds(s => s + 1), 1000);
+    return () => clearInterval(interval);
+  }, [timerActive]);
+
+  // P1-001b: Rest timer state
+  const [restSecondsLeft, setRestSecondsLeft] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (restSecondsLeft === null || restSecondsLeft <= 0) {
+      if (restSecondsLeft === 0) haptics.light(); // gentle nudge when done
+      setRestSecondsLeft(null);
+      return;
+    }
+    const t = setTimeout(() => setRestSecondsLeft(s => (s ?? 1) - 1), 1000);
+    return () => clearTimeout(t);
+  }, [restSecondsLeft]);
+
+  // PL-3: Rest day toast state
+  const [restDayLogged, setRestDayLogged] = useState(false);
 
   const groups = useMemo(() => groupSetsByExercise(sets), [sets]);
   const totalSets = sets.length;
-
-  // ---------------------------------------------------------------------------
-  // Handlers
-  // ---------------------------------------------------------------------------
 
   const handleExerciseSelect = useCallback((exercise: Exercise) => {
     setPickerVisible(false);
@@ -339,86 +581,192 @@ export default function LogScreen(): React.ReactElement {
     });
   }, []);
 
-  const handleSetLogged = useCallback((_set: WorkoutSet) => {
-    // usePowerSyncWorkout updates reactively once PowerSync syncs the new set.
-    // No manual state update required here.
-  }, []);
+  const handleSetLogged = useCallback((_set: WorkoutSet) => {}, []);
 
-  // WRITE path — calls Express API directly.
-  // PowerSync connector's uploadData() will flush this to the server, then
-  // sync the confirmed row back to local SQLite, triggering a reactive update.
+  // Wire the form's submit to the PowerSync-backed logSet().
+  // The hook returns an optimistic WorkoutSet; the reactive watch then
+  // re-renders the list once SQLite emits the new row.
+  // E-006: fire success haptic when a set lands (spec §7 — set logged pattern).
+  // P1-001a: start elapsed timer on first set.
+  // P1-001b: start rest timer after each set.
   const handleSubmitSet = useCallback(
     async (payload: LogSetPayload): Promise<WorkoutSet> => {
-      return apiLogSet(payload);
+      const result = await logSet(payload);
+      haptics.success();
+      // P1-001a: start elapsed timer on first set logged
+      setTimerActive(true);
+      // P1-001b: reset rest countdown
+      setRestSecondsLeft(REST_DEFAULT);
+      return result;
     },
-    []
+    [logSet]
   );
 
-  const handleDeleteSet = useCallback(async (id: string) => {
+  const handleDeleteSet = useCallback(
+    async (id: string): Promise<void> => {
+      try {
+        await deleteSet(id);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Could not delete set';
+        Alert.alert('Could not delete set', msg);
+      }
+    },
+    [deleteSet]
+  );
+
+  // PL-3: Log rest day handler
+  const handleLogRestDay = useCallback(async () => {
     try {
-      await apiDeleteSet(id);
+      await apiClient.post('/workouts/rest-day');
+      setRestDayLogged(true);
+      haptics.success();
+      setTimeout(() => router.replace('/(tabs)/'), 1200);
     } catch (err) {
-      Alert.alert(
-        'Delete failed',
-        err instanceof Error ? err.message : 'Could not delete set'
-      );
+      const msg = err instanceof Error ? err.message : 'Could not log rest day';
+      Alert.alert('Error', msg);
     }
-  }, []);
+  }, [router]);
 
   const nextSetIndex = selectedExercise
     ? countSetsForExercise(sets, selectedExercise.id)
     : 0;
-
-  const errorMessage = error instanceof Error ? error.message : null;
 
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
   return (
+    <ScreenLayout horizontalPadding={false}>
     <View style={styles.container}>
       {/* ---- A. Workout header ---- */}
-      <View style={styles.workoutHeader}>
+      <View style={[styles.workoutHeader, { borderBottomColor: theme.colors.bgSecondary }]}>
         <View style={styles.workoutHeaderText}>
-          <Text style={styles.dateLabel}>{formatTodayHeader()}</Text>
-          <Text style={styles.setCountLabel}>
-            {isLoading
-              ? 'Loading…'
-              : `${totalSets} set${totalSets !== 1 ? 's' : ''} logged`}
-          </Text>
+          <Text style={[styles.dateLabel, { color: theme.colors.textPrimary }]}>{formatTodayHeader()}</Text>
+          <View style={styles.headerMetaRow}>
+            {/* P1-009: tabular-nums on set count */}
+            <Text style={[styles.setCountLabel, { color: theme.colors.textTertiary, fontVariant: ['tabular-nums'] }]}>
+              {isLoading
+                ? 'Loading…'
+                : `${totalSets} set${totalSets !== 1 ? 's' : ''} logged`}
+            </Text>
+            {/* P1-001a: Elapsed timer — shown once timer starts */}
+            {timerActive ? (
+              <Text style={[styles.elapsedTimer, { color: theme.colors.accentDefault, fontVariant: ['tabular-nums'] }]}>
+                {' · '}{formatElapsed(elapsedSeconds)}
+              </Text>
+            ) : null}
+          </View>
         </View>
         {/* Sync status pill — shows synced / syncing / offline at a glance */}
         <SyncStatusIndicator />
         <TouchableOpacity
-          style={[styles.addButton, !workout && styles.addButtonDisabled]}
+          style={[
+            styles.addButton,
+            { backgroundColor: theme.colors.accentDefault },
+            !workout && styles.addButtonDisabled,
+          ]}
           onPress={() => setPickerVisible(true)}
           disabled={!workout || isLoading}
           accessibilityRole="button"
           accessibilityLabel="Add exercise"
         >
-          <Text style={styles.addButtonText}>+</Text>
+          <Text style={[styles.addButtonText, { color: theme.components.buttonPrimaryText }]}>+</Text>
         </TouchableOpacity>
       </View>
 
+      {/* ---- PL-3: Rest day link — only when no sets logged yet ---- */}
+      {totalSets === 0 && !isLoading && !restDayLogged && (
+        <TouchableOpacity
+          onPress={handleLogRestDay}
+          style={[styles.restDayLink, { marginTop: spacing.s2 }]}
+          accessibilityRole="button"
+          accessibilityLabel="Log rest day"
+        >
+          <Text style={[styles.restDayText, { color: theme.colors.textTertiary, fontSize: fontSize.bodySm }]}>
+            Taking a rest day?{' '}
+            <Text style={{ color: theme.colors.accentDefault }}>Log it →</Text>
+          </Text>
+        </TouchableOpacity>
+      )}
+
+      {/* Rest day success message */}
+      {restDayLogged && (
+        <View style={[styles.restDaySuccess, { backgroundColor: theme.colors.bgElevated }]}>
+          <Text style={[{ color: theme.colors.accentDefault, fontSize: fontSize.bodySm, textAlign: 'center' }]}>
+            Rest day logged! Redirecting…
+          </Text>
+        </View>
+      )}
+
       {/* ---- Error banner (no manual retry — PowerSync reconnects automatically) ---- */}
       {errorMessage ? (
-        <View style={styles.errorBanner}>
-          <Text style={styles.errorBannerText}>{errorMessage}</Text>
+        <View style={[
+          styles.errorBanner,
+          {
+            backgroundColor: theme.colors.statusError + '22',
+            borderBottomColor: theme.colors.statusError,
+          },
+        ]}>
+          <Text style={[styles.errorBannerText, { color: theme.colors.statusError }]}>{errorMessage}</Text>
         </View>
       ) : null}
 
-      {/* ---- B. Set list ---- */}
+      {/* ---- C. Set list ---- */}
       {isLoading ? (
         <View style={styles.centered}>
-          <ActivityIndicator size="large" color="#818cf8" />
-          <Text style={styles.loadingText}>Loading workout…</Text>
+          <ActivityIndicator size="large" color={theme.colors.accentDefault} />
+          <Text style={[styles.loadingText, { color: theme.colors.textTertiary }]}>Loading workout…</Text>
         </View>
       ) : groups.length === 0 ? (
         <View style={styles.emptyState}>
-          <Text style={styles.emptyStateTitle}>No sets yet</Text>
-          <Text style={styles.emptyStateSubtitle}>
+          <Text style={[styles.emptyStateTitle, { color: theme.colors.textPrimary }]}>No sets yet</Text>
+          <Text style={[styles.emptyStateSubtitle, { color: theme.colors.textTertiary }]}>
             Tap + to log your first set
           </Text>
+          {/* P1-001c: Add Exercise dashed card in empty state */}
+          <TouchableOpacity
+            onPress={() => setPickerVisible(true)}
+            style={{
+              borderWidth: 1.5,
+              borderStyle: 'dashed',
+              borderColor: theme.colors.borderDefault,
+              borderRadius: radius.md,
+              padding: spacing.s4,
+              alignItems: 'center',
+              marginTop: spacing.s3,
+              marginHorizontal: spacing.s4,
+              width: '100%',
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Add exercise"
+          >
+            <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodyMd }}>+ Add Exercise</Text>
+          </TouchableOpacity>
+          {/* P2-002: Browse Exercise Library shortcut */}
+          <Pressable
+            onPress={() => router.push('/exercise-library')}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingVertical: spacing.s2,
+              paddingHorizontal: spacing.s1,
+              alignSelf: 'flex-start',
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Browse exercise library"
+          >
+            <Ionicons name="library-outline" size={15} color={theme.colors.accentDefault} />
+            <Text
+              style={{
+                fontSize: fontSize.bodySm,
+                color: theme.colors.accentDefault,
+                marginLeft: spacing.s1,
+                fontWeight: fontWeight.medium,
+              }}
+            >
+              Browse Library
+            </Text>
+          </Pressable>
         </View>
       ) : (
         <ScrollView
@@ -435,18 +783,64 @@ export default function LogScreen(): React.ReactElement {
               onDelete={handleDeleteSet}
             />
           ))}
+
+          {/* P1-001c: Add Exercise dashed card at bottom of set list */}
+          <TouchableOpacity
+            onPress={() => setPickerVisible(true)}
+            style={{
+              borderWidth: 1.5,
+              borderStyle: 'dashed',
+              borderColor: theme.colors.borderDefault,
+              borderRadius: radius.md,
+              padding: spacing.s4,
+              alignItems: 'center',
+              marginTop: spacing.s3,
+              marginHorizontal: spacing.s4,
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Add exercise"
+          >
+            <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodyMd }}>+ Add Exercise</Text>
+          </TouchableOpacity>
+          {/* P2-002: Browse Exercise Library shortcut */}
+          <Pressable
+            onPress={() => router.push('/exercise-library')}
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              paddingVertical: spacing.s2,
+              paddingHorizontal: spacing.s1,
+              alignSelf: 'flex-start',
+              marginHorizontal: spacing.s4,
+            }}
+            accessibilityRole="button"
+            accessibilityLabel="Browse exercise library"
+          >
+            <Ionicons name="library-outline" size={15} color={theme.colors.accentDefault} />
+            <Text
+              style={{
+                fontSize: fontSize.bodySm,
+                color: theme.colors.accentDefault,
+                marginLeft: spacing.s1,
+                fontWeight: fontWeight.medium,
+              }}
+            >
+              Browse Library
+            </Text>
+          </Pressable>
+
           <View style={styles.bottomPad} />
         </ScrollView>
       )}
 
-      {/* ---- C. Exercise picker modal ---- */}
+      {/* ---- D. Exercise picker modal ---- */}
       <ExercisePicker
         visible={pickerVisible}
         onSelect={handleExerciseSelect}
         onClose={() => setPickerVisible(false)}
       />
 
-      {/* ---- D. Set entry form modal ---- */}
+      {/* ---- E. Set entry form modal ---- */}
       {selectedExercise && workout ? (
         <SetEntryForm
           exercise={selectedExercise}
@@ -458,47 +852,70 @@ export default function LogScreen(): React.ReactElement {
           onSubmit={handleSubmitSet}
         />
       ) : null}
+
+      {/* ---- F. Rest timer banner (P1-001b) ---- */}
+      {restSecondsLeft !== null && (
+        <View style={[styles.restTimerBanner, { backgroundColor: theme.colors.bgElevated }]}>
+          <Text style={[styles.restTimerText, { color: theme.colors.accentDefault, fontVariant: ['tabular-nums'] }]}>
+            Rest: {formatElapsed(restSecondsLeft)}
+          </Text>
+          <TouchableOpacity
+            onPress={() => setRestSecondsLeft(null)}
+            style={styles.restTimerDismiss}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss rest timer"
+          >
+            <Text style={[styles.restTimerDismissText, { color: theme.colors.textTertiary }]}>×</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
+    </ScreenLayout>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Styles
+// Styles — layout only, no color values
 // ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f172a',
   },
   workoutHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: spacing.s5,
     paddingTop: 20,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#1e293b',
     gap: 10,
   },
   workoutHeaderText: {
     flex: 1,
-    gap: 4,
+    gap: 2,
+  },
+  headerMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   dateLabel: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#f8fafc',
+    fontSize: fontSize.bodyLg,
+    fontWeight: fontWeight.bold,
   },
   setCountLabel: {
-    fontSize: 14,
-    color: '#64748b',
+    fontSize: fontSize.bodySm,
+  },
+  // P1-001a: elapsed timer inline with set count
+  elapsedTimer: {
+    fontSize: fontSize.bodySm,
+    fontWeight: fontWeight.medium,
   },
   addButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#4f46e5',
+    width: 40,
+    height: 40,
+    borderRadius: radius.full,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -506,47 +923,53 @@ const styles = StyleSheet.create({
     opacity: 0.4,
   },
   addButtonText: {
-    fontSize: 24,
-    fontWeight: '300',
-    color: '#fff',
-    lineHeight: 28,
+    fontSize: 22,
+    lineHeight: 26,
+    fontWeight: fontWeight.bold,
+  },
+  // PL-3: Rest day link
+  restDayLink: {
+    alignSelf: 'center',
+  },
+  restDayText: {
+    textAlign: 'center',
+  },
+  restDaySuccess: {
+    marginHorizontal: spacing.s4,
+    marginTop: spacing.s2,
+    padding: spacing.s3,
+    borderRadius: radius.md,
   },
   errorBanner: {
-    backgroundColor: '#450a0a',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: spacing.s4,
+    paddingVertical: spacing.s3,
     borderBottomWidth: 1,
-    borderBottomColor: '#7f1d1d',
   },
   errorBannerText: {
-    fontSize: 14,
-    color: '#fca5a5',
+    fontSize: fontSize.bodySm,
   },
   centered: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 16,
+    gap: 12,
   },
   loadingText: {
-    fontSize: 14,
-    color: '#64748b',
+    fontSize: fontSize.bodySm,
   },
   emptyState: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 32,
-    gap: 10,
+    paddingHorizontal: spacing.s5,
+    gap: 8,
   },
   emptyStateTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#f8fafc',
+    fontSize: fontSize.bodyLg,
+    fontWeight: fontWeight.bold,
   },
   emptyStateSubtitle: {
-    fontSize: 15,
-    color: '#64748b',
+    fontSize: fontSize.bodySm,
     textAlign: 'center',
   },
   setList: {
@@ -554,8 +977,38 @@ const styles = StyleSheet.create({
   },
   setListContent: {
     paddingTop: 16,
+    paddingBottom: 32,
   },
   bottomPad: {
-    height: 32,
+    height: 100,
+  },
+  // P1-001b: Rest timer banner — fixed at bottom above tab bar
+  restTimerBanner: {
+    position: 'absolute',
+    bottom: 90, // above tab bar (~49px) with clearance
+    left: spacing.s4,
+    right: spacing.s4,
+    borderRadius: radius.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.s4,
+    paddingVertical: spacing.s3,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 6,
+  },
+  restTimerText: {
+    fontSize: fontSize.bodyMd,
+    fontWeight: fontWeight.bold,
+  },
+  restTimerDismiss: {
+    padding: spacing.s2,
+  },
+  restTimerDismissText: {
+    fontSize: 20,
+    lineHeight: 24,
   },
 });

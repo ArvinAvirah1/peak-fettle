@@ -6,15 +6,17 @@
  */
 
 import { Stack } from 'expo-router';
+import { useTheme } from '../../src/theme/ThemeContext';
 
 export default function AuthLayout(): React.ReactElement {
+  const { theme, fontWeight } = useTheme();
   return (
     <Stack
       screenOptions={{
-        headerStyle: { backgroundColor: '#0f172a' },
-        headerTintColor: '#f8fafc',
-        headerTitleStyle: { fontWeight: '700' },
-        contentStyle: { backgroundColor: '#0f172a' },
+        headerStyle: { backgroundColor: theme.colors.bgPrimary },
+        headerTintColor: theme.colors.textPrimary,
+        headerTitleStyle: { fontWeight: fontWeight.bold },  // E-003: was '700'
+        contentStyle: { backgroundColor: theme.colors.bgPrimary },
       }}
     >
       <Stack.Screen name="login" options={{ title: 'Sign In', headerShown: false }} />

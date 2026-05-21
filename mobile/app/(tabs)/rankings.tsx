@@ -23,9 +23,13 @@
  * Toggle lives in Settings (use_1rm_confirmation). Default: Option B.
  *
  * Implemented in TICKET-019; updated in TICKET-033, TICKET-039, TICKET-041.
+ *
+ * P2-005: Root SafeAreaView replaced with ScreenLayout.
+ * P2-006: TextInput in ConfirmSheet replaced with PFInput.
+ * P2-007: Reanimated spring slide-up on ConfirmSheet open.
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -34,11 +38,15 @@ import {
   TouchableOpacity,
   RefreshControl,
   Modal,
-  TextInput,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from 'react-native-reanimated';
 import { usePercentile } from '../../src/hooks/usePercentile';
 import { useAuth } from '../../src/hooks/useAuth';
 import { PercentileBar } from '../../src/components/PercentileBar';
@@ -46,6 +54,13 @@ import { ConfidenceRing, confidenceRingTooltip } from '../../src/components/Conf
 import { confirm1rm } from '../../src/api/percentile';
 import { liftIdToName } from '../../src/utils/liftNames';
 import { PercentileRanking } from '../../src/types/api';
+import { useTheme } from '../../src/theme/ThemeContext';
+import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
+import { haptics } from '../../src/utils/haptics';
+import { PFProgressRing } from '../../src/components/ui/PFProgress';
+import { PressableCard, ScreenLayout, PFInput } from '../../src/components/ui';
+import { GlossaryTerm } from '../../src/components/Tooltip';
+import { useReduceMotion } from '../../src/hooks/useReduceMotion';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -69,10 +84,10 @@ function topPercentLabel(percentile: number): string {
   return `Top ${top}%`;
 }
 
-function percentileColor(percentile: number): string {
-  if (percentile >= 75) return '#22c55e';
-  if (percentile >= 40) return '#f59e0b';
-  return '#ef4444';
+function percentileColorToken(percentile: number, theme: any): string {
+  if (percentile >= 75) return theme.colors.statusSuccess;
+  if (percentile >= 50) return theme.colors.accentDefault;
+  return theme.colors.textTertiary;
 }
 
 // ---------------------------------------------------------------------------
@@ -88,6 +103,8 @@ function formatKg(kg: number): string {
 // ---------------------------------------------------------------------------
 // ConfirmSheet — bottom sheet modal for confirming/overriding the Epley estimate
 // (Option C flow — TICKET-041)
+// P2-006: TextInput → PFInput
+// P2-007: Reanimated spring slide-up on open
 // ---------------------------------------------------------------------------
 
 interface ConfirmSheetProps {
@@ -105,20 +122,34 @@ function ConfirmSheet({
   onConfirm,
   onClose,
 }: ConfirmSheetProps): React.ReactElement {
+  const { theme } = useTheme();
+  const reduceMotion = useReduceMotion();
   const defaultValue =
     epleyEstimateKg != null ? formatKg(epleyEstimateKg) : '';
   const [inputValue, setInputValue] = useState(defaultValue);
   const [isSaving, setIsSaving] = useState(false);
   const [savedOk, setSavedOk] = useState(false);
 
-  // Reset state when the sheet opens for a new lift
-  React.useEffect(() => {
+  // P2-007: spring slide-up animation shared value
+  const translateY = useSharedValue(400);
+
+  // Reset state + trigger spring animation when the sheet opens for a new lift
+  useEffect(() => {
     if (visible) {
       setInputValue(epleyEstimateKg != null ? formatKg(epleyEstimateKg) : '');
       setIsSaving(false);
       setSavedOk(false);
+      // Animate in: reset to bottom, then spring to 0
+      translateY.value = 400;
+      translateY.value = reduceMotion
+        ? 0
+        : withSpring(0, { damping: 22, stiffness: 220 });
     }
-  }, [visible, epleyEstimateKg]);
+  }, [visible, epleyEstimateKg, reduceMotion]);
+
+  const sheetAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+  }));
 
   const handleConfirm = useCallback(async () => {
     const kg = parseFloat(inputValue.replace(',', '.'));
@@ -127,9 +158,11 @@ function ConfirmSheet({
     try {
       await onConfirm(kg);
       setSavedOk(true);
+      haptics.success(); // E-006: confirmed 1RM is a high-signal user commitment
       // Auto-close after a short success flash
-      setTimeout(() => onClose(), 1400);
+      setTimeout(() => onClose(), 2000);
     } catch {
+      haptics.error(); // E-006: save failure
       setIsSaving(false);
     }
   }, [inputValue, onConfirm, onClose]);
@@ -142,82 +175,98 @@ function ConfirmSheet({
   return (
     <Modal
       visible={visible}
-      animationType="slide"
+      animationType="none"
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <KeyboardAvoidingView
-        style={confirmSheetStyles.root}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        {/* Handle */}
-        <View style={confirmSheetStyles.handle} />
+      {/* P2-007: Animated.View provides the spring slide-up entry */}
+      <Animated.View style={[{ flex: 1 }, sheetAnimStyle]}>
+        <KeyboardAvoidingView
+          style={[confirmSheetStyles.root, { backgroundColor: theme.colors.bgPrimary }]}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          {/* Drag handle */}
+          <View style={[confirmSheetStyles.handle, { backgroundColor: theme.colors.borderDefault }]} />
 
-        <Text style={confirmSheetStyles.title}>Confirm your max — {liftName}</Text>
+          <Text style={[confirmSheetStyles.title, { color: theme.colors.textPrimary }]}>Confirm your max — {liftName}</Text>
 
-        {savedOk ? (
-          <View style={confirmSheetStyles.savedRow}>
-            <Text style={confirmSheetStyles.savedText}>
-              ✓ Saved. Your ranking updates on the next weekly run.
-            </Text>
-          </View>
-        ) : (
-          <>
-            <Text style={confirmSheetStyles.body}>
-              We estimated your 1-rep max from your logged sets. Adjust if it
-              doesn't match your actual max — your ranking will use this value
-              from the next weekly update.
-            </Text>
-
-            {epleyEstimateKg != null && (
-              <Text style={confirmSheetStyles.estimate}>
-                Our estimate: {formatKg(epleyEstimateKg)} kg
+          {savedOk ? (
+            <View style={[
+              confirmSheetStyles.savedRow,
+              { backgroundColor: theme.colors.statusSuccess + '18', borderColor: theme.colors.statusSuccess + '60' },
+            ]}>
+              <Text style={[confirmSheetStyles.savedText, { color: theme.colors.statusSuccess }]}>
+                ✓ Saved. Your ranking updates on the next weekly run.
               </Text>
-            )}
-
-            <View style={confirmSheetStyles.inputRow}>
-              <TextInput
-                style={confirmSheetStyles.input}
-                value={inputValue}
-                onChangeText={setInputValue}
-                keyboardType="decimal-pad"
-                placeholder="e.g. 120"
-                placeholderTextColor="#475569"
-                returnKeyType="done"
-                onSubmitEditing={isValid ? handleConfirm : undefined}
-                accessibilityLabel="Confirmed 1-rep max in kg"
-              />
-              <Text style={confirmSheetStyles.kgLabel}>kg</Text>
+              <TouchableOpacity
+                style={[confirmSheetStyles.doneButton, { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault }]}
+                onPress={onClose}
+                accessibilityRole="button"
+                accessibilityLabel="Dismiss"
+              >
+                <Text style={[confirmSheetStyles.doneButtonText, { color: theme.colors.textPrimary }]}>Done</Text>
+              </TouchableOpacity>
             </View>
+          ) : (
+            <>
+              <Text style={[confirmSheetStyles.body, { color: theme.colors.textTertiary }]}>
+                We estimated your 1-rep max from your logged sets. Adjust if it
+                doesn't match your actual max — your ranking will use this value
+                from the next weekly update.
+              </Text>
 
-            <TouchableOpacity
-              style={[
-                confirmSheetStyles.confirmButton,
-                (!isValid || isSaving) && confirmSheetStyles.confirmButtonDisabled,
-              ]}
-              onPress={handleConfirm}
-              disabled={!isValid || isSaving}
-              accessibilityRole="button"
-              accessibilityLabel="Confirm this 1RM"
-            >
-              {isSaving ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <Text style={confirmSheetStyles.confirmButtonText}>Confirm</Text>
+              {epleyEstimateKg != null && (
+                <Text style={[confirmSheetStyles.estimate, { color: theme.colors.textSecondary }]}>
+                  Our estimate: {formatKg(epleyEstimateKg)} kg
+                </Text>
               )}
-            </TouchableOpacity>
 
-            <TouchableOpacity
-              style={confirmSheetStyles.cancelButton}
-              onPress={onClose}
-              disabled={isSaving}
-              accessibilityRole="button"
-            >
-              <Text style={confirmSheetStyles.cancelText}>Cancel</Text>
-            </TouchableOpacity>
-          </>
-        )}
-      </KeyboardAvoidingView>
+              {/* P2-006: PFInput replaces raw TextInput */}
+              <View style={confirmSheetStyles.inputRow}>
+                <View style={{ flex: 1 }}>
+                  <PFInput
+                    value={inputValue}
+                    onChangeText={setInputValue}
+                    keyboardType="decimal-pad"
+                    placeholder="e.g. 120"
+                    returnKeyType="done"
+                    onSubmitEditing={isValid ? handleConfirm : undefined}
+                    accessibilityLabel="Confirmed 1-rep max in kg"
+                  />
+                </View>
+                <Text style={[confirmSheetStyles.kgLabel, { color: theme.colors.textTertiary }]}>kg</Text>
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  confirmSheetStyles.confirmButton,
+                  { backgroundColor: theme.colors.accentDefault },
+                  (!isValid || isSaving) && confirmSheetStyles.confirmButtonDisabled,
+                ]}
+                onPress={handleConfirm}
+                disabled={!isValid || isSaving}
+                accessibilityRole="button"
+                accessibilityLabel="Confirm this 1RM"
+              >
+                {isSaving ? (
+                  <ActivityIndicator color={theme.components.buttonPrimaryText} />
+                ) : (
+                  <Text style={[confirmSheetStyles.confirmButtonText, { color: theme.components.buttonPrimaryText }]}>Confirm</Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={confirmSheetStyles.cancelButton}
+                onPress={onClose}
+                disabled={isSaving}
+                accessibilityRole="button"
+              >
+                <Text style={[confirmSheetStyles.cancelText, { color: theme.colors.textTertiary }]}>Cancel</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </KeyboardAvoidingView>
+      </Animated.View>
     </Modal>
   );
 }
@@ -225,21 +274,23 @@ function ConfirmSheet({
 /**
  * ScoreBlock — one percentile score with its label, bar, and "Top X%" badge.
  * Renders a "Pending" pill when the value is null (batch job hasn't run yet).
+ * label accepts ReactNode so GlossaryTerm wrappers can be embedded inline.
  */
 function ScoreBlock({
   value,
   label,
 }: {
   value: number | null;
-  label: string;
+  label: React.ReactNode;
 }): React.ReactElement {
+  const { theme } = useTheme();
   return (
     <View style={styles.scoreBlock}>
-      <Text style={styles.scoreLabel}>{label}</Text>
+      <Text style={[styles.scoreLabel, { color: theme.colors.textTertiary }]}>{label}</Text>
       {value !== null ? (
         <>
           <View style={styles.scoreBadgeRow}>
-            <Text style={[styles.scoreBadge, { color: percentileColor(value) }]}>
+            <Text style={[styles.scoreBadge, { color: percentileColorToken(value, theme), fontVariant: ['tabular-nums'] }]}>
               {topPercentLabel(value)}
             </Text>
           </View>
@@ -248,8 +299,8 @@ function ScoreBlock({
           </View>
         </>
       ) : (
-        <View style={styles.pendingPill}>
-          <Text style={styles.pendingText}>Pending weekly update</Text>
+        <View style={[styles.pendingPill, { backgroundColor: theme.colors.bgPrimary }]}>
+          <Text style={[styles.pendingText, { color: theme.colors.textTertiary }]}>Pending weekly update</Text>
         </View>
       )}
     </View>
@@ -278,6 +329,7 @@ function RankingCard({
   locallyConfirmed: boolean;
   onConfirmRequest: (ranking: PercentileRanking) => void;
 }): React.ReactElement {
+  const { theme } = useTheme();
   const liftName = liftIdToName(ranking.lift_id);
   const updatedText = ranking.computed_at
     ? `Last updated ${formatComputedAt(ranking.computed_at)}`
@@ -294,32 +346,41 @@ function RankingCard({
   const showPendingNote = use1rmConfirmation && locallyConfirmed;
 
   return (
-    <View style={styles.card}>
+    <PressableCard style={[
+      styles.card,
+      { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
+    ]}>
       {/* Card header: lift name */}
-      <Text style={styles.liftName}>{liftName}</Text>
+      <Text style={[styles.liftName, { color: theme.colors.textPrimary }]}>{liftName}</Text>
 
       {showConfirmState ? (
         /* ── Option C: Confirm your max ───────────────────────────── */
         <TouchableOpacity
-          style={styles.confirmCta}
+          style={[
+            styles.confirmCta,
+            { backgroundColor: theme.colors.accentSecondary, borderColor: theme.colors.accentDefault },
+          ]}
           onPress={() => onConfirmRequest(ranking)}
           accessibilityRole="button"
           accessibilityLabel={`Confirm your estimated max for ${liftName}`}
         >
           <View style={styles.confirmCtaInner}>
-            <Text style={styles.confirmCtaTitle}>Confirm your max</Text>
-            <Text style={styles.confirmCtaBody}>
+            <Text style={[styles.confirmCtaTitle, { color: theme.colors.accentHover }]}>Confirm your max</Text>
+            <Text style={[styles.confirmCtaBody, { color: theme.colors.textTertiary }]}>
               {ranking.epley_estimate_kg != null
                 ? `We estimated ${formatKg(ranking.epley_estimate_kg)} kg from your sets. Tap to confirm or adjust.`
                 : 'Tap to confirm your 1-rep max for this lift.'}
             </Text>
           </View>
-          <Text style={styles.confirmCtaChevron}>›</Text>
+          <Text style={[styles.confirmCtaChevron, { color: theme.colors.accentDefault }]}>›</Text>
         </TouchableOpacity>
       ) : showPendingNote ? (
         /* ── Option C: confirmed this session, awaiting next batch ── */
-        <View style={styles.pendingNextRunPill}>
-          <Text style={styles.pendingNextRunText}>
+        <View style={[
+          styles.pendingNextRunPill,
+          { backgroundColor: theme.colors.statusSuccess + '18', borderColor: theme.colors.statusSuccess + '60' },
+        ]}>
+          <Text style={[styles.pendingNextRunText, { color: theme.colors.statusSuccess }]}>
             ✓ Confirmed — ranking updates on the next weekly run
           </Text>
         </View>
@@ -328,14 +389,28 @@ function RankingCard({
         <View style={styles.scoresRow}>
           <ScoreBlock
             value={ranking.percentile}
-            label="vs. lifters at your level"
+            label={<GlossaryTerm slug="percentile">Percentile</GlossaryTerm>}
           />
-          <View style={styles.scoresDivider} />
+          <View style={[styles.scoresDivider, { backgroundColor: theme.colors.borderDefault }]} />
           <ScoreBlock
             value={ranking.percentile_simple}
             label="vs. all strength trainees"
           />
         </View>
+      )}
+
+      {/* OD-2: Wilks2 score — subtle caption below the score blocks */}
+      {ranking.wilks_score != null && (
+        <Text
+          style={{
+            fontSize: fontSize.caption,
+            color: theme.colors.textTertiary,
+            fontVariant: ['tabular-nums'],
+            marginTop: 2,
+          }}
+        >
+          Wilks2 {ranking.wilks_score.toFixed(1)}
+        </Text>
       )}
 
       {/* Footer: confidence ring + last updated */}
@@ -347,50 +422,123 @@ function RankingCard({
               size={32}
               strokeWidth={3}
             />
-            <Text style={styles.confidenceText} numberOfLines={2}>
-              {confidenceRingTooltip(ranking.cohort_size_internal)}
+            <Text style={[styles.confidenceText, { color: theme.colors.textTertiary, fontVariant: ['tabular-nums'] }]} numberOfLines={2}>
+              {/* UX-003: casual tooltip for non-strength disciplines */}
+              {/* TODO: expose primary_discipline on user object from useAuth() if not yet available */}
+              {(() => {
+                const NON_STRENGTH = ['Running', 'Cycling', 'Swimming', 'Other/Mixed'];
+                const discipline = (user as any)?.primary_discipline ?? null;
+                if (discipline && NON_STRENGTH.includes(discipline)) {
+                  return `Your score is based on ${ranking.cohort_size_internal} people like you.`;
+                }
+                return confidenceRingTooltip(ranking.cohort_size_internal);
+              })()}
             </Text>
           </View>
           {updatedText ? (
-            <Text style={styles.updatedText}>{updatedText}</Text>
+            <Text style={[styles.updatedText, { color: theme.colors.textTertiary }]}>{updatedText}</Text>
           ) : null}
         </View>
       )}
+    </PressableCard>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// PercentileRankHeroCard — P0-006 / Spec §6.7
+// Hero card showing the user's best-ranked lift with a large PFProgressRing.
+// Rendered at the top of the rankings list, above the per-lift cards.
+// ---------------------------------------------------------------------------
+
+function PercentileRankHeroCard({ rankings }: { rankings: PercentileRanking[] }): React.ReactElement | null {
+  const { theme, fontSize: fs, fontWeight: fw, spacing: sp, radius: r } = useTheme();
+  if (!rankings || rankings.length === 0) return null;
+
+  // Pick the ranking with the highest percentile value
+  const top = [...rankings].sort((a, b) => (b.percentile ?? 0) - (a.percentile ?? 0))[0];
+  if (!top || top.percentile == null) return null;
+
+  const pct = Math.round(top.percentile);
+  const topPct = 100 - pct; // "Top X%"
+
+  return (
+    <View style={{ alignItems: 'center', marginBottom: sp.s4 }}>
+      <View style={{
+        width: '82%',
+        backgroundColor: theme.colors.bgSecondary,
+        borderRadius: r.lg,
+        padding: sp.s5,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: theme.colors.borderDefault,
+      }}>
+        <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodySm, marginBottom: sp.s3 }}>
+          Top lift
+        </Text>
+        <PFProgressRing
+          value={top.percentile / 100}
+          size={140}
+          strokeWidth={10}
+          showGradient
+        />
+        <Text style={{
+          position: 'absolute',
+          fontSize: fs.metric,  // 40pt
+          fontWeight: fw.bold,
+          color: theme.colors.accentDefault,
+          // centered over the ring — s5 padding + ~50pt for label above ring
+          top: sp.s5 + 50,
+          fontVariant: ['tabular-nums'],
+        }}>
+          {pct}
+        </Text>
+        <Text style={{ color: theme.colors.textPrimary, fontSize: fs.bodyLg, fontWeight: fw.semibold, marginTop: sp.s3 }}>
+          {top.lift_name ?? liftIdToName(top.lift_id)}
+        </Text>
+        <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodySm, marginTop: sp.s1, fontVariant: ['tabular-nums'] }}>
+          Top {topPct}% of lifters
+        </Text>
+      </View>
     </View>
   );
 }
 
 function SkeletonCard(): React.ReactElement {
+  const { theme } = useTheme();
   return (
-    <View style={[styles.card, styles.skeletonCard]}>
+    <View style={[styles.card, styles.skeletonCard, { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault }]}>
       {/* Lift name placeholder */}
-      <View style={[styles.skeletonLine, { width: '50%', height: 16, marginBottom: 16 }]} />
+      <View style={[styles.skeletonLine, { width: '50%', height: 16, marginBottom: 16, backgroundColor: theme.colors.borderDefault }]} />
       {/* Two score columns */}
       <View style={styles.scoresRow}>
         <View style={{ flex: 1, gap: 8 }}>
-          <View style={[styles.skeletonLine, { width: '80%', height: 11 }]} />
-          <View style={[styles.skeletonLine, { width: '40%', height: 14 }]} />
-          <View style={[styles.skeletonLine, { width: '100%', height: 6, borderRadius: 99 }]} />
+          <View style={[styles.skeletonLine, { width: '80%', height: 11, backgroundColor: theme.colors.borderDefault }]} />
+          <View style={[styles.skeletonLine, { width: '40%', height: 14, backgroundColor: theme.colors.borderDefault }]} />
+          <View style={[styles.skeletonLine, { width: '100%', height: 6, borderRadius: radius.full, backgroundColor: theme.colors.borderDefault }]} />
         </View>
-        <View style={styles.scoresDivider} />
+        <View style={[styles.scoresDivider, { backgroundColor: theme.colors.borderDefault }]} />
         <View style={{ flex: 1, gap: 8 }}>
-          <View style={[styles.skeletonLine, { width: '80%', height: 11 }]} />
-          <View style={[styles.skeletonLine, { width: '40%', height: 14 }]} />
-          <View style={[styles.skeletonLine, { width: '100%', height: 6, borderRadius: 99 }]} />
+          <View style={[styles.skeletonLine, { width: '80%', height: 11, backgroundColor: theme.colors.borderDefault }]} />
+          <View style={[styles.skeletonLine, { width: '40%', height: 14, backgroundColor: theme.colors.borderDefault }]} />
+          <View style={[styles.skeletonLine, { width: '100%', height: 6, borderRadius: radius.full, backgroundColor: theme.colors.borderDefault }]} />
         </View>
       </View>
       {/* Footer */}
-      <View style={[styles.skeletonLine, { width: '35%', height: 11, marginTop: 12 }]} />
+      <View style={[styles.skeletonLine, { width: '35%', height: 11, marginTop: 12, backgroundColor: theme.colors.borderDefault }]} />
     </View>
   );
 }
 
 function EmptyState(): React.ReactElement {
+  const { theme } = useTheme();
   return (
     <View style={styles.emptyContainer}>
-      <Text style={styles.emptyTitle}>No rankings yet</Text>
-      <Text style={styles.emptySubtext}>
-        Log at least one workout and check back after the weekly update (every Monday)
+      <Text style={[styles.emptyTitle, { color: theme.colors.textPrimary }]}>No rankings yet</Text>
+      <Text style={[styles.emptySubtext, { color: theme.colors.textTertiary }]}>
+        Log at least one workout and check back after the weekly update (every Sunday night)
+      </Text>
+      <Text style={[styles.emptyAction, { color: theme.colors.textTertiary }]}>
+        Log 3 workouts to unlock your first ranking.
       </Text>
     </View>
   );
@@ -403,11 +551,20 @@ function ErrorBanner({
   message: string;
   onRetry: () => void;
 }): React.ReactElement {
+  const { theme } = useTheme();
   return (
-    <View style={styles.errorBanner}>
-      <Text style={styles.errorText}>{message}</Text>
-      <TouchableOpacity style={styles.retryButton} onPress={onRetry}>
-        <Text style={styles.retryButtonText}>Retry</Text>
+    <View style={[
+      styles.errorBanner,
+      { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.statusError },
+    ]}>
+      <Text style={[styles.errorText, { color: theme.colors.statusError }]}>{message}</Text>
+      <TouchableOpacity
+        style={[styles.retryButton, { backgroundColor: theme.colors.statusError }]}
+        onPress={onRetry}
+        accessibilityRole="button"
+        accessibilityLabel="Retry"
+      >
+        <Text style={[styles.retryButtonText, { color: theme.colors.textPrimary }]}>Retry</Text>
       </TouchableOpacity>
     </View>
   );
@@ -415,11 +572,14 @@ function ErrorBanner({
 
 // ---------------------------------------------------------------------------
 // Screen
+// P2-005: Root View → ScreenLayout (horizontalPadding={false} so the
+//          ScrollView's contentContainerStyle padding takes precedence)
 // ---------------------------------------------------------------------------
 
 export default function RankingsScreen(): React.ReactElement {
   const { response, isLoading, error, refetch } = usePercentile();
   const { user } = useAuth();
+  const { theme } = useTheme();
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const use1rmConfirmation = user?.use_1rm_confirmation ?? false;
@@ -465,14 +625,16 @@ export default function RankingsScreen(): React.ReactElement {
     : [];
 
   return (
-    <View style={styles.screen}>
+    // P2-005: ScreenLayout replaces the raw View + SafeAreaView.
+    // horizontalPadding={false} — scrollContent manages its own padding.
+    <ScreenLayout horizontalPadding={false}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
             onRefresh={handleRefresh}
-            tintColor="#64748b"
+            tintColor={theme.colors.textTertiary}
           />
         }
       >
@@ -480,10 +642,10 @@ export default function RankingsScreen(): React.ReactElement {
         {/* Header                                                            */}
         {/* ---------------------------------------------------------------- */}
         <View style={styles.header}>
-          <Text style={styles.title}>Your Rankings</Text>
-          <Text style={styles.subtitle}>{cohortNote}</Text>
-          <View style={styles.chip}>
-            <Text style={styles.chipText}>🕐 Updated weekly</Text>
+          <Text style={[styles.title, { color: theme.colors.textPrimary }]}>Your Rankings</Text>
+          <Text style={[styles.subtitle, { color: theme.colors.textTertiary }]}>{cohortNote}</Text>
+          <View style={[styles.chip, { backgroundColor: theme.colors.bgSecondary }]}>
+            <Text style={[styles.chipText, { color: theme.colors.textTertiary }]}>🕐 Updated weekly</Text>
           </View>
         </View>
 
@@ -491,10 +653,14 @@ export default function RankingsScreen(): React.ReactElement {
         {/* Option B banner — shown when any rankings used Epley estimates   */}
         {/* ---------------------------------------------------------------- */}
         {estimatedLiftNames.length > 0 && !isLoading && (
-          <View style={styles.estimatedBanner}>
-            <Text style={styles.estimatedBannerText}>
+          <View style={[
+            styles.estimatedBanner,
+            { backgroundColor: theme.colors.bgElevated, borderColor: theme.colors.statusWarning + '60' },
+          ]}>
+            {/* WCAG AA: use textPrimary/textSecondary, not accent, on bgElevated surfaces */}
+            <Text style={[styles.estimatedBannerText, { color: theme.colors.textPrimary }]}>
               Rankings for{' '}
-              <Text style={styles.estimatedBannerLifts}>
+              <Text style={[styles.estimatedBannerLifts, { color: theme.colors.textPrimary }]}>
                 {estimatedLiftNames.join(', ')}
               </Text>{' '}
               are based on an estimated max calculated from your logged sets.
@@ -531,17 +697,21 @@ export default function RankingsScreen(): React.ReactElement {
 
         {/* Rankings list */}
         {!isLoading && !error && rankings.length > 0 ? (
+          <>
+            {/* Hero card — highest-percentile lift (P0-006 / Spec §6.7) */}
+            <PercentileRankHeroCard rankings={rankings} />
           <View style={styles.listContainer}>
             {rankings.map((ranking) => (
               <RankingCard
                 key={ranking.lift_id}
                 ranking={ranking}
                 use1rmConfirmation={use1rmConfirmation}
-                locallyConfirmed={confirmedThisSession.has(ranking.lift_id)}
+                locallyConfirmed={confirmedThisSession.has(ranking.lift_id) || ranking.confirmed_1rm_kg != null}
                 onConfirmRequest={handleConfirmRequest}
               />
             ))}
           </View>
+          </>
         ) : null}
       </ScrollView>
 
@@ -555,19 +725,15 @@ export default function RankingsScreen(): React.ReactElement {
           onClose={() => setConfirmingRanking(null)}
         />
       )}
-    </View>
+    </ScreenLayout>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Styles
+// Styles — layout only, no color values
 // ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: '#0f172a',
-  },
   scrollContent: {
     padding: 20,
     paddingBottom: 40,
@@ -580,27 +746,23 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#f8fafc',
+    fontSize: fontSize.heading1,  // E-003: was 28
+    fontWeight: fontWeight.bold,  // E-003: was '700'
   },
   subtitle: {
-    fontSize: 14,
-    color: '#64748b',
+    fontSize: fontSize.bodySm,  // E-003: was 14
     lineHeight: 20,
   },
   chip: {
     alignSelf: 'flex-start',
-    backgroundColor: '#1e293b',
-    borderRadius: 20,
-    paddingHorizontal: 12,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.s3,
     paddingVertical: 4,
     marginTop: 4,
   },
   chipText: {
-    fontSize: 12,
-    color: '#64748b',
-    fontWeight: '500',
+    fontSize: fontSize.caption,  // E-003: was 12
+    fontWeight: fontWeight.medium,  // E-003: was '500'
   },
 
   // Card
@@ -608,16 +770,13 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   card: {
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: '#334155',
     padding: 16,
   },
   liftName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#f8fafc',
+    fontSize: fontSize.bodyMd,  // E-003: was 16
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
     marginBottom: 14,
   },
 
@@ -628,7 +787,6 @@ const styles = StyleSheet.create({
   },
   scoresDivider: {
     width: 1,
-    backgroundColor: '#334155',
     marginHorizontal: 14,
   },
   scoreBlock: {
@@ -636,17 +794,16 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   scoreLabel: {
-    fontSize: 11,
-    color: '#64748b',
-    fontWeight: '500',
+    fontSize: fontSize.caption,  // E-003: was 11
+    fontWeight: fontWeight.medium,  // E-003: was '500'
     lineHeight: 15,
   },
   scoreBadgeRow: {
     flexDirection: 'row',
   },
   scoreBadge: {
-    fontSize: 15,
-    fontWeight: '700',
+    fontSize: fontSize.bodyMd,  // E-003: was 15
+    fontWeight: fontWeight.bold,  // E-003: was '700'
   },
   barContainer: {
     // bar fills the scoreBlock column
@@ -655,16 +812,14 @@ const styles = StyleSheet.create({
   // Pending state (null percentile)
   pendingPill: {
     alignSelf: 'flex-start',
-    backgroundColor: '#0f172a',
-    borderRadius: 6,
-    paddingHorizontal: 8,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.s2,
     paddingVertical: 4,
     marginTop: 2,
   },
   pendingText: {
-    fontSize: 11,
-    color: '#475569',
-    fontWeight: '500',
+    fontSize: fontSize.caption,  // E-003: was 11
+    fontWeight: fontWeight.medium,  // E-003: was '500'
   },
 
   // Card footer — confidence ring + last updated (TICKET-039 / ROADMAP 1.6)
@@ -679,14 +834,12 @@ const styles = StyleSheet.create({
   },
   confidenceText: {
     flex: 1,
-    fontSize: 11,
-    color: '#64748b',
+    fontSize: fontSize.caption,  // E-003: was 11
     lineHeight: 16,
   },
 
   updatedText: {
-    fontSize: 12,
-    color: '#475569',
+    fontSize: fontSize.caption,  // E-003: was 12
   },
 
   // Skeleton
@@ -694,8 +847,7 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   skeletonLine: {
-    backgroundColor: '#334155',
-    borderRadius: 4,
+    borderRadius: radius.sm,
   },
 
   // Empty state
@@ -703,50 +855,42 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 64,
-    paddingHorizontal: 24,
+    paddingVertical: spacing.s16,
+    paddingHorizontal: spacing.s6,
     gap: 12,
   },
   emptyTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#f8fafc',
+    fontSize: fontSize.bodyLg,  // E-003: was 18
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
     textAlign: 'center',
   },
   emptySubtext: {
-    fontSize: 14,
-    color: '#64748b',
+    fontSize: fontSize.bodySm,  // E-003: was 14
     textAlign: 'center',
     lineHeight: 22,
   },
 
   // Option B estimated banner (TICKET-041)
   estimatedBanner: {
-    backgroundColor: '#1c1917',
-    borderRadius: 10,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: '#78350f',
     padding: 14,
     marginBottom: 12,
   },
   estimatedBannerText: {
-    fontSize: 13,
-    color: '#a78bfa',
+    fontSize: fontSize.bodySm,  // E-003: was 13
     lineHeight: 20,
   },
   estimatedBannerLifts: {
-    fontWeight: '600',
-    color: '#c4b5fd',
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
   },
 
   // Option C confirm CTA (TICKET-041)
   confirmCta: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1e1b4b',
-    borderRadius: 10,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: '#4338ca',
     padding: 14,
     gap: 10,
   },
@@ -755,164 +899,319 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   confirmCtaTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#a5b4fc',
+    fontSize: fontSize.bodyMd,  // E-003: was 15
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
   },
   confirmCtaBody: {
-    fontSize: 13,
-    color: '#64748b',
+    fontSize: fontSize.bodySm,  // E-003: was 13
     lineHeight: 19,
   },
   confirmCtaChevron: {
-    fontSize: 20,
-    color: '#4338ca',
+    fontSize: fontSize.heading3,  // E-003: was 20
   },
 
   // Option C: confirmed this session
   pendingNextRunPill: {
-    backgroundColor: '#052e16',
-    borderRadius: 8,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: '#166534',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    padding: 12,
+    marginTop: 4,
   },
   pendingNextRunText: {
-    fontSize: 13,
-    color: '#86efac',
-    lineHeight: 19,
+    fontSize: fontSize.bodySm,  // E-003: was 13
+    lineHeight: 20,
   },
 
-  // Error
+  // Empty action hint (UX-004)
+  emptyAction: {
+    fontSize: fontSize.bodySm,  // caption-level action prompt
+    textAlign: 'center',
+    lineHeight: 20,
+    marginTop: 4,
+  },
+
+  // Error banner
   errorBanner: {
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: '#ef4444',
-    padding: 16,
+    padding: 14,
     marginBottom: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
+    gap: 10,
   },
   errorText: {
-    fontSize: 14,
-    color: '#ef4444',
+    fontSize: fontSize.bodySm,  // E-003: was 14
     flex: 1,
   },
   retryButton: {
-    backgroundColor: '#ef4444',
-    borderRadius: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: spacing.s3,
+    paddingVertical: 6,
+    borderRadius: radius.sm,
+    alignSelf: 'flex-start',
   },
   retryButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#f8fafc',
+    fontSize: fontSize.bodySm,  // E-003: was 13
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
   },
 });
 
 // ---------------------------------------------------------------------------
-// ConfirmSheet styles (TICKET-041)
+// ConfirmSheet styles — layout only, no color values
 // ---------------------------------------------------------------------------
 
 const confirmSheetStyles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#0f172a',
-    paddingHorizontal: 24,
-    paddingBottom: 40,
+    paddingHorizontal: spacing.s5,
+    paddingBottom: spacing.s8,
   },
+  // P2-007: visual drag handle at top of the sheet
   handle: {
-    alignSelf: 'center',
     width: 40,
     height: 4,
-    borderRadius: 2,
-    backgroundColor: '#334155',
-    marginTop: 12,
-    marginBottom: 28,
+    borderRadius: radius.full,
+    alignSelf: 'center',
+    marginTop: 10,
+    marginBottom: 20,
   },
   title: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#f8fafc',
-    marginBottom: 16,
+    fontSize: fontSize.heading3,  // E-003: was 20
+    fontWeight: fontWeight.bold,  // E-003: was '700'
+    marginBottom: spacing.s3,
   },
   body: {
-    fontSize: 14,
-    color: '#64748b',
+    fontSize: fontSize.bodySm,  // E-003: was 14
     lineHeight: 22,
-    marginBottom: 16,
+    marginBottom: spacing.s3,
   },
   estimate: {
-    fontSize: 14,
-    color: '#94a3b8',
-    fontWeight: '500',
-    marginBottom: 20,
+    fontSize: fontSize.bodyMd,  // E-003: was 15
+    fontWeight: fontWeight.medium,
+    marginBottom: spacing.s4,
   },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    marginBottom: 20,
-  },
-  input: {
-    flex: 1,
-    backgroundColor: '#1e293b',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#334155',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#f8fafc',
+    gap: spacing.s2,
+    marginBottom: spacing.s4,
   },
   kgLabel: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#64748b',
+    fontSize: fontSize.bodyMd,
+    fontWeight: fontWeight.semibold,
+    paddingBottom: 2,
   },
   confirmButton: {
-    backgroundColor: '#4f46e5',
-    borderRadius: 12,
-    paddingVertical: 16,
+    borderRadius: radius.md,
+    paddingVertical: 14,
     alignItems: 'center',
-    marginBottom: 12,
+    justifyContent: 'center',
+    minHeight: 52,
+    marginBottom: spacing.s3,
   },
   confirmButtonDisabled: {
-    opacity: 0.5,
+    opacity: 0.45,
   },
   confirmButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#fff',
+    fontSize: fontSize.bodyMd,  // E-003: was 16
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
   },
   cancelButton: {
-    alignItems: 'center',
     paddingVertical: 12,
+    alignItems: 'center',
   },
   cancelText: {
-    fontSize: 15,
-    color: '#64748b',
-    fontWeight: '500',
+    fontSize: fontSize.bodyMd,  // E-003: was 15
   },
+  // Success state
   savedRow: {
-    backgroundColor: '#052e16',
-    borderRadius: 10,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: '#166534',
     padding: 16,
-    marginTop: 8,
+    gap: spacing.s3,
+    marginTop: spacing.s4,
   },
   savedText: {
-    fontSize: 15,
-    color: '#86efac',
-    fontWeight: '500',
+    fontSize: fontSize.bodyMd,
     lineHeight: 22,
+  },
+  doneButton: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    paddingVertical: 10,
+    paddingHorizontal: spacing.s4,
+    alignSelf: 'flex-start',
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  doneButtonText: {
+    fontSize: fontSize.bodyMd,
+    fontWeight: fontWeight.medium,
+  },
+});
+    lineHeight: 20,
+  },
+  estimatedBannerLifts: {
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
+  },
+
+  // Option C confirm CTA (TICKET-041)
+  confirmCta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: radius.md,
+    borderWidth: 1,
+    padding: 14,
+    gap: 10,
+  },
+  confirmCtaInner: {
+    flex: 1,
+    gap: 4,
+  },
+  confirmCtaTitle: {
+    fontSize: fontSize.bodyMd,  // E-003: was 15
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
+  },
+  confirmCtaBody: {
+    fontSize: fontSize.bodySm,  // E-003: was 13
+    lineHeight: 19,
+  },
+  confirmCtaChevron: {
+    fontSize: fontSize.heading3,  // E-003: was 20
+  },
+
+  // Option C: confirmed this session
+  pendingNextRunPill: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    padding: 12,
+    marginTop: 4,
+  },
+  pendingNextRunText: {
+    fontSize: fontSize.bodySm,  // E-003: was 13
+    lineHeight: 20,
+  },
+
+  // Empty action hint (UX-004)
+  emptyAction: {
+    fontSize: fontSize.bodySm,  // caption-level action prompt
     textAlign: 'center',
+    lineHeight: 20,
+    marginTop: 4,
+  },
+
+  // Error banner
+  errorBanner: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    padding: 14,
+    marginBottom: 12,
+    gap: 10,
+  },
+  errorText: {
+    fontSize: fontSize.bodySm,  // E-003: was 14
+    flex: 1,
+  },
+  retryButton: {
+    paddingHorizontal: spacing.s3,
+    paddingVertical: 6,
+    borderRadius: radius.sm,
+    alignSelf: 'flex-start',
+  },
+  retryButtonText: {
+    fontSize: fontSize.bodySm,  // E-003: was 13
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
+  },
+});
+
+// ---------------------------------------------------------------------------
+// ConfirmSheet styles — layout only, no color values
+// ---------------------------------------------------------------------------
+
+const confirmSheetStyles = StyleSheet.create({
+  root: {
+    flex: 1,
+    paddingHorizontal: spacing.s5,
+    paddingBottom: spacing.s8,
+  },
+  // P2-007: visual drag handle at top of the sheet
+  handle: {
+    width: 40,
+    height: 4,
+    borderRadius: radius.full,
+    alignSelf: 'center',
+    marginTop: 10,
+    marginBottom: 20,
+  },
+  title: {
+    fontSize: fontSize.heading3,  // E-003: was 20
+    fontWeight: fontWeight.bold,  // E-003: was '700'
+    marginBottom: spacing.s3,
+  },
+  body: {
+    fontSize: fontSize.bodySm,  // E-003: was 14
+    lineHeight: 22,
+    marginBottom: spacing.s3,
+  },
+  estimate: {
+    fontSize: fontSize.bodyMd,  // E-003: was 15
+    fontWeight: fontWeight.medium,
+    marginBottom: spacing.s4,
+  },
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s2,
+    marginBottom: spacing.s4,
+  },
+  kgLabel: {
+    fontSize: fontSize.bodyMd,
+    fontWeight: fontWeight.semibold,
+    paddingBottom: 2,
+  },
+  confirmButton: {
+    borderRadius: radius.md,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 52,
+    marginBottom: spacing.s3,
+  },
+  confirmButtonDisabled: {
+    opacity: 0.45,
+  },
+  confirmButtonText: {
+    fontSize: fontSize.bodyMd,  // E-003: was 16
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
+  },
+  cancelButton: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  cancelText: {
+    fontSize: fontSize.bodyMd,  // E-003: was 15
+  },
+  // Success state
+  savedRow: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    padding: 16,
+    gap: spacing.s3,
+    marginTop: spacing.s4,
+  },
+  savedText: {
+    fontSize: fontSize.bodyMd,
+    lineHeight: 22,
+  },
+  doneButton: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    paddingVertical: 10,
+    paddingHorizontal: spacing.s4,
+    alignSelf: 'flex-start',
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  doneButtonText: {
+    fontSize: fontSize.bodyMd,
+    fontWeight: fontWeight.medium,
   },
 });

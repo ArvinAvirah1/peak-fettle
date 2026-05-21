@@ -56,3 +56,23 @@ export async function generatePlan(): Promise<GeneratePlanResponse> {
 export async function deletePlan(id: string): Promise<void> {
   await apiClient.delete(`/plans/${id}`);
 }
+
+/**
+ * Mark one user-owned plan as active (the currently-followed program).
+ * PLANS-001 (2026-05-19): the server transactionally deactivates any other
+ * active plan for the same user, so the at-most-one constraint always holds.
+ *
+ * @throws 404 if the plan is a template or does not belong to the caller.
+ */
+export async function activatePlan(id: string): Promise<Plan> {
+  const response = await apiClient.post<Plan>(`/plans/${id}/activate`);
+  return response.data;
+}
+
+/**
+ * Clear the active plan (step away from any followed program).
+ * Idempotent — no-ops if no plan is currently active.
+ */
+export async function deactivateAllPlans(): Promise<void> {
+  await apiClient.post('/plans/deactivate');
+}

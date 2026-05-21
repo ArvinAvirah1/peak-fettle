@@ -64,6 +64,12 @@ class UserProfile : public QObject {
     Q_PROPERTY(QString displayName      READ displayName      WRITE setDisplayName      NOTIFY profileChanged)
     Q_PROPERTY(int     avatarColorIndex READ avatarColorIndex WRITE setAvatarColorIndex NOTIFY profileChanged)
 
+    // Workout split (advisory — does not affect the percentile model).
+    // workoutSplit: "" | "ppl" | "ul" | "other"
+    // customSplitName: free-text name when split == "other" (max 48 chars)
+    Q_PROPERTY(QString workoutSplit     READ workoutSplit     WRITE setWorkoutSplit     NOTIFY profileChanged)
+    Q_PROPERTY(QString customSplitName  READ customSplitName  WRITE setCustomSplitName  NOTIFY profileChanged)
+
     // Convenience flag the survey/onboarding gate binds against. True once
     // the user has filled the four required fields (bodyweight + age + sex +
     // years; target frequency defaults to 3 if unset and is not strictly
@@ -83,6 +89,8 @@ public:
     double  bodyweightKg()          const { return m_bodyweightKg; }
     QString displayName()           const { return m_displayName; }
     int     avatarColorIndex()      const { return static_cast<int>(m_avatarColorIndex); }
+    QString workoutSplit()          const { return m_workoutSplit; }
+    QString customSplitName()       const { return m_customSplitName; }
 
     bool    isComplete()            const;
 
@@ -93,6 +101,8 @@ public:
     void setBodyweightKg(double v);
     void setDisplayName(const QString &v);
     void setAvatarColorIndex(int v);
+    void setWorkoutSplit(const QString &v);
+    void setCustomSplitName(const QString &v);
 
     // Convenience: clear everything (used by SettingsPage "Reset profile").
     Q_INVOKABLE void reset();
@@ -111,6 +121,10 @@ private:
     // Avatar fields (cosmetic — do not affect isComplete()).
     QString m_displayName;                    // optional, max 32 chars
     quint8  m_avatarColorIndex      = 0;     // 0..7 into QML palette
+
+    // Workout split (advisory).
+    QString m_workoutSplit;                   // "" | "ppl" | "ul" | "other"
+    QString m_customSplitName;               // user label when split == "other"
 
     QSettings m_settings;
 

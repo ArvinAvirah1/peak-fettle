@@ -29,7 +29,16 @@ bucket_definitions:
       - select * from sets     where user_id = bucket.user_id
 
       # User's own plans only; global templates live in global_library bucket
-      - select * from plans where user_id = bucket.user_id
+      # is_active added by migration 20260515_plans_active.sql
+      - select id, user_id, name, is_template, is_ai_generated, is_active,
+               structure, created_at, updated_at
+          from plans where user_id = bucket.user_id
+
+      # user_constraints — PK is constraint_id; alias as id for PowerSync
+      - select constraint_id as id,
+               user_id, constraint_type, custom_note, created_at
+          from user_constraints
+         where user_id = bucket.user_id
 
       # streaks: PK is user_id (no id column) — alias user_id as id
       - select user_id         as id,
@@ -109,11 +118,20 @@ bucket_definitions:
     parameters: select 1 as singleton
     data:
       # Exercise library — both have id UUID PK
-      - select * from exercises       where 1 = bucket.singleton
+      - select * from exercises        where 1 = bucket.singleton
       - select * from exercise_aliases where 1 = bucket.singleton
 
       # Global template plans (is_template = true, user_id IS NULL)
       # Separated from user_private to avoid OR across different parameter sets
-      - select * from plans
+      - select id, user_id, name, is_template, is_ai_generated, is_active,
+               structure, created_at, updated_at
+          from plans
          where is_template = true
            and 1 = bucket.singleton
+
+      # Percentile vectors — batch-computed weekly; read-only on client.
+      # All devices receive the full table (~few hundred rows after cohort pruning).
+      - select id, exercise_id, sex, age_band, weight_class_kg,
+               years_band, distribution, sample_size, computed_at
+          from percentile_vectors
+         where 1 = bucket.singleton

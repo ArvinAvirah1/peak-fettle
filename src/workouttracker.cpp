@@ -2,6 +2,7 @@
 
 #include <QVariantMap>
 #include <QMap>
+#include <QSet>
 #include <algorithm>
 #include <cmath>
 
@@ -289,6 +290,71 @@ QVariantList WorkoutTracker::recentSets(int limit) const {
         m.insert("timestamp",       s->timestamp());
         m.insert("dayKey",          s->dayKey());
         out.append(m);
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// workoutSession / recentSessions — TASK-3
+//
+// These methods reconstruct the start and end times of a workout day from
+// the existing per-set timestamps, without any schema change to Set. The
+// first and last set of a day define the session boundaries; intermediate
+// set timestamps remain for internal ordering only and are NOT surfaced
+// in the UI.
+// ---------------------------------------------------------------------------
+
+QVariantMap WorkoutTracker::workoutSession(const QString &dayKey) const
+{
+    QVariantMap out;
+    if (dayKey.isEmpty()) return out;
+
+    // Collect every set whose dayKey matches, then find first and last by time.
+    QDateTime earliest;
+    QDateTime latest;
+    int count = 0;
+
+    for (const Exercise *e : m_exercises) {
+        for (const Set *s : e->sets()) {
+            if (s->dayKey() != dayKey) continue;
+            ++count;
+            const QDateTime &ts = s->timestamp();
+            if (!earliest.isValid() || ts < earliest) earliest = ts;
+            if (!latest.isValid()   || ts > latest)   latest   = ts;
+        }
+    }
+
+    if (count == 0) return out;
+
+    out.insert("dayKey",      dayKey);
+    out.insert("startTime",   earliest);
+    out.insert("endTime",     latest);
+    out.insert("setCount",    count);
+    // Duration in seconds between first and last set.
+    const qint64 dur = earliest.secsTo(latest);
+    out.insert("durationSec", static_cast<int>(std::max<qint64>(0, dur)));
+    return out;
+}
+
+QVariantList WorkoutTracker::recentSessions(int limit) const
+{
+    // Gather all unique dayKeys across all exercises, then sort descending.
+    QSet<QString> daySet;
+    for (const Exercise *e : m_exercises)
+        for (const Set *s : e->sets())
+            daySet.insert(s->dayKey());
+
+    QStringList days = daySet.values();
+    std::sort(days.begin(), days.end(), [](const QString &a, const QString &b) {
+        return a > b;   // descending date order
+    });
+    if (limit > 0 && days.size() > limit) days.resize(limit);
+
+    QVariantList out;
+    out.reserve(days.size());
+    for (const QString &day : days) {
+        const QVariantMap session = workoutSession(day);
+        if (!session.isEmpty()) out.append(session);
     }
     return out;
 }

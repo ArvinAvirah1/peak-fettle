@@ -100,7 +100,7 @@ export function useHealthMetrics(): UseHealthMetricsResult {
         samples.map((sample) =>
           logHealthMetric({
             date: sample.date,
-            source: 'healthkit',
+            source: 'apple_healthkit',
             ...(sample.restingHrBpm !== null
               ? { restingHrBpm: sample.restingHrBpm }
               : {}),

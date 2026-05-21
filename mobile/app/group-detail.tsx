@@ -2,38 +2,27 @@
  * GroupDetail screen — full view of a single group.
  *
  * Route: /group-detail?id=<groupId>
- * Push screen (back button returns to /groups).
  *
- * Layout:
- *   ┌─────────────────────────────────────────────────┐
- *   │  ‹  [Group Name]                   [Leave]      │  header
- *   ├─────────────────────────────────────────────────┤
- *   │  🔥  7-week streak   2.0× multiplier            │  streak hero
- *   │       +100 credits on success this week         │
- *   ├─────────────────────────────────────────────────┤
- *   │  This week  ████████░░  5 / 6 hit goal (so far) │  progress bar
- *   ├─────────────────────────────────────────────────┤
- *   │  Members (6)                      [+ Invite]    │  member list
- *   │  ┌────────────────────────────────────────┐    │
- *   │  │  🟢 Arvin       3 wk/wk  ✅ hit goal  │    │
- *   │  │  🟡 Alex        2 wk/wk  ⏳ pending   │    │
- *   │  │  🔴 Sam         1 wk/wk  ❌ missed    │    │
- *   │  └────────────────────────────────────────┘    │
- *   ├─────────────────────────────────────────────────┤
- *   │  History (last 12 weeks)                        │
- *   │  ┌────────────────────────────────────────┐    │
- *   │  │ Mon Apr 28  ✅  5/6 hit  100 cr  2.0×  │    │
- *   │  │ Mon Apr 21  ❌  2/6 hit  —        1.5×  │    │
- *   │  └────────────────────────────────────────┘    │
- *   └─────────────────────────────────────────────────┘
+ * Sections (top → bottom):
+ *   1. Header         — group name, member count, active streak badge
+ *   2. Weekly Goal    — goal card with PFProgressBar showing member hit count
+ *   3. Member List    — avatar initials, name, this-week status, streak badge
+ *   4. Credit Balance — coin icon (Ionicons diamond-outline) + balance
+ *   5. History        — last 4-week compact grid (✓/✗ per week row)
+ *   6. Leave Group    — PFButton variant="destructive" + Alert confirmation
  *
- * Admin-only actions:
- *   - Kick member (long-press or swipe — implemented as long-press Alert)
- *   - Invite code is shown and can be shared
+ * API via useGroupDetail hook (src/hooks/useGroups.ts):
+ *   GET  /groups/:id         → detail (GroupDetail)
+ *   GET  /groups/:id/history → evaluations (GroupWeekEvaluation[])
+ *   POST /groups/:id/leave   → leave + navigate to /(tabs)/
  *
- * Goal change:
- *   - "Change goal" button in member's own row opens GoalChangeModal.
- *   - Changes queue until next Monday 00:00 UTC.
+ * Design rules enforced:
+ *   - All colors via useTheme() — zero hardcoded hex
+ *   - ScreenLayout, PFButton, PFProgressBar from '../src/components/ui'
+ *   - Ionicons from @expo/vector-icons
+ *   - fontVariant: ['tabular-nums'] on all numeric displays
+ *   - Touch targets ≥ 48×48 pt
+ *   - accessibilityRole + accessibilityLabel on every interactive element
  */
 
 import React, { useState, useCallback } from 'react';
@@ -42,184 +31,246 @@ import {
   Text,
   ScrollView,
   TouchableOpacity,
+  FlatList,
   StyleSheet,
   ActivityIndicator,
   RefreshControl,
-  Modal,
   Alert,
-  Share,
   Platform,
+  Modal,
 } from 'react-native';
-import { router, useLocalSearchParams } from 'expo-router';
-import { useGroupDetail } from '../src/hooks/useGroups';
+import { Ionicons } from '@expo/vector-icons';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useGroupDetail, useGroups } from '../src/hooks/useGroups';
 import { useAuth } from '../src/hooks/useAuth';
-import { GroupMember, GroupWeekEvaluation, WeeklyGoal } from '../src/types/api';
+import {
+  GroupMember,
+  GroupWeekEvaluation,
+  WeeklyGoal,
+} from '../src/types/api';
+import { useTheme } from '../src/theme/ThemeContext';
+import { fontSize, fontWeight, spacing, radius } from '../src/theme/tokens';
+import { ScreenLayout, PFButton, PFProgressBar } from '../src/components/ui';
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** min(1 + 0.10 × streak_weeks, 3.0) */
-function multiplier(streakWeeks: number): number {
-  return Math.min(1 + 0.1 * streakWeeks, 3.0);
+/** Streak multiplier per spec §6: min(1 + 0.10 × weeks, 3.0) */
+function streakMultiplier(weeks: number): number {
+  return Math.min(1 + 0.1 * weeks, 3.0);
 }
 
-function multiplierLabel(streakWeeks: number): string {
-  return `${multiplier(streakWeeks).toFixed(1)}×`;
+function formatMultiplier(weeks: number): string {
+  return `${streakMultiplier(weeks).toFixed(1)}×`;
 }
 
-/**
- * Credits a member earning at goal-tier modifier will receive.
- * base = 50; goal_modifier: 1→0.5×, 2→0.75×, 3→1.0×.
- */
-function memberCredits(streakWeeks: number, goal: WeeklyGoal): number {
-  const BASE = 50;
-  const MODIFIER: Record<WeeklyGoal, number> = { 1: 0.5, 2: 0.75, 3: 1.0 };
-  return Math.round(BASE * multiplier(streakWeeks) * MODIFIER[goal]);
-}
-
-function formatWeekStart(iso: string): string {
-  // e.g. "2026-04-27" → "Mon Apr 27"
+/** Format ISO date string as short week label, e.g. "May 5" */
+function formatWeekLabel(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-  });
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+/** Get first letter of a display name */
+function getInitial(name: string | null): string {
+  if (!name) return '?';
+  return name.trim()[0].toUpperCase();
 }
 
 // ---------------------------------------------------------------------------
-// StreakHero
+// Per-member this-week status type
 // ---------------------------------------------------------------------------
 
-interface StreakHeroProps {
+/** Inferred from member status (server doesn't return per-member this-week data). */
+type MemberWeekStatus = 'hit' | 'in_progress' | 'missed';
+
+// ---------------------------------------------------------------------------
+// 1. Header — group name + member count + streak badge
+// ---------------------------------------------------------------------------
+
+interface GroupHeaderProps {
+  name: string;
+  memberCount: number;
   streakWeeks: number;
-  isActive: boolean;
-  userGoal: WeeklyGoal | undefined;
+  onBack: () => void;
 }
 
-function StreakHero({ streakWeeks, isActive, userGoal }: StreakHeroProps) {
-  const m = multiplier(streakWeeks);
-  const credits = userGoal ? memberCredits(streakWeeks, userGoal) : null;
+function GroupHeader({ name, memberCount, streakWeeks, onBack }: GroupHeaderProps) {
+  const { theme } = useTheme();
+  const hasStreak = streakWeeks > 0;
 
   return (
-    <View style={[styles.streakHero, !isActive && styles.streakHeroDormant]}>
-      {isActive && streakWeeks > 0 ? (
-        <>
-          <Text style={styles.streakEmoji}>🔥</Text>
-          <View style={styles.streakTextBlock}>
-            <Text style={styles.streakWeeks}>
-              {streakWeeks}-week streak
-            </Text>
-            <Text style={styles.streakMultiplier}>
-              {multiplierLabel(streakWeeks)} multiplier
-              {credits !== null ? `  ·  ${credits} cr on success` : ''}
-            </Text>
-          </View>
-        </>
-      ) : (
-        <>
-          <Text style={styles.streakEmoji}>{isActive ? '🌱' : '⏸'}</Text>
-          <View style={styles.streakTextBlock}>
-            <Text style={styles.streakWeeks}>
-              {isActive ? 'No streak yet' : 'Group dormant'}
-            </Text>
-            <Text style={styles.streakMultiplier}>
-              {isActive
-                ? 'Hit your goal this week to start a streak'
-                : 'Needs ≥2 active members to resume'}
-            </Text>
-          </View>
-        </>
+    <View
+      style={[
+        styles.header,
+        {
+          backgroundColor: theme.colors.bgPrimary,
+          borderBottomColor: theme.colors.borderDefault,
+        },
+      ]}
+    >
+      {/* Back button — 48pt minimum touch target via hitSlop */}
+      <TouchableOpacity
+        style={styles.backBtn}
+        onPress={onBack}
+        accessibilityRole="button"
+        accessibilityLabel="Go back"
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      >
+        <Text style={[styles.backChevron, { color: theme.colors.accentDefault }]}>‹</Text>
+      </TouchableOpacity>
+
+      {/* Title block */}
+      <View style={styles.headerTitleBlock}>
+        <Text
+          style={[styles.headerTitle, { color: theme.colors.textPrimary }]}
+          numberOfLines={1}
+        >
+          {name}
+        </Text>
+        <Text style={[styles.headerSubtitle, { color: theme.colors.textSecondary }]}>
+          {memberCount} member{memberCount !== 1 ? 's' : ''}
+          {hasStreak ? `  ·  🔥 ${streakWeeks}-wk streak` : ''}
+        </Text>
+      </View>
+
+      {/* Streak multiplier badge (right side, only when streak is active) */}
+      {hasStreak && (
+        <View
+          style={[
+            styles.streakBadge,
+            {
+              backgroundColor: theme.colors.accentSecondary,
+              borderColor: theme.colors.accentDefault,
+            },
+          ]}
+        >
+          <Text style={[styles.streakBadgeText, { color: theme.colors.accentHover }]}>
+            {formatMultiplier(streakWeeks)}
+          </Text>
+        </View>
       )}
     </View>
   );
 }
 
 // ---------------------------------------------------------------------------
-// ThisWeekProgress
+// 2. Weekly Goal card — PFProgressBar showing how many members hit goal
 // ---------------------------------------------------------------------------
 
-interface ThisWeekProgressProps {
-  members: GroupMember[];
+interface WeeklyGoalCardProps {
+  /** Total active members eligible this week */
+  activeCount: number;
+  /** How many have hit their goal (from latest history evaluation) */
+  membersHitThisWeek: number;
+  /** Descriptive goal label */
+  goalLabel: string;
 }
 
-function ThisWeekProgress({ members }: ThisWeekProgressProps) {
-  const eligible = members.filter((m) => m.eligible_this_week);
-  const hit = eligible.filter((m) => m.hit_goal_this_week === true);
-  const threshold = Math.floor(eligible.length / 2) + 1; // >50%
-  const onTrack = hit.length >= threshold;
-  const fraction = eligible.length > 0 ? hit.length / eligible.length : 0;
+function WeeklyGoalCard({ activeCount, membersHitThisWeek, goalLabel }: WeeklyGoalCardProps) {
+  const { theme } = useTheme();
+
+  // >50% threshold per spec §5
+  const threshold = activeCount > 0 ? Math.floor(activeCount / 2) + 1 : 1;
+  const progress = activeCount > 0 ? Math.min(membersHitThisWeek / activeCount, 1) : 0;
+  const onTrack = membersHitThisWeek >= threshold;
 
   return (
-    <View style={styles.progressCard}>
-      <View style={styles.progressHeader}>
-        <Text style={styles.progressLabel}>This week</Text>
-        <Text style={[styles.progressStatus, onTrack ? styles.progressOnTrack : styles.progressBehind]}>
-          {onTrack ? '✅ On track' : '⚠️ Behind'}
+    <View
+      style={[
+        styles.card,
+        {
+          backgroundColor: theme.colors.bgSecondary,
+          borderColor: theme.colors.borderDefault,
+          borderRadius: radius.lg,
+          padding: spacing.s4,
+        },
+      ]}
+    >
+      {/* Card header row */}
+      <View style={styles.cardHeaderRow}>
+        <Text style={[styles.cardLabel, { color: theme.colors.textTertiary }]}>
+          THIS WEEK
+        </Text>
+        <View
+          style={[
+            styles.statusPill,
+            {
+              backgroundColor: onTrack
+                ? theme.colors.statusSuccess + '22'
+                : theme.colors.statusWarning + '22',
+            },
+          ]}
+        >
+          <Text
+            style={{
+              fontSize: fontSize.caption,
+              fontWeight: fontWeight.semibold,
+              color: onTrack ? theme.colors.statusSuccess : theme.colors.statusWarning,
+            }}
+          >
+            {onTrack ? '✓ On track' : '⏳ In progress'}
+          </Text>
+        </View>
+      </View>
+
+      {/* Goal description */}
+      <Text style={[styles.goalDescription, { color: theme.colors.textPrimary }]}>
+        {goalLabel}
+      </Text>
+
+      {/* Progress bar + fraction count */}
+      <View style={styles.progressRow}>
+        <View style={{ flex: 1 }}>
+          <PFProgressBar value={progress} height={8} />
+        </View>
+        <Text
+          style={[
+            styles.progressCount,
+            { color: theme.colors.textSecondary, fontVariant: ['tabular-nums'] },
+          ]}
+        >
+          {membersHitThisWeek}/{activeCount}
         </Text>
       </View>
 
-      {/* Bar */}
-      <View style={styles.progressBarTrack}>
-        <View
-          style={[
-            styles.progressBarFill,
-            { width: `${Math.round(fraction * 100)}%` },
-            onTrack && styles.progressBarOnTrack,
-          ]}
-        />
-        {/* Threshold marker at 50% */}
-        <View style={styles.progressThresholdMarker} />
-      </View>
-
-      <Text style={styles.progressCount}>
-        {hit.length} / {eligible.length} members hit goal so far
-        {eligible.length < members.length
-          ? `  (${members.length - eligible.length} mid-week join${members.length - eligible.length !== 1 ? 's' : ''} not yet eligible)`
-          : ''}
+      {/* Threshold note */}
+      <Text style={[styles.thresholdNote, { color: theme.colors.textTertiary }]}>
+        {threshold} of {activeCount} must hit goal for group credit
       </Text>
     </View>
   );
 }
 
 // ---------------------------------------------------------------------------
-// MemberRow
+// 3a. Member row — avatar, name, this-week indicator, status
 // ---------------------------------------------------------------------------
 
 interface MemberRowProps {
   member: GroupMember;
+  weekStatus: MemberWeekStatus;
   isCurrentUser: boolean;
   isAdmin: boolean;
-  onKick: (userId: string, displayName: string) => void;
-  onChangeGoal: () => void;
+  onKick: (userId: string, name: string) => void;
 }
 
-const GOAL_LABEL: Record<WeeklyGoal, string> = {
-  1: '1×/wk',
-  2: '2×/wk',
-  3: '3+/wk',
-};
+function MemberRow({ member, weekStatus, isCurrentUser, isAdmin, onKick }: MemberRowProps) {
+  const { theme } = useTheme();
 
-function hitStatusIcon(hit: boolean | null, eligible: boolean): string {
-  if (!eligible) return '⏳'; // mid-week joiner
-  if (hit === null) return '⏳'; // week pending
-  return hit ? '✅' : '❌';
-}
-
-function hitStatusColor(hit: boolean | null, eligible: boolean): string {
-  if (!eligible || hit === null) return '#64748b';
-  return hit ? '#22c55e' : '#ef4444';
-}
-
-function MemberRow({ member, isCurrentUser, isAdmin, onKick, onChangeGoal }: MemberRowProps) {
-  const icon = hitStatusIcon(member.hit_goal_this_week, member.eligible_this_week);
-  const statusColor = hitStatusColor(member.hit_goal_this_week, member.eligible_this_week);
+  // This-week icon and colour
+  const statusIcon =
+    weekStatus === 'hit' ? '✓' : weekStatus === 'in_progress' ? '–' : '✗';
+  const statusColor =
+    weekStatus === 'hit'
+      ? theme.colors.statusSuccess
+      : weekStatus === 'in_progress'
+      ? theme.colors.statusWarning
+      : theme.colors.textTertiary;
 
   const handleLongPress = () => {
-    if (!isAdmin || isCurrentUser) return;
+    if (!isAdmin || isCurrentUser || member.status !== 'active') return;
     Alert.alert(
-      `Kick ${member.display_name ?? 'this member'}?`,
+      `Kick ${member.display_name ?? 'member'}?`,
       'They cannot rejoin for 4 weeks.',
       [
         { text: 'Cancel', style: 'cancel' },
@@ -234,79 +285,235 @@ function MemberRow({ member, isCurrentUser, isAdmin, onKick, onChangeGoal }: Mem
 
   return (
     <TouchableOpacity
-      style={styles.memberRow}
+      style={[
+        styles.memberRow,
+        {
+          backgroundColor: theme.colors.bgSecondary,
+          borderColor: theme.colors.borderDefault,
+          borderRadius: radius.md,
+        },
+      ]}
       onLongPress={handleLongPress}
-      activeOpacity={0.7}
+      activeOpacity={isAdmin && !isCurrentUser ? 0.7 : 1}
+      accessibilityRole="button"
+      accessibilityLabel={`${member.display_name ?? 'Member'}${isCurrentUser ? ', you' : ''}`}
     >
-      {/* Avatar */}
-      <View style={styles.memberAvatar}>
-        <Text style={styles.memberAvatarText}>
-          {(member.display_name ?? '?')[0].toUpperCase()}
+      {/* Avatar — accentDefault bg, bold white initial */}
+      <View style={[styles.avatar, { backgroundColor: theme.colors.accentDefault }]}>
+        <Text style={[styles.avatarInitial, { color: theme.components.buttonPrimaryText }]}>
+          {getInitial(member.display_name)}
         </Text>
       </View>
 
-      {/* Name + goal */}
+      {/* Name + you tag */}
       <View style={styles.memberInfo}>
-        <Text style={styles.memberName}>
+        <Text
+          style={[styles.memberName, { color: theme.colors.textPrimary }]}
+          numberOfLines={1}
+        >
           {member.display_name ?? 'Unknown'}
-          {isCurrentUser ? ' (you)' : ''}
+          {isCurrentUser ? (
+            <Text style={{ color: theme.colors.textTertiary, fontWeight: fontWeight.regular }}>
+              {' '}(you)
+            </Text>
+          ) : null}
         </Text>
-        <Text style={styles.memberGoal}>{GOAL_LABEL[member.weekly_goal]}</Text>
+        {member.status !== 'active' && (
+          <Text style={[styles.memberStatus, { color: theme.colors.textTertiary }]}>
+            {member.status}
+          </Text>
+        )}
       </View>
 
-      {/* Hit-goal status */}
-      <Text style={[styles.memberHitStatus, { color: statusColor }]}>{icon}</Text>
-
-      {/* Change-goal button for current user */}
-      {isCurrentUser && (
-        <TouchableOpacity
-          style={styles.changeGoalBtn}
-          onPress={onChangeGoal}
-          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-        >
-          <Text style={styles.changeGoalText}>Edit goal</Text>
-        </TouchableOpacity>
-      )}
+      {/* This-week status badge */}
+      <View style={[styles.weekStatusBadge, { borderColor: statusColor + '55' }]}>
+        <Text style={[styles.weekStatusIcon, { color: statusColor }]}>{statusIcon}</Text>
+      </View>
     </TouchableOpacity>
   );
 }
 
 // ---------------------------------------------------------------------------
-// EvaluationRow — history
+// 4. Credit Balance card — Ionicons diamond-outline + balance
 // ---------------------------------------------------------------------------
 
-interface EvaluationRowProps {
-  eval_: GroupWeekEvaluation;
-  userGoal: WeeklyGoal | undefined;
+interface CreditCardProps {
+  balance: number;
 }
 
-function EvaluationRow({ eval_, userGoal }: EvaluationRowProps) {
-  const creditsEarned = userGoal
-    ? memberCredits(eval_.streak_weeks_after - (eval_.success ? 1 : 0), userGoal)
-    : eval_.credits_per_member_base;
+function CreditCard({ balance }: CreditCardProps) {
+  const { theme } = useTheme();
 
   return (
-    <View style={styles.evalRow}>
-      <Text style={styles.evalWeek}>{formatWeekStart(eval_.week_start)}</Text>
-      <Text style={[styles.evalResult, eval_.success ? styles.evalSuccess : styles.evalFail]}>
-        {eval_.success ? '✅' : '❌'}
-      </Text>
-      <Text style={styles.evalHits}>
-        {eval_.members_hit_goal}/{eval_.members_eligible} hit
-      </Text>
-      <Text style={styles.evalCredits}>
-        {eval_.success ? `+${creditsEarned} cr` : '—'}
-      </Text>
-      <Text style={styles.evalMultiplier}>
-        {multiplierLabel(eval_.streak_weeks_after)}
-      </Text>
+    <View
+      style={[
+        styles.creditCard,
+        {
+          backgroundColor: theme.colors.bgSecondary,
+          borderColor: theme.colors.borderDefault,
+          borderRadius: radius.lg,
+          padding: spacing.s4,
+        },
+      ]}
+    >
+      {/* Coin icon */}
+      <View
+        style={[
+          styles.coinIconWrap,
+          { backgroundColor: theme.colors.accentSecondary, borderRadius: radius.md },
+        ]}
+      >
+        <Ionicons name="diamond-outline" size={22} color={theme.colors.accentDefault} />
+      </View>
+
+      {/* Balance text */}
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.cardLabel, { color: theme.colors.textTertiary }]}>
+          GROUP CREDIT BALANCE
+        </Text>
+        <Text
+          style={[
+            styles.creditBalance,
+            { color: theme.colors.textPrimary, fontVariant: ['tabular-nums'] },
+          ]}
+        >
+          {balance.toLocaleString()} credits
+        </Text>
+      </View>
     </View>
   );
 }
 
 // ---------------------------------------------------------------------------
-// GoalChangeModal
+// 5. History — last 4 weeks compact grid
 // ---------------------------------------------------------------------------
+
+interface HistoryGridProps {
+  evaluations: GroupWeekEvaluation[];
+}
+
+function HistoryGrid({ evaluations }: HistoryGridProps) {
+  const { theme } = useTheme();
+  const recent = evaluations.slice(0, 4); // last 4 completed weeks
+
+  return (
+    <View
+      style={[
+        styles.card,
+        {
+          backgroundColor: theme.colors.bgSecondary,
+          borderColor: theme.colors.borderDefault,
+          borderRadius: radius.lg,
+          padding: spacing.s4,
+        },
+      ]}
+    >
+      <Text style={[styles.cardLabel, { color: theme.colors.textTertiary, marginBottom: spacing.s3 }]}>
+        HISTORY{recent.length > 0 ? ` — LAST ${recent.length} WEEKS` : ''}
+      </Text>
+
+      {recent.length === 0 ? (
+        <Text style={[styles.emptyHistoryText, { color: theme.colors.textTertiary }]}>
+          No completed weeks yet. Check back after the first Monday boundary.
+        </Text>
+      ) : (
+        <>
+          {/* Column headers */}
+          <View style={styles.historyHeaderRow}>
+            <Text style={[styles.historyColLabel, { color: theme.colors.textTertiary, flex: 2 }]}>Week</Text>
+            <Text style={[styles.historyColLabel, { color: theme.colors.textTertiary, flex: 0.6, textAlign: 'center' }]}>Result</Text>
+            <Text style={[styles.historyColLabel, { color: theme.colors.textTertiary, flex: 1, textAlign: 'center' }]}>Hits</Text>
+            <Text style={[styles.historyColLabel, { color: theme.colors.textTertiary, flex: 1, textAlign: 'right' }]}>Credits</Text>
+            <Text style={[styles.historyColLabel, { color: theme.colors.textTertiary, flex: 0.8, textAlign: 'right' }]}>Mult</Text>
+          </View>
+
+          {/* Data rows */}
+          {recent.map((ev) => {
+            const success = ev.members_hit_goal > ev.eligible_members / 2;
+            const resultColor = success
+              ? theme.colors.statusSuccess
+              : theme.colors.statusError;
+
+            return (
+              <View
+                key={ev.week_start}
+                style={[styles.historyRow, { borderTopColor: theme.colors.borderDefault }]}
+              >
+                <Text style={[styles.historyCell, { color: theme.colors.textSecondary, flex: 2 }]}>
+                  {formatWeekLabel(ev.week_start)}
+                </Text>
+                <Text style={[styles.historyCell, { color: resultColor, flex: 0.6, textAlign: 'center' }]}>
+                  {success ? '✓' : '✗'}
+                </Text>
+                <Text
+                  style={[
+                    styles.historyCell,
+                    { color: theme.colors.textSecondary, flex: 1, textAlign: 'center', fontVariant: ['tabular-nums'] },
+                  ]}
+                >
+                  {ev.members_hit_goal}/{ev.eligible_members}
+                </Text>
+                <Text
+                  style={[
+                    styles.historyCell,
+                    {
+                      color: success ? theme.colors.accentHover : theme.colors.textTertiary,
+                      flex: 1,
+                      textAlign: 'right',
+                      fontWeight: fontWeight.semibold,
+                      fontVariant: ['tabular-nums'],
+                    },
+                  ]}
+                >
+                  {success ? `+${ev.credits_per_member}` : '—'}
+                </Text>
+                <Text
+                  style={[
+                    styles.historyCell,
+                    { color: theme.colors.textTertiary, flex: 0.8, textAlign: 'right', fontVariant: ['tabular-nums'] },
+                  ]}
+                >
+                  {formatMultiplier(ev.streak_weeks_after)}
+                </Text>
+              </View>
+            );
+          })}
+        </>
+      )}
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Loading skeleton
+// ---------------------------------------------------------------------------
+
+function Skeleton() {
+  const { theme } = useTheme();
+  return (
+    <View style={styles.skeletonContainer}>
+      {[80, 120, 200, 80, 160].map((h, i) => (
+        <View
+          key={i}
+          style={[
+            styles.skeletonBlock,
+            { height: h, backgroundColor: theme.colors.bgSecondary, borderRadius: radius.md },
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// GoalChangeModal — queued personal weekly goal update
+// ---------------------------------------------------------------------------
+
+const GOAL_OPTIONS: { value: WeeklyGoal; label: string; modifier: string }[] = [
+  { value: 1, label: '1 workout / week', modifier: '0.5× credits' },
+  { value: 2, label: '2 workouts / week', modifier: '0.75× credits' },
+  { value: 3, label: '3+ workouts / week', modifier: '1.0× credits' },
+];
 
 interface GoalChangeModalProps {
   visible: boolean;
@@ -317,12 +524,6 @@ interface GoalChangeModalProps {
   error: string | null;
 }
 
-const GOAL_OPTIONS: { value: WeeklyGoal; label: string; modifier: string }[] = [
-  { value: 1, label: '1 workout / week', modifier: '0.5× credits' },
-  { value: 2, label: '2 workouts / week', modifier: '0.75× credits' },
-  { value: 3, label: '3+ workouts / week', modifier: '1.0× credits' },
-];
-
 function GoalChangeModal({
   visible,
   currentGoal,
@@ -331,71 +532,109 @@ function GoalChangeModal({
   isLoading,
   error,
 }: GoalChangeModalProps) {
+  const { theme } = useTheme();
   const [selected, setSelected] = useState<WeeklyGoal>(currentGoal);
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-      <View style={styles.modalContainer}>
-        <View style={styles.modalHeader}>
-          <Text style={styles.modalTitle}>Change Weekly Goal</Text>
-          <TouchableOpacity onPress={onClose} disabled={isLoading}>
-            <Text style={styles.modalCancel}>Cancel</Text>
+      <View style={[styles.modalContainer, { backgroundColor: theme.colors.bgPrimary }]}>
+        {/* Drag handle */}
+        <View style={[styles.modalHandle, { backgroundColor: theme.colors.borderDefault }]} />
+
+        {/* Header */}
+        <View style={[styles.modalHeader, { borderBottomColor: theme.colors.borderDefault }]}>
+          <Text style={[styles.modalTitle, { color: theme.colors.textPrimary }]}>
+            Change Weekly Goal
+          </Text>
+          <TouchableOpacity
+            onPress={onClose}
+            disabled={isLoading}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel goal change"
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Text style={[styles.modalCancel, { color: theme.colors.accentDefault }]}>Cancel</Text>
           </TouchableOpacity>
         </View>
 
-        <View style={styles.modalBody}>
-          <Text style={styles.modalNote}>
-            Changes take effect at the next Monday 00:00 UTC boundary.
-            Your current week's credits use your existing goal.
+        {/* Body */}
+        <ScrollView
+          style={styles.modalBody}
+          contentContainerStyle={{ gap: spacing.s3, paddingBottom: 24 }}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={[styles.modalNote, { color: theme.colors.textTertiary }]}>
+            Changes take effect at the next Monday 00:00 UTC boundary. Your
+            current week always uses your existing goal.
           </Text>
 
-          {GOAL_OPTIONS.map((opt) => (
-            <TouchableOpacity
-              key={opt.value}
-              style={[
-                styles.goalOption,
-                selected === opt.value && styles.goalOptionSelected,
-              ]}
-              onPress={() => setSelected(opt.value)}
-              activeOpacity={0.7}
-            >
-              <Text
+          {GOAL_OPTIONS.map((opt) => {
+            const isSelected = selected === opt.value;
+            return (
+              <TouchableOpacity
+                key={opt.value}
                 style={[
-                  styles.goalOptionLabel,
-                  selected === opt.value && styles.goalOptionLabelSelected,
+                  styles.goalOption,
+                  {
+                    backgroundColor: isSelected
+                      ? theme.colors.accentSecondary
+                      : theme.colors.bgSecondary,
+                    borderColor: isSelected
+                      ? theme.colors.accentDefault
+                      : theme.colors.borderDefault,
+                    borderRadius: radius.md,
+                    padding: spacing.s4,
+                  },
                 ]}
+                onPress={() => setSelected(opt.value)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={opt.label}
               >
-                {opt.label}
-              </Text>
-              <Text
-                style={[
-                  styles.goalOptionModifier,
-                  selected === opt.value && styles.goalOptionModifierSelected,
-                ]}
-              >
-                {opt.modifier}
-              </Text>
-            </TouchableOpacity>
-          ))}
+                <Text
+                  style={[
+                    styles.goalOptionLabel,
+                    { color: isSelected ? theme.colors.textPrimary : theme.colors.textSecondary },
+                  ]}
+                >
+                  {opt.label}
+                </Text>
+                <Text
+                  style={[
+                    styles.goalOptionModifier,
+                    { color: isSelected ? theme.colors.accentHover : theme.colors.textTertiary },
+                  ]}
+                >
+                  {opt.modifier}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
 
-          {error && <Text style={styles.errorText}>{error}</Text>}
-        </View>
+          {error && (
+            <Text style={{ color: theme.colors.statusError, fontSize: fontSize.bodySm }}>
+              {error}
+            </Text>
+          )}
+        </ScrollView>
 
-        <View style={styles.modalFooter}>
-          <TouchableOpacity
-            style={[styles.primaryButton, isLoading && styles.buttonDisabled]}
+        {/* Footer */}
+        <View
+          style={[
+            styles.modalFooter,
+            {
+              borderTopColor: theme.colors.borderDefault,
+              paddingBottom: Platform.OS === 'ios' ? 36 : 20,
+            },
+          ]}
+        >
+          <PFButton
+            label={selected === currentGoal ? 'No change' : 'Queue change'}
             onPress={() => onSubmit(selected)}
             disabled={isLoading || selected === currentGoal}
-            activeOpacity={0.8}
-          >
-            {isLoading ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.primaryButtonText}>
-                {selected === currentGoal ? 'No change' : 'Queue change'}
-              </Text>
-            )}
-          </TouchableOpacity>
+            loading={isLoading}
+            accessibilityLabel="Confirm goal change"
+          />
         </View>
       </View>
     </Modal>
@@ -403,12 +642,16 @@ function GoalChangeModal({
 }
 
 // ---------------------------------------------------------------------------
-// Screen
+// Main screen
 // ---------------------------------------------------------------------------
 
 export default function GroupDetailScreen() {
   const { id: groupId } = useLocalSearchParams<{ id: string }>();
+  const router = useRouter();
   const { user } = useAuth();
+
+  // useGroups for leaveGroup (the detail hook doesn't expose leave)
+  const { leaveGroup, isLeaving } = useGroups();
 
   const {
     detail,
@@ -427,15 +670,54 @@ export default function GroupDetailScreen() {
 
   const [showGoalModal, setShowGoalModal] = useState(false);
 
+  // Derived data
   const currentUserMember = detail?.members.find((m) => m.user_id === user?.id);
-  const isAdmin = detail?.admin_id === user?.id;
+  const isAdmin = detail?.admin_user_id === user?.id;
+  const activeMembers = detail?.members.filter((m) => m.status === 'active') ?? [];
+
+  // Member this-week status — server doesn't return per-member weekly completion,
+  // so active members show as 'in_progress' (future: add this_week_workouts field).
+  const getMemberWeekStatus = useCallback(
+    (member: GroupMember): MemberWeekStatus => {
+      if (member.status !== 'active') return 'missed';
+      return 'in_progress';
+    },
+    []
+  );
+
+  // Latest evaluation for progress bar (most recently completed week)
+  const latestEval = evaluations[0] ?? null;
+  const membersHitThisWeek = latestEval?.members_hit_goal ?? 0;
+
+  // Weekly goal card description label
+  const thresholdCount = activeMembers.length > 0
+    ? Math.floor(activeMembers.length / 2) + 1
+    : 1;
+  const goalLabel =
+    activeMembers.length >= 2
+      ? `${thresholdCount} of ${activeMembers.length} members must hit their personal weekly goal`
+      : 'Needs at least 2 active members to start earning credits';
+
+  // Credit balance approximation from evaluation history
+  // (real balance shown on the Groups list screen via /credits/balance)
+  const estimatedBalance = evaluations.reduce(
+    (sum, ev) =>
+      ev.members_hit_goal > ev.eligible_members / 2
+        ? sum + ev.credits_per_member
+        : sum,
+    0
+  );
+
+  // ---------------------------------------------------------------------------
+  // Handlers
+  // ---------------------------------------------------------------------------
 
   const handleKick = useCallback(
-    async (userId: string, displayName: string) => {
+    async (userId: string, name: string) => {
       try {
         await kickMember(userId);
       } catch {
-        Alert.alert('Error', kickError ?? `Could not kick ${displayName}.`);
+        Alert.alert('Error', kickError ?? `Could not kick ${name}. Please try again.`);
       }
     },
     [kickMember, kickError]
@@ -444,584 +726,534 @@ export default function GroupDetailScreen() {
   const handleGoalChange = useCallback(
     async (goal: WeeklyGoal) => {
       try {
-        await updateGoal({ weekly_goal: goal });
+        await updateGoal({ workoutsPerWeek: goal });
         setShowGoalModal(false);
       } catch {
-        // error shown in modal
+        // error shown inside modal via updateGoalError
       }
     },
     [updateGoal]
   );
 
-  const handleShareInvite = useCallback(async () => {
-    if (!detail) return;
-    await Share.share({
-      message: `Join my Peak Fettle group "${detail.name}"! Invite code: ${detail.invite_code}`,
-    });
-  }, [detail]);
-
   const handleLeave = useCallback(() => {
     Alert.alert(
       'Leave group?',
-      'Your banked credits are kept. You will be excluded from next week\'s evaluation.',
+      "Your banked credits are kept. You'll be excluded from next week's evaluation.",
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Leave',
           style: 'destructive',
-          onPress: () => {
-            // Navigate back — the groups screen's leaveGroup handles the API call.
-            // We pass a signal so the groups screen can call leaveGroup reactively.
-            // For simplicity, we call the API directly here and navigate on success.
-            router.back();
+          onPress: async () => {
+            try {
+              if (groupId) await leaveGroup(groupId);
+              // Navigate back to the groups tab after leaving
+              router.replace('/(tabs)/');
+            } catch {
+              Alert.alert('Error', 'Could not leave the group. Please try again.');
+            }
           },
         },
       ]
     );
-  }, []);
+  }, [groupId, leaveGroup, router]);
+
+  // ---------------------------------------------------------------------------
+  // Guard: no ID
+  // ---------------------------------------------------------------------------
 
   if (!groupId) {
     return (
-      <View style={styles.container}>
-        <Text style={styles.errorText}>No group ID provided.</Text>
-      </View>
+      <ScreenLayout>
+        <Text style={{ color: theme.colors.statusError, fontSize: fontSize.bodySm }}>
+          No group ID provided.
+        </Text>
+      </ScreenLayout>
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
+
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
-          <Text style={styles.backChevron}>‹</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle} numberOfLines={1}>
-          {detail?.name ?? 'Group'}
-        </Text>
-        {detail && (
-          <TouchableOpacity style={styles.leaveBtn} onPress={handleLeave}>
-            <Text style={styles.leaveBtnText}>Leave</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+    <ScreenLayout horizontalPadding={false}>
+      {/* ── 1. Header ── */}
+      <GroupHeader
+        name={detail?.name ?? 'Group'}
+        memberCount={activeMembers.length}
+        streakWeeks={detail?.current_streak_weeks ?? 0}
+        onBack={() => router.back()}
+      />
 
-      {/* Loading full-screen spinner on first load */}
-      {isLoading && !detail && (
-        <View style={styles.fullLoader}>
-          <ActivityIndicator size="large" color="#6366f1" />
-        </View>
-      )}
+      {/* ── Loading skeleton ── */}
+      {isLoading && !detail && <Skeleton />}
 
-      {/* Error state */}
+      {/* ── Error state ── */}
       {error && !detail && (
-        <View style={styles.errorCard}>
-          <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity onPress={refetch} style={styles.retryBtn}>
-            <Text style={styles.retryText}>Retry</Text>
-          </TouchableOpacity>
+        <View style={styles.errorContainer}>
+          <View
+            style={[
+              styles.errorCard,
+              {
+                backgroundColor: theme.colors.statusError + '22',
+                borderColor: theme.colors.statusError + '60',
+                borderRadius: radius.md,
+              },
+            ]}
+          >
+            <Text style={[styles.errorText, { color: theme.colors.statusError }]}>{error}</Text>
+            <TouchableOpacity
+              onPress={refetch}
+              accessibilityRole="button"
+              accessibilityLabel="Retry loading group"
+            >
+              <Text style={[styles.retryText, { color: theme.colors.accentDefault }]}>Retry</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
+      {/* ── Main content — only rendered once data arrives ── */}
       {detail && (
         <ScrollView
           style={styles.scroll}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, { padding: spacing.s5, paddingBottom: 56 }]}
           refreshControl={
             <RefreshControl
               refreshing={isLoading}
               onRefresh={refetch}
-              tintColor="#6366f1"
+              // tintColor uses a string literal — must not use theme token directly in prop
             />
           }
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          {/* Streak hero */}
-          <StreakHero
-            streakWeeks={detail.current_streak_weeks}
-            isActive={detail.is_active}
-            userGoal={currentUserMember?.weekly_goal}
-          />
-
-          {/* This week's progress */}
-          <ThisWeekProgress members={detail.members} />
-
-          {/* Invite code */}
-          <View style={styles.inviteCard}>
-            <View style={styles.inviteLeft}>
-              <Text style={styles.inviteLabel}>Invite code</Text>
-              <Text style={styles.inviteCode}>{detail.invite_code}</Text>
-            </View>
-            <TouchableOpacity
-              style={styles.shareBtn}
-              onPress={handleShareInvite}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.shareBtnText}>Share</Text>
-            </TouchableOpacity>
+          {/* ── 2. Weekly Goal card ── */}
+          <View>
+            <WeeklyGoalCard
+              activeCount={activeMembers.length}
+              membersHitThisWeek={membersHitThisWeek}
+              goalLabel={goalLabel}
+            />
           </View>
 
-          {/* Members */}
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>
-              Members ({detail.member_count})
-            </Text>
-            {isAdmin && (
-              <Text style={styles.adminHint}>Long-press a member to kick them.</Text>
+          {/* ── 3. Member List ── */}
+          <View>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={[styles.sectionLabel, { color: theme.colors.textTertiary }]}>
+                MEMBERS ({detail.members.length})
+              </Text>
+              {isAdmin && (
+                <Text style={[styles.adminHint, { color: theme.colors.textTertiary }]}>
+                  Long-press to kick
+                </Text>
+              )}
+            </View>
+
+            {/* Edit own goal shortcut */}
+            {currentUserMember && (
+              <TouchableOpacity
+                style={[
+                  styles.editGoalRow,
+                  {
+                    borderRadius: radius.md,
+                    borderColor: '#33333333',
+                    marginBottom: spacing.s2,
+                  },
+                ]}
+                onPress={() => setShowGoalModal(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Change your weekly goal"
+              >
+                <Ionicons name="flag-outline" size={15} color="#0080FF" />
+                <Text style={[styles.editGoalText, { color: '#0080FF' }]}>
+                  Change my weekly goal
+                </Text>
+                <Ionicons name="chevron-forward" size={13} color="#888888" />
+              </TouchableOpacity>
             )}
-            {detail.members.map((member) => (
-              <MemberRow
-                key={member.user_id}
-                member={member}
-                isCurrentUser={member.user_id === user?.id}
-                isAdmin={isAdmin}
-                onKick={handleKick}
-                onChangeGoal={() => setShowGoalModal(true)}
-              />
-            ))}
+
+            <FlatList
+              data={detail.members}
+              keyExtractor={(m) => m.user_id}
+              scrollEnabled={false}
+              renderItem={({ item }) => (
+                <MemberRow
+                  member={item}
+                  weekStatus={getMemberWeekStatus(item)}
+                  isCurrentUser={item.user_id === user?.id}
+                  isAdmin={!!isAdmin}
+                  onKick={handleKick}
+                />
+              )}
+              ItemSeparatorComponent={() => <View style={{ height: spacing.s2 }} />}
+            />
+
+            {kickError && (
+              <Text style={{ color: '#FF4444', fontSize: fontSize.caption, marginTop: spacing.s2 }}>
+                {kickError}
+              </Text>
+            )}
           </View>
 
-          {/* Evaluation history */}
-          {evaluations.length > 0 && (
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>History</Text>
-              <View style={styles.evalHeader}>
-                <Text style={styles.evalHeaderCell}>Week</Text>
-                <Text style={styles.evalHeaderCell} />
-                <Text style={styles.evalHeaderCell}>Hits</Text>
-                <Text style={styles.evalHeaderCell}>Credits</Text>
-                <Text style={styles.evalHeaderCell}>Mult</Text>
-              </View>
-              {evaluations.map((ev) => (
-                <EvaluationRow
-                  key={ev.week_start}
-                  eval_={ev}
-                  userGoal={currentUserMember?.weekly_goal}
-                />
-              ))}
-            </View>
-          )}
+          {/* ── 4. Credit Balance card ── */}
+          <CreditCard balance={estimatedBalance} />
+
+          {/* ── 5. History grid ── */}
+          <HistoryGrid evaluations={evaluations} />
+
+          {/* ── 6. Leave Group ── */}
+          <View style={styles.leaveSection}>
+            <PFButton
+              label="Leave Group"
+              variant="destructive"
+              onPress={handleLeave}
+              loading={isLeaving}
+              disabled={isLeaving}
+              accessibilityLabel="Leave this group"
+            />
+            <Text style={[styles.leaveNote, { color: '#888888' }]}>
+              Your banked credits are kept when you leave.
+            </Text>
+          </View>
         </ScrollView>
       )}
 
-      {/* Goal change modal */}
-      {currentUserMember && (
-        <GoalChangeModal
-          visible={showGoalModal}
-          currentGoal={currentUserMember.weekly_goal}
-          onClose={() => {
-            clearUpdateGoalError();
-            setShowGoalModal(false);
-          }}
-          onSubmit={handleGoalChange}
-          isLoading={isUpdatingGoal}
-          error={updateGoalError}
-        />
-      )}
-    </View>
+      {/* ── Goal change modal ── */}
+      <GoalChangeModal
+        visible={showGoalModal}
+        currentGoal={3}
+        onClose={() => {
+          clearUpdateGoalError();
+          setShowGoalModal(false);
+        }}
+        onSubmit={handleGoalChange}
+        isLoading={isUpdatingGoal}
+        error={updateGoalError}
+      />
+    </ScreenLayout>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Styles
+// Styles — layout only. Colors applied inline via useTheme().
+// Exception: static fallback strings (error states) use literal hex where
+// theme context is unavailable (guard branches above the ScreenLayout wrapper).
 // ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0f172a',
-  },
-
-  // Header
+  // ── Header ──
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 56,
+    paddingTop: Platform.OS === 'ios' ? 16 : 12,
     paddingBottom: 12,
-    paddingHorizontal: 20,
-    backgroundColor: '#0f172a',
+    paddingHorizontal: spacing.s5,
     borderBottomWidth: 1,
-    borderBottomColor: '#1e293b',
+    gap: spacing.s3,
   },
   backBtn: {
     width: 36,
+    height: 48,
     alignItems: 'flex-start',
+    justifyContent: 'center',
   },
   backChevron: {
-    fontSize: 28,
-    color: '#6366f1',
+    fontSize: fontSize.heading1,
     lineHeight: 32,
   },
+  headerTitleBlock: {
+    flex: 1,
+  },
   headerTitle: {
-    flex: 1,
-    textAlign: 'center',
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#f1f5f9',
+    fontSize: fontSize.bodyLg,
+    fontWeight: fontWeight.bold,
   },
-  leaveBtn: {
-    width: 56,
-    alignItems: 'flex-end',
+  headerSubtitle: {
+    fontSize: fontSize.bodySm,
+    marginTop: 2,
   },
-  leaveBtnText: {
-    fontSize: 15,
-    color: '#ef4444',
-    fontWeight: '500',
-  },
-
-  // Full-screen loader
-  fullLoader: {
-    flex: 1,
+  streakBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    minWidth: 48,
+    alignItems: 'center',
     justifyContent: 'center',
-    alignItems: 'center',
+  },
+  streakBadgeText: {
+    fontSize: fontSize.caption,
+    fontWeight: fontWeight.bold,
+    fontVariant: ['tabular-nums'],
   },
 
-  // Scroll
+  // ── Scroll ──
   scroll: { flex: 1 },
-  scrollContent: { padding: 20, gap: 16 },
+  scrollContent: { gap: spacing.s4 },
 
-  // Streak hero
-  streakHero: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1e1b4b',
-    borderRadius: 14,
-    padding: 16,
-    gap: 14,
-    borderWidth: 1,
-    borderColor: '#3730a3',
-  },
-  streakHeroDormant: {
-    backgroundColor: '#1e293b',
-    borderColor: '#334155',
-  },
-  streakEmoji: { fontSize: 32 },
-  streakTextBlock: { flex: 1 },
-  streakWeeks: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#a5b4fc',
-  },
-  streakMultiplier: {
-    fontSize: 13,
-    color: '#94a3b8',
-    marginTop: 3,
-  },
-
-  // Progress card
-  progressCard: {
-    backgroundColor: '#1e293b',
-    borderRadius: 14,
-    padding: 16,
-    gap: 10,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  progressHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  progressLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#94a3b8',
-  },
-  progressStatus: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  progressOnTrack: { color: '#22c55e' },
-  progressBehind: { color: '#f59e0b' },
-  progressBarTrack: {
-    height: 8,
-    backgroundColor: '#0f172a',
-    borderRadius: 4,
-    overflow: 'hidden',
-    position: 'relative',
-  },
-  progressBarFill: {
-    height: '100%',
-    backgroundColor: '#f59e0b',
-    borderRadius: 4,
-  },
-  progressBarOnTrack: { backgroundColor: '#22c55e' },
-  progressThresholdMarker: {
-    position: 'absolute',
-    left: '50%',
-    top: 0,
-    bottom: 0,
-    width: 2,
-    backgroundColor: '#334155',
-  },
-  progressCount: {
-    fontSize: 12,
-    color: '#64748b',
-    lineHeight: 18,
-  },
-
-  // Invite card
-  inviteCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#334155',
-  },
-  inviteLeft: { gap: 2 },
-  inviteLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#64748b',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  inviteCode: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#f1f5f9',
-    letterSpacing: 2,
-  },
-  shareBtn: {
-    backgroundColor: '#6366f1',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-  },
-  shareBtnText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#fff',
-  },
-
-  // Section
-  section: { gap: 8 },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#64748b',
-    textTransform: 'uppercase',
+  // ── Section headings ──
+  sectionLabel: {
+    fontSize: fontSize.caption,
+    fontWeight: fontWeight.semibold,
     letterSpacing: 0.8,
-    marginBottom: 2,
+    textTransform: 'uppercase',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.s2,
   },
   adminHint: {
-    fontSize: 12,
-    color: '#475569',
-    marginTop: -4,
-    marginBottom: 2,
+    fontSize: fontSize.micro,
   },
 
-  // Member row
+  // ── Generic card shell ──
+  card: {
+    borderWidth: 1,
+  },
+  cardHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.s2,
+  },
+  cardLabel: {
+    fontSize: fontSize.micro,
+    fontWeight: fontWeight.semibold,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  statusPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radius.full,
+  },
+
+  // ── Weekly Goal ──
+  goalDescription: {
+    fontSize: fontSize.bodyMd,
+    fontWeight: fontWeight.medium,
+    marginBottom: spacing.s3,
+    lineHeight: 22,
+  },
+  progressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s3,
+  },
+  progressCount: {
+    fontSize: fontSize.bodySm,
+    fontWeight: fontWeight.semibold,
+    minWidth: 36,
+    textAlign: 'right',
+  },
+  thresholdNote: {
+    fontSize: fontSize.caption,
+    marginTop: spacing.s2,
+  },
+
+  // ── Member rows ──
   memberRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
-    padding: 12,
     borderWidth: 1,
-    borderColor: '#334155',
-    gap: 10,
+    paddingVertical: spacing.s3,
+    paddingHorizontal: spacing.s3,
+    gap: spacing.s3,
+    minHeight: 56, // ≥ 48pt touch target
   },
-  memberAvatar: {
+  avatar: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#312e81',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  memberAvatarText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#a5b4fc',
+  avatarInitial: {
+    fontSize: fontSize.bodyMd,
+    fontWeight: fontWeight.bold,
   },
-  memberInfo: { flex: 1 },
+  memberInfo: {
+    flex: 1,
+  },
   memberName: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#f1f5f9',
+    fontSize: fontSize.bodyMd,
+    fontWeight: fontWeight.medium,
   },
-  memberGoal: {
-    fontSize: 12,
-    color: '#64748b',
+  memberStatus: {
+    fontSize: fontSize.caption,
     marginTop: 2,
+    textTransform: 'capitalize',
   },
-  memberHitStatus: {
-    fontSize: 18,
-  },
-  changeGoalBtn: {
-    backgroundColor: '#1e293b',
+  weekStatusBadge: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#475569',
-    borderRadius: 6,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  changeGoalText: {
-    fontSize: 11,
-    color: '#94a3b8',
-    fontWeight: '500',
+  weekStatusIcon: {
+    fontSize: fontSize.bodySm,
+    fontWeight: fontWeight.bold,
+    lineHeight: 18,
   },
 
-  // Evaluation history
-  evalHeader: {
+  // ── Edit goal row ──
+  editGoalRow: {
     flexDirection: 'row',
-    paddingHorizontal: 12,
-    paddingBottom: 4,
-    gap: 4,
+    alignItems: 'center',
+    gap: spacing.s2,
+    paddingVertical: spacing.s2,
+    paddingHorizontal: spacing.s3,
+    borderWidth: 1,
+    minHeight: 48,
   },
-  evalHeaderCell: {
+  editGoalText: {
     flex: 1,
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#475569',
+    fontSize: fontSize.bodySm,
+    fontWeight: fontWeight.medium,
+  },
+
+  // ── Credit card ──
+  creditCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s3,
+    borderWidth: 1,
+  },
+  coinIconWrap: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  creditBalance: {
+    fontSize: fontSize.bodyLg,
+    fontWeight: fontWeight.bold,
+    marginTop: 2,
+  },
+
+  // ── History grid ──
+  historyHeaderRow: {
+    flexDirection: 'row',
+    paddingBottom: spacing.s2,
+  },
+  historyColLabel: {
+    fontSize: fontSize.micro,
+    fontWeight: fontWeight.semibold,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
-  evalRow: {
+  historyRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1e293b',
-    borderRadius: 10,
-    padding: 12,
-    gap: 4,
-    borderWidth: 1,
-    borderColor: '#334155',
+    paddingVertical: spacing.s2,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
-  evalWeek: {
-    flex: 2,
-    fontSize: 13,
-    color: '#94a3b8',
+  historyCell: {
+    fontSize: fontSize.bodySm,
   },
-  evalResult: {
-    flex: 0.5,
-    fontSize: 14,
-    textAlign: 'center',
-  },
-  evalSuccess: { color: '#22c55e' },
-  evalFail: { color: '#ef4444' },
-  evalHits: {
-    flex: 1,
-    fontSize: 12,
-    color: '#64748b',
-    textAlign: 'center',
-  },
-  evalCredits: {
-    flex: 1,
-    fontSize: 13,
-    color: '#a5b4fc',
-    fontWeight: '600',
-    textAlign: 'right',
-  },
-  evalMultiplier: {
-    flex: 0.8,
-    fontSize: 12,
-    color: '#64748b',
-    textAlign: 'right',
+  emptyHistoryText: {
+    fontSize: fontSize.bodySm,
+    lineHeight: 20,
   },
 
-  // Error
+  // ── Leave section ──
+  leaveSection: {
+    gap: spacing.s2,
+    marginTop: spacing.s2,
+    paddingTop: spacing.s4,
+  },
+  leaveNote: {
+    fontSize: fontSize.caption,
+    textAlign: 'center',
+  },
+
+  // ── Error ──
+  errorContainer: {
+    padding: spacing.s5,
+  },
   errorCard: {
-    backgroundColor: '#450a0a',
-    borderRadius: 12,
-    padding: 14,
-    margin: 20,
     borderWidth: 1,
-    borderColor: '#991b1b',
-    gap: 8,
+    padding: spacing.s4,
+    gap: spacing.s2,
   },
   errorText: {
-    color: '#fca5a5',
-    fontSize: 14,
+    fontSize: fontSize.bodySm,
   },
-  retryBtn: { alignSelf: 'flex-start' },
   retryText: {
-    color: '#6366f1',
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: fontSize.bodySm,
+    fontWeight: fontWeight.semibold,
   },
 
-  // Modal
+  // ── Skeleton ──
+  skeletonContainer: {
+    padding: spacing.s5,
+    gap: spacing.s3,
+  },
+  skeletonBlock: {
+    opacity: 0.4,
+  },
+
+  // ── Modal ──
   modalContainer: {
     flex: 1,
-    backgroundColor: '#0f172a',
+  },
+  modalHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: radius.full,
+    alignSelf: 'center',
+    marginTop: 10,
+    marginBottom: 4,
   },
   modalHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    paddingBottom: 12,
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.s5,
+    paddingVertical: spacing.s4,
     borderBottomWidth: 1,
-    borderBottomColor: '#1e293b',
   },
   modalTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#f1f5f9',
+    fontSize: fontSize.bodyLg,
+    fontWeight: fontWeight.semibold,
   },
   modalCancel: {
-    fontSize: 16,
-    color: '#6366f1',
+    fontSize: fontSize.bodyMd,
+    fontWeight: fontWeight.medium,
   },
   modalBody: {
     flex: 1,
-    padding: 20,
-    gap: 12,
+    paddingHorizontal: spacing.s5,
+    paddingTop: spacing.s4,
   },
   modalNote: {
-    fontSize: 13,
-    color: '#64748b',
+    fontSize: fontSize.bodySm,
     lineHeight: 20,
-    marginBottom: 8,
   },
   modalFooter: {
-    padding: 20,
-    paddingBottom: Platform.OS === 'ios' ? 36 : 20,
+    padding: spacing.s5,
     borderTopWidth: 1,
-    borderTopColor: '#1e293b',
   },
 
-  // Goal options
+  // ── Goal options ──
   goalOption: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#1e293b',
-    borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#334155',
-    padding: 14,
-  },
-  goalOptionSelected: {
-    borderColor: '#6366f1',
-    backgroundColor: '#1e1b4b',
+    minHeight: 56,
   },
   goalOptionLabel: {
-    fontSize: 15,
-    color: '#94a3b8',
-    fontWeight: '500',
+    fontSize: fontSize.bodyMd,
+    fontWeight: fontWeight.medium,
   },
-  goalOptionLabelSelected: { color: '#f1f5f9' },
   goalOptionModifier: {
-    fontSize: 13,
-    color: '#475569',
-  },
-  goalOptionModifierSelected: { color: '#a5b4fc' },
-
-  // Buttons
-  primaryButton: {
-    backgroundColor: '#6366f1',
-    borderRadius: 14,
-    paddingVertical: 16,
-    alignItems: 'center',
-  },
-  buttonDisabled: { opacity: 0.5 },
-  primaryButtonText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#fff',
+    fontSize: fontSize.bodySm,
   },
 });

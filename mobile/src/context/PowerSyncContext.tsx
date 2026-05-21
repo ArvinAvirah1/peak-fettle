@@ -21,54 +21,34 @@
  * and related hooks work anywhere in the tree.
  */
 
-import React, { useEffect, ReactNode } from 'react';
-import { PowerSyncContext } from '@powersync/react-native';
-
-import { db } from '../db/powerSyncClient';
-import { PeakFettleConnector, setAccessToken } from '../db/connector';
-import { useAuth } from '../hooks/useAuth';
-
-// ---------------------------------------------------------------------------
-// Module-level connector singleton — one connection per app session.
-// ---------------------------------------------------------------------------
-
-const connector = new PeakFettleConnector();
-
-// ---------------------------------------------------------------------------
-// Provider
-// ---------------------------------------------------------------------------
+// DEV STUB: PowerSync requires a native build — not available in Expo Go / web.
+// The real implementation is preserved below in comments.
+// Restore when running a development build.
+import React, { ReactNode } from 'react';
 
 interface PowerSyncProviderProps {
   children: ReactNode;
 }
 
 export function PowerSyncProvider({ children }: PowerSyncProviderProps): React.ReactElement {
-  const { accessToken } = useAuth();
-
-  // Keep the connector's token in sync with the auth state.
-  // This runs on every accessToken change (login, refresh, logout).
-  useEffect(() => {
-    setAccessToken(accessToken);
-  }, [accessToken]);
-
-  // Connect on mount, disconnect on unmount.
-  useEffect(() => {
-    db.connect(connector).catch((err: unknown) => {
-      console.error('[PowerSync] Failed to connect:', err);
-    });
-
-    return () => {
-      db.disconnect().catch((err: unknown) => {
-        console.error('[PowerSync] Failed to disconnect cleanly:', err);
-      });
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  // Empty deps: connect once. The connector itself reads the latest token
-  // via setAccessToken(), so we do not need to reconnect on token rotation.
-
-  return (
-    <PowerSyncContext.Provider value={db}>
-      {children}
-    </PowerSyncContext.Provider>
-  );
+  return <>{children}</>;
 }
+
+// ---------------------------------------------------------------------------
+// REAL IMPLEMENTATION (restore for native dev/prod builds)
+// ---------------------------------------------------------------------------
+// import React, { useEffect, ReactNode } from 'react';
+// import { PowerSyncContext } from '@powersync/react-native';
+// import { db } from '../db/powerSyncClient';
+// import { PeakFettleConnector, setAccessToken } from '../db/connector';
+// import { useAuth } from '../hooks/useAuth';
+// const connector = new PeakFettleConnector();
+// export function PowerSyncProvider({ children }: { children: ReactNode }): React.ReactElement {
+//   const { accessToken } = useAuth();
+//   useEffect(() => { setAccessToken(accessToken); }, [accessToken]);
+//   useEffect(() => {
+//     db.connect(connector).catch((err: unknown) => console.error('[PowerSync] Failed to connect:', err));
+//     return () => { db.disconnect().catch((err: unknown) => console.error('[PowerSync] Failed to disconnect cleanly:', err)); };
+//   }, []);
+//   return <PowerSyncContext.Provider value={db}>{children}</PowerSyncContext.Provider>;
+// }

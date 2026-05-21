@@ -15,6 +15,8 @@
 import React from 'react';
 import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
 import { useSyncStatus } from '../hooks/useSyncStatus';
+import { useTheme } from '../theme/ThemeContext';
+import { fontSize, fontWeight, spacing } from '../theme/tokens';
 
 // ---------------------------------------------------------------------------
 // Component
@@ -22,20 +24,21 @@ import { useSyncStatus } from '../hooks/useSyncStatus';
 
 export function SyncStatusBar(): React.ReactElement | null {
   const { connected, syncing } = useSyncStatus();
+  const { theme } = useTheme();
 
   if (syncing) {
     return (
-      <View style={styles.syncing}>
-        <ActivityIndicator size="small" color="#c7d2fe" style={styles.spinner} />
-        <Text style={styles.syncingText}>Syncing…</Text>
+      <View style={[styles.syncing, { backgroundColor: theme.colors.accentSecondary }]}>
+        <ActivityIndicator size="small" color={theme.colors.textPrimary} style={styles.spinner} />
+        <Text style={[styles.syncingText, { color: theme.colors.textPrimary }]}>Syncing…</Text>
       </View>
     );
   }
 
   if (!connected) {
     return (
-      <View style={styles.offline}>
-        <Text style={styles.offlineText}>⚠ Offline — changes saved locally</Text>
+      <View style={[styles.offline, { backgroundColor: theme.colors.statusWarning, borderBottomColor: theme.colors.borderDefault }]}>
+        <Text style={[styles.offlineText, { color: theme.colors.textPrimary }]}>⚠ Offline — changes saved locally</Text>
       </View>
     );
   }
@@ -53,33 +56,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#312e81',
     paddingVertical: 6,
-    paddingHorizontal: 16,
+    paddingHorizontal: spacing.s4,
     gap: 8,
   },
   spinner: {
     // ActivityIndicator already uses the color prop — no extra style needed.
   },
   syncingText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#c7d2fe',
+    fontSize: fontSize.caption,  // E-003: was 12
+    fontWeight: fontWeight.medium,  // E-003: was '500'
     letterSpacing: 0.3,
   },
   offline: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#78350f',
     paddingVertical: 6,
-    paddingHorizontal: 16,
+    paddingHorizontal: spacing.s4,
     borderBottomWidth: 1,
-    borderBottomColor: '#92400e',
   },
   offlineText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#fde68a',
+    fontSize: fontSize.caption,  // E-003: was 12
+    fontWeight: fontWeight.medium,  // E-003: was '500'
     letterSpacing: 0.2,
   },
 });

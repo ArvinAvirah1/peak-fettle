@@ -161,12 +161,13 @@ function ageBand(birthDate) {
 }
 
 /** Returns a years-in-sport band like "1-3" from integer years. */
+// Band labels must match SQL lift_vectors.exp_band CHECK constraint values.
 function yearsBand(years) {
     if (years == null) return 'unknown';
-    if (years < 1) return '0-1';
+    if (years < 1) return '<1';
     if (years < 3) return '1-3';
-    if (years < 5) return '3-5';
-    return '5+';
+    if (years < 7) return '3-7';   // was '3-5' — corrected to match SQL CHECK constraint
+    return '7+';                    // was '5+'  — corrected to match SQL CHECK constraint
 }
 
 /** Returns nearest standard weight class for simple cohort bucketing. */

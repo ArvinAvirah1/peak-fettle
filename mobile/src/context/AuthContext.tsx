@@ -33,7 +33,30 @@ import React, {
   ReactNode,
 } from 'react';
 import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
 import { router } from 'expo-router';
+
+// ---------------------------------------------------------------------------
+// Web-safe SecureStore wrapper
+// expo-secure-store is not available in web/Expo Go — fall back to in-memory
+// storage for development. Tokens won't survive a page refresh, which is fine.
+// ---------------------------------------------------------------------------
+
+const _webStore = new Map<string, string>();
+const safeSecureStore = {
+  async getItemAsync(key: string): Promise<string | null> {
+    if (Platform.OS === 'web') return _webStore.get(key) ?? null;
+    return SecureStore.getItemAsync(key);
+  },
+  async setItemAsync(key: string, value: string): Promise<void> {
+    if (Platform.OS === 'web') { _webStore.set(key, value); return; }
+    return SecureStore.setItemAsync(key, value);
+  },
+  async deleteItemAsync(key: string): Promise<void> {
+    if (Platform.OS === 'web') { _webStore.delete(key); return; }
+    return SecureStore.deleteItemAsync(key);
+  },
+};
 
 import { setAuthHandlers } from '../api/client';
 import { setAccessToken as setPowerSyncToken } from '../db/connector';
@@ -41,6 +64,45 @@ import * as AuthApi from '../api/auth';
 import { User } from '../types/api';
 import { registerForPushNotifications } from '../services/pushNotifications';
 import { registerPushToken } from '../api/pushTokens';
+
+// ---------------------------------------------------------------------------
+// DEV MOCK — bypass the real API and accept any credentials.
+//
+// MOCK-001 fix (2026-05-16): the default was previously `true`, which meant any
+// build that didn't manually toggle the flag would silently accept any
+// credentials AND grant a hardcoded `tier: 'paid'` profile. Production builds
+// shipped against this default would have a non-functional auth model AND a
+// gating bypass.
+//
+// New rule: mock auth is *only* enabled when ALL of the following hold:
+//   1. The build is a development build (`__DEV__` is true). Production /
+//      preview EAS profiles set `__DEV__ = false` automatically, so the flag
+//      can never be true in those builds regardless of env config.
+//   2. The explicit env var `EXPO_PUBLIC_USE_MOCK_AUTH=true` is set at build
+//      time. The default (unset) is `false`, so an unconfigured dev machine
+//      still uses the real backend.
+//
+// To opt in locally, add `EXPO_PUBLIC_USE_MOCK_AUTH=true` to `.env.local`
+// (gitignored) — never check this in.
+// ---------------------------------------------------------------------------
+const USE_MOCK_AUTH =
+  typeof __DEV__ !== 'undefined' &&
+  __DEV__ === true &&
+  process.env.EXPO_PUBLIC_USE_MOCK_AUTH === 'true';
+
+const MOCK_USER: User = {
+  id: 'mock-user-001',
+  email: 'dev@peakfettle.com',
+  display_name: 'Dev User',
+  tier: 'paid',
+  is_paid: true,
+  unit_pref: 'kg',
+  score_pref: 'e1rm',
+  experience_level: 'intermediate',
+  weight_class_kg: 80,
+  sex: 'male',
+  age_band: '25-34',
+};
 
 // ---------------------------------------------------------------------------
 // SecureStore key
@@ -110,12 +172,12 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
 
   const persistRefreshToken = useCallback(async (token: string) => {
     refreshTokenRef.current = token;
-    await SecureStore.setItemAsync(REFRESH_TOKEN_KEY, token);
+    await safeSecureStore.setItemAsync(REFRESH_TOKEN_KEY, token);
   }, []);
 
   const clearRefreshToken = useCallback(async () => {
     refreshTokenRef.current = null;
-    await SecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
+    await safeSecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
   }, []);
 
   // ---------------------------------------------------------------------------
@@ -142,14 +204,22 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
   // Inject handlers into the Axios client
   // ---------------------------------------------------------------------------
 
-  // We do this once during mount (before cold-start refresh runs) so the
-  // interceptor is ready the moment any request fires.
+  // Use a ref so getAccessToken() always reads the current token without
+  // requiring the effect to re-run on every render.
+  const accessTokenRef = useRef<string | null>(null);
+  useEffect(() => {
+    accessTokenRef.current = accessToken;
+  }, [accessToken]);
+
+  // Wire the interceptor once on mount. Closures access state via refs so
+  // they always see the latest values without the effect needing to re-run.
   useEffect(() => {
     setAuthHandlers({
-      getAccessToken: () => accessToken,
+      getAccessToken: () => accessTokenRef.current,
       getRefreshToken: () => refreshTokenRef.current,
       onRefresh: (newAccessToken: string, newRefreshToken: string) => {
         setAccessToken(newAccessToken);
+        accessTokenRef.current = newAccessToken;
         // Keep the PowerSync connector token current after a silent refresh.
         setPowerSyncToken(newAccessToken);
         persistRefreshToken(newRefreshToken);
@@ -160,9 +230,7 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
         });
       },
     });
-  });
-  // Note: this effect re-runs on every render to keep `accessToken` closure
-  // fresh inside getAccessToken(). The cost is negligible.
+  }, [_clearAuthState, persistRefreshToken]); // stable callbacks — effect runs once
 
   // ---------------------------------------------------------------------------
   // Cold-start: attempt silent refresh
@@ -172,8 +240,13 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
     let cancelled = false;
 
     async function bootstrap() {
+      // DEV MOCK: skip token refresh entirely — start unauthenticated.
+      if (USE_MOCK_AUTH) {
+        setIsLoading(false);
+        return;
+      }
       try {
-        const storedRefreshToken = await SecureStore.getItemAsync(REFRESH_TOKEN_KEY);
+        const storedRefreshToken = await safeSecureStore.getItemAsync(REFRESH_TOKEN_KEY);
 
         if (!storedRefreshToken) {
           // No token — user has never logged in or explicitly logged out.
@@ -215,6 +288,31 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
   // happy but cause a double-run on mount.
 
   // ---------------------------------------------------------------------------
+  // Push token registration helper
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Fire-and-forget push token registration.
+   * Errors are swallowed — push token failures must never block auth flow.
+   * The stub in pushNotifications.ts returns null until expo-notifications
+   * is installed, making this a safe no-op until then.
+   *
+   * Declared BEFORE login/register so it is in scope when those useCallback
+   * deps arrays are evaluated (avoids temporal dead zone with const).
+   */
+  const _registerPushToken = useCallback(async () => {
+    try {
+      const result = await registerForPushNotifications();
+      if (result) {
+        // Best-effort — 404 expected until backend /user/push-token ships.
+        await registerPushToken({ token: result.token, platform: result.platform });
+      }
+    } catch {
+      // Swallow — push registration is non-blocking.
+    }
+  }, []);
+
+  // ---------------------------------------------------------------------------
   // login()
   // ---------------------------------------------------------------------------
 
@@ -222,13 +320,18 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
     async (email: string, password: string): Promise<void> => {
       setIsLoading(true);
       try {
+        // DEV MOCK: accept any credentials and log in instantly.
+        if (USE_MOCK_AUTH) {
+          setUser({ ...MOCK_USER, email });
+          setAccessToken('mock-access-token');
+          router.replace('/(tabs)/');
+          return;
+        }
         const response = await AuthApi.login(email, password);
         setUser(response.user);
         setAccessToken(response.accessToken);
-        // Propagate fresh token to PowerSync connector so sync resumes.
         setPowerSyncToken(response.accessToken);
         await persistRefreshToken(response.refreshToken);
-        // TICKET-024: register push token after login (fire-and-forget).
         _registerPushToken();
         router.replace('/(tabs)/');
       } finally {
@@ -246,6 +349,15 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
     async (email: string, password: string, displayName?: string): Promise<void> => {
       setIsLoading(true);
       try {
+        // DEV MOCK: create account instantly with provided details.
+        if (USE_MOCK_AUTH) {
+          setUser({ ...MOCK_USER, email, display_name: displayName ?? null });
+          setAccessToken('mock-access-token');
+          // Route through splash so first-launch flag check runs and new users
+          // see the intro flow before onboarding (P2-001 / §2.2).
+          router.replace('/splash');
+          return;
+        }
         const response = await AuthApi.register(email, password, displayName);
         setUser(response.user);
         setAccessToken(response.accessToken);
@@ -254,38 +366,16 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
         await persistRefreshToken(response.refreshToken);
         // TICKET-024: register push token after new account creation (fire-and-forget).
         _registerPushToken();
-        // TICKET-038 (ROADMAP 1.6): new registrations go to onboarding to collect
-        // biological sex + primary discipline for percentile cohort segmentation.
-        // Onboarding navigates to /(tabs)/ on completion or skip.
-        router.replace('/onboarding');
+        // Route through splash so new users see the intro flow (P2-001 / §2.2)
+        // before landing in onboarding. Splash clears the first-launch flag and
+        // navigates to /intro → /onboarding for first-timers.
+        router.replace('/splash');
       } finally {
         setIsLoading(false);
       }
     },
     [persistRefreshToken, _registerPushToken]
   );
-
-  // ---------------------------------------------------------------------------
-  // Push token registration helper
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Fire-and-forget push token registration.
-   * Errors are swallowed — push token failures must never block auth flow.
-   * The stub in pushNotifications.ts returns null until expo-notifications
-   * is installed, making this a safe no-op until then.
-   */
-  const _registerPushToken = useCallback(async () => {
-    try {
-      const result = await registerForPushNotifications();
-      if (result) {
-        // Best-effort — 404 expected until backend /user/push-token ships.
-        await registerPushToken({ token: result.token, platform: result.platform });
-      }
-    } catch {
-      // Swallow — push registration is non-blocking.
-    }
-  }, []);
 
   // ---------------------------------------------------------------------------
   // logout()

@@ -1,32 +1,29 @@
 /**
  * PercentileBar — animated horizontal progress bar for a percentile value.
  *
+ * E-001 update: migrated all hardcoded hex values to semantic tokens via useTheme().
+ * E-006 update: duration now reads from motion.percentileRing token; respects
+ *               OS Reduce Motion setting via useReduceMotion() (collapses to 0 ms).
+ *
  * Props:
  *   percentile  — 0–100; the fill width is this percentage of the track
- *   height      — bar height in px (default 8)
+ *   height      — bar height in px (default 6; spec §5.5)
  *
- * Animation: fill slides in from 0 → percentile% over 600 ms with an
- * ease-out curve on mount. Uses React Native's built-in Animated API — no
- * external library required.
+ * Animation: fill slides in from 0 → percentile% over motion.percentileRing.duration
+ * (800 ms) with an ease-out curve on mount. Collapses to instant when Reduce Motion
+ * is enabled. Uses React Native's built-in Animated API — no external library required.
  *
- * Color coding (matches spec):
- *   ≥75  → green  #22c55e
- *   40–74 → amber  #f59e0b
- *   <40  → red    #ef4444
+ * Color coding (spec §6.7):
+ *   ≥75  → statusSuccess (green)
+ *   ≥50  → accentDefault (teal)
+ *   <50  → default (subdued)
  */
 
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, View } from 'react-native';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function percentileColor(percentile: number): string {
-  if (percentile >= 75) return '#22c55e';
-  if (percentile >= 40) return '#f59e0b';
-  return '#ef4444';
-}
+import { useTheme } from '../theme/ThemeContext';
+import { motion } from '../theme/tokens';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 
 // ---------------------------------------------------------------------------
 // Component
@@ -39,19 +36,35 @@ interface PercentileBarProps {
 
 export function PercentileBar({
   percentile,
-  height = 8,
+  height = 6,
 }: PercentileBarProps): React.ReactElement {
+  const { theme } = useTheme();
+  const reduceMotion = useReduceMotion();
   const animatedWidth = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     // Clamp to [0, 100] defensively in case of upstream data issues.
     const target = Math.min(100, Math.max(0, percentile));
+
+    // E-006: use motion token duration; collapse to 0 when Reduce Motion is on.
+    const duration = reduceMotion
+      ? motion.reducedMotion.duration
+      : motion.percentileRing.duration;
+
     Animated.timing(animatedWidth, {
       toValue: target,
-      duration: 600,
+      duration,
       useNativeDriver: false, // width is a layout property — cannot use native driver
     }).start();
-  }, [percentile, animatedWidth]);
+  }, [percentile, animatedWidth, reduceMotion]);
+
+  // Color coding per spec §6.7 using semantic tokens:
+  //   ≥75 → green | ≥50 → teal accent | <50 → default accent (subdued)
+  function percentileColor(p: number): string {
+    if (p >= 75) return theme.colors.statusSuccess;
+    if (p >= 50) return theme.colors.accentDefault;
+    return theme.colors.accentSecondary;
+  }
 
   const fillColor = percentileColor(percentile);
 
@@ -65,7 +78,10 @@ export function PercentileBar({
 
   return (
     <View
-      style={[styles.track, { height }]}
+      style={[
+        styles.track,
+        { height, backgroundColor: theme.colors.bgTertiary, borderRadius: theme.components.cardBorderRadius / 4 },
+      ]}
       accessibilityRole="progressbar"
       accessibilityValue={{ min: 0, max: 100, now: percentile }}
     >
@@ -76,6 +92,7 @@ export function PercentileBar({
             width: widthInterpolated,
             height,
             backgroundColor: fillColor,
+            borderRadius: theme.components.cardBorderRadius / 4,
           },
         ]}
       />
@@ -86,11 +103,9 @@ export function PercentileBar({
 const styles = StyleSheet.create({
   track: {
     width: '100%',
-    backgroundColor: '#0f172a',
-    borderRadius: 99,
     overflow: 'hidden',
   },
   fill: {
-    borderRadius: 99,
+    // borderRadius applied inline from theme tokens
   },
 });

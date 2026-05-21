@@ -1,0 +1,55 @@
+{
+  "expo": {
+    "name": "Peak Fettle",
+    "slug": "peak-fettle",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1A202C"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.peakfettle.app",
+      "infoPlist": {
+        "NSHealthShareUsageDescription": "Peak Fettle reads your heart rate, HRV, and sleep data to personalise your training load.",
+        "NSHealthUpdateUsageDescription": "Peak Fettle writes your completed workouts to Apple Health."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1A202C"
+      },
+      "package": "com.peakfettle.app"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#1A202C",
+          "image": "./assets/splash.png",
+          "imageWidth": 200
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    },
+    "scheme": "peakfettle",
+    "extra": {
+      "eas": {
+        "projectId": "FILL_IN_EAS_PROJECT_ID"
+      }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 540" width="760" height="540" role="img" aria-label="Peak Fettle sunrise vertical logo">
+  <g transform="translate(221,30) scale(0.62)">
+    <circle cx="256" cy="206" r="84" fill="#FBBF24"/>
+    <polygon points="306,166 472,404 132,404" fill="#EA580C"/>
+    <polygon points="186,250 330,404 42,404" fill="#F97316"/>
+    <polygon points="186,250 214,292 186,276 160,294" fill="#FFE8D6"/>
+  </g>
+  <text x="380" y="470" font-family="'Helvetica Neue', Arial, sans-serif" font-size="76" font-weight="800" fill="#EA580C" text-anchor="middle" letter-spacing="3">PEAK FETTLE</text>
+</svg>

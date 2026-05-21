@@ -1,7 +1,9 @@
 /**
- * Home tab — greeting, streak badge, today's workout card, recent history.
+ * Home tab — greeting, streak badge, AI plan card, recent PRs,
+ * quick stats, today's workout card, recent history.
  *
- * Implements TICKET-018.
+ * Implements TICKET-018, P0-002, P0-005.
+ * E-001 update: all hardcoded hex values replaced with semantic tokens via useTheme().
  *
  * PR detection is client-side / approximate (30-day window only).
  * TODO: replace with GET /prs once backend endpoint ships
@@ -9,26 +11,48 @@
  * TICKET-027: PowerSync sync indicator shown in the greeting header.
  * Initial sync is triggered automatically by PowerSyncProvider in _layout.tsx
  * once the JWT is available — no extra call needed here.
+ *
+ * PL-3: Rest day button — POST /workouts/rest-day, disables same day.
+ * P1-006: Streak banner — gradient bg, "day streak", tappable → detail sheet.
+ * P2-003: PR badge spring animation via Reanimated ZoomIn.
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
   ScrollView,
   TouchableOpacity,
+  Pressable,
   StyleSheet,
   ActivityIndicator,
   RefreshControl,
+  Modal,
+  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import Animated, { ZoomIn, FadeInDown, useReducedMotion } from 'react-native-reanimated';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../src/hooks/useAuth';
 import { useWorkout } from '../../src/hooks/useWorkout';
 import { useWorkoutHistory } from '../../src/hooks/useWorkoutHistory';
 import { SyncStatusIndicator } from '../../src/components/SyncStatusIndicator';
 import { formatWeight } from '../../src/constants/units';
 import { formatDayLabel, toDateKey } from '../../src/utils/dateHelpers';
-import { LiftSet } from '../../src/types/api';
+import { LiftSet, PlanWithStructure } from '../../src/types/api';
+import { useTheme } from '../../src/theme/ThemeContext';
+import { PFCard, PFButton, ScreenLayout } from '../../src/components/ui';
+import { getPlans, getPlan } from '../../src/api/plans';
+import { getPercentile } from '../../src/api/percentile';
+import { apiClient } from '../../src/api/client';
+
+// ---------------------------------------------------------------------------
+// Rest Day API
+// ---------------------------------------------------------------------------
+
+async function logRestDay(): Promise<void> {
+  await apiClient.post('/workouts/rest-day');
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -58,25 +82,103 @@ function getFullDateLabel(): string {
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function SectionHeader({ label }: { label: string }): React.ReactElement {
-  return <Text style={styles.sectionHeader}>{label}</Text>;
-}
-
-function StreakBadge({ streak }: { streak: number }): React.ReactElement {
-  if (streak === 0) {
+function SectionHeader({ label, onViewAll }: { label: string; onViewAll?: () => void }): React.ReactElement {
+  const { theme, fontSize, fontWeight } = useTheme();
+  if (onViewAll) {
     return (
-      <View style={styles.streakBadge}>
-        <Text style={styles.streakEmoji}>🔥</Text>
-        <Text style={styles.streakZeroText}>Start your streak today</Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, marginBottom: 6 }}>
+        <Text style={{
+          fontSize: fontSize.micro,
+          fontWeight: fontWeight.semibold,
+          color: theme.colors.textTertiary,
+          letterSpacing: 1.2,
+          textTransform: 'uppercase',
+        }}>
+          {label}
+        </Text>
+        <TouchableOpacity onPress={onViewAll} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="link" accessibilityLabel={`View all ${label}`}>
+          <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.accentDefault }}>View all →</Text>
+        </TouchableOpacity>
       </View>
     );
   }
   return (
-    <View style={styles.streakBadge}>
-      <Text style={styles.streakEmoji}>🔥</Text>
-      <Text style={styles.streakCount}>{streak}</Text>
-      <Text style={styles.streakLabel}> week streak</Text>
-    </View>
+    <Text style={{
+      fontSize: fontSize.micro,
+      fontWeight: fontWeight.semibold,
+      color: theme.colors.textTertiary,
+      letterSpacing: 1.2,
+      textTransform: 'uppercase',
+      marginTop: 12,
+      marginBottom: 6,
+    }}>
+      {label}
+    </Text>
+  );
+}
+
+interface StreakBadgeProps {
+  streak: number;
+  onPress: () => void;
+}
+
+function StreakBadge({ streak, onPress }: StreakBadgeProps): React.ReactElement {
+  const { theme, fontSize, fontWeight, radius } = useTheme();
+  const gradientColors = [
+    theme.colors.accentSecondary + '33',
+    theme.colors.accentDefault + '33',
+  ] as [string, string];
+
+  if (streak === 0) {
+    return (
+      <TouchableOpacity
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel="View streak details"
+        activeOpacity={0.8}
+      >
+        <LinearGradient
+          colors={gradientColors}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={[styles.streakBadge, { borderRadius: radius.md }]}
+        >
+          <Text style={styles.streakEmoji}>🔥</Text>
+          <View>
+            <Text style={{ fontSize: fontSize.bodyMd, fontWeight: fontWeight.medium, color: theme.colors.textSecondary }}>
+              No worries — start a new streak today. 🌱
+            </Text>
+            <Text style={{ fontSize: fontSize.caption, color: theme.colors.textTertiary, marginTop: 2 }}>
+              Every workout is day one of something.
+            </Text>
+          </View>
+        </LinearGradient>
+      </TouchableOpacity>
+    );
+  }
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel="View streak details"
+      activeOpacity={0.8}
+    >
+      <LinearGradient
+        colors={gradientColors}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={[styles.streakBadge, { borderRadius: radius.md }]}
+      >
+        <Text style={styles.streakEmoji}>🔥</Text>
+        <Text style={{ fontSize: fontSize.heading2, fontWeight: fontWeight.bold, color: theme.colors.textPrimary, fontVariant: ['tabular-nums'] }}>
+          {/* E-003: was 24/'800'; heading2=24, bold='700' (no extraBold token) */}
+          {streak}
+        </Text>
+        <Text style={{ fontSize: fontSize.bodyMd, fontWeight: fontWeight.medium, color: theme.colors.textSecondary }}>
+          {' '}day streak
+        </Text>
+      </LinearGradient>
+    </TouchableOpacity>
   );
 }
 
@@ -92,41 +194,120 @@ function TodayCard({
   isLoading,
 }: TodayCardProps): React.ReactElement {
   const router = useRouter();
+  const { theme, fontSize, fontWeight, radius } = useTheme();
 
   const handleLogPress = (): void => {
     router.push('/(tabs)/log');
   };
 
   return (
-    <View style={styles.todayCard}>
+    <View style={[styles.todayCard, {
+      backgroundColor: theme.colors.bgSecondary,
+      borderColor: theme.colors.borderDefault,
+      borderRadius: radius.lg,
+    }]}>
       {isLoading ? (
-        <ActivityIndicator color="#94a3b8" />
+        <ActivityIndicator color={theme.colors.textSecondary} />
       ) : setCount === 0 ? (
         <>
-          <Text style={styles.todayEmpty}>No sets logged yet — tap to start</Text>
-          <TouchableOpacity style={styles.ctaButton} onPress={handleLogPress} activeOpacity={0.75}>
-            <Text style={styles.ctaButtonText}>Log a set →</Text>
+          <Text style={{ fontSize: fontSize.bodyMd, color: theme.colors.textTertiary, textAlign: 'center' }}>
+            No sets logged yet — tap to start
+          </Text>
+          <TouchableOpacity
+            style={[styles.ctaButton, {
+              backgroundColor: theme.colors.accentDefault,
+              borderRadius: radius.md,
+            }]}
+            onPress={handleLogPress}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel="Log workout"
+          >
+            <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold }}>
+              Log a set →
+            </Text>
           </TouchableOpacity>
         </>
       ) : (
         <>
           <View style={styles.todayStats}>
             <View style={styles.todayStat}>
-              <Text style={styles.todayStatValue}>{setCount}</Text>
-              <Text style={styles.todayStatLabel}>sets logged</Text>
+              <Text style={{ fontSize: fontSize.heading1, fontWeight: fontWeight.bold, color: theme.colors.textPrimary, fontVariant: ['tabular-nums'] }}>
+                {/* E-003: was 28/'700'; heading1=32 is closest large heading token */}
+                {setCount}
+              </Text>
+              <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.textTertiary }}>
+                sets logged
+              </Text>
             </View>
-            <View style={styles.todayDivider} />
+            <View style={[styles.todayDivider, { backgroundColor: theme.colors.borderDefault }]} />
             <View style={styles.todayStat}>
-              <Text style={styles.todayStatValue}>{volumeDisplay}</Text>
-              <Text style={styles.todayStatLabel}>total volume</Text>
+              <Text style={{ fontSize: fontSize.heading1, fontWeight: fontWeight.bold, color: theme.colors.textPrimary, fontVariant: ['tabular-nums'] }}>
+                {/* E-003: was 28/'700' */}
+                {volumeDisplay}
+              </Text>
+              <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.textTertiary }}>
+                total volume
+              </Text>
             </View>
           </View>
-          <TouchableOpacity style={styles.ctaButton} onPress={handleLogPress} activeOpacity={0.75}>
-            <Text style={styles.ctaButtonText}>Log a set →</Text>
+          <TouchableOpacity
+            style={[styles.ctaButton, {
+              backgroundColor: theme.colors.accentDefault,
+              borderRadius: radius.md,
+            }]}
+            onPress={handleLogPress}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            accessibilityLabel="Log a set"
+          >
+            <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold }}>
+              Log a set →
+            </Text>
           </TouchableOpacity>
         </>
       )}
     </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// P0-005 sub-components
+// ---------------------------------------------------------------------------
+
+/** Small inline metric chip used inside the AI Plan card. */
+function MetricChip({ label, value }: { label: string; value: string | number }): React.ReactElement {
+  const { theme, fontSize, fontWeight, spacing, radius } = useTheme();
+  return (
+    <View style={{
+      backgroundColor: theme.colors.bgPrimary,
+      borderRadius: radius.sm,
+      paddingHorizontal: spacing.s2,
+      paddingVertical: spacing.s1,
+      alignItems: 'center',
+    }}>
+      <Text style={{ fontSize: fontSize.bodySm, fontWeight: fontWeight.bold, color: theme.colors.textPrimary }}>
+        {value}
+      </Text>
+      <Text style={{ fontSize: fontSize.caption, color: theme.colors.textSecondary }}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
+/** Card for a single Quick Stats metric. */
+function StatCard({ label, value }: { label: string; value: string }): React.ReactElement {
+  const { theme, fontSize, fontWeight } = useTheme();
+  return (
+    <PFCard variant="elevated" padding="sm" style={{ flex: 1, alignItems: 'center' }}>
+      <Text style={{ fontSize: fontSize.heading2, fontWeight: fontWeight.bold, color: theme.colors.textPrimary, fontVariant: ['tabular-nums'] }}>
+        {value}
+      </Text>
+      <Text style={{ fontSize: fontSize.caption, color: theme.colors.textSecondary, textAlign: 'center', marginTop: 2 }}>
+        {label}
+      </Text>
+    </PFCard>
   );
 }
 
@@ -139,6 +320,7 @@ export default function HomeScreen(): React.ReactElement {
   const { user } = useAuth();
   const { sets: todaySets, isLoading: todayLoading } = useWorkout();
   const { history, streak, isLoading: historyLoading, refetch } = useWorkoutHistory();
+  const { theme, fontSize, fontWeight, radius, spacing } = useTheme();
 
   const unitPref = user?.unit_pref ?? 'kg';
 
@@ -169,74 +351,438 @@ export default function HomeScreen(): React.ReactElement {
     return history.filter((e) => e.workout.day_key >= cutoffKey);
   }, [history]);
 
-  const [refreshing, setRefreshing] = React.useState(false);
+  // ── P0-005: AI Plan state ─────────────────────────────────────────────────
+  const [plan, setPlan] = useState<PlanWithStructure | null>(null);
+  const [planLoading, setPlanLoading] = useState(false);
+  const [reasonExpanded, setReasonExpanded] = useState(false);
+
+  const loadPlan = useCallback(async () => {
+    if (!user?.is_paid) return;
+    setPlanLoading(true);
+    try {
+      const plans = await getPlans();
+      if (plans.length > 0) {
+        // Most recent plan first (server returns in created_at desc order)
+        const detail = await getPlan(plans[0].id);
+        setPlan(detail);
+      }
+    } catch {
+      // Silently ignore — plan card is non-critical
+    } finally {
+      setPlanLoading(false);
+    }
+  }, [user?.is_paid]);
+
+  useEffect(() => {
+    loadPlan();
+  }, [loadPlan]);
+
+  // ── P0-005: Percentile state ──────────────────────────────────────────────
+  const [bestPercentile, setBestPercentile] = useState<number | null>(null);
+
+  useEffect(() => {
+    getPercentile()
+      .then((resp) => {
+        const values = resp.rankings
+          .map((r) => r.percentile)
+          .filter((v): v is number => v !== null);
+        if (values.length > 0) setBestPercentile(Math.max(...values));
+      })
+      .catch(() => {
+        // Non-critical — leave as null
+      });
+  }, []);
+
+  // ── P0-005: Computed dashboard stats ─────────────────────────────────────
+
+  /** Weekly volume: sum of weight_kg * reps for sets this calendar week (Mon–Sun). */
+  const weeklyVolume = useMemo(() => {
+    const now = new Date();
+    // Start of current ISO week (Monday)
+    const dayOfWeek = now.getDay(); // 0=Sun
+    const diffToMon = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    const weekStart = new Date(now);
+    weekStart.setDate(now.getDate() - diffToMon);
+    weekStart.setHours(0, 0, 0, 0);
+    const weekStartKey = toDateKey(weekStart);
+
+    let vol = 0;
+    for (const entry of history) {
+      if (entry.workout.day_key < weekStartKey) continue;
+      for (const s of entry.sets) {
+        if (s.kind === 'lift') {
+          const ls = s as LiftSet;
+          vol += ls.weight_kg * ls.reps;
+        }
+      }
+    }
+    return Math.round(vol);
+  }, [history]);
+
+  /** Sessions this calendar month: count of distinct workout days. */
+  const sessionsThisMonth = useMemo(() => {
+    const now = new Date();
+    const monthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    return history.filter((e) => e.workout.day_key.startsWith(monthPrefix)).length;
+  }, [history]);
+
+  /** PR chips: lift sets flagged is_pr=true with exercise name + weight, across all history */
+  const prChips = useMemo(() => {
+    const seen = new Set<string>();
+    const chips: Array<{ id: string; exercise_name: string; weight_kg: number }> = [];
+    for (const entry of history) {
+      for (const s of entry.sets) {
+        if (s.kind === 'lift' && (s as LiftSet & { is_pr?: boolean }).is_pr) {
+          const ls = s as LiftSet & { is_pr: boolean };
+          // Deduplicate by exercise to avoid showing same exercise multiple times
+          if (!seen.has(ls.exercise_id)) {
+            seen.add(ls.exercise_id);
+            // liftNames from the same entry maps exercise_id position to name
+            const nameIdx = entry.sets
+              .filter((x) => x.kind === 'lift')
+              .findIndex((x) => x.id === ls.id);
+            const name = entry.liftNames[nameIdx] ?? ls.exercise_id;
+            chips.push({ id: ls.id, exercise_name: name, weight_kg: ls.weight_kg });
+          }
+        }
+      }
+    }
+    return chips.slice(0, 10); // cap at 10 chips
+  }, [history]);
+
+  // ── Computed plan metrics ─────────────────────────────────────────────────
+  const planExercises = plan?.structure?.session?.exercises ?? [];
+  const planTotalSets = planExercises.reduce((acc, ex) => acc + (ex.sets ?? 0), 0);
+  const planReasoning = plan?.structure?.reasoning ?? null;
+
+  // ── PL-3: Rest day state ─────────────────────────────────────────────────
+  const [restDayLoggedToday, setRestDayLoggedToday] = useState(false);
+  const [restDayLoading, setRestDayLoading] = useState(false);
+
+  const handleLogRestDay = useCallback(async () => {
+    if (restDayLoggedToday || restDayLoading) return;
+    setRestDayLoading(true);
+    try {
+      await logRestDay();
+      setRestDayLoggedToday(true);
+    } catch {
+      Alert.alert('Could not log rest day', 'Please try again.');
+    } finally {
+      setRestDayLoading(false);
+    }
+  }, [restDayLoggedToday, restDayLoading]);
+
+  // ── P1-006: Streak detail sheet ──────────────────────────────────────────
+  const [streakDetailVisible, setStreakDetailVisible] = useState(false);
+
+  // Build last 7 day dots for streak detail sheet
+  const last7DayDots = useMemo(() => {
+    const dots: Array<{ key: string; filled: boolean }> = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const key = toDateKey(d);
+      const filled = history.some((e) => e.workout.day_key === key);
+      dots.push({ key, filled });
+    }
+    return dots;
+  }, [history]);
+
+  // Longest streak derived from history
+  const longestStreak = useMemo(() => {
+    if (history.length === 0) return 0;
+    const sortedKeys = history
+      .map((e) => e.workout.day_key)
+      .sort();
+    let best = 1;
+    let current = 1;
+    for (let i = 1; i < sortedKeys.length; i++) {
+      const prev = new Date(sortedKeys[i - 1]);
+      const curr = new Date(sortedKeys[i]);
+      const diffDays = Math.round(
+        (curr.getTime() - prev.getTime()) / (1000 * 60 * 60 * 24)
+      );
+      if (diffDays === 1) {
+        current += 1;
+        if (current > best) best = current;
+      } else {
+        current = 1;
+      }
+    }
+    return best;
+  }, [history]);
+
+  // ── Reduce motion ─────────────────────────────────────────────────────────
+  const reduceMotion = useReducedMotion();
+
+  // ── Refresh ───────────────────────────────────────────────────────────────
+  const [refreshing, setRefreshing] = useState(false);
 
   const handleRefresh = async (): Promise<void> => {
     setRefreshing(true);
-    await refetch();
+    await Promise.all([refetch(), loadPlan()]);
     setRefreshing(false);
   };
 
   return (
+    <ScreenLayout horizontalPadding={false}>
     <ScrollView
       style={styles.container}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, { padding: spacing.s5, paddingBottom: spacing.s8 }]}
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
           onRefresh={handleRefresh}
-          tintColor="#64748b"
+          tintColor={theme.colors.textTertiary}
         />
       }
     >
+      {/* ── Streak Detail Sheet ── */}
+      <Modal
+        visible={streakDetailVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setStreakDetailVisible(false)}
+      >
+        <View style={[styles.modalOverlay]}>
+          <View style={[styles.modalSheet, {
+            backgroundColor: theme.colors.bgSecondary,
+            borderRadius: radius.lg,
+          }]}>
+            <Text style={{ fontSize: fontSize.heading2, fontWeight: fontWeight.bold, color: theme.colors.textPrimary, marginBottom: spacing.s4 }}>
+              Streak Details
+            </Text>
+            <View style={{ flexDirection: 'row', gap: spacing.s4, marginBottom: spacing.s4 }}>
+              <View style={{ alignItems: 'center', flex: 1 }}>
+                <Text style={{ fontSize: fontSize.heading1, fontWeight: fontWeight.bold, color: theme.colors.accentDefault, fontVariant: ['tabular-nums'] }}>
+                  {streak}
+                </Text>
+                <Text style={{ fontSize: fontSize.caption, color: theme.colors.textSecondary }}>Current streak</Text>
+              </View>
+              <View style={{ alignItems: 'center', flex: 1 }}>
+                <Text style={{ fontSize: fontSize.heading1, fontWeight: fontWeight.bold, color: theme.colors.textPrimary, fontVariant: ['tabular-nums'] }}>
+                  {longestStreak}
+                </Text>
+                <Text style={{ fontSize: fontSize.caption, color: theme.colors.textSecondary }}>Longest streak</Text>
+              </View>
+            </View>
+            <Text style={{ fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold, color: theme.colors.textTertiary, letterSpacing: 1, marginBottom: spacing.s2 }}>
+              LAST 7 DAYS
+            </Text>
+            <View style={{ flexDirection: 'row', gap: spacing.s2, marginBottom: spacing.s5 }}>
+              {last7DayDots.map((dot) => (
+                <View
+                  key={dot.key}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 16,
+                    backgroundColor: dot.filled
+                      ? theme.colors.accentDefault
+                      : theme.colors.bgPrimary,
+                    borderWidth: 1,
+                    borderColor: dot.filled
+                      ? theme.colors.accentDefault
+                      : theme.colors.borderDefault,
+                  }}
+                />
+              ))}
+            </View>
+            <TouchableOpacity
+              onPress={() => setStreakDetailVisible(false)}
+              style={[styles.ctaButton, {
+                backgroundColor: theme.colors.accentDefault,
+                borderRadius: radius.md,
+              }]}
+              accessibilityRole="button"
+              accessibilityLabel="Close streak details"
+            >
+              <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold }}>
+                Done
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* ── A. Greeting header ── */}
-      <View style={styles.headerSection}>
+      <View style={[styles.headerSection, { marginBottom: spacing.s5 }]}>
         <View style={styles.headerRow}>
-          <Text style={styles.greeting}>{getGreeting(user?.display_name ?? null)}</Text>
+          <Text style={{ fontSize: fontSize.heading2, fontWeight: fontWeight.bold, color: theme.colors.textPrimary, letterSpacing: -0.3 }}>
+          {/* E-003: was fontWeight '700' */}
+            {getGreeting(user?.display_name ?? null)}
+          </Text>
           <SyncStatusIndicator />
         </View>
-        <Text style={styles.dateLabel}>{getFullDateLabel()}</Text>
+        <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.textSecondary }}>
+          {getFullDateLabel()}
+        </Text>
       </View>
 
       {/* ── B. Streak badge ── */}
       <SectionHeader label="STREAK" />
       {historyLoading ? (
-        <View style={styles.streakBadge}>
-          <ActivityIndicator color="#94a3b8" />
+        <View style={[styles.streakBadge, { backgroundColor: theme.colors.accentSecondary + '33' }]}>
+          <ActivityIndicator color={theme.colors.textSecondary} />
         </View>
       ) : (
-        <StreakBadge streak={streak} />
+        <StreakBadge streak={streak} onPress={() => setStreakDetailVisible(true)} />
       )}
 
-      {/* ── C. Today's workout card ── */}
+      {/* ── C. Today's AI Plan card (paid tier only) ── */}
+      {user?.is_paid && (planLoading || plan) ? (
+        <>
+          <SectionHeader label="TODAY'S PLAN" />
+          {planLoading ? (
+            <PFCard variant="elevated">
+              <ActivityIndicator color={theme.colors.textSecondary} />
+            </PFCard>
+          ) : plan ? (
+            <PFCard variant="elevated">
+              <Text style={{ fontSize: fontSize.bodyLg, fontWeight: fontWeight.semibold, color: theme.colors.textPrimary }}>
+                {plan.name ?? "Today's Plan"}
+              </Text>
+              <View style={{ flexDirection: 'row', gap: spacing.s3, marginTop: spacing.s2 }}>
+                <MetricChip label="Exercises" value={planExercises.length} />
+                <MetricChip label="Sets" value={planTotalSets} />
+              </View>
+              {planReasoning ? (
+                <>
+                  <TouchableOpacity
+                    onPress={() => setReasonExpanded(!reasonExpanded)}
+                    style={{ marginTop: spacing.s3 }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Toggle workout reasoning"
+                  >
+                    <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.accentDefault }}>
+                      Why this workout? {reasonExpanded ? '▾' : '›'}
+                    </Text>
+                  </TouchableOpacity>
+                  {reasonExpanded && (
+                    <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.textSecondary, marginTop: spacing.s2 }}>
+                      {planReasoning}
+                    </Text>
+                  )}
+                </>
+              ) : null}
+              <PFButton
+                variant="primary"
+                label="Start Workout"
+                onPress={() => router.push('/(tabs)/log')}
+                style={{ marginTop: spacing.s3 }}
+              />
+            </PFCard>
+          ) : null}
+        </>
+      ) : null}
+
+      {/* ── D. Recent PRs horizontal scroll ── */}
+      {!historyLoading && prChips.length > 0 ? (
+        <>
+          <SectionHeader label="RECENT PRs" onViewAll={() => router.push('/(tabs)/log')} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.s2 }}>
+            {prChips.map((pr) => (
+              <View
+                key={pr.id}
+                style={{
+                  backgroundColor: theme.colors.statusSuccess + '26',
+                  borderRadius: radius.sm,
+                  paddingHorizontal: spacing.s2,
+                  paddingVertical: spacing.s1,
+                  marginRight: spacing.s2,
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ fontSize: fontSize.bodySm, fontWeight: fontWeight.medium, color: theme.colors.statusSuccess }}>
+                  {pr.exercise_name}
+                </Text>
+                <Text style={{ fontSize: fontSize.caption, color: theme.colors.statusSuccess }}>
+                  {formatWeight(pr.weight_kg, unitPref, 1)}
+                </Text>
+              </View>
+            ))}
+          </ScrollView>
+        </>
+      ) : null}
+
+      {/* ── E. Quick Stats row ── */}
+      {!historyLoading ? (
+        <>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.s2 }}>
+            <SectionHeader label="QUICK STATS" />
+            <Pressable
+              onPress={() => router.push('/progress')}
+              accessibilityRole="link"
+              accessibilityLabel="View full progress and analytics"
+              style={({ pressed }) => ({
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 4,
+                opacity: pressed ? 0.6 : 1,
+                minHeight: 48,
+                justifyContent: 'center',
+                paddingHorizontal: 4,
+              })}
+            >
+              <Text style={{ fontSize: fontSize.caption, color: theme.colors.accentDefault, fontWeight: fontWeight.medium }}>
+                View Progress
+              </Text>
+              <Text style={{ fontSize: fontSize.caption, color: theme.colors.accentDefault }}>›</Text>
+            </Pressable>
+          </View>
+          <View style={{ flexDirection: 'row', gap: spacing.s3, marginBottom: spacing.s2 }}>
+            <StatCard label="Weekly Volume" value={`${weeklyVolume} kg`} />
+            <StatCard label="Sessions" value={`${sessionsThisMonth}`} />
+            <StatCard label="Best Rank" value={bestPercentile !== null ? `${bestPercentile}th` : '—'} />
+          </View>
+        </>
+      ) : null}
+
+      {/* ── F. Today's workout card ── */}
       <SectionHeader label="TODAY" />
       <TodayCard
         setCount={todaySets.length}
         volumeDisplay={todayVolumeDisplay}
         isLoading={todayLoading}
       />
-
-      {/* ── D. Groups nav row ── */}
-      <SectionHeader label="GROUPS" />
+      {/* PL-3: Rest day button */}
       <TouchableOpacity
-        style={styles.groupsNavRow}
-        onPress={() => router.push('/groups')}
-        activeOpacity={0.75}
+        onPress={handleLogRestDay}
+        disabled={restDayLoggedToday || restDayLoading}
+        accessibilityRole="button"
+        accessibilityLabel="Log rest day"
+        style={[
+          styles.restDayButton,
+          {
+            backgroundColor: restDayLoggedToday ? theme.colors.bgElevated : theme.colors.bgSecondary,
+            borderColor: restDayLoggedToday ? theme.colors.borderDefault : theme.colors.accentDefault,
+            borderWidth: 1,
+            borderRadius: radius.md,
+            opacity: restDayLoggedToday ? 0.6 : 1,
+          },
+        ]}
       >
-        <Text style={styles.groupsNavEmoji}>👥</Text>
-        <View style={styles.groupsNavText}>
-          <Text style={styles.groupsNavTitle}>Streak Credits</Text>
-          <Text style={styles.groupsNavSub}>Train together, earn together</Text>
-        </View>
-        <Text style={styles.groupsNavChevron}>›</Text>
+        {restDayLoading ? (
+          <ActivityIndicator size="small" color={theme.colors.accentDefault} />
+        ) : (
+          <Text style={{
+            color: restDayLoggedToday ? theme.colors.textTertiary : theme.colors.accentDefault,
+            fontSize: fontSize.bodySm,
+            fontWeight: fontWeight.medium,
+          }}>
+            {restDayLoggedToday ? '✓ Rest day logged — your streak is safe.' : '😴 Log rest day'}
+          </Text>
+        )}
       </TouchableOpacity>
 
-      {/* ── E. Recent history ── */}
-      <SectionHeader label="RECENT ACTIVITY" />
+      {/* ── G. Recent history ── */}
+      <SectionHeader label="RECENT ACTIVITY" onViewAll={() => router.push('/workout-history')} />
       {historyLoading ? (
-        <ActivityIndicator color="#64748b" style={styles.historyLoader} />
+        <ActivityIndicator color={theme.colors.textTertiary} style={styles.historyLoader} />
       ) : recentDays.length === 0 ? (
-        <Text style={styles.emptyHistory}>No workouts in the last 7 days</Text>
+        <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.textTertiary, textAlign: 'center', marginTop: 12 }}>
+          No workouts in the last 7 days
+        </Text>
       ) : (
         <View style={styles.historyList}>
           {recentDays.map((entry) => {
@@ -251,33 +797,75 @@ export default function HomeScreen(): React.ReactElement {
                 ? liftNames.join(', ')
                 : `${liftNames.slice(0, 3).join(', ')} +${liftNames.length - 3} more`;
 
+            const setCount = sets.length;
+            const rowVolume = sets.reduce((acc, s) => {
+              if (s.kind === 'lift') {
+                const ls = s as LiftSet;
+                return acc + ls.weight_kg * ls.reps;
+              }
+              return acc;
+            }, 0);
+            const rowVolumeDisplay = formatWeight(rowVolume, unitPref, 0);
+
             return (
               <TouchableOpacity
                 key={workout.id}
-                style={styles.historyRow}
+                style={[styles.historyRow, {
+                  backgroundColor: theme.colors.bgSecondary,
+                  borderColor: theme.colors.borderDefault,
+                  borderRadius: radius.md,
+                  paddingHorizontal: spacing.s4,
+                  paddingVertical: spacing.s4,
+                }]}
                 activeOpacity={0.7}
-                onPress={() => {
-                  // TODO: navigate to day detail
-                }}
+                accessibilityRole="button"
+                onPress={() => router.push(`/workout-day?date=${workout.day_key}`)}
               >
                 <View style={styles.historyLeft}>
                   <View style={styles.historyDayRow}>
-                    <Text style={[styles.historyDayLabel, isToday && styles.historyDayToday]}>
+                    <Text style={{
+                      fontSize: fontSize.bodyMd,
+                      fontWeight: fontWeight.semibold,
+                      color: isToday ? theme.colors.accentDefault : theme.colors.textPrimary,
+                    }}>
                       {formatDayLabel(workout.day_key)}
                     </Text>
                     {hasPR && (
-                      <View style={styles.prBadge}>
-                        <Text style={styles.prBadgeText}>🏆 PR</Text>
-                      </View>
+                      reduceMotion ? (
+                        <View style={[styles.prBadge, {
+                          backgroundColor: theme.colors.statusSuccess + '26',
+                          borderRadius: radius.sm,
+                        }]}>
+                          <Text style={{ fontSize: fontSize.micro, fontWeight: fontWeight.bold, color: theme.colors.statusSuccess }}>
+                            🏆 PR
+                          </Text>
+                        </View>
+                      ) : (
+                        <Animated.View
+                          entering={ZoomIn.duration(400).springify().damping(0.6)}
+                          style={[styles.prBadge, {
+                            backgroundColor: theme.colors.statusSuccess + '26',
+                            borderRadius: radius.sm,
+                          }]}
+                        >
+                          <Text style={{ fontSize: fontSize.micro, fontWeight: fontWeight.bold, color: theme.colors.statusSuccess }}>
+                            🏆 PR
+                          </Text>
+                        </Animated.View>
+                      )
                     )}
                   </View>
-                  <Text style={styles.historyLifts} numberOfLines={1}>
+                  <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.textSecondary }} numberOfLines={1}>
                     {displayNames || 'No lifts recorded'}
                   </Text>
                 </View>
                 <View style={styles.historyRight}>
-                  <Text style={styles.historySetCount}>{sets.length}</Text>
-                  <Text style={styles.historySetLabel}>sets</Text>
+                  <Text style={{ fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold, color: theme.colors.textPrimary, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
+                    {setCount} sets
+                  </Text>
+                  <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.textTertiary, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
+                    {rowVolumeDisplay}
+                  </Text>
                 </View>
               </TouchableOpacity>
             );
@@ -285,6 +873,7 @@ export default function HomeScreen(): React.ReactElement {
         </View>
       )}
     </ScrollView>
+    </ScreenLayout>
   );
 }
 
@@ -295,139 +884,76 @@ export default function HomeScreen(): React.ReactElement {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0f172a',
   },
   content: {
-    padding: 20,
-    paddingBottom: 40,
-    gap: 8,
+    flexGrow: 1,
   },
 
   // Header
-  headerSection: {
-    marginBottom: 20,
-    gap: 4,
-  },
+  headerSection: {},
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-  },
-  greeting: {
-    fontSize: 26,
-    fontWeight: '700',
-    color: '#f8fafc',
-    letterSpacing: -0.3,
-  },
-  dateLabel: {
-    fontSize: 14,
-    color: '#64748b',
-  },
-
-  // Section headers
-  sectionHeader: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#64748b',
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
-    marginTop: 12,
-    marginBottom: 6,
   },
 
   // Streak badge
   streakBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#4f46e5',
-    borderRadius: 14,
-    paddingHorizontal: 20,
-    paddingVertical: 14,
-    minHeight: 52,
-    gap: 6,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 4,
   },
   streakEmoji: {
-    fontSize: 22,
-  },
-  streakCount: {
     fontSize: 24,
-    fontWeight: '800',
-    color: '#ffffff',
-  },
-  streakLabel: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#c7d2fe',
-  },
-  streakZeroText: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#c7d2fe',
+    marginRight: 8,
   },
 
   // Today card
   todayCard: {
-    backgroundColor: '#1e293b',
-    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#334155',
-    padding: 20,
-    gap: 16,
-    minHeight: 52,
+    padding: 16,
+    alignItems: 'center',
+    gap: 12,
   },
   todayStats: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 0,
+    gap: 16,
   },
   todayStat: {
-    flex: 1,
     alignItems: 'center',
-    gap: 2,
-  },
-  todayStatValue: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#f8fafc',
-  },
-  todayStatLabel: {
-    fontSize: 13,
-    color: '#64748b',
+    flex: 1,
   },
   todayDivider: {
     width: 1,
     height: 40,
-    backgroundColor: '#334155',
   },
-  todayEmpty: {
-    fontSize: 15,
-    color: '#64748b',
-    textAlign: 'center',
-  },
-
-  // CTA button
   ctaButton: {
-    backgroundColor: '#4f46e5',
-    borderRadius: 10,
+    width: '100%',
     paddingVertical: 14,
     alignItems: 'center',
-    minHeight: 44,
   },
-  ctaButtonText: {
-    color: '#ffffff',
-    fontSize: 15,
-    fontWeight: '600',
+
+  // Groups nav row — kept for possible re-use elsewhere, removed from render
+  groupsNavRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    gap: 12,
+  },
+  groupsNavEmoji: {
+    fontSize: 22,
+  },
+  groupsNavText: {
+    flex: 1,
   },
 
   // History
   historyLoader: {
     marginTop: 20,
-  },
-  emptyHistory: {
-    fontSize: 14,
-    color: '#64748b',
-    textAlign: 'center',
-    marginTop: 12,
   },
   historyList: {
     gap: 8,
@@ -435,89 +961,44 @@ const styles = StyleSheet.create({
   historyRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#334155',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    minHeight: 64,
+    justifyContent: 'space-between',
   },
   historyLeft: {
     flex: 1,
-    gap: 4,
+    gap: 2,
   },
   historyDayRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 6,
   },
-  historyDayLabel: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#f8fafc',
-  },
-  historyDayToday: {
-    color: '#818cf8',
-  },
-  historyLifts: {
-    fontSize: 13,
-    color: '#64748b',
-  },
-  historyRight: {
-    alignItems: 'center',
-    gap: 2,
-    minWidth: 48,
-  },
-  historySetCount: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#f8fafc',
-  },
-  historySetLabel: {
-    fontSize: 11,
-    color: '#64748b',
-  },
-
-  // Groups nav row
-  groupsNavRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#1e293b',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#334155',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    gap: 12,
-  },
-  groupsNavEmoji: { fontSize: 24 },
-  groupsNavText: { flex: 1 },
-  groupsNavTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#f1f5f9',
-  },
-  groupsNavSub: {
-    fontSize: 13,
-    color: '#64748b',
-    marginTop: 2,
-  },
-  groupsNavChevron: {
-    fontSize: 22,
-    color: '#475569',
-  },
-
-  // PR badge
   prBadge: {
-    backgroundColor: '#f59e0b',
-    borderRadius: 6,
-    paddingHorizontal: 7,
+    paddingHorizontal: 6,
     paddingVertical: 2,
   },
-  prBadgeText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#1c1917',
+  historyRight: {
+    alignItems: 'flex-end',
+    marginLeft: 8,
+  },
+
+  // Rest day button (PL-3)
+  restDayButton: {
+    marginTop: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Streak detail modal (P1-006)
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalSheet: {
+    padding: 24,
+    paddingBottom: 40,
   },
 });

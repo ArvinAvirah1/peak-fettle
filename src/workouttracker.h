@@ -105,7 +105,24 @@ public:
     // Returns recent sets (most recent first), capped at `limit`.
     // Each entry is a QVariantMap with keys: exercise, weight, reps, rir, rpe,
     // timestamp, dayKey, volume - convenient for QML ListView delegates.
+    // The `timestamp` value carries meaningful data only for the FIRST and LAST
+    // set of each workout day; intermediate set timestamps are present for
+    // ordering purposes but not shown in the UI (see TASK-3 change notes).
     Q_INVOKABLE QVariantList recentSets(int limit = 25) const;
+
+    // Returns the workout session summary for a given dayKey (YYYY-MM-DD).
+    // Map keys:
+    //   dayKey        - the day (echoed)
+    //   startTime     - QDateTime of the first set logged that day
+    //   endTime       - QDateTime of the last set logged that day
+    //   durationSec   - endTime - startTime in seconds (0 if only one set)
+    //   setCount      - total sets logged that day
+    // Returns an empty map if no sets were logged on dayKey.
+    Q_INVOKABLE QVariantMap workoutSession(const QString &dayKey) const;
+
+    // Convenience: sessions for recent N days, newest first.
+    // Drives a workout history/duration display without iterating all sets.
+    Q_INVOKABLE QVariantList recentSessions(int limit = 30) const;
 
     // ----- Progress series -----
     //

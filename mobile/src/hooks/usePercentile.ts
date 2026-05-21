@@ -28,7 +28,7 @@ export function usePercentile(): UsePercentileResult {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetch = useCallback(async () => {
+  const fetchRankings = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
@@ -45,13 +45,13 @@ export function usePercentile(): UsePercentileResult {
   }, []);
 
   useEffect(() => {
-    fetch();
-  }, [fetch]);
+    fetchRankings();
+  }, [fetchRankings]);
 
   return {
     response,
     isLoading,
     error,
-    refetch: fetch,
+    refetch: fetchRankings,
   };
 }
