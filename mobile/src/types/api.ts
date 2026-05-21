@@ -37,6 +37,10 @@ export interface User {
    * Option B silent-banner behaviour. Default: false (Option B).
    */
   use_1rm_confirmation?: boolean;
+  /** Opt-out of streak milestone push notifications. Default: true (opted in). */
+  streak_notifications_enabled?: boolean;
+  /** Opt-out of plan-ready push notifications. Default: true (opted in). */
+  plan_notifications_enabled?: boolean;
 }
 
 export interface AuthTokens {
@@ -61,6 +65,12 @@ export interface Workout {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  /**
+   * Phase 1.5: set to true on the session that first crosses the free-tier
+   * session limit (currently 5). Never true for paid users.
+   * Only present on the POST /workouts response — not on GET responses.
+   */
+  paywall_trigger?: boolean;
 }
 
 export interface CreateWorkoutPayload {
@@ -83,7 +93,13 @@ export interface LiftSet {
   weight_kg: number;
   /** Reps-in-Reserve. -1 = not recorded, 0 = to failure. */
   rir: number | null;
-  e1rm_kg: number | null;
+  // TYPE-001 fix (2026-05-16): `e1rm_kg: number | null` was removed because the
+  // server-side column was dropped in `20260505_sets_weight_raw.sql`. The server's
+  // `normalizeSet()` no longer emits the field, so any client read returned
+  // `undefined` not `null`, and any `set.e1rm_kg != null` branch silently
+  // evaluated false for all sets. When an Epley estimate is needed, compute it
+  // inline from `weight_kg` and `reps` (the same pattern used in
+  // `routes/percentile.js` and `lib/scoring.ts`).
   logged_at: string;
 }
 
@@ -190,9 +206,10 @@ export interface PercentileRanking {
    */
   is_estimated?: boolean;
   /**
-   * The best Epley estimate (MAX e1rm_kg across logged sets) for this lift.
+   * The best Epley estimate (computed inline server-side via MAX of
+   * `weight_raw/8 × (1 + reps/30)` across logged lift sets) for this lift.
    * Pre-fills the confirmation input in Option C. Null if no sets logged.
-   * Added in TICKET-041.
+   * Added in TICKET-041; comment updated for TYPE-001 (2026-05-16).
    */
   epley_estimate_kg?: number | null;
   /**
@@ -200,6 +217,9 @@ export interface PercentileRanking {
    * confirmed (or is still on Option B default). Added in TICKET-041.
    */
   confirmed_1rm_kg?: number | null;
+  /** Wilks2 (2020) score — null until compute_wilks_score() is available server-side */
+  wilks_score?: number | null;
+  wilks_note?: string;
   computed_at: string;
   model_version: number;
 }
@@ -216,6 +236,8 @@ export interface PercentileResponse {
   cohort_note: string;
   /** Standalone DOTS attribution for the 2.3 transparency modal. */
   dots_note?: string;
+  /** Wilks2 (2020) explanation for display in the transparency modal. */
+  wilks_note?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -229,6 +251,8 @@ export interface PlanExercise {
   reps: string; // range string e.g. "8-10"
   rpe_target: number;
   rest_seconds: number;
+  /** Per-exercise coaching note from Haiku — technique focus or loading intent (spec §6.3). */
+  coaching_note?: string;
 }
 
 export interface PlanSession {
@@ -250,6 +274,13 @@ export interface Plan {
   name: string;
   is_template: boolean;
   is_ai_generated: boolean;
+  /**
+   * PLANS-001 (2026-05-19): currently-followed program flag.
+   * At most one user-owned plan may be active at a time — enforced by the
+   * partial unique index `idx_plans_one_active_per_user`. Always false for
+   * global templates (user_id IS NULL).
+   */
+  is_active: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -295,55 +326,49 @@ export const GOAL_MODIFIER: Record<WeeklyGoal, number> = {
 export interface Group {
   id: string;
   name: string;
-  admin_id: string;
+  /** UUID of the group admin. Server field name: admin_user_id. */
+  admin_user_id: string;
   created_at: string;
   current_streak_weeks: number;
-  /** False if active_member_count < 2 (dormancy). */
-  is_active: boolean;
-  member_count: number;
-  /** Invite code used by others to join. */
-  invite_code: string;
+  last_evaluated_week: string | null;
+  /** Hard cap on membership (2–12). */
+  size_cap: number;
+  /** Current active member count (returned as active_count in list response). */
+  active_count: number;
+  /** Opaque UUID token used to generate the invite share-link. Only returned to the admin. */
+  invite_token: string | null;
 }
 
 export interface GroupMember {
   user_id: string;
   display_name: string | null;
-  /** Member's personal weekly goal for this group. */
-  weekly_goal: WeeklyGoal;
   joined_at: string;
-  /**
-   * True if this member will be counted in the current week's evaluation.
-   * False for mid-week joiners (excluded from current week per §7).
-   */
-  eligible_this_week: boolean;
-  /**
-   * True if the member has hit their weekly goal this week so far.
-   * Null when the week's evaluation has not yet run.
-   */
-  hit_goal_this_week: boolean | null;
+  /** 'active' | 'left' | 'kicked' */
+  status: string;
+  left_at: string | null;
+  kick_cooldown_until: string | null;
 }
 
-/** Result of a single ISO-week evaluation for a group. */
+/** Result of a single ISO-week evaluation for a group. Mirrors group_week_evaluations table. */
 export interface GroupWeekEvaluation {
-  group_id: string;
   /** ISO date string for Monday of the evaluated week (UTC). */
   week_start: string;
-  success: boolean;
-  members_eligible: number;
+  /** Number of members eligible in the evaluated week. */
+  eligible_members: number;
   members_hit_goal: number;
-  /** Credits earned per member at the 3+/week goal tier (base × multiplier). */
-  credits_per_member_base: number;
+  /** Credits awarded per qualifying member for that week (base × multiplier). */
+  credits_per_member: number;
   streak_weeks_after: number;
+  evaluated_at: string;
 }
 
-export interface GroupDetail extends Group {
+export interface GroupDetail extends Omit<Group, 'active_count'> {
   members: GroupMember[];
-  /** Most recent completed evaluation, or null if no evaluations yet. */
-  last_evaluation: GroupWeekEvaluation | null;
 }
 
 export interface CreditBalance {
   balance: number;
+  /** All-time gross credits earned (sum of positive ledger entries). */
   total_earned: number;
 }
 
@@ -351,17 +376,18 @@ export interface CreditBalance {
 
 export interface CreateGroupPayload {
   name: string;
-  /** Creator's own weekly goal for this group. */
-  weekly_goal: WeeklyGoal;
+  /** Hard cap on membership (2–12). */
+  sizeCap: number;
 }
 
 export interface JoinGroupPayload {
-  invite_code: string;
-  weekly_goal: WeeklyGoal;
+  /** The group's invite token UUID (from the share-link). */
+  token: string;
 }
 
 export interface UpdateMemberGoalPayload {
-  weekly_goal: WeeklyGoal;
+  /** Must match server field: workoutsPerWeek. Min 1, max 14. */
+  workoutsPerWeek: number;
 }
 
 export interface GroupsResponse {
@@ -369,5 +395,5 @@ export interface GroupsResponse {
 }
 
 export interface EvaluationsResponse {
-  evaluations: GroupWeekEvaluation[];
+  history: GroupWeekEvaluation[];
 }

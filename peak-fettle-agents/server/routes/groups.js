@@ -616,14 +616,21 @@ groupsRouter.get('/:id/history', async (req, res, next) => {
 // ===========================================================================
 
 // GET /credits/balance — caller's current wallet balance
+// Returns both spendable balance (all entries, can be negative) and total_earned
+// (all-time sum of positive entries — displayed as "lifetime credits" in the UI).
 creditsRouter.get('/balance', async (req, res, next) => {
     try {
         const { rows } = await pool.query(
-            `SELECT COALESCE(SUM(amount), 0) AS balance
+            `SELECT
+                COALESCE(SUM(amount), 0)                              AS balance,
+                COALESCE(SUM(amount) FILTER (WHERE amount > 0), 0)   AS total_earned
              FROM credit_ledger WHERE user_id = $1`,
             [req.user.id]
         );
-        res.json({ balance: parseInt(rows[0].balance, 10) });
+        res.json({
+            balance:      parseInt(rows[0].balance, 10),
+            total_earned: parseInt(rows[0].total_earned, 10),
+        });
     } catch (err) { next(err); }
 });
 

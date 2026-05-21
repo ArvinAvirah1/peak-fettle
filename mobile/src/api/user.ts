@@ -55,11 +55,10 @@ export async function deleteAccount(
 // ---------------------------------------------------------------------------
 
 /**
- * Partial profile update — unit preference, experience level, weight class.
+ * Partial profile update — unit preference, experience level, weight class,
+ * 1RM confirmation opt-in, theme preference.
  *
- * TODO(TICKET-026): implement PATCH /user/profile on the server.
- * This stub is defined here so the profile screen can wire it when
- * the backend endpoint ships. Until then, calling it will return a 404.
+ * Server: PATCH /user/profile
  */
 export interface PatchProfilePayload {
   unit_pref?: UnitPref;
@@ -67,6 +66,21 @@ export interface PatchProfilePayload {
   weight_class_kg?: number;
   /** Option C opt-in (TICKET-041). true = prompt user to confirm each estimate. */
   use_1rm_confirmation?: boolean;
+  /**
+   * E-002: Selected theme. Persisted to Supabase for cross-device sync.
+   * Must match ThemeName in mobile/src/theme/types.ts.
+   */
+  theme_preference?: 'deepOcean' | 'ember' | 'forest' | 'midnight' | 'monochrome';
+  /** ROADMAP 1.6 — biological sex for percentile cohort routing. */
+  sex?: 'MALE' | 'FEMALE' | 'UNDISCLOSED';
+  /** ROADMAP 1.6 — primary sport/discipline. */
+  primary_discipline?: string;
+  /** TICKET-024 — Expo/FCM push token. Pass null to clear (e.g. on logout). */
+  fcm_token?: string | null;
+  /** Opt-out of streak milestone push notifications. Default: true (opted in). */
+  streak_notifications_enabled?: boolean;
+  /** Opt-out of plan-ready push notifications. Default: true (opted in). */
+  plan_notifications_enabled?: boolean;
 }
 
 export async function patchProfile(payload: PatchProfilePayload): Promise<void> {

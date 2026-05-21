@@ -91,7 +91,9 @@ interface SetRow {
   reps: number | null;
   weight_raw: number | null; // INTEGER = kg × 8; decode before returning
   rir: number | null;
-  e1rm_kg: number | null;
+  // TYPE-001 fix (2026-05-16): `e1rm_kg` removed — column dropped server-side
+  // in 20260505_sets_weight_raw.sql; local SQLite column (if still present
+  // from a pre-drop schema) is now unused dead storage.
   // cardio
   duration_sec: number | null;
   distance_m: number | null;
@@ -112,7 +114,6 @@ function rowToSet(row: SetRow): WorkoutSet {
       reps: row.reps ?? 0,
       weight_kg: row.weight_raw != null ? row.weight_raw / 8 : 0,
       rir: row.rir,
-      e1rm_kg: row.e1rm_kg,
       logged_at: row.logged_at,
     };
     return liftSet;
@@ -145,6 +146,12 @@ export interface UsePowerSyncLogResult {
   logSet: (payload: LogSetPayload) => Promise<WorkoutSet>;
   deleteSet: (id: string) => Promise<void>;
   refetch: () => Promise<void>;
+  /**
+   * Phase 1.5: true once (and only once) when the server returns
+   * paywall_trigger=true on POST /workouts — indicates the user has hit the
+   * free-tier session limit. Log screen should surface an upgrade prompt.
+   */
+  paywallTriggered: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +168,8 @@ export function usePowerSyncLog(): UsePowerSyncLogResult {
   const [workout, setWorkout] = useState<Workout | null>(null);
   const [initLoading, setInitLoading] = useState(true);
   const [initError, setInitError] = useState<string | null>(null);
+  // Phase 1.5: true once per app-session when the server signals paywall_trigger.
+  const [paywallTriggered, setPaywallTriggered] = useState(false);
 
   // ── Sets state (from local PowerSync SQLite watch) ────────────────────────
   const [sets, setSets] = useState<WorkoutSet[]>([]);
@@ -179,6 +188,11 @@ export function usePowerSyncLog(): UsePowerSyncLogResult {
       const w = await createWorkout(todayKey);
       setWorkout(w);
       workoutIdRef.current = w.id;
+      // Phase 1.5: server fires paywall_trigger=true exactly once (the session
+      // that crosses the free-tier limit). Surface it so the UI can prompt.
+      if (w.paywall_trigger) {
+        setPaywallTriggered(true);
+      }
     } catch (err) {
       const msg =
         err instanceof Error ? err.message : 'Could not create workout';
@@ -315,8 +329,8 @@ export function usePowerSyncLog(): UsePowerSyncLogResult {
           reps: payload.reps,
           weight_kg: payload.weightKg,
           rir: payload.rir ?? null,
-          // e1rm_kg is null until the server computes and syncs it back.
-          e1rm_kg: null,
+          // TYPE-001: `e1rm_kg` removed — compute Epley inline at the call site
+          // when needed (the server column was dropped in 20260505).
           logged_at: now,
         };
         return newSet;
@@ -386,5 +400,6 @@ export function usePowerSyncLog(): UsePowerSyncLogResult {
     logSet,
     deleteSet,
     refetch,
+    paywallTriggered,
   };
 }

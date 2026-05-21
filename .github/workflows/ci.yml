@@ -1,0 +1,144 @@
+# Peak Fettle — CI / CD
+#
+# Jobs:
+#   backend          lint + unit tests for the Express API
+#   marketing        lint + production build for the Next.js marketing site
+#   deploy-marketing push to Vercel on every commit to `main` (after marketing passes)
+#
+# Required GitHub Secrets (Settings → Secrets → Actions):
+#   VERCEL_TOKEN        — from vercel.com/account/tokens
+#   VERCEL_ORG_ID       — from .vercel/project.json after first `vercel link`
+#   VERCEL_PROJECT_ID   — same file
+#   RESEND_API_KEY      — used by marketing build; set to a placeholder for CI
+#                         (build-time reference only; Resend is called at runtime)
+
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+# Cancel in-flight runs on the same branch to avoid redundant builds
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job 1 — Backend: lint + unit tests
+# ─────────────────────────────────────────────────────────────────────────────
+jobs:
+  backend:
+    name: "Backend — lint & test"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: peak-fettle-agents/server
+
+    env:
+      NODE_ENV:   test
+      # CI-only secrets — never used to hit real services
+      JWT_SECRET: ${{ secrets.CI_JWT_SECRET || 'ci-only-secret-not-production' }}
+      WEB_ORIGIN: http://localhost:3000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: peak-fettle-agents/server/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job 2 — Marketing site: lint + production build
+# ─────────────────────────────────────────────────────────────────────────────
+  marketing:
+    name: "Marketing site — lint & build"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: marketing-site
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: marketing-site/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint (Next.js ESLint)
+        run: npm run lint
+
+      - name: Production build
+        run: npm run build
+        env:
+          # Resend is called at runtime, not build time; a placeholder keeps
+          # the build from crashing if the env var is ever read at module level.
+          RESEND_API_KEY: ci-placeholder
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Job 3 — Deploy marketing site to Vercel (main branch only)
+# ─────────────────────────────────────────────────────────────────────────────
+  deploy-marketing:
+    name: "Deploy → Vercel (production)"
+    needs: marketing
+    # Only deploy on direct pushes to main, not on PRs
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: marketing-site
+
+    environment:
+      name: production
+      url: https://peakfettle.com   # update once the custom domain is wired up
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      # Pull Vercel project metadata (.vercel/project.json) into the runner
+      - name: Pull Vercel environment
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID:     ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      # Build the Next.js app via Vercel's build system (respects framework config)
+      - name: Build
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID:     ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+      # Ship the pre-built output — no rebuild on Vercel's side
+      - name: Deploy prebuilt output
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID:     ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}

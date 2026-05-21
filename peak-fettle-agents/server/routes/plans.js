@@ -6,6 +6,7 @@ const express = require('express');
 const { z } = require('zod');
 const Anthropic = require('@anthropic-ai/sdk');
 const { pool } = require('../db');
+const { supabaseAdmin } = require('../lib/supabaseAdmin');
 
 // Anthropic client — model pinned to Haiku 4.5 per CTO cost guardrail (~2.5¢/plan).
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -46,7 +47,7 @@ router.post('/', async (req, res, next) => {
         const { rows } = await pool.query(
             `INSERT INTO plans (user_id, name, structure, is_template, is_ai_generated)
              VALUES ($1, $2, $3, $4, $5)
-             RETURNING id, user_id, name, is_template, is_ai_generated,
+             RETURNING id, user_id, name, is_template, is_ai_generated, is_active,
                        created_at, updated_at`,
             [req.user.id, name, JSON.stringify(structure), isTemplate, isAiGenerated]
         );
@@ -60,12 +61,16 @@ router.post('/', async (req, res, next) => {
 // ---------------------------------------------------------------------------
 router.get('/', async (req, res, next) => {
     try {
+        // PLANS-001 (2026-05-19): include `is_active` so the client can show
+        // which plan is the user's currently-followed program. Global templates
+        // (user_id IS NULL) always report is_active = FALSE — the partial
+        // unique index excludes them by design.
         const { rows } = await pool.query(
-            `SELECT id, user_id, name, is_template, is_ai_generated,
+            `SELECT id, user_id, name, is_template, is_ai_generated, is_active,
                     created_at, updated_at
              FROM plans
              WHERE user_id = $1 OR is_template = TRUE
-             ORDER BY is_template DESC, updated_at DESC`,
+             ORDER BY is_active DESC, is_template DESC, updated_at DESC`,
             [req.user.id]
         );
 
@@ -78,9 +83,10 @@ router.get('/', async (req, res, next) => {
 // ---------------------------------------------------------------------------
 router.get('/:id', async (req, res, next) => {
     try {
+        // PLANS-001 (2026-05-19): expose `is_active` on detail fetch as well.
         const { rows } = await pool.query(
             `SELECT id, user_id, name, structure,
-                    is_template, is_ai_generated,
+                    is_template, is_ai_generated, is_active,
                     created_at, updated_at
              FROM plans
              WHERE id = $1
@@ -140,6 +146,86 @@ router.patch('/:id', async (req, res, next) => {
         }
 
         res.json(rows[0]);
+    } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// POST /plans/:id/activate — mark one user plan as the active program
+// PLANS-001 (2026-05-19): wires the `is_active` column shipped in
+// 20260515_plans_active.sql. Runs in a single transaction so the at-most-one
+// constraint is upheld even under concurrent calls — the partial unique index
+// `idx_plans_one_active_per_user` is the source of truth.
+//
+// Returns: the updated plan row (same shape as GET /plans/:id minus structure).
+// 404 if the target plan does not belong to the caller (templates excluded).
+// ---------------------------------------------------------------------------
+router.post('/:id/activate', async (req, res, next) => {
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        // 1. Confirm the plan is user-owned (templates can't be activated).
+        const { rows: ownerRows } = await client.query(
+            `SELECT id FROM plans
+             WHERE id = $1
+               AND user_id = $2
+               AND is_template = FALSE`,
+            [req.params.id, req.user.id]
+        );
+        if (ownerRows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Plan not found or not activatable.' });
+        }
+
+        // 2. Deactivate every other plan owned by this user.
+        //    Must run BEFORE the activate UPDATE so the partial unique index
+        //    `idx_plans_one_active_per_user` is never violated mid-transaction.
+        await client.query(
+            `UPDATE plans
+             SET is_active = FALSE, updated_at = NOW()
+             WHERE user_id = $1
+               AND id <> $2
+               AND is_active = TRUE`,
+            [req.user.id, req.params.id]
+        );
+
+        // 3. Activate the target plan.
+        const { rows } = await client.query(
+            `UPDATE plans
+             SET is_active = TRUE, updated_at = NOW()
+             WHERE id = $1
+               AND user_id = $2
+               AND is_template = FALSE
+             RETURNING id, user_id, name, is_template, is_ai_generated,
+                       is_active, created_at, updated_at`,
+            [req.params.id, req.user.id]
+        );
+
+        await client.query('COMMIT');
+        res.json(rows[0]);
+    } catch (err) {
+        try { await client.query('ROLLBACK'); } catch (_e) { /* swallow rollback err */ }
+        next(err);
+    } finally {
+        client.release();
+    }
+});
+
+// ---------------------------------------------------------------------------
+// POST /plans/deactivate — clear the active plan for the calling user
+// PLANS-001 (2026-05-19): companion to /activate so users can step away from
+// any active program without selecting a replacement (e.g., taking a deload
+// week off-program).
+// ---------------------------------------------------------------------------
+router.post('/deactivate', async (req, res, next) => {
+    try {
+        await pool.query(
+            `UPDATE plans
+             SET is_active = FALSE, updated_at = NOW()
+             WHERE user_id = $1 AND is_active = TRUE`,
+            [req.user.id]
+        );
+        res.status(204).end();
     } catch (err) { next(err); }
 });
 
@@ -236,6 +322,12 @@ router.post('/generate', async (req, res, next) => {
         );
 
         // ── 4. Load recent training history (last 14 days) ──────────────────
+        // TYPE-001 follow-up (2026-05-16): `s.e1rm_kg` column was dropped in
+        // 20260505_sets_weight_raw.sql; the previous SELECT would have
+        // crashed any plan-generation request. Compute Epley inline from
+        // weight_raw (the same pattern used in routes/percentile.js).
+        // Lift sets only (`s.kind = 'lift'`) so cardio rows can't pollute the
+        // e1rm prompt context.
         const { rows: historyRows } = await pool.query(
             `SELECT
                 e.name                      AS exercise_name,
@@ -243,7 +335,14 @@ router.post('/generate', async (req, res, next) => {
                 s.weight_raw / 8.0          AS weight_kg,
                 s.reps,
                 s.rir,
-                s.e1rm_kg,
+                CASE
+                    WHEN s.kind = 'lift' AND s.weight_raw > 0 AND s.reps >= 1 THEN
+                        CASE
+                            WHEN s.reps = 1 THEN s.weight_raw / 8.0
+                            ELSE (s.weight_raw / 8.0) * (1.0 + s.reps::float / 30.0)
+                        END
+                    ELSE NULL
+                END                         AS e1rm_kg,
                 w.day_key
              FROM sets s
              JOIN workouts w ON w.id = s.workout_id
@@ -313,6 +412,7 @@ HARD RULES:
 3. If the user has fewer than 3 sessions logged, reasoning must say: "You're new — this plan will adapt as you log more sessions."
 4. Honour all physical constraints — never suggest movements that the user has flagged as off-limits.
 5. Return 4–6 exercises per session. Include sets (3–5), reps (range e.g. "8-10"), rpe_target (1–10), rest_seconds (60–180).
+6. Every exercise MUST include a coaching_note: one concise sentence (10–20 words) describing technique focus or loading intent specific to this user's history. Never leave coaching_note blank or generic.
 
 JSON schema:
 {
@@ -323,7 +423,8 @@ JSON schema:
         "sets": number,
         "reps": "string",
         "rpe_target": number,
-        "rest_seconds": number
+        "rest_seconds": number,
+        "coaching_note": "string (1 sentence, technique or loading intent)"
       }
     ]
   },
@@ -412,11 +513,25 @@ Generate one workout session now.`;
         );
 
         // ── 12. Return to client ──────────────────────────────────────────────
+        const plan = planRows[0];
         res.status(201).json({
-            plan_id:   planRows[0].id,
+            plan_id:   plan.id,
             session:   sessionWithIds,
             reasoning: aiResponse.reasoning,
         });
+
+        // Push notification: AI plan ready
+        try {
+            await supabaseAdmin.from('notification_queue').insert({
+                user_id: req.user.id,
+                type: 'plan_ready',
+                title: 'Your personalised plan is ready',
+                body: 'Tap to view your new AI-generated workout program.',
+                data: { plan_id: plan.id ?? null },
+            });
+        } catch (_e) {
+            console.warn('[push] plan_ready enqueue failed:', _e?.message);
+        }
 
     } catch (err) { next(err); }
 });

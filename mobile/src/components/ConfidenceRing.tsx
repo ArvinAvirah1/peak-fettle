@@ -3,6 +3,7 @@
  * given percentile ranking.
  *
  * TICKET-039 | ROADMAP item 1.6 | 2026-05-10
+ * E-001 update: migrated all hardcoded hex values to semantic tokens via useTheme().
  *
  * Design spec (exec-percentile-decisions.md §4 / ROADMAP 1.6):
  *   "Display a confidence indicator alongside each percentile — a ring that
@@ -27,6 +28,7 @@
 
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, ViewStyle } from 'react-native';
+import { useTheme } from '../theme/ThemeContext';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -50,11 +52,12 @@ function fillFraction(cohortSize: number | null, maxFull: number): number {
   return Math.min(cohortSize / maxFull, 1);
 }
 
-/** Colour interpolated from red → amber → green across [0, 1]. */
-function ringColor(fraction: number): string {
-  if (fraction >= 0.6) return '#22c55e';  // green
-  if (fraction >= 0.2) return '#f59e0b';  // amber
-  return '#ef4444';                        // red
+/** Colour interpolated from red → amber → green across [0, 1].
+ *  Uses status semantic tokens so it stays consistent across themes. */
+function ringColor(fraction: number, theme: ReturnType<typeof useTheme>['theme']): string {
+  if (fraction >= 0.6) return theme.colors.statusSuccess; // green
+  if (fraction >= 0.2) return theme.colors.statusWarning; // amber
+  return theme.colors.statusError;                        // red
 }
 
 /** Tooltip text per exec spec. */
@@ -79,11 +82,15 @@ function RingArc({
   strokeWidth,
   fraction,
   color,
+  trackColor,
+  innerBg,
 }: {
   size: number;
   strokeWidth: number;
   fraction: number;
   color: string;
+  trackColor: string;
+  innerBg: string;
 }): React.ReactElement {
   const inner = size - strokeWidth * 2;
   const radius = size / 2;
@@ -111,11 +118,11 @@ function RingArc({
 
   return (
     <View style={{ width: size, height: size, position: 'relative' }}>
-      {/* Track (dim ring) */}
+      {/* Track (dim ring) — semantic token, not hardcoded hex */}
       <View
         style={[
           arcStyle,
-          { borderColor: '#1e293b' },
+          { borderColor: trackColor },
         ]}
       />
 
@@ -168,7 +175,7 @@ function RingArc({
         </View>
       )}
 
-      {/* Inner mask to turn filled circle into a ring */}
+      {/* Inner mask to turn filled circle into a ring — semantic bgSecondary */}
       <View
         style={{
           position: 'absolute',
@@ -177,7 +184,7 @@ function RingArc({
           width: inner,
           height: inner,
           borderRadius: inner / 2,
-          backgroundColor: '#0f172a', // matches card background
+          backgroundColor: innerBg,
         }}
       />
     </View>
@@ -195,9 +202,10 @@ export function ConfidenceRing({
   strokeWidth = 4,
   style,
 }: ConfidenceRingProps): React.ReactElement {
-  const fraction = fillFraction(cohortSize, maxFull);
-  const color    = ringColor(fraction);
-  const label    = cohortSize !== null ? String(cohortSize) : '–';
+  const { theme } = useTheme();
+  const fraction  = fillFraction(cohortSize, maxFull);
+  const color     = ringColor(fraction, theme);
+  const label     = cohortSize !== null ? String(cohortSize) : '–';
 
   return (
     <View style={[styles.container, style]}>
@@ -206,6 +214,9 @@ export function ConfidenceRing({
         strokeWidth={strokeWidth}
         fraction={fraction}
         color={color}
+        // Semantic tokens — no hardcoded hex
+        trackColor={theme.colors.bgTertiary}
+        innerBg={theme.colors.bgSecondary}
       />
       {/* Cohort count in centre of ring */}
       <View

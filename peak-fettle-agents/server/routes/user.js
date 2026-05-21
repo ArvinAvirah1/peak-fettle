@@ -75,10 +75,22 @@ router.get('/data-export', exportLimiter, async (req, res, next) => {
                 [uid]
             ),
             pool.query(
+                // TYPE-001 follow-up (2026-05-16): `s.e1rm_kg` column was dropped
+                // in 20260505_sets_weight_raw.sql; the previous SELECT would have
+                // crashed any GDPR data-export request. Compute Epley inline from
+                // weight_raw — lift sets only.
                 `SELECT s.id, s.workout_id, e.name AS exercise_name,
                         -- Decode weight_raw (SMALLINT, kg × 8) back to kg float for export
                         s.weight_raw / 8.0 AS weight_kg,
-                        s.reps, s.rir, s.e1rm_kg,
+                        s.reps, s.rir,
+                        CASE
+                            WHEN s.kind = 'lift' AND s.weight_raw > 0 AND s.reps >= 1 THEN
+                                CASE
+                                    WHEN s.reps = 1 THEN s.weight_raw / 8.0
+                                    ELSE (s.weight_raw / 8.0) * (1.0 + s.reps::float / 30.0)
+                                END
+                            ELSE NULL
+                        END AS e1rm_kg,
                         s.set_number, s.logged_at
                  FROM sets s
                  JOIN workouts w ON w.id = s.workout_id
@@ -172,23 +184,33 @@ router.delete('/account', deleteLimiter, async (req, res, next) => {
         // on the FK to auth.users, but we do them explicitly here so the
         // Charles Proxy audit (TICKET-014 acceptance criterion) can verify the
         // sequence in logs, and so the service role transaction is atomic.
-        await pool.query('BEGIN');
+        //
+        // IMPORTANT: We must call pool.connect() and use the *same* client for
+        // all queries within the transaction. pool.query() borrows a fresh
+        // connection from the pool for each call, so BEGIN/COMMIT on separate
+        // pool.query() calls would operate on different connections and provide
+        // no transactional guarantee.
+        const client = await pool.connect();
 
         try {
-            await pool.query(`DELETE FROM sets       WHERE workout_id IN (SELECT id FROM workouts WHERE user_id = $1)`, [uid]);
-            await pool.query(`DELETE FROM workouts             WHERE user_id = $1`, [uid]);
-            await pool.query(`DELETE FROM plans                WHERE user_id = $1`, [uid]);
-            await pool.query(`DELETE FROM user_constraints     WHERE user_id = $1`, [uid]);
-            await pool.query(`DELETE FROM daily_health_metrics WHERE user_id = $1`, [uid]);
-            await pool.query(`DELETE FROM user_percentile_rankings WHERE user_id = $1`, [uid]);
-            await pool.query(`DELETE FROM refresh_tokens        WHERE user_id = $1`, [uid]);
-            await pool.query(`DELETE FROM streaks               WHERE user_id = $1`, [uid]);
-            await pool.query(`DELETE FROM users                 WHERE id      = $1`, [uid]);
+            await client.query('BEGIN');
 
-            await pool.query('COMMIT');
+            await client.query(`DELETE FROM sets       WHERE workout_id IN (SELECT id FROM workouts WHERE user_id = $1)`, [uid]);
+            await client.query(`DELETE FROM workouts             WHERE user_id = $1`, [uid]);
+            await client.query(`DELETE FROM plans                WHERE user_id = $1`, [uid]);
+            await client.query(`DELETE FROM user_constraints     WHERE user_id = $1`, [uid]);
+            await client.query(`DELETE FROM daily_health_metrics WHERE user_id = $1`, [uid]);
+            await client.query(`DELETE FROM user_percentile_rankings WHERE user_id = $1`, [uid]);
+            await client.query(`DELETE FROM refresh_tokens        WHERE user_id = $1`, [uid]);
+            await client.query(`DELETE FROM streaks               WHERE user_id = $1`, [uid]);
+            await client.query(`DELETE FROM users                 WHERE id      = $1`, [uid]);
+
+            await client.query('COMMIT');
         } catch (innerErr) {
-            await pool.query('ROLLBACK');
+            await client.query('ROLLBACK');
             throw innerErr;
+        } finally {
+            client.release();
         }
 
         // TICKET-030: Delete the Supabase auth record now that the DB transaction
@@ -248,9 +270,14 @@ router.delete('/account', deleteLimiter, async (req, res, next) => {
 //   experience_level     — free-text string (e.g. 'intermediate')
 //   weight_class_kg      — number
 //   use_1rm_confirmation — boolean (TICKET-041: Option C opt-in)
+//   theme_preference     — 'deepOcean'|'ember'|'forest'|'midnight'|'monochrome' (E-002)
+//   sex                  — 'MALE'|'FEMALE'|'UNDISCLOSED' (ROADMAP 1.6)
+//   primary_discipline   — 7-value CHECK string (ROADMAP 1.6)
+//   fcm_token            — Expo/FCM push token (TICKET-024); null to clear
 //
-// This endpoint was previously stubbed on the client side (TICKET-026 TODO).
-// Now implemented to support the 1RM confirmation preference toggle.
+// E-002: theme_preference is written by the mobile ThemeProvider whenever the
+// user changes their theme. It is read at login and merged into the session so
+// the selected theme follows the user across devices.
 // ---------------------------------------------------------------------------
 router.patch('/profile', async (req, res, next) => {
     try {
@@ -260,6 +287,10 @@ router.patch('/profile', async (req, res, next) => {
             experience_level,
             weight_class_kg,
             use_1rm_confirmation,
+            theme_preference,
+            sex,
+            primary_discipline,
+            fcm_token,
         } = req.body ?? {};
 
         // Build SET clause dynamically — only update fields that were provided.
@@ -311,6 +342,32 @@ router.patch('/profile', async (req, res, next) => {
             setClauses.push(`use_1rm_confirmation = $${params.length}`);
         }
 
+        // E-002: Theme preference — persisted to Supabase for cross-device sync.
+        if (theme_preference !== undefined) {
+            const VALID_THEMES = ['deepOcean', 'ember', 'forest', 'midnight', 'monochrome'];
+            if (!VALID_THEMES.includes(theme_preference)) {
+                return res.status(400).json({
+                    error: 'invalid_theme_preference',
+                    message: `theme_preference must be one of: ${VALID_THEMES.join(', ')}.`,
+                });
+            }
+            params.push(theme_preference);
+            setClauses.push(`theme_preference = $${params.length}`);
+        }
+
+        // TICKET-024: FCM push token — stored so the server can target this device.
+        // Pass null to explicitly clear the token (e.g. on logout).
+        if (fcm_token !== undefined) {
+            if (fcm_token !== null && (typeof fcm_token !== 'string' || fcm_token.length > 512)) {
+                return res.status(400).json({
+                    error: 'invalid_fcm_token',
+                    message: 'fcm_token must be a string of ≤512 characters, or null.',
+                });
+            }
+            params.push(fcm_token);
+            setClauses.push(`fcm_token = $${params.length}`);
+        }
+
         if (setClauses.length === 0) {
             return res.status(400).json({
                 error: 'no_fields',
@@ -322,7 +379,7 @@ router.patch('/profile', async (req, res, next) => {
             `UPDATE users
              SET ${setClauses.join(', ')}
              WHERE id = $1
-             RETURNING id, unit_pref, experience_level, weight_class_kg, use_1rm_confirmation`,
+             RETURNING id, unit_pref, experience_level, weight_class_kg, use_1rm_confirmation, theme_preference, fcm_token`,
             params
         );
 

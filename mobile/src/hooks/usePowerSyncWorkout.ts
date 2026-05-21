@@ -58,7 +58,7 @@ interface SetRow {
   // Decode: weight_raw / 8 → weight_kg (float) before returning to callers.
   weight_raw: number | null;
   rir: number | null;
-  e1rm_kg: number | null;
+  // TYPE-001 fix (2026-05-16): e1rm_kg dropped — column gone server-side.
   // cardio columns
   duration_sec: number | null;
   distance_m: number | null;
@@ -95,7 +95,6 @@ function rowToSet(row: SetRow): WorkoutSet {
       // Decode weight_raw (kg × 8 INTEGER) back to kg float.
       weight_kg: row.weight_raw != null ? row.weight_raw / 8 : 0,
       rir: row.rir,
-      e1rm_kg: row.e1rm_kg,
       logged_at: row.logged_at,
     };
     return liftSet;

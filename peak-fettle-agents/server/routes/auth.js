@@ -72,7 +72,8 @@ router.post('/signup', async (req, res, next) => {
         const { rows } = await pool.query(
             `INSERT INTO users (email, password_hash, display_name)
              VALUES ($1, $2, $3)
-             RETURNING id, email, display_name, tier, unit_pref, score_pref`,
+             RETURNING id, email, display_name, tier, is_paid, unit_pref, score_pref,
+                       experience_level, weight_class_kg, sex, age_band`,
             [email, passwordHash, displayName || null]
         );
         const user = rows[0];
@@ -88,7 +89,8 @@ router.post('/login', async (req, res, next) => {
     try {
         const { email, password } = LoginSchema.parse(req.body);
         const { rows } = await pool.query(
-            `SELECT id, email, display_name, password_hash, tier, unit_pref, score_pref
+            `SELECT id, email, display_name, password_hash, tier, is_paid, unit_pref, score_pref,
+                    experience_level, weight_class_kg, sex, age_band
              FROM users WHERE email = $1 AND deleted_at IS NULL`,
             [email]
         );

@@ -29,6 +29,8 @@ import {
 import { displayToKg } from '../constants/units';
 import { Exercise, WorkoutSet, LogSetPayload } from '../types/api';
 import { UnitSystem } from '../constants/units';
+import { useTheme } from '../theme/ThemeContext';
+import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -115,6 +117,7 @@ export function SetEntryForm({
   onClose,
   onSubmit,
 }: SetEntryFormProps): React.ReactElement {
+  const { theme } = useTheme();
   const isLift = exercise.category === 'lift';
   const distanceLabel = unitPref === 'lbs' ? 'miles' : 'km';
 
@@ -246,11 +249,15 @@ export function SetEntryForm({
     <View style={styles.fieldsContainer}>
       {/* Weight */}
       <View style={styles.fieldGroup}>
-        <Text style={styles.fieldLabel}>Weight ({unitPref})</Text>
+        <Text style={[styles.fieldLabel, { color: theme.colors.textSecondary }]}>Weight ({unitPref})</Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, {
+            backgroundColor: theme.colors.bgSecondary,
+            color: theme.colors.textPrimary,
+            borderColor: theme.colors.borderDefault,
+          }]}
           placeholder={`e.g. ${unitPref === 'lbs' ? '135' : '60'}`}
-          placeholderTextColor="#475569"
+          placeholderTextColor={theme.colors.textTertiary}
           keyboardType="decimal-pad"
           value={liftFields.weight}
           onChangeText={(t) => setLiftFields((prev) => ({ ...prev, weight: t }))}
@@ -262,12 +269,16 @@ export function SetEntryForm({
 
       {/* Reps */}
       <View style={styles.fieldGroup}>
-        <Text style={styles.fieldLabel}>Reps</Text>
+        <Text style={[styles.fieldLabel, { color: theme.colors.textSecondary }]}>Reps</Text>
         <TextInput
           ref={repsRef}
-          style={styles.input}
+          style={[styles.input, {
+            backgroundColor: theme.colors.bgSecondary,
+            color: theme.colors.textPrimary,
+            borderColor: theme.colors.borderDefault,
+          }]}
           placeholder="e.g. 8"
-          placeholderTextColor="#475569"
+          placeholderTextColor={theme.colors.textTertiary}
           keyboardType="number-pad"
           value={liftFields.reps}
           onChangeText={(t) => setLiftFields((prev) => ({ ...prev, reps: t }))}
@@ -278,14 +289,18 @@ export function SetEntryForm({
 
       {/* RIR (optional) */}
       <View style={styles.fieldGroup}>
-        <Text style={styles.fieldLabel}>
+        <Text style={[styles.fieldLabel, { color: theme.colors.textSecondary }]}>
           RIR{' '}
-          <Text style={styles.fieldLabelOptional}>(optional — 0 = to failure)</Text>
+          <Text style={[styles.fieldLabelOptional, { color: theme.colors.textTertiary }]}>(optional — 0 = to failure)</Text>
         </Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, {
+            backgroundColor: theme.colors.bgSecondary,
+            color: theme.colors.textPrimary,
+            borderColor: theme.colors.borderDefault,
+          }]}
           placeholder="Leave blank to skip"
-          placeholderTextColor="#475569"
+          placeholderTextColor={theme.colors.textTertiary}
           keyboardType="number-pad"
           value={liftFields.rir}
           onChangeText={(t) => setLiftFields((prev) => ({ ...prev, rir: t }))}
@@ -300,12 +315,16 @@ export function SetEntryForm({
     <View style={styles.fieldsContainer}>
       {/* Duration */}
       <View style={styles.fieldGroup}>
-        <Text style={styles.fieldLabel}>Duration (mm : ss)</Text>
+        <Text style={[styles.fieldLabel, { color: theme.colors.textSecondary }]}>Duration (mm : ss)</Text>
         <View style={styles.durationRow}>
           <TextInput
-            style={[styles.input, styles.durationInput]}
+            style={[styles.input, styles.durationInput, {
+              backgroundColor: theme.colors.bgSecondary,
+              color: theme.colors.textPrimary,
+              borderColor: theme.colors.borderDefault,
+            }]}
             placeholder="00"
-            placeholderTextColor="#475569"
+            placeholderTextColor={theme.colors.textTertiary}
             keyboardType="number-pad"
             maxLength={3}
             value={cardioFields.durationMm}
@@ -316,12 +335,16 @@ export function SetEntryForm({
             onSubmitEditing={() => ssRef.current?.focus()}
             accessibilityLabel="Duration minutes"
           />
-          <Text style={styles.durationSeparator}>:</Text>
+          <Text style={[styles.durationSeparator, { color: theme.colors.textTertiary }]}>:</Text>
           <TextInput
             ref={ssRef}
-            style={[styles.input, styles.durationInput]}
+            style={[styles.input, styles.durationInput, {
+              backgroundColor: theme.colors.bgSecondary,
+              color: theme.colors.textPrimary,
+              borderColor: theme.colors.borderDefault,
+            }]}
             placeholder="00"
-            placeholderTextColor="#475569"
+            placeholderTextColor={theme.colors.textTertiary}
             keyboardType="number-pad"
             maxLength={2}
             value={cardioFields.durationSs}
@@ -336,14 +359,18 @@ export function SetEntryForm({
 
       {/* Distance */}
       <View style={styles.fieldGroup}>
-        <Text style={styles.fieldLabel}>
+        <Text style={[styles.fieldLabel, { color: theme.colors.textSecondary }]}>
           Distance ({distanceLabel}){' '}
-          <Text style={styles.fieldLabelOptional}>(optional)</Text>
+          <Text style={[styles.fieldLabelOptional, { color: theme.colors.textTertiary }]}>(optional)</Text>
         </Text>
         <TextInput
-          style={styles.input}
+          style={[styles.input, {
+            backgroundColor: theme.colors.bgSecondary,
+            color: theme.colors.textPrimary,
+            borderColor: theme.colors.borderDefault,
+          }]}
           placeholder={`e.g. 5.0 ${distanceLabel}`}
-          placeholderTextColor="#475569"
+          placeholderTextColor={theme.colors.textTertiary}
           keyboardType="decimal-pad"
           value={cardioFields.distanceDisplay}
           onChangeText={(t) =>
@@ -363,7 +390,7 @@ export function SetEntryForm({
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.bgPrimary }]}>
         <KeyboardAvoidingView
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -375,9 +402,9 @@ export function SetEntryForm({
             {/* Header */}
             <View style={styles.header}>
               <View style={styles.headerText}>
-                <Text style={styles.exerciseName}>{exercise.name}</Text>
+                <Text style={[styles.exerciseName, { color: theme.colors.textPrimary }]}>{exercise.name}</Text>
                 {setCount > 0 && (
-                  <Text style={styles.setCountLabel}>
+                  <Text style={[styles.setCountLabel, { color: theme.colors.textTertiary }]}>
                     {setCount} set{setCount !== 1 ? 's' : ''} logged
                   </Text>
                 )}
@@ -388,13 +415,16 @@ export function SetEntryForm({
                 accessibilityRole="button"
                 accessibilityLabel="Close set entry form"
               >
-                <Text style={styles.closeButtonText}>Done</Text>
+                <Text style={[styles.closeButtonText, { color: theme.colors.accentDefault }]}>Done</Text>
               </TouchableOpacity>
             </View>
 
             {/* Set number indicator */}
-            <View style={styles.setIndicator}>
-              <Text style={styles.setIndicatorText}>
+            <View style={[styles.setIndicator, {
+              backgroundColor: theme.colors.bgSecondary,
+              borderColor: theme.colors.borderDefault,
+            }]}>
+              <Text style={[styles.setIndicatorText, { color: theme.colors.textSecondary }]}>
                 Set {currentSetIndex.current + 1}
               </Text>
             </View>
@@ -404,35 +434,41 @@ export function SetEntryForm({
 
             {/* Error */}
             {error ? (
-              <View style={styles.errorBox}>
-                <Text style={styles.errorText}>{error}</Text>
+              <View style={[styles.errorBox, {
+                backgroundColor: theme.colors.bgPrimary,
+                borderColor: theme.colors.statusError,
+              }]}>
+                <Text style={[styles.errorText, { color: theme.colors.statusError }]}>{error}</Text>
               </View>
             ) : null}
 
             {/* Actions */}
             <View style={styles.actions}>
               <TouchableOpacity
-                style={[styles.logButton, isSubmitting && styles.logButtonDisabled]}
+                style={[styles.logButton, { backgroundColor: theme.colors.accentDefault }, isSubmitting && styles.logButtonDisabled]}
                 onPress={handleLog}
                 disabled={isSubmitting}
                 accessibilityRole="button"
                 accessibilityLabel="Log this set"
               >
                 {isSubmitting ? (
-                  <ActivityIndicator color="#fff" />
+                  <ActivityIndicator color={theme.colors.textPrimary} />
                 ) : (
-                  <Text style={styles.logButtonText}>Log Set</Text>
+                  <Text style={[styles.logButtonText, { color: theme.colors.textPrimary }]}>Log Set</Text>
                 )}
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.logAnotherButton}
+                style={[styles.logAnotherButton, {
+                  backgroundColor: theme.colors.bgSecondary,
+                  borderColor: theme.colors.borderDefault,
+                }]}
                 onPress={handleLog}
                 disabled={isSubmitting}
                 accessibilityRole="button"
                 accessibilityLabel="Log this set and log another"
               >
-                <Text style={styles.logAnotherText}>Log Another</Text>
+                <Text style={[styles.logAnotherText, { color: theme.colors.accentDefault }]}>Log Another</Text>
               </TouchableOpacity>
             </View>
           </ScrollView>
@@ -450,7 +486,6 @@ const styles = StyleSheet.create({
   flex: { flex: 1 },
   container: {
     flex: 1,
-    backgroundColor: '#0f172a',
   },
   scrollContent: {
     padding: 20,
@@ -467,38 +502,32 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   exerciseName: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#f8fafc',
+    fontSize: fontSize.heading3,  // E-003: was 22
+    fontWeight: fontWeight.bold,  // E-003: was '700'
   },
   setCountLabel: {
-    fontSize: 14,
-    color: '#64748b',
+    fontSize: fontSize.bodySm,  // E-003: was 14
   },
   closeButton: {
-    minWidth: 44,
-    minHeight: 44,
+    minWidth: 48,
+    minHeight: 48,
     alignItems: 'flex-end',
     justifyContent: 'center',
   },
   closeButtonText: {
-    fontSize: 16,
-    color: '#818cf8',
-    fontWeight: '500',
+    fontSize: fontSize.bodyMd,  // E-003: was 16
+    fontWeight: fontWeight.medium,  // E-003: was '500'
   },
   setIndicator: {
-    backgroundColor: '#1e293b',
-    borderRadius: 8,
-    paddingHorizontal: 14,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.s4,
     paddingVertical: 8,
     alignSelf: 'flex-start',
     borderWidth: 1,
-    borderColor: '#334155',
   },
   setIndicatorText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#94a3b8',
+    fontSize: fontSize.bodySm,  // E-003: was 13
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
   },
   fieldsContainer: {
     gap: 20,
@@ -507,26 +536,21 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   fieldLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#94a3b8',
+    fontSize: fontSize.bodySm,  // E-003: was 14
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
   },
   fieldLabelOptional: {
-    fontSize: 13,
-    fontWeight: '400',
-    color: '#64748b',
+    fontSize: fontSize.bodySm,  // E-003: was 13
+    fontWeight: fontWeight.regular,  // E-003: was '400'
   },
   input: {
-    backgroundColor: '#1e293b',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 18,
-    fontWeight: '500',
-    color: '#f8fafc',
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.s4,
+    paddingVertical: spacing.s4,
+    fontSize: fontSize.bodyLg,  // E-003: was 18
+    fontWeight: fontWeight.medium,  // E-003: was '500'
     minHeight: 54,
     borderWidth: 1,
-    borderColor: '#334155',
   },
   durationRow: {
     flexDirection: 'row',
@@ -538,30 +562,25 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   durationSeparator: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#64748b',
+    fontSize: fontSize.heading2,  // E-003: was 24
+    fontWeight: fontWeight.bold,  // E-003: was '700'
   },
   errorBox: {
-    backgroundColor: '#450a0a',
-    borderRadius: 10,
+    borderRadius: radius.md,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#7f1d1d',
   },
   errorText: {
-    color: '#fca5a5',
-    fontSize: 14,
-    fontWeight: '500',
+    fontSize: fontSize.bodySm,  // E-003: was 14
+    fontWeight: fontWeight.medium,  // E-003: was '500'
   },
   actions: {
     gap: 12,
     paddingTop: 4,
   },
   logButton: {
-    backgroundColor: '#4f46e5',
-    borderRadius: 14,
-    paddingVertical: 16,
+    borderRadius: radius.md,
+    paddingVertical: spacing.s4,
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 56,
@@ -570,23 +589,19 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   logButtonText: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#fff',
+    fontSize: fontSize.bodyMd,  // E-003: was 17
+    fontWeight: fontWeight.bold,  // E-003: was '700'
   },
   logAnotherButton: {
-    backgroundColor: '#1e293b',
-    borderRadius: 14,
+    borderRadius: radius.md,
     paddingVertical: 15,
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 52,
     borderWidth: 1,
-    borderColor: '#334155',
   },
   logAnotherText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#818cf8',
+    fontSize: fontSize.bodyMd,  // E-003: was 16
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
   },
 });

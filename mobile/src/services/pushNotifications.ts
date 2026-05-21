@@ -1,13 +1,11 @@
 /**
  * Push notifications service — expo-notifications wrapper.
  *
- * TICKET-024: FCM push integration.
+ * TICKET-024: FCM push integration — real implementation.
  *
  * ── Installation requirement ──────────────────────────────────────────────
  * Push notifications require expo-notifications and a development build
  * (EAS build or bare workflow). They do NOT work in Expo Go.
- *
- *   npx expo install expo-notifications expo-device
  *
  * Android: add the google-services.json (from Firebase Console) to the
  * project root and configure in app.json:
@@ -18,92 +16,54 @@
  * iOS: APNs is configured automatically by Expo. An Apple Developer account
  * with push capability is required.
  * ─────────────────────────────────────────────────────────────────────────
- *
- * Usage (called from AuthContext after successful login):
- *
- *   import { registerForPushNotifications } from './pushNotifications';
- *   const token = await registerForPushNotifications();
- *   if (token) await registerPushToken({ token, platform });
- *
- * Foreground handler (call once at app root):
- *
- *   import { setForegroundNotificationHandler } from './pushNotifications';
- *   setForegroundNotificationHandler();
  */
 
 import { Platform } from 'react-native';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export interface PushRegistrationResult {
-  token: string;
-  platform: 'ios' | 'android';
-}
+import * as Notifications from 'expo-notifications';
+import { patchProfile } from '../api/user';
 
 // ---------------------------------------------------------------------------
 // Permission + token registration
 // ---------------------------------------------------------------------------
 
 /**
- * Request notification permissions and retrieve the Expo/FCM push token.
+ * Request notification permissions, retrieve the Expo/FCM push token, and
+ * persist it to the server via PATCH /user/profile.
  *
- * Returns the token string on success, or null if:
- *   - The user denies permission
- *   - Running in Expo Go (physical device required for push)
- *   - expo-notifications is not installed
+ * Silent by design — never throws, never shows UI. Push registration must
+ * never crash or block the app startup flow.
  *
- * The token is a stable Expo push token (format: ExponentPushToken[...])
- * that routes through Expo's push service. For direct FCM delivery without
- * Expo's relay, swap `getExpoPushTokenAsync` for `getDevicePushTokenAsync`.
+ * Called once from RootNavigator after isLoading transitions to false.
  */
-export async function registerForPushNotifications(): Promise<PushRegistrationResult | null> {
-  // TODO(TICKET-024): replace stub with real implementation once
-  // expo-notifications and expo-device are installed:
-  //
-  // import * as Notifications from 'expo-notifications';
-  // import * as Device from 'expo-device';
-  //
-  // if (!Device.isDevice) {
-  //   console.warn('[Push] Push notifications require a physical device.');
-  //   return null;
-  // }
-  //
-  // const { status: existingStatus } = await Notifications.getPermissionsAsync();
-  // let finalStatus = existingStatus;
-  //
-  // if (existingStatus !== 'granted') {
-  //   const { status } = await Notifications.requestPermissionsAsync();
-  //   finalStatus = status;
-  // }
-  //
-  // if (finalStatus !== 'granted') {
-  //   console.warn('[Push] Notification permission denied.');
-  //   return null;
-  // }
-  //
-  // // Android requires a notification channel to be created first.
-  // if (Platform.OS === 'android') {
-  //   await Notifications.setNotificationChannelAsync('default', {
-  //     name: 'Peak Fettle',
-  //     importance: Notifications.AndroidImportance.HIGH,
-  //     vibrationPattern: [0, 250, 250, 250],
-  //     lightColor: '#818cf8',
-  //   });
-  // }
-  //
-  // const tokenData = await Notifications.getExpoPushTokenAsync({
-  //   projectId: Constants.expoConfig?.extra?.eas?.projectId,
-  // });
-  //
-  // return {
-  //   token: tokenData.data,
-  //   platform: Platform.OS as 'ios' | 'android',
-  // };
+export async function registerForPushNotificationsAsync(): Promise<void> {
+  try {
+    // Android requires a notification channel before requesting permissions.
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'default',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+      });
+    }
 
-  console.warn('[Push] stub: expo-notifications not yet installed');
-  return null;
+    // Request permissions — may show the system dialog on first call.
+    const { status } = await Notifications.requestPermissionsAsync();
+
+    if (status !== 'granted') {
+      // User denied or dismissed — silently bail out.
+      return;
+    }
+
+    // Retrieve the Expo push token (routes through Expo's FCM relay).
+    const token = await Notifications.getExpoPushTokenAsync();
+
+    // Persist the token server-side so the FCM dispatcher can target this device.
+    await patchProfile({ fcm_token: token.data });
+  } catch {
+    // Swallow all errors — push registration must never crash the app.
+    // Failures here are non-fatal: the user simply won't receive push
+    // notifications until the next successful registration attempt.
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -117,19 +77,13 @@ export async function registerForPushNotifications(): Promise<PushRegistrationRe
  * Default behaviour: show alert + play sound + show badge.
  */
 export function setForegroundNotificationHandler(): void {
-  // TODO(TICKET-024): uncomment once expo-notifications is installed:
-  //
-  // import * as Notifications from 'expo-notifications';
-  //
-  // Notifications.setNotificationHandler({
-  //   handleNotification: async () => ({
-  //     shouldShowAlert: true,
-  //     shouldPlaySound: true,
-  //     shouldSetBadge: true,
-  //   }),
-  // });
-
-  console.warn('[Push] stub: expo-notifications not yet installed');
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+    }),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -145,20 +99,14 @@ export function setForegroundNotificationHandler(): void {
 export function addNotificationResponseListener(
   onResponse: (data: { notificationId: string; data: Record<string, unknown> }) => void
 ): () => void {
-  // TODO(TICKET-024): uncomment once expo-notifications is installed:
-  //
-  // import * as Notifications from 'expo-notifications';
-  //
-  // const subscription = Notifications.addNotificationResponseReceivedListener(
-  //   (response) => {
-  //     onResponse({
-  //       notificationId: response.notification.request.identifier,
-  //       data: response.notification.request.content.data as Record<string, unknown>,
-  //     });
-  //   }
-  // );
-  //
-  // return () => subscription.remove();
+  const subscription = Notifications.addNotificationResponseReceivedListener(
+    (response) => {
+      onResponse({
+        notificationId: response.notification.request.identifier,
+        data: response.notification.request.content.data as Record<string, unknown>,
+      });
+    }
+  );
 
-  return () => {};
+  return () => subscription.remove();
 }

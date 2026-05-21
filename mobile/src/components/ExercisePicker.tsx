@@ -23,6 +23,8 @@ import {
 } from 'react-native';
 import { getExercises, searchExercises } from '../api/exercises';
 import { Exercise, ExerciseCategory, ExerciseLibrary } from '../types/api';
+import { useTheme } from '../theme/ThemeContext';
+import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -62,6 +64,7 @@ export function ExercisePicker({
   onSelect,
   onClose,
 }: ExercisePickerProps): React.ReactElement {
+  const { theme } = useTheme();
   const [query, setQuery] = useState('');
   const [library, setLibrary] = useState<ExerciseLibrary | null>(null);
   const [searchResults, setSearchResults] = useState<Exercise[] | null>(null);
@@ -139,7 +142,7 @@ export function ExercisePicker({
     if (item.type === 'header') {
       return (
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionHeaderText}>
+          <Text style={[styles.sectionHeaderText, { color: theme.colors.textTertiary }]}>
             {CATEGORY_LABELS[item.category]}
           </Text>
         </View>
@@ -154,21 +157,21 @@ export function ExercisePicker({
 
     return (
       <TouchableOpacity
-        style={styles.exerciseRow}
+        style={[styles.exerciseRow, { borderBottomColor: theme.colors.borderDefault }]}
         onPress={() => handleSelect(exercise)}
         activeOpacity={0.7}
         accessibilityRole="button"
         accessibilityLabel={`Select ${exercise.name}`}
       >
         <View style={styles.exerciseInfo}>
-          <Text style={styles.exerciseName}>{exercise.name}</Text>
+          <Text style={[styles.exerciseName, { color: theme.colors.textPrimary }]}>{exercise.name}</Text>
           {muscleLabel ? (
-            <Text style={styles.exerciseMeta}>{muscleLabel}</Text>
+            <Text style={[styles.exerciseMeta, { color: theme.colors.textTertiary }]}>{muscleLabel}</Text>
           ) : null}
         </View>
         {exercise.is_compound && (
-          <View style={styles.compoundBadge}>
-            <Text style={styles.compoundBadgeText}>Compound</Text>
+          <View style={[styles.compoundBadge, { backgroundColor: theme.colors.accentPressed }]}>
+            <Text style={[styles.compoundBadgeText, { color: theme.colors.accentSecondary }]}>Compound</Text>
           </View>
         )}
       </TouchableOpacity>
@@ -182,30 +185,34 @@ export function ExercisePicker({
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.bgPrimary }]}>
         <KeyboardAvoidingView
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
           {/* Header */}
-          <View style={styles.header}>
-            <Text style={styles.headerTitle}>Choose Exercise</Text>
+          <View style={[styles.header, { borderBottomColor: theme.colors.borderDefault }]}>
+            <Text style={[styles.headerTitle, { color: theme.colors.textPrimary }]}>Choose Exercise</Text>
             <TouchableOpacity
               style={styles.closeButton}
               onPress={onClose}
               accessibilityRole="button"
               accessibilityLabel="Close exercise picker"
             >
-              <Text style={styles.closeButtonText}>Cancel</Text>
+              <Text style={[styles.closeButtonText, { color: theme.colors.accentDefault }]}>Cancel</Text>
             </TouchableOpacity>
           </View>
 
           {/* Search bar */}
-          <View style={styles.searchContainer}>
+          <View style={[styles.searchContainer, { borderBottomColor: theme.colors.borderDefault }]}>
             <TextInput
-              style={styles.searchInput}
+              style={[styles.searchInput, {
+                backgroundColor: theme.colors.bgSecondary,
+                color: theme.colors.textPrimary,
+                borderColor: theme.colors.borderDefault,
+              }]}
               placeholder="Search exercises..."
-              placeholderTextColor="#64748b"
+              placeholderTextColor={theme.colors.textTertiary}
               value={query}
               onChangeText={handleQueryChange}
               autoCorrect={false}
@@ -219,14 +226,16 @@ export function ExercisePicker({
           {/* Content */}
           {isLoading ? (
             <View style={styles.centered}>
-              <ActivityIndicator size="large" color="#818cf8" />
-              <Text style={styles.loadingText}>Loading exercises...</Text>
+              <ActivityIndicator size="large" color={theme.colors.accentDefault} />
+              <Text style={[styles.loadingText, { color: theme.colors.textTertiary }]}>Loading exercises...</Text>
             </View>
           ) : error ? (
             <View style={styles.centered}>
-              <Text style={styles.errorText}>{error}</Text>
+              <Text style={[styles.errorText, { color: theme.colors.statusError }]}>{error}</Text>
               <TouchableOpacity
-                style={styles.retryButton}
+                style={[styles.retryButton, { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault }]}
+                accessibilityRole="button"
+                accessibilityLabel="Retry"
                 onPress={() => {
                   setError(null);
                   setIsLoading(true);
@@ -240,12 +249,12 @@ export function ExercisePicker({
                     .finally(() => setIsLoading(false));
                 }}
               >
-                <Text style={styles.retryButtonText}>Try Again</Text>
+                <Text style={[styles.retryButtonText, { color: theme.colors.accentDefault }]}>Try Again</Text>
               </TouchableOpacity>
             </View>
           ) : listItems.length === 0 && query.trim().length > 0 ? (
             <View style={styles.centered}>
-              <Text style={styles.emptyText}>
+              <Text style={[styles.emptyText, { color: theme.colors.textTertiary }]}>
                 No exercises found for "{query}"
               </Text>
             </View>
@@ -281,98 +290,84 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: '#0f172a',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
+    paddingHorizontal: spacing.s5,
+    paddingVertical: spacing.s4,
     borderBottomWidth: 1,
-    borderBottomColor: '#1e293b',
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#f8fafc',
+    fontSize: fontSize.bodyLg,  // E-003: was 18
+    fontWeight: fontWeight.bold,  // E-003: was '700'
   },
   closeButton: {
-    minWidth: 44,
-    minHeight: 44,
+    minWidth: 48,
+    minHeight: 48,
     alignItems: 'flex-end',
     justifyContent: 'center',
   },
   closeButtonText: {
-    fontSize: 16,
-    color: '#818cf8',
-    fontWeight: '500',
+    fontSize: fontSize.bodyMd,  // E-003: was 16
+    fontWeight: fontWeight.medium,  // E-003: was '500'
   },
   searchContainer: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingHorizontal: spacing.s4,
+    paddingVertical: spacing.s3,
     borderBottomWidth: 1,
-    borderBottomColor: '#1e293b',
   },
   searchInput: {
-    backgroundColor: '#1e293b',
-    borderRadius: 10,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: '#f8fafc',
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.s4,
+    paddingVertical: spacing.s3,
+    fontSize: fontSize.bodyMd,  // E-003: was 16
     minHeight: 48,
     borderWidth: 1,
-    borderColor: '#334155',
   },
   listContent: {
     paddingBottom: 40,
   },
   sectionHeader: {
-    paddingHorizontal: 20,
+    paddingHorizontal: spacing.s5,
     paddingTop: 20,
     paddingBottom: 8,
   },
   sectionHeaderText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#64748b',
+    fontSize: fontSize.caption,  // E-003: was 12
+    fontWeight: fontWeight.bold,  // E-003: was '700'
     letterSpacing: 0.8,
     textTransform: 'uppercase',
   },
   exerciseRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingHorizontal: spacing.s5,
+    paddingVertical: spacing.s4,
     minHeight: 64,
     borderBottomWidth: 1,
-    borderBottomColor: '#1e293b',
   },
   exerciseInfo: {
     flex: 1,
     gap: 4,
   },
   exerciseName: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#f8fafc',
+    fontSize: fontSize.bodyMd,  // E-003: was 16
+    fontWeight: fontWeight.medium,  // E-003: was '500'
   },
   exerciseMeta: {
-    fontSize: 13,
-    color: '#64748b',
+    fontSize: fontSize.bodySm,  // E-003: was 13
   },
   compoundBadge: {
-    backgroundColor: '#312e81',
-    borderRadius: 6,
-    paddingHorizontal: 8,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.s2,
     paddingVertical: 3,
     marginLeft: 8,
   },
   compoundBadgeText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#a5b4fc',
+    fontSize: fontSize.caption,  // E-003: was 11
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
   },
   centered: {
     flex: 1,
@@ -382,32 +377,26 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   loadingText: {
-    fontSize: 14,
-    color: '#64748b',
+    fontSize: fontSize.bodySm,  // E-003: was 14
   },
   errorText: {
-    fontSize: 15,
-    color: '#f87171',
+    fontSize: fontSize.bodyMd,  // E-003: was 15
     textAlign: 'center',
   },
   emptyText: {
-    fontSize: 15,
-    color: '#64748b',
+    fontSize: fontSize.bodyMd,  // E-003: was 15
     textAlign: 'center',
   },
   retryButton: {
-    backgroundColor: '#1e293b',
-    borderRadius: 10,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    minHeight: 44,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.s6,
+    paddingVertical: spacing.s3,
+    minHeight: 48,
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#334155',
   },
   retryButtonText: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#818cf8',
+    fontSize: fontSize.bodyMd,  // E-003: was 15
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
   },
 });

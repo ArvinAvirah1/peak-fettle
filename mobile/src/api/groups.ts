@@ -167,12 +167,12 @@ export async function getGroupEvaluations(
   groupId: string,
   limit = 12
 ): Promise<GroupWeekEvaluation[]> {
-  // Server route is /groups/:id/history (not /evaluations) — see groups.js line 589.
+  // Server route is /groups/:id/history — returns { history: rows[] }.
   const response = await apiClient.get<EvaluationsResponse>(
     `/groups/${groupId}/history`,
     { params: { limit } }
   );
-  return response.data.evaluations;
+  return response.data.history;
 }
 
 // ---------------------------------------------------------------------------

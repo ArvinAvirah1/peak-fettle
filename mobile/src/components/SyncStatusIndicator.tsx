@@ -1,24 +1,28 @@
 /**
  * SyncStatusIndicator — compact pill showing the PowerSync sync state.
  *
+ * E-001 update: migrated all hardcoded hex values to semantic tokens via useTheme().
+ *
  * States:
  *   synced   — connected, nothing in flight       → green dot  + "Synced"
- *   syncing  — downloading or uploading           → indigo dot  + "Syncing…" (pulsing)
- *   offline  — not connected to sync service      → red dot    + "Offline"
+ *   syncing  — downloading or uploading           → accent dot + "Syncing…" (pulsing)
+ *   offline  — not connected to sync service      → error dot  + "Offline"
  *
  * Usage:
  *   <SyncStatusIndicator />
- *
- * The component uses usePowerSyncStatus() from @powersync/react-native, which
- * subscribes to the live PowerSyncDatabase status and re-renders on every change.
- * No props required — it reads directly from the shared db instance via context.
  *
  * Implemented as part of TICKET-027 (PowerSync offline sync integration).
  */
 
 import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Animated } from 'react-native';
-import { usePowerSyncStatus } from '@powersync/react-native';
+import { useTheme } from '../theme/ThemeContext';
+// DEV STUB: @powersync/react-native requires a native build — not available in Expo Go / web.
+// Replace with real import once running a development build.
+// import { usePowerSyncStatus } from '@powersync/react-native';
+function usePowerSyncStatus() {
+  return { connected: false, downloading: false, uploading: false };
+}
 
 // ---------------------------------------------------------------------------
 // Derived state
@@ -43,6 +47,7 @@ function deriveSyncState(status: StatusLike): SyncState {
 // ---------------------------------------------------------------------------
 
 export function SyncStatusIndicator(): React.ReactElement {
+  const { theme } = useTheme();
   const status = usePowerSyncStatus();
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
@@ -77,33 +82,42 @@ export function SyncStatusIndicator(): React.ReactElement {
     }
   }, [syncState, pulseAnim]);
 
-  // Colours and label per state.
+  // Colours and label per state — all via semantic tokens
   const dotColor =
     syncState === 'synced'
-      ? '#22c55e'   // green-500
+      ? theme.colors.statusSuccess
       : syncState === 'syncing'
-      ? '#818cf8'   // indigo-400
-      : '#ef4444';  // red-500
+      ? theme.colors.accentDefault
+      : theme.colors.statusError;
+
+  const labelColor =
+    syncState === 'offline'
+      ? theme.colors.statusError
+      : syncState === 'syncing'
+      ? theme.colors.accentHover
+      : theme.colors.textSecondary;
 
   const label =
     syncState === 'synced'
       ? 'Synced'
       : syncState === 'syncing'
-      ? 'Syncing…'  // "Syncing…"
+      ? 'Syncing…'
       : 'Offline';
 
   return (
-    <View style={styles.pill}>
+    <View
+      style={[
+        styles.pill,
+        {
+          backgroundColor: theme.colors.bgTertiary,
+          borderColor: theme.colors.borderDefault,
+        },
+      ]}
+    >
       <Animated.View
         style={[styles.dot, { backgroundColor: dotColor, opacity: pulseAnim }]}
       />
-      <Text
-        style={[
-          styles.label,
-          syncState === 'offline' && styles.labelOffline,
-          syncState === 'syncing' && styles.labelSyncing,
-        ]}
-      >
+      <Text style={[styles.label, { color: labelColor }]}>
         {label}
       </Text>
     </View>
@@ -111,7 +125,7 @@ export function SyncStatusIndicator(): React.ReactElement {
 }
 
 // ---------------------------------------------------------------------------
-// Styles
+// Styles — no hardcoded hex (E-001)
 // ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
@@ -122,10 +136,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 4,
     borderRadius: 20,
-    backgroundColor: '#1e293b',
-    // Subtle border so the pill reads against the dark header.
     borderWidth: 1,
-    borderColor: '#334155',
   },
   dot: {
     width: 7,
@@ -135,13 +146,6 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#94a3b8',    // slate-400 default (synced)
     letterSpacing: 0.2,
-  },
-  labelSyncing: {
-    color: '#a5b4fc',   // indigo-300
-  },
-  labelOffline: {
-    color: '#f87171',   // red-400
   },
 });

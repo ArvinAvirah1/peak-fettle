@@ -1,0 +1,16 @@
+{
+  "name": "peak-fettle-agents",
+  "version": "1.0.0",
+  "description": "Multi-agent system for Peak Fettle development, testing, and learning",
+  "type": "module",
+  "main": "orchestrator/orchestrator.js",
+  "scripts": {
+    "start": "node orchestrator/orchestrator.js",
+    "dev": "node orchestrator/orchestrator.js --task",
+    "teach": "node orchestrator/orchestrator.js --teach"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "latest",
+    "dotenv": "^16.0.0"
+  }
+}

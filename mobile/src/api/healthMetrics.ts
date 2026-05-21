@@ -8,9 +8,9 @@
  * lighter session.
  *
  * Sources:
- *   'healthkit'  — synced from Apple HealthKit (iOS)
- *   'garmin'     — synced from Garmin Connect IQ (TICKET-029)
- *   'manual'     — entered directly by the user
+ *   'apple_healthkit' — synced from Apple HealthKit (iOS)
+ *   'garmin'          — synced from Garmin Connect IQ (TICKET-029)
+ *   'manual'          — entered directly by the user
  */
 
 import { apiClient } from './client';
@@ -23,7 +23,8 @@ export interface DailyHealthMetric {
   hrv_ms: number | null;
   sleep_hours: number | null;
   active_kcal: number | null;
-  source: 'healthkit' | 'garmin' | 'manual';
+  // Must match server Zod enum: 'apple_healthkit' | 'garmin' | 'wear_os' | 'manual'
+  source: 'apple_healthkit' | 'garmin' | 'wear_os' | 'manual';
   created_at: string;
 }
 
@@ -33,7 +34,8 @@ export interface LogHealthMetricPayload {
   hrvMs?: number;
   sleepHours?: number;
   activeKcal?: number;
-  source: 'healthkit' | 'garmin' | 'manual';
+  // Must match server Zod enum: 'apple_healthkit' | 'garmin' | 'wear_os' | 'manual'
+  source: 'apple_healthkit' | 'garmin' | 'wear_os' | 'manual';
 }
 
 export interface HealthMetricsSummary {
@@ -51,11 +53,11 @@ export interface HealthMetricsResponse {
 
 /**
  * Fetch recent health metrics. Defaults to the last 7 days.
- * @param limit - Maximum number of records to return (1–90).
+ * @param days - Number of days to look back (1–90). Server reads this as `?days=N`.
  */
-export async function getHealthMetrics(limit = 7): Promise<DailyHealthMetric[]> {
+export async function getHealthMetrics(days = 7): Promise<DailyHealthMetric[]> {
   const response = await apiClient.get<HealthMetricsResponse>('/health-metrics', {
-    params: { limit },
+    params: { days },
   });
   return response.data.metrics;
 }

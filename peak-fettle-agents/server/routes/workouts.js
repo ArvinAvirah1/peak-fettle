@@ -4,6 +4,7 @@
 const express = require('express');
 const { z } = require('zod');
 const { pool } = require('../db');
+const { supabaseAdmin } = require('../lib/supabaseAdmin');
 
 const router = express.Router();
 
@@ -11,6 +12,30 @@ const CreateSchema = z.object({
     dayKey: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     notes: z.string().max(500).optional(),
 });
+
+// ---------------------------------------------------------------------------
+// 1.5 Paywall: session-count trigger
+// Free-tier users who reach FREE_SESSION_LIMIT real workout sessions receive a
+// paywall nudge in the API response so the client can surface the upgrade prompt
+// immediately — no extra round-trip required.
+// ---------------------------------------------------------------------------
+const FREE_SESSION_LIMIT = 5;
+
+/**
+ * Count the total number of real workout sessions logged by a user.
+ * Excludes rest days and CSV cardio imports — only genuine logged sessions.
+ */
+async function countRealSessions(userId) {
+    const { rows } = await pool.query(
+        `SELECT COUNT(*)::int AS total
+         FROM workouts
+         WHERE user_id     = $1
+           AND deleted_at  IS NULL
+           AND (session_type IS NULL OR session_type = 'lift')`,
+        [userId]
+    );
+    return rows[0]?.total ?? 0;
+}
 
 // POST /workouts — idempotent on (user_id, day_key)
 // T-04 (2026-05-02): return 201 on create, 200 on update so clients can
@@ -33,7 +58,106 @@ router.post('/', async (req, res, next) => {
         const row = rows[0];
         const wasInserted = row.inserted;
         delete row.inserted; // don't leak internal flag to clients
-        res.status(wasInserted ? 201 : 200).json(row);
+
+        // ── 1.5 Paywall: check session count for free-tier users ─────────────
+        // Only check on new inserts (not upsert hits) to avoid repeat triggers.
+        let paywallTrigger = false;
+        if (wasInserted) {
+            try {
+                const { data: userData } = await supabaseAdmin
+                    .from('users')
+                    .select('tier')
+                    .eq('id', req.user.id)
+                    .single();
+
+                if (userData?.tier === 'free') {
+                    const sessionCount = await countRealSessions(req.user.id);
+                    if (sessionCount >= FREE_SESSION_LIMIT) {
+                        paywallTrigger = true;
+                        // Enqueue a paywall push notification (fire-and-forget).
+                        // The in-response flag is the primary signal; this is a
+                        // supplementary re-engagement nudge for re-opened sessions.
+                        supabaseAdmin.from('notification_queue').insert({
+                            user_id:    req.user.id,
+                            type:       'paywall_session_limit',
+                            title:      'Upgrade to Peak Fettle Pro',
+                            body:       `You've logged ${sessionCount} sessions — unlock unlimited tracking and AI plans.`,
+                            data:       { session_count: sessionCount, limit: FREE_SESSION_LIMIT },
+                        }).catch((e) => console.warn('[paywall] notification enqueue failed:', e?.message));
+                    }
+                }
+            } catch (e) {
+                // Paywall check failure must never block the workout response.
+                console.warn('[paywall] session count check failed:', e?.message);
+            }
+        }
+
+        res.status(wasInserted ? 201 : 200).json({ ...row, paywall_trigger: paywallTrigger });
+
+        // Phase 1.5: session-count paywall trigger (persisted)
+        // Fire-and-forget — never delays the response or throws to the client.
+        // Sets paywall_triggered_at on users table (once, never cleared) and
+        // enqueues a push notification via the notification_queue table.
+        (async () => {
+          try {
+            // Only check if paywall hasn't already been persisted for this user
+            const { rows: [userRow] } = await pool.query(
+              'SELECT paywall_triggered_at FROM users WHERE id = $1',
+              [req.user.id]
+            );
+            if (userRow?.paywall_triggered_at) return; // already triggered
+
+            // Count total logged sessions for this user
+            const { rows: [{ count }] } = await pool.query(
+              'SELECT COUNT(*) FROM workouts WHERE user_id = $1',
+              [req.user.id]
+            );
+
+            if (parseInt(count, 10) >= FREE_SESSION_LIMIT) {
+              // Mark paywall triggered (set once, never cleared)
+              await pool.query(
+                'UPDATE users SET paywall_triggered_at = NOW() WHERE id = $1',
+                [req.user.id]
+              );
+
+              // Enqueue push notification (if notification_queue table exists)
+              await pool.query(`
+                INSERT INTO notification_queue (user_id, type, title, body, data)
+                VALUES ($1, 'paywall_trigger',
+                  'You''re on a roll! 🔥',
+                  'You''ve logged 5 sessions. Unlock premium for unlimited AI plans, advanced analytics, and more.',
+                  $2::jsonb)
+              `, [req.user.id, JSON.stringify({ screen: 'upgrade' })]);
+            }
+          } catch (err) {
+            console.warn('[paywall-trigger] error (non-fatal):', err?.message);
+          }
+        })();
+
+        // Push notification: streak milestone check
+        try {
+            const MILESTONES = [7, 30, 100];
+            // Fetch current streak and notification preference from users table
+            const { data: streakData } = await supabaseAdmin
+                .from('users')
+                .select('streak_days, streak_notifications_enabled')
+                .eq('id', req.user.id)
+                .single();
+            const streak = streakData?.streak_days;
+            const notifEnabled = streakData?.streak_notifications_enabled !== false; // default true if null
+            if (streak && MILESTONES.includes(streak) && notifEnabled) {
+                await supabaseAdmin.from('notification_queue').insert({
+                    user_id: req.user.id,
+                    type: 'streak_milestone',
+                    title: `${streak}-day streak! 🔥`,
+                    body: `You've logged workouts for ${streak} days in a row. Keep it going!`,
+                    data: { streak_days: streak },
+                });
+            }
+        } catch (_e) {
+            // Notification enqueue failure must never break the workout response
+            console.warn('[push] streak milestone enqueue failed:', _e?.message);
+        }
     } catch (err) { next(err); }
 });
 
@@ -89,6 +213,62 @@ router.delete('/:id', async (req, res, next) => {
         );
         if (rowCount === 0) return res.status(404).json({ error: 'not_found' });
         res.status(204).end();
+    } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// PL-3: Rest Day Designation
+// ---------------------------------------------------------------------------
+
+// POST /workouts/rest-day
+// Logs an intentional rest day for the current user (streak-preserved).
+// session_type = 'rest_day' is counted as an active day by the streak cron.
+router.post('/rest-day', async (req, res, next) => {
+    try {
+        const userId = req.user.id;
+        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+        // Prevent duplicate rest-day entries for the same calendar day
+        const { rows: existing } = await pool.query(
+            `SELECT id FROM workouts
+             WHERE user_id = $1
+               AND session_type = 'rest_day'
+               AND created_at >= ($2 || 'T00:00:00Z')::timestamptz
+               AND created_at <= ($2 || 'T23:59:59Z')::timestamptz
+             LIMIT 1`,
+            [userId, today]
+        );
+
+        if (existing.length > 0) {
+            return res.status(409).json({ error: 'Rest day already logged for today.' });
+        }
+
+        const { rows } = await pool.query(
+            `INSERT INTO workouts (user_id, session_type)
+             VALUES ($1, 'rest_day')
+             RETURNING id, user_id, session_type, created_at, updated_at`,
+            [userId]
+        );
+
+        return res.status(201).json({ message: 'Rest day logged.', workout: rows[0] });
+    } catch (err) { next(err); }
+});
+
+// DELETE /workouts/rest-day/today
+// Undo a rest day logged today (user changes their mind and actually works out).
+router.delete('/rest-day/today', async (req, res, next) => {
+    try {
+        const userId = req.user.id;
+        const today = new Date().toISOString().split('T')[0];
+        await pool.query(
+            `DELETE FROM workouts
+             WHERE user_id = $1
+               AND session_type = 'rest_day'
+               AND created_at >= ($2 || 'T00:00:00Z')::timestamptz
+               AND created_at <= ($2 || 'T23:59:59Z')::timestamptz`,
+            [userId, today]
+        );
+        return res.json({ message: 'Rest day removed.' });
     } catch (err) { next(err); }
 });
 
