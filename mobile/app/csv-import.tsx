@@ -21,8 +21,8 @@ import {
 } from 'react-native';
 import { useTheme } from '../src/theme/ThemeContext';
 import { apiClient } from '../src/api/client';
-import PFButton from '../src/components/ui/PFButton';
-import PFCard from '../src/components/ui/PFCard';
+import { PFButton } from '../src/components/ui/PFButton';
+import { PFCard } from '../src/components/ui/PFCard';
 
 // ---------------------------------------------------------------------------
 // Types

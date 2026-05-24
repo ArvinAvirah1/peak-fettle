@@ -50,7 +50,6 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { VictoryBar, VictoryChart, VictoryAxis } from 'victory-native';
 
 import { useTheme } from '../src/theme/ThemeContext';
 import { PFButton } from '../src/components/ui/PFButton';
@@ -251,7 +250,8 @@ function computeSessionVolumes(sets: SetRecord[]): SessionVolume[] {
 // ---------------------------------------------------------------------------
 
 function SkeletonRow(): React.ReactElement {
-  const { colors, spacing, radius } = useTheme();
+  const { theme, spacing, radius } = useTheme();
+  const colors = theme.colors;
   return (
     <View
       style={[
@@ -307,7 +307,8 @@ interface ChipProps {
 }
 
 function CategoryChip({ label, selected, onPress }: ChipProps): React.ReactElement {
-  const { colors, fontSize, fontWeight, spacing, radius } = useTheme();
+  const { theme, fontSize, fontWeight, spacing, radius } = useTheme();
+  const colors = theme.colors;
   return (
     <Pressable
       onPress={onPress}
@@ -337,7 +338,7 @@ function CategoryChip({ label, selected, onPress }: ChipProps): React.ReactEleme
         style={{
           fontSize: fontSize.bodySm,
           fontWeight: selected ? fontWeight.semibold : fontWeight.regular,
-          color: selected ? colors.buttonPrimaryText : colors.textSecondary,
+          color: selected ? theme.components.buttonPrimaryText : colors.textSecondary,
         }}
       >
         {label}
@@ -356,7 +357,8 @@ interface ExerciseCardProps {
 }
 
 function ExerciseCard({ exercise, onPress }: ExerciseCardProps): React.ReactElement {
-  const { colors, fontSize, fontWeight, spacing, radius } = useTheme();
+  const { theme, fontSize, fontWeight, spacing, radius } = useTheme();
+  const colors = theme.colors;
 
   /** Kind badge color varies by exercise type */
   const kindColor =
@@ -365,8 +367,6 @@ function ExerciseCard({ exercise, onPress }: ExerciseCardProps): React.ReactElem
   return (
     <PressableCard
       onPress={() => onPress(exercise)}
-      accessibilityRole="button"
-      accessibilityLabel={`${exercise.name}, ${exercise.primary_muscle}, ${exercise.kind}`}
       style={[
         styles.cardContainer,
         {
@@ -460,7 +460,8 @@ interface VolumeChartProps {
 }
 
 function VolumeChart({ sessions }: VolumeChartProps): React.ReactElement {
-  const { colors, fontSize } = useTheme();
+  const { theme, fontSize } = useTheme();
+  const colors = theme.colors;
 
   if (sessions.length === 0) {
     return (
@@ -470,47 +471,30 @@ function VolumeChart({ sessions }: VolumeChartProps): React.ReactElement {
     );
   }
 
-  // VictoryNative XL uses index-based x values; we supply labels via tickFormat
-  const data = sessions.map((s, i) => ({ x: i + 1, y: s.volume }));
-
   return (
-    <VictoryChart
-      width={CHART_WIDTH}
-      height={180}
-      domainPadding={{ x: 18 }}
-      padding={{ top: 16, bottom: 48, left: 56, right: 16 }}
-    >
-      <VictoryAxis
-        tickFormat={(t: number) => sessions[t - 1]?.label ?? ''}
-        style={{
-          axis: { stroke: colors.borderDefault },
-          tickLabels: {
-            fontSize: 9,
-            fill: colors.textTertiary,
-            angle: -30,
-            textAnchor: 'end',
-          },
-          grid: { stroke: 'transparent' },
-        }}
-      />
-      <VictoryAxis
-        dependentAxis
-        tickFormat={(v: number) => (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : String(v))}
-        style={{
-          axis: { stroke: colors.borderDefault },
-          tickLabels: { fontSize: 9, fill: colors.textTertiary },
-          grid: { stroke: colors.borderDefault, strokeDasharray: '4,4', strokeOpacity: 0.4 },
-        }}
-      />
-      <VictoryBar
-        data={data}
-        style={{
-          data: { fill: colors.accentDefault, borderRadius: 4 },
-        }}
-        cornerRadius={{ top: 3 }}
-        animate={false}
-      />
-    </VictoryChart>
+    <View style={{ height: 180, gap: 8, justifyContent: 'flex-end' }}>
+      <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 6, height: 130 }}>
+        {sessions.map((session) => {
+          const maxVolume = Math.max(...sessions.map((item) => item.volume), 1);
+          const barHeight = Math.max(8, (session.volume / maxVolume) * 120);
+          return (
+            <View key={session.label} style={{ flex: 1, alignItems: 'center' }}>
+              <View
+                style={{
+                  width: '80%',
+                  height: barHeight,
+                  borderRadius: 4,
+                  backgroundColor: colors.accentDefault,
+                }}
+              />
+            </View>
+          );
+        })}
+      </View>
+      <Text style={{ fontSize: fontSize.caption, color: colors.textTertiary, textAlign: 'center' }}>
+        Recent session volume
+      </Text>
+    </View>
   );
 }
 
@@ -525,7 +509,8 @@ interface DetailModalProps {
 }
 
 function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): React.ReactElement {
-  const { colors, fontSize, fontWeight, spacing, radius } = useTheme();
+  const { theme, fontSize, fontWeight, spacing, radius } = useTheme();
+  const colors = theme.colors;
   const router = useRouter();
 
   // Set history state
@@ -787,7 +772,8 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
 // ---------------------------------------------------------------------------
 
 export default function ExerciseLibraryScreen(): React.ReactElement {
-  const { colors, fontSize, fontWeight, spacing, radius } = useTheme();
+  const { theme, fontSize, fontWeight, spacing, radius } = useTheme();
+  const colors = theme.colors;
 
   // Search + filter state
   const [query, setQuery] = useState('');
@@ -997,140 +983,6 @@ export default function ExerciseLibraryScreen(): React.ReactElement {
           autoCapitalize="none"
           returnKeyType="search"
           clearButtonMode="while-editing"
-          accessibilityLabel="Search exercises"
-        />
-      </View>
-
-      {/* ── Category chips ────────────────────────────────────────────────── */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{
-          paddingHorizontal: spacing.s4,
-          paddingBottom: spacing.s3,
-        }}
-        keyboardShouldPersistTaps="handled"
-        accessibilityRole="tablist"
-        accessibilityLabel="Filter by muscle group"
-      >
-        {CATEGORIES.map((cat) => (
-          <CategoryChip
-            key={cat}
-            label={cat}
-            selected={category === cat}
-            onPress={() => setCategory(cat)}
-          />
-        ))}
-      </ScrollView>
-
-      {/* ── Result count ─────────────────────────────────────────────────── */}
-      {!listLoading && !listError && (
-        <Text
-          style={{
-            fontSize: fontSize.caption,
-            color: colors.textTertiary,
-            marginHorizontal: spacing.s4,
-            marginBottom: spacing.s2,
-          }}
-        >
-          {filteredExercises.length} {filteredExercises.length === 1 ? 'exercise' : 'exercises'}
-        </Text>
-      )}
-
-      {/* ── Exercise list ─────────────────────────────────────────────────── */}
-      {listLoading ? (
-        <ScrollView
-          contentContainerStyle={{ paddingBottom: spacing.s6 }}
-          showsVerticalScrollIndicator={false}
-        >
-          {renderSkeleton()}
-        </ScrollView>
-      ) : (
-        <FlatList<Exercise>
-          data={filteredExercises}
-          keyExtractor={(item) => item.id}
-          renderItem={renderItem}
-          contentContainerStyle={{ paddingBottom: spacing.s6 }}
-          keyboardShouldPersistTaps="handled"
-          ListEmptyComponent={renderEmptyState()}
-          showsVerticalScrollIndicator={false}
-          // Performance: fixed item height not easily known so skip getItemLayout;
-          // exercises are few enough that default windowing is fine.
-          removeClippedSubviews={Platform.OS === 'android'}
-        />
-      )}
-
-      {/* ── Exercise detail modal ─────────────────────────────────────────── */}
-      <ExerciseDetailModal
-        exercise={selectedExercise}
-        visible={modalVisible}
-        onClose={closeModal}
-      />
-    </SafeAreaView>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Static styles — layout only; colors injected inline above
-// ---------------------------------------------------------------------------
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  searchBar: {
-    height: 48,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  searchInput: {
-    // fontSize & color injected inline
-  },
-  chip: {
-    alignItems: 'center',
-  },
-  cardContainer: {
-    // backgroundColor, borderRadius etc injected inline
-  },
-  tagsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  tag: {
-    // Inline
-  },
-  chevron: {
-    marginLeft: 'auto',
-  },
-  skeletonRow: {
-    // Inline
-  },
-  skeletonLine: {
-    // Inline
-  },
-  modalContainer: {
-    flex: 1,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-  },
-  modalTitleBlock: {
-    flex: 1,
-    marginRight: 12,
-  },
-  closeButton: {
-    // Inline
-  },
-  section: {
-    // Inline
-  },
-  emptyState: {
-    alignItems: 'center',
-    paddingHorizontal: 32,
-  },
-});
           accessibilityLabel="Search exercises"
         />
       </View>

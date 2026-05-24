@@ -61,6 +61,7 @@ import { PFProgressRing } from '../../src/components/ui/PFProgress';
 import { PressableCard, ScreenLayout, PFInput } from '../../src/components/ui';
 import { GlossaryTerm } from '../../src/components/Tooltip';
 import { useReduceMotion } from '../../src/hooks/useReduceMotion';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -322,11 +323,13 @@ function RankingCard({
   ranking,
   use1rmConfirmation,
   locallyConfirmed,
+  primaryDiscipline,
   onConfirmRequest,
 }: {
   ranking: PercentileRanking;
   use1rmConfirmation: boolean;
   locallyConfirmed: boolean;
+  primaryDiscipline?: string | null;
   onConfirmRequest: (ranking: PercentileRanking) => void;
 }): React.ReactElement {
   const { theme } = useTheme();
@@ -427,7 +430,7 @@ function RankingCard({
               {/* TODO: expose primary_discipline on user object from useAuth() if not yet available */}
               {(() => {
                 const NON_STRENGTH = ['Running', 'Cycling', 'Swimming', 'Other/Mixed'];
-                const discipline = (user as any)?.primary_discipline ?? null;
+                const discipline = primaryDiscipline ?? null;
                 if (discipline && NON_STRENGTH.includes(discipline)) {
                   return `Your score is based on ${ranking.cohort_size_internal} people like you.`;
                 }
@@ -584,11 +587,29 @@ export default function RankingsScreen(): React.ReactElement {
 
   const use1rmConfirmation = user?.use_1rm_confirmation ?? false;
 
-  // Track lifts the user confirmed this session (so the card updates immediately
-  // without waiting for the next batch run to flip is_estimated=false).
+  // BUG-008 (2026-05-23): persist confirmed lift IDs to AsyncStorage so the
+  // "confirmed" state survives an app restart before the nightly batch flips
+  // is_estimated=false. Key is per-user to avoid bleed between accounts.
+  const CONFIRMED_KEY = `confirmed_1rm_${user?.id ?? 'anon'}`;
+
   const [confirmedThisSession, setConfirmedThisSession] = useState<Set<string>>(
     () => new Set()
   );
+
+  // Load persisted confirmed IDs on mount
+  useEffect(() => {
+    AsyncStorage.getItem(CONFIRMED_KEY).then((raw) => {
+      if (raw) {
+        try {
+          const ids: string[] = JSON.parse(raw);
+          setConfirmedThisSession(new Set(ids));
+        } catch {
+          // corrupt entry — ignore and start fresh
+        }
+      }
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [CONFIRMED_KEY]);
 
   // The ranking currently being confirmed (drives the ConfirmSheet modal)
   const [confirmingRanking, setConfirmingRanking] = useState<PercentileRanking | null>(null);
@@ -607,9 +628,14 @@ export default function RankingsScreen(): React.ReactElement {
     async (confirmedKg: number) => {
       if (!confirmingRanking) return;
       await confirm1rm({ lift_id: confirmingRanking.lift_id, confirmed_kg: confirmedKg });
-      setConfirmedThisSession((prev) => new Set([...prev, confirmingRanking.lift_id]));
+      setConfirmedThisSession((prev) => {
+        const next = new Set([...prev, confirmingRanking.lift_id]);
+        // BUG-008: persist so CTA doesn't reappear after restart
+        AsyncStorage.setItem(CONFIRMED_KEY, JSON.stringify([...next])).catch(() => {});
+        return next;
+      });
     },
-    [confirmingRanking]
+    [confirmingRanking, CONFIRMED_KEY]
   );
 
   const rankings = response?.rankings ?? [];
@@ -707,6 +733,7 @@ export default function RankingsScreen(): React.ReactElement {
                 ranking={ranking}
                 use1rmConfirmation={use1rmConfirmation}
                 locallyConfirmed={confirmedThisSession.has(ranking.lift_id) || ranking.confirmed_1rm_kg != null}
+                primaryDiscipline={(user as any)?.primary_discipline ?? null}
                 onConfirmRequest={handleConfirmRequest}
               />
             ))}
@@ -879,174 +906,6 @@ const styles = StyleSheet.create({
   },
   estimatedBannerText: {
     fontSize: fontSize.bodySm,  // E-003: was 13
-    lineHeight: 20,
-  },
-  estimatedBannerLifts: {
-    fontWeight: fontWeight.semibold,  // E-003: was '600'
-  },
-
-  // Option C confirm CTA (TICKET-041)
-  confirmCta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: radius.md,
-    borderWidth: 1,
-    padding: 14,
-    gap: 10,
-  },
-  confirmCtaInner: {
-    flex: 1,
-    gap: 4,
-  },
-  confirmCtaTitle: {
-    fontSize: fontSize.bodyMd,  // E-003: was 15
-    fontWeight: fontWeight.semibold,  // E-003: was '600'
-  },
-  confirmCtaBody: {
-    fontSize: fontSize.bodySm,  // E-003: was 13
-    lineHeight: 19,
-  },
-  confirmCtaChevron: {
-    fontSize: fontSize.heading3,  // E-003: was 20
-  },
-
-  // Option C: confirmed this session
-  pendingNextRunPill: {
-    borderRadius: radius.md,
-    borderWidth: 1,
-    padding: 12,
-    marginTop: 4,
-  },
-  pendingNextRunText: {
-    fontSize: fontSize.bodySm,  // E-003: was 13
-    lineHeight: 20,
-  },
-
-  // Empty action hint (UX-004)
-  emptyAction: {
-    fontSize: fontSize.bodySm,  // caption-level action prompt
-    textAlign: 'center',
-    lineHeight: 20,
-    marginTop: 4,
-  },
-
-  // Error banner
-  errorBanner: {
-    borderRadius: radius.md,
-    borderWidth: 1,
-    padding: 14,
-    marginBottom: 12,
-    gap: 10,
-  },
-  errorText: {
-    fontSize: fontSize.bodySm,  // E-003: was 14
-    flex: 1,
-  },
-  retryButton: {
-    paddingHorizontal: spacing.s3,
-    paddingVertical: 6,
-    borderRadius: radius.sm,
-    alignSelf: 'flex-start',
-  },
-  retryButtonText: {
-    fontSize: fontSize.bodySm,  // E-003: was 13
-    fontWeight: fontWeight.semibold,  // E-003: was '600'
-  },
-});
-
-// ---------------------------------------------------------------------------
-// ConfirmSheet styles — layout only, no color values
-// ---------------------------------------------------------------------------
-
-const confirmSheetStyles = StyleSheet.create({
-  root: {
-    flex: 1,
-    paddingHorizontal: spacing.s5,
-    paddingBottom: spacing.s8,
-  },
-  // P2-007: visual drag handle at top of the sheet
-  handle: {
-    width: 40,
-    height: 4,
-    borderRadius: radius.full,
-    alignSelf: 'center',
-    marginTop: 10,
-    marginBottom: 20,
-  },
-  title: {
-    fontSize: fontSize.heading3,  // E-003: was 20
-    fontWeight: fontWeight.bold,  // E-003: was '700'
-    marginBottom: spacing.s3,
-  },
-  body: {
-    fontSize: fontSize.bodySm,  // E-003: was 14
-    lineHeight: 22,
-    marginBottom: spacing.s3,
-  },
-  estimate: {
-    fontSize: fontSize.bodyMd,  // E-003: was 15
-    fontWeight: fontWeight.medium,
-    marginBottom: spacing.s4,
-  },
-  inputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.s2,
-    marginBottom: spacing.s4,
-  },
-  kgLabel: {
-    fontSize: fontSize.bodyMd,
-    fontWeight: fontWeight.semibold,
-    paddingBottom: 2,
-  },
-  confirmButton: {
-    borderRadius: radius.md,
-    paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 52,
-    marginBottom: spacing.s3,
-  },
-  confirmButtonDisabled: {
-    opacity: 0.45,
-  },
-  confirmButtonText: {
-    fontSize: fontSize.bodyMd,  // E-003: was 16
-    fontWeight: fontWeight.semibold,  // E-003: was '600'
-  },
-  cancelButton: {
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
-  cancelText: {
-    fontSize: fontSize.bodyMd,  // E-003: was 15
-  },
-  // Success state
-  savedRow: {
-    borderRadius: radius.md,
-    borderWidth: 1,
-    padding: 16,
-    gap: spacing.s3,
-    marginTop: spacing.s4,
-  },
-  savedText: {
-    fontSize: fontSize.bodyMd,
-    lineHeight: 22,
-  },
-  doneButton: {
-    borderRadius: radius.md,
-    borderWidth: 1,
-    paddingVertical: 10,
-    paddingHorizontal: spacing.s4,
-    alignSelf: 'flex-start',
-    minHeight: 44,
-    justifyContent: 'center',
-  },
-  doneButtonText: {
-    fontSize: fontSize.bodyMd,
-    fontWeight: fontWeight.medium,
-  },
-});
     lineHeight: 20,
   },
   estimatedBannerLifts: {
