@@ -534,4 +534,34 @@ Generate one workout session now.`;
         };
 
         const { rows: planRows } = await pool.query(
-            `INSERT INTO plans (user_id, name, struc
+            `INSERT INTO plans (user_id, name, structure, is_template, is_ai_generated)
+             VALUES ($1, $2, $3, FALSE, TRUE)
+             RETURNING id`,
+            [req.user.id, planName, JSON.stringify(structure)]
+        );
+
+        // ── 12. Return to client ──────────────────────────────────────────────
+        const plan = planRows[0];
+        res.status(201).json({
+            plan_id:   plan.id,
+            session:   sessionWithIds,
+            reasoning: aiResponse.reasoning,
+        });
+
+        // Push notification: AI plan ready
+        try {
+            await supabaseAdmin.from('notification_queue').insert({
+                user_id: req.user.id,
+                type: 'plan_ready',
+                title: 'Your personalised plan is ready',
+                body: 'Tap to view your new AI-generated workout program.',
+                data: { plan_id: plan.id ?? null },
+            });
+        } catch (_e) {
+            console.warn('[push] plan_ready enqueue failed:', _e?.message);
+        }
+
+    } catch (err) { next(err); }
+});
+
+module.exports = router;
