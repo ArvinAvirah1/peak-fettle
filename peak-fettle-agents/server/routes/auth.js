@@ -24,6 +24,27 @@ const LoginSchema = z.object({
     password: z.string().min(1),
 });
 
+const USER_PROFILE_SELECT = `
+    id,
+    email,
+    display_name,
+    tier,
+    (tier = 'paid') AS is_paid,
+    unit_pref,
+    score_pref,
+    experience_level,
+    weight_class_kg,
+    sex,
+    CASE
+        WHEN birth_date IS NULL THEN NULL
+        WHEN EXTRACT(YEAR FROM AGE(NOW(), birth_date)) < 18 THEN 'under-18'
+        WHEN EXTRACT(YEAR FROM AGE(NOW(), birth_date)) < 25 THEN '18-24'
+        WHEN EXTRACT(YEAR FROM AGE(NOW(), birth_date)) < 35 THEN '25-34'
+        WHEN EXTRACT(YEAR FROM AGE(NOW(), birth_date)) < 45 THEN '35-44'
+        WHEN EXTRACT(YEAR FROM AGE(NOW(), birth_date)) < 55 THEN '45-54'
+        ELSE '55+'
+    END AS age_band`;
+
 // ---------------------------------------------------------------------------
 // Token helpers
 // ---------------------------------------------------------------------------
@@ -72,8 +93,7 @@ router.post('/signup', async (req, res, next) => {
         const { rows } = await pool.query(
             `INSERT INTO users (email, password_hash, display_name)
              VALUES ($1, $2, $3)
-             RETURNING id, email, display_name, tier, is_paid, unit_pref, score_pref,
-                       experience_level, weight_class_kg, sex, age_band`,
+             RETURNING ${USER_PROFILE_SELECT}`,
             [email, passwordHash, displayName || null]
         );
         const user = rows[0];
@@ -89,8 +109,7 @@ router.post('/login', async (req, res, next) => {
     try {
         const { email, password } = LoginSchema.parse(req.body);
         const { rows } = await pool.query(
-            `SELECT id, email, display_name, password_hash, tier, is_paid, unit_pref, score_pref,
-                    experience_level, weight_class_kg, sex, age_band
+            `SELECT ${USER_PROFILE_SELECT}, password_hash
              FROM users WHERE email = $1 AND deleted_at IS NULL`,
             [email]
         );
