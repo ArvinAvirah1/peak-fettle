@@ -221,5 +221,80 @@ async function run() {
 
         console.log(`[push-dispatcher] dispatching ${pending.length} notification(s)`);
 
-        // Chunk into groups of EXPO_CHUNK_SIZE (100) for batched API requests.
-        // NEW-004: was one HTTP request per notification; now one per chun
+        // NEW-004: was one HTTP request per notification; now one per chunk.
+        for (let i = 0; i < pending.length; i += EXPO_CHUNK_SIZE) {
+            const chunk = pending.slice(i, i + EXPO_CHUNK_SIZE);
+            const messages = chunk.map((notif) => ({
+                to: notif.fcm_token,
+                title: notif.title,
+                body: notif.body,
+                sound: 'default',
+                priority: 'high',
+                data: { ...(notif.data ?? {}) },
+            }));
+
+            let tickets;
+            try {
+                tickets = await sendExpoChunk(messages);
+            } catch (err) {
+                // HTTP-level failure: the entire chunk failed to send. Record the
+                // error on every row so each is retried next run (or fails
+                // permanently once it crosses MAX_RETRIES).
+                const errMsg = String(err?.message ?? err).slice(0, 500);
+                console.warn(
+                    `[push-dispatcher] chunk of ${chunk.length} failed at HTTP level: ${errMsg}`
+                );
+                for (const notif of chunk) {
+                    await markFailed(client, notif, errMsg);
+                    failed++;
+                }
+                continue;
+            }
+
+            // Tickets are positionally aligned with `messages` (verified by
+            // sendExpoChunk), so map each ticket back to its notification by index.
+            for (let j = 0; j < chunk.length; j++) {
+                const notif  = chunk[j];
+                const ticket = tickets[j];
+
+                if (ticket && ticket.status === 'ok') {
+                    await markSent(client, notif.id);
+                    sent++;
+                } else {
+                    // details.error ∈ { DeviceNotRegistered, MessageTooBig,
+                    //   MessageRateExceeded, MismatchSenderId, InvalidCredentials }
+                    const code   = ticket?.details?.error ?? 'unknown';
+                    const errMsg = `Expo push delivery error: ${code} — ${ticket?.message ?? ''}`;
+                    await markFailed(client, notif, errMsg);
+                    failed++;
+                }
+            }
+        }
+
+        console.log(
+            `[push-dispatcher] done — sent: ${sent}, failed: ${failed}` +
+            ` — elapsed: ${Date.now() - startedAt.getTime()}ms`
+        );
+
+        return { sent, failed };
+    } finally {
+        client.release();
+    }
+}
+
+module.exports = { run };
+
+// ---------------------------------------------------------------------------
+// Direct invocation: node cron/push-dispatcher.js
+// ---------------------------------------------------------------------------
+if (require.main === module) {
+    run()
+        .then((stats) => {
+            console.log('[push-dispatcher] completed:', stats);
+            process.exit(0);
+        })
+        .catch((err) => {
+            console.error('[push-dispatcher] fatal error:', err);
+            process.exit(1);
+        });
+}
