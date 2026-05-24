@@ -104,8 +104,8 @@ router.get('/', async (req, res, next) => {
                 -- Lightweight arithmetic — not a percentile computation (CTO guardrail exempt).
                 -- BUG-002 fix: e1rm_kg column was dropped; compute Epley inline from
                 -- weight_raw (SMALLINT, kg × 8). reps == 1 returns the raw weight directly.
-                -- EPLEY-001 fix (2026-05-16): explicit s.kind = 'lift' guard.
-                -- weight_raw > 0 filters most cardio rows today (cardio sets have
+                -- EPLEY-001 fix (2026-05-16): explicit `s.kind = 'lift'` guard.
+                -- `weight_raw > 0` filters most cardio rows today (cardio sets have
                 -- NULL weight_raw), but if an exercise is ever logged as both kinds
                 -- the exercise_id join could pull in a cardio row with non-null
                 -- weight. The explicit kind filter makes this defensive.
@@ -197,8 +197,8 @@ async function percentileByLift(req, res, next) {
                 upr.model_version,
                 ucr.confirmed_kg AS confirmed_1rm_kg,
                 -- BUG-002 fix: compute Epley inline from weight_raw (e1rm_kg dropped).
-                -- EPLEY-001 fix (2026-05-16): explicit s.kind = 'lift' guard
-                -- (matches the GET / route -- see comment there for rationale).
+                -- EPLEY-001 fix (2026-05-16): explicit `s.kind = 'lift'` guard
+                -- (matches the GET / route — see comment there for rationale).
                 (
                     SELECT MAX(
                         CASE

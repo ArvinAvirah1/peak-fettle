@@ -1,33 +1,21 @@
 /**
- * cron/push-dispatcher.js — Expo push notification dispatcher
+ * cron/push-dispatcher.js — FCM push notification dispatcher
  *
  * Polls notification_queue WHERE sent_at IS NULL, sends each via the
- * Expo Push API, then marks sent_at on success or stores the error
- * string on failure so the next run can retry.
+ * FCM Legacy HTTP API, then marks sent_at on success or stores the
+ * error string on failure so the next run can retry.
  *
- * Schedule: every 5 minutes  "*\/5 * * * *"
+ * Schedule: every 5 minutes  "*/5 * * * *"
  *   Add a GitHub Actions workflow or node-cron entry alongside the
  *   weekly percentile job.
  *
- * Token format:
- *   The mobile app registers with Notifications.getExpoPushTokenAsync()
- *   (mobile/src/services/pushNotifications.ts), which yields an Expo push
- *   token: "ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]". These are handles
- *   into Expo's push relay (https://exp.host/--/api/v2/push/send), which
- *   routes to APNs (iOS) and FCM (Android) internally. We therefore send
- *   through the Expo Push API rather than calling FCM directly — sending an
- *   Expo token to FCM's `to` field is rejected as InvalidRegistration.
- *   (PUSH-001, 2026-05-22.)
+ * Required env var:
+ *   FCM_SERVER_KEY — Firebase Cloud Messaging server key
+ *     (Firebase Console → Project settings → Cloud Messaging → Server key)
  *
- *   No FCM_SERVER_KEY / google-services.json is required for this path —
- *   Expo's build infrastructure owns the FCM credentials.
- *
- * Optional env var:
- *   EXPO_ACCESS_TOKEN — only needed if the Expo project has "Enhanced
- *     push security" enabled. Sent as a Bearer token when present.
- *
- * Users' device tokens are stored in users.fcm_token (column name retained
- * for migration compatibility — see migrations/20260518_fcm_token.sql).
+ * Users' device tokens are stored in users.fcm_token, written by the
+ * mobile app after requesting push permission (TICKET-024).
+ * See migrations/20260518_fcm_token.sql for the column definition.
  *
  * Manual invocation for testing:
  *   node cron/push-dispatcher.js
@@ -36,76 +24,56 @@
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const { pool } = require('../db');
 
-const EXPO_PUSH_URL    = 'https://exp.host/--/api/v2/push/send';
-const EXPO_ACCESS_TOKEN = process.env.EXPO_ACCESS_TOKEN; // optional
-const BATCH_SIZE       = 50;  // notifications per run — keeps each invocation snappy
+const FCM_SERVER_KEY = process.env.FCM_SERVER_KEY;
+const BATCH_SIZE     = 50;  // notifications per run — keeps each invocation snappy
 
 // ---------------------------------------------------------------------------
-// Expo Push API send helper
+// FCM send helper (Legacy HTTP API)
 // ---------------------------------------------------------------------------
 
 /**
- * Send a single push notification via the Expo Push API.
+ * Send a single FCM push notification via the legacy HTTP API.
  * Throws on any delivery failure so the caller can record the error.
  *
- * The Expo relay accepts the "ExponentPushToken[...]" format directly and
- * handles APNs/FCM routing internally. The response contains a "ticket"
- * per message; a ticket with status "error" and details.error
- * "DeviceNotRegistered" indicates a stale token that should be cleared.
- *
- * @param {string} expoToken - Expo push token ("ExponentPushToken[...]")
+ * @param {string} fcmToken  - Device registration token
  * @param {string} title     - Notification title
  * @param {string} body      - Notification body
  * @param {object} data      - Optional key-value data payload
  */
-async function sendExpoPush(expoToken, title, body, data = {}) {
-    const message = {
-        to: expoToken,
-        title,
-        body,
-        sound: 'default',
-        priority: 'high',
-        data: { ...data },
-    };
-
-    const headers = {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        'Accept-Encoding': 'gzip, deflate',
-    };
-    if (EXPO_ACCESS_TOKEN) {
-        headers.Authorization = `Bearer ${EXPO_ACCESS_TOKEN}`;
+async function sendFcm(fcmToken, title, body, data = {}) {
+    if (!FCM_SERVER_KEY) {
+        throw new Error('FCM_SERVER_KEY env var not set — cannot dispatch push notifications');
     }
 
-    const response = await fetch(EXPO_PUSH_URL, {
+    const payload = {
+        to: fcmToken,
+        notification: { title, body, sound: 'default' },
+        data: { ...data, click_action: 'FLUTTER_NOTIFICATION_CLICK' },
+        priority: 'high',
+        content_available: true,
+    };
+
+    const response = await fetch('https://fcm.googleapis.com/fcm/send', {
         method: 'POST',
-        headers,
-        body: JSON.stringify([message]),
+        headers: {
+            'Content-Type': 'application/json',
+            Authorization: `key=${FCM_SERVER_KEY}`,
+        },
+        body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
         const text = await response.text();
-        throw new Error(`Expo push HTTP ${response.status}: ${text}`);
+        throw new Error(`FCM HTTP ${response.status}: ${text}`);
     }
 
     const result = await response.json();
 
-    // Request-level errors (malformed payload, auth, etc.)
-    if (Array.isArray(result.errors) && result.errors.length > 0) {
-        const first = result.errors[0];
-        throw new Error(`Expo push request error: ${first.code ?? 'unknown'} — ${first.message ?? ''}`);
-    }
-
-    // Per-message tickets — we sent exactly one message, so inspect data[0].
-    const ticket = Array.isArray(result.data) ? result.data[0] : result.data;
-    if (!ticket) {
-        throw new Error('Expo push: no ticket returned in response');
-    }
-    if (ticket.status === 'error') {
-        // details.error ∈ { DeviceNotRegistered, MessageTooBig,
-        //   MessageRateExceeded, MismatchSenderId, InvalidCredentials }
-        const code = ticket.details?.error ?? 'unknown';
-        throw new Error(`Expo push delivery error: ${code} — ${ticket.message ?? ''}`);
+    // FCM returns 200 even on delivery failure — check the results array
+    if (result.failure > 0) {
+        const firstError = result.results?.[0]?.error ?? 'unknown';
+        // NotRegistered / InvalidRegistration = stale token; caller should clear it
+        throw new Error(`FCM delivery failure: ${firstError}`);
     }
 }
 
@@ -117,11 +85,16 @@ async function run() {
     const startedAt = new Date();
     console.log(`[push-dispatcher] started at ${startedAt.toISOString()}`);
 
+    if (!FCM_SERVER_KEY) {
+        console.warn('[push-dispatcher] FCM_SERVER_KEY not set — skipping dispatch');
+        return { sent: 0, failed: 0, skipped: 0 };
+    }
+
     const client = await pool.connect();
     let sent = 0, failed = 0, skipped = 0;
 
     try {
-        // Fetch pending notifications joined with each user's push token.
+        // Fetch pending notifications joined with each user's FCM token.
         // Users without a token are excluded — they haven't granted permission yet.
         const { rows: pending } = await client.query(`
             SELECT
@@ -149,7 +122,7 @@ async function run() {
 
         for (const notif of pending) {
             try {
-                await sendExpoPush(
+                await sendFcm(
                     notif.fcm_token,
                     notif.title,
                     notif.body,
@@ -176,14 +149,8 @@ async function run() {
                 );
 
                 // If the token is stale, clear it so future runs skip this user
-                // until they re-register. Expo returns "DeviceNotRegistered" when
-                // the app was uninstalled or the token was invalidated; the FCM
-                // legacy strings are kept for backward compatibility with old rows.
-                if (
-                    errMsg.includes('DeviceNotRegistered') ||
-                    errMsg.includes('NotRegistered') ||
-                    errMsg.includes('InvalidRegistration')
-                ) {
+                // until they re-register (NotRegistered = uninstalled or re-installed app)
+                if (errMsg.includes('NotRegistered') || errMsg.includes('InvalidRegistration')) {
                     await client.query(
                         `UPDATE users SET fcm_token = NULL WHERE id = $1`,
                         [notif.user_id]
