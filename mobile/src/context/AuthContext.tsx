@@ -346,12 +346,7 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
 
   const login = useCallback(
     async (email: string, password: string): Promise<void> => {
-      // NOTE: do NOT set global isLoading here. isLoading is only for the
-      // cold-start bootstrap spinner. Setting it true here unmounts the entire
-      // screen tree (RootNavigator in _layout.tsx renders a spinner when true),
-      // which destroys the login form's local error state on remount — making
-      // API errors invisible to the user. Each auth screen manages its own
-      // isSubmitting state for its loading button.
+      setIsLoading(true);
       try {
         // DEV MOCK: accept any credentials and log in instantly.
         if (USE_MOCK_AUTH) {
@@ -369,9 +364,8 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
         persistUser(response.user);
         _registerPushToken();
         router.replace('/(tabs)/');
-      } catch (err) {
-        // Re-throw so the login screen's catch block can show the error.
-        throw err;
+      } finally {
+        setIsLoading(false);
       }
     },
     [persistRefreshToken, persistUser, _registerPushToken]
@@ -383,9 +377,7 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
 
   const register = useCallback(
     async (email: string, password: string, displayName?: string): Promise<void> => {
-      // NOTE: do NOT set global isLoading here — same reason as login().
-      // isLoading is only for the cold-start bootstrap. The register screen
-      // manages its own isSubmitting state for the button loading indicator.
+      setIsLoading(true);
       try {
         // DEV MOCK: create account instantly with provided details.
         if (USE_MOCK_AUTH) {
@@ -410,9 +402,8 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
         // before landing in onboarding. Splash clears the first-launch flag and
         // navigates to /intro → /onboarding for first-timers.
         router.replace('/splash');
-      } catch (err) {
-        // Re-throw so the register screen's catch block can show the error.
-        throw err;
+      } finally {
+        setIsLoading(false);
       }
     },
     [persistRefreshToken, persistUser, _registerPushToken]
