@@ -108,6 +108,7 @@ const MOCK_USER: User = {
 // ---------------------------------------------------------------------------
 
 const REFRESH_TOKEN_KEY = 'peak_fettle_refresh_token';
+const USER_PROFILE_KEY = 'peak_fettle_user_profile';
 
 // ---------------------------------------------------------------------------
 // Context shape
@@ -179,6 +180,24 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
     await safeSecureStore.deleteItemAsync(REFRESH_TOKEN_KEY);
   }, []);
 
+  /** Persist the full user profile so it survives app restarts (cold-start fix). */
+  const persistUser = useCallback(async (u: User) => {
+    try {
+      await safeSecureStore.setItemAsync(USER_PROFILE_KEY, JSON.stringify(u));
+    } catch {
+      // Non-blocking — worst case the user has to log in again after restart.
+    }
+  }, []);
+
+  /** Clear stored user profile on logout. */
+  const clearUser = useCallback(async () => {
+    try {
+      await safeSecureStore.deleteItemAsync(USER_PROFILE_KEY);
+    } catch {
+      // Ignore
+    }
+  }, []);
+
   // ---------------------------------------------------------------------------
   // Core logout (shared by explicit logout + 401 interceptor callback)
   // ---------------------------------------------------------------------------
@@ -191,13 +210,14 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
     // Clear the PowerSync connector token so sync pauses on logout.
     setPowerSyncToken(null);
     await clearRefreshToken();
+    await clearUser();
 
     // Fire-and-forget server-side revocation. AuthApi.logout() swallows
     // network errors gracefully.
     if (currentRefreshToken) {
       AuthApi.logout(currentRefreshToken);
     }
-  }, [clearRefreshToken]);
+  }, [clearRefreshToken, clearUser]);
 
   // ---------------------------------------------------------------------------
   // Inject handlers into the Axios client
@@ -264,9 +284,22 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
         // Propagate the new token to the PowerSync connector.
         setPowerSyncToken(tokens.accessToken);
 
-        // TODO: fetch the user profile here once a GET /auth/me endpoint is added.
-        // For now, the full user object is returned only on login/register.
-        // The accessToken's JWT payload contains id + email as a fallback.
+        // Restore the persisted user profile so the app works immediately on
+        // cold start without a separate /auth/me round-trip. The profile is
+        // written to SecureStore on every login/register and kept in sync via
+        // updateUser(). If it's missing (first install / cleared storage) the
+        // user will see null and routes that depend on the profile gracefully
+        // degrade until the next login refreshes it.
+        if (!cancelled) {
+          try {
+            const storedUser = await safeSecureStore.getItemAsync(USER_PROFILE_KEY);
+            if (storedUser) {
+              setUser(JSON.parse(storedUser) as User);
+            }
+          } catch {
+            // Corrupted or missing — leave user null; login will fix it.
+          }
+        }
       } catch {
         if (!cancelled) {
           // Refresh token was revoked/expired — clear everything and show login.
@@ -327,13 +360,15 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
         setAccessToken(response.accessToken);
         setPowerSyncToken(response.accessToken);
         await persistRefreshToken(response.refreshToken);
+        // Persist user profile so cold-start can restore it without /auth/me.
+        persistUser(response.user);
         _registerPushToken();
         router.replace('/(tabs)/');
       } finally {
         setIsLoading(false);
       }
     },
-    [persistRefreshToken, _registerPushToken]
+    [persistRefreshToken, persistUser, _registerPushToken]
   );
 
   // ---------------------------------------------------------------------------
@@ -359,6 +394,8 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
         // Propagate fresh token to PowerSync connector so sync starts immediately.
         setPowerSyncToken(response.accessToken);
         await persistRefreshToken(response.refreshToken);
+        // Persist user profile so cold-start can restore it without /auth/me.
+        persistUser(response.user);
         // TICKET-024: register push token after new account creation (fire-and-forget).
         _registerPushToken();
         // Route through splash so new users see the intro flow (P2-001 / §2.2)
@@ -369,7 +406,7 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
         setIsLoading(false);
       }
     },
-    [persistRefreshToken, _registerPushToken]
+    [persistRefreshToken, persistUser, _registerPushToken]
   );
 
   // ---------------------------------------------------------------------------
@@ -386,8 +423,14 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
   // ---------------------------------------------------------------------------
 
   const updateUser = useCallback((patch: Partial<User>): void => {
-    setUser((prev) => (prev ? { ...prev, ...patch } : prev));
-  }, []);
+    setUser((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, ...patch };
+      // Keep the persisted profile in sync so cold-start restores the latest state.
+      persistUser(next);
+      return next;
+    });
+  }, [persistUser]);
 
   // ---------------------------------------------------------------------------
   // Context value
