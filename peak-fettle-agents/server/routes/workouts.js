@@ -74,16 +74,10 @@ router.post('/', async (req, res, next) => {
                     const sessionCount = await countRealSessions(req.user.id);
                     if (sessionCount >= FREE_SESSION_LIMIT) {
                         paywallTrigger = true;
-                        // Enqueue a paywall push notification (fire-and-forget).
-                        // The in-response flag is the primary signal; this is a
-                        // supplementary re-engagement nudge for re-opened sessions.
-                        supabaseAdmin.from('notification_queue').insert({
-                            user_id:    req.user.id,
-                            type:       'paywall_session_limit',
-                            title:      'Upgrade to Peak Fettle Pro',
-                            body:       `You've logged ${sessionCount} sessions — unlock unlimited tracking and AI plans.`,
-                            data:       { session_count: sessionCount, limit: FREE_SESSION_LIMIT },
-                        }).catch((e) => console.warn('[paywall] notification enqueue failed:', e?.message));
+                        // Push notification is handled by the post-response async block
+                        // below (Path B), which deduplicates via paywall_triggered_at.
+                        // NEW-002 fix: removed Path A push enqueue to prevent double
+                        // notification when both paths fire on the same session.
                     }
                 }
             } catch (e) {
@@ -107,9 +101,15 @@ router.post('/', async (req, res, next) => {
             );
             if (userRow?.paywall_triggered_at) return; // already triggered
 
-            // Count total logged sessions for this user
+            // Count real workout sessions only (same logic as countRealSessions()).
+            // NEW-002 fix: was COUNT(*) which incorrectly counted rest days, cardio
+            // imports, and soft-deleted rows — could trigger paywall before the user
+            // hit FREE_SESSION_LIMIT real workouts.
             const { rows: [{ count }] } = await pool.query(
-              'SELECT COUNT(*) FROM workouts WHERE user_id = $1',
+              `SELECT COUNT(*)::int AS count FROM workouts
+               WHERE user_id = $1
+                 AND deleted_at IS NULL
+                 AND (session_type IS NULL OR session_type = 'lift')`,
               [req.user.id]
             );
 
@@ -186,6 +186,138 @@ router.get('/', async (req, res, next) => {
             params
         );
         res.json(rows);
+    } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// ROADMAP §2.4 — Cardio analytics endpoints
+// Both routes MUST stay above /:id to avoid the catch-all matching them.
+// ---------------------------------------------------------------------------
+
+// POST /workouts/rest-day
+// Logs an intentional rest day for the current user (streak-preserved).
+// session_type = 'rest_day' is counted as an active day by the streak cron.
+router.post('/rest-day', async (req, res, next) => {
+    return next('route');
+    try {
+        const userId = req.user.id;
+        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+
+        const { rows: existing } = await pool.query(
+            `SELECT id FROM workouts
+             WHERE user_id = $1
+               AND session_type = 'rest_day'
+               AND day_key = $2
+             LIMIT 1`,
+            [userId, today]
+        );
+
+        if (existing.length > 0) {
+            return res.status(409).json({ error: 'Rest day already logged for today.' });
+        }
+
+        const { rows } = await pool.query(
+            `INSERT INTO workouts (user_id, day_key, session_type)
+             VALUES ($1, $2, 'rest_day')
+             ON CONFLICT (user_id, day_key) DO UPDATE
+                SET session_type = 'rest_day',
+                    updated_at = NOW()
+             RETURNING id, user_id, day_key, session_type, created_at, updated_at`,
+            [userId, today]
+        );
+
+        return res.status(201).json({ message: 'Rest day logged.', workout: rows[0] });
+    } catch (err) { next(err); }
+});
+
+// DELETE /workouts/rest-day/today
+// Undo a rest day logged today (user changes their mind and actually works out).
+router.delete('/rest-day/today', async (req, res, next) => {
+    return next('route');
+    try {
+        const userId = req.user.id;
+        const today = new Date().toISOString().split('T')[0];
+        await pool.query(
+            `DELETE FROM workouts
+             WHERE user_id = $1
+               AND session_type = 'rest_day'
+               AND day_key = $2`,
+            [userId, today]
+        );
+        return res.json({ message: 'Rest day removed.' });
+    } catch (err) { next(err); }
+});
+
+// GET /workouts/mileage-weekly
+// Returns the last 8 ISO weeks of cardio distance per activity type, plus a
+// boolean flag indicating whether the most-recent complete week exceeded the
+// prior week by more than 10% (the "10% rule" overshoot warning).
+//
+// Response: { weeks: MileageWeekRow[], ten_pct_warning: boolean }
+// MileageWeekRow: { week_start: string (YYYY-MM-DD), activity_type: string,
+//                   total_distance_m: number, session_count: number }
+router.get('/mileage-weekly', async (req, res, next) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT
+               date_trunc('week', day_key::date)::date::text AS week_start,
+               activity_type,
+               SUM(distance_m)::int                          AS total_distance_m,
+               COUNT(*)::int                                  AS session_count
+             FROM workouts
+             WHERE user_id      = $1
+               AND session_type = 'cardio_import'
+               AND distance_m   IS NOT NULL
+               AND day_key::date >= (CURRENT_DATE - INTERVAL '8 weeks')
+             GROUP BY date_trunc('week', day_key::date), activity_type
+             ORDER BY week_start ASC`,
+            [req.user.id]
+        );
+
+        // Compute 10% overshoot: compare the two most-recent calendar weeks
+        // (summed across all activity types) so cross-type weeks are treated as
+        // one total-load number.
+        const weekTotals = new Map();
+        for (const r of rows) {
+            weekTotals.set(r.week_start, (weekTotals.get(r.week_start) ?? 0) + r.total_distance_m);
+        }
+        const sortedWeeks = [...weekTotals.entries()].sort(([a], [b]) => (a < b ? -1 : 1));
+        let tenPctWarning = false;
+        if (sortedWeeks.length >= 2) {
+            const prev = sortedWeeks[sortedWeeks.length - 2][1];
+            const curr = sortedWeeks[sortedWeeks.length - 1][1];
+            if (prev > 0 && curr > prev * 1.10) tenPctWarning = true;
+        }
+
+        res.json({ weeks: rows, ten_pct_warning: tenPctWarning });
+    } catch (err) { next(err); }
+});
+
+// GET /workouts/pace-trend
+// Returns monthly average pace (sec/km) per activity type for the last 6
+// months. Used by the Progress screen pace-trend line chart.
+//
+// Response: { months: PaceTrendRow[] }
+// PaceTrendRow: { month_start: string (YYYY-MM-DD), activity_type: string,
+//                 avg_pace_sec_per_km: number, session_count: number }
+router.get('/pace-trend', async (req, res, next) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT
+               date_trunc('month', day_key::date)::date::text AS month_start,
+               activity_type,
+               ROUND(AVG(avg_pace_sec_per_km))::int           AS avg_pace_sec_per_km,
+               COUNT(*)::int                                   AS session_count
+             FROM workouts
+             WHERE user_id             = $1
+               AND session_type        = 'cardio_import'
+               AND avg_pace_sec_per_km IS NOT NULL
+               AND day_key::date       >= (CURRENT_DATE - INTERVAL '6 months')
+             GROUP BY date_trunc('month', day_key::date), activity_type
+             ORDER BY month_start ASC`,
+            [req.user.id]
+        );
+        res.json({ months: rows });
     } catch (err) { next(err); }
 });
 
@@ -273,3 +405,4 @@ router.delete('/rest-day/today', async (req, res, next) => {
 });
 
 module.exports = router;
+                                                                                                            

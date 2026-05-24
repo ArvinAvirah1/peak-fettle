@@ -452,12 +452,40 @@ ${candidateList}
 Generate one workout session now.`;
 
         // ── 8. Call Claude Haiku 4.5 ─────────────────────────────────────────
-        const message = await anthropic.messages.create({
-            model:      'claude-haiku-4-5',
-            max_tokens: 1024,
-            system:     systemPrompt,
-            messages:   [{ role: 'user', content: userMessage }],
+        // NEW-005 fix (2026-05-24): guard against indefinite hangs if the
+        // Anthropic API is slow or unresponsive. Promise.race resolves with the
+        // API response or rejects with a timeout error after 30 seconds.
+        const AI_TIMEOUT_MS = 30_000;
+        let aiTimeoutHandle;
+        const aiTimeoutPromise = new Promise((_, reject) => {
+            aiTimeoutHandle = setTimeout(
+                () => reject(new Error('AI_TIMEOUT')),
+                AI_TIMEOUT_MS
+            );
         });
+
+        let message;
+        try {
+            message = await Promise.race([
+                anthropic.messages.create({
+                    model:      'claude-haiku-4-5',
+                    max_tokens: 1024,
+                    system:     systemPrompt,
+                    messages:   [{ role: 'user', content: userMessage }],
+                }),
+                aiTimeoutPromise,
+            ]);
+        } catch (aiErr) {
+            clearTimeout(aiTimeoutHandle);
+            if (aiErr?.message === 'AI_TIMEOUT') {
+                return res.status(504).json({
+                    error:   'ai_timeout',
+                    message: 'Plan generation timed out. Please try again in a moment.',
+                });
+            }
+            throw aiErr; // re-throw unexpected errors to the global error handler
+        }
+        clearTimeout(aiTimeoutHandle);
 
         // ── 9. Parse and validate the AI response ────────────────────────────
         let aiResponse;
@@ -506,34 +534,4 @@ Generate one workout session now.`;
         };
 
         const { rows: planRows } = await pool.query(
-            `INSERT INTO plans (user_id, name, structure, is_template, is_ai_generated)
-             VALUES ($1, $2, $3, FALSE, TRUE)
-             RETURNING id`,
-            [req.user.id, planName, JSON.stringify(structure)]
-        );
-
-        // ── 12. Return to client ──────────────────────────────────────────────
-        const plan = planRows[0];
-        res.status(201).json({
-            plan_id:   plan.id,
-            session:   sessionWithIds,
-            reasoning: aiResponse.reasoning,
-        });
-
-        // Push notification: AI plan ready
-        try {
-            await supabaseAdmin.from('notification_queue').insert({
-                user_id: req.user.id,
-                type: 'plan_ready',
-                title: 'Your personalised plan is ready',
-                body: 'Tap to view your new AI-generated workout program.',
-                data: { plan_id: plan.id ?? null },
-            });
-        } catch (_e) {
-            console.warn('[push] plan_ready enqueue failed:', _e?.message);
-        }
-
-    } catch (err) { next(err); }
-});
-
-module.exports = router;
+            `INSERT INTO plans (user_id, name, struc
