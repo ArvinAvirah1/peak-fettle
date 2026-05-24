@@ -20,14 +20,15 @@ import {
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { useTheme } from '../src/theme/ThemeContext';
-import { GLOSSARY_TERMS, GlossaryTermDef } from '../src/utils/glossaryTerms';
+import { GLOSSARY_TERMS, GlossaryTermEntry } from '../src/utils/glossaryTerms';
 
 // ---------------------------------------------------------------------------
 // Term row
 // ---------------------------------------------------------------------------
 
-function TermRow({ item }: { item: GlossaryTermDef }): React.ReactElement {
-  const { colors, fontSize, fontWeight, spacing, radius } = useTheme();
+function TermRow({ item }: { item: GlossaryTermEntry }): React.ReactElement {
+  const { theme, fontSize, fontWeight, spacing, radius } = useTheme();
+  const colors = theme.colors;
   return (
     <View
       style={[
@@ -100,10 +101,11 @@ function TermRow({ item }: { item: GlossaryTermDef }): React.ReactElement {
 export default function GlossaryScreen(): React.ReactElement {
   const { term: initialTerm } = useLocalSearchParams<{ term?: string }>();
   const [query, setQuery] = useState<string>(initialTerm ?? '');
-  const { colors, fontSize, spacing, radius } = useTheme();
-  const listRef = useRef<FlatList<GlossaryTermDef>>(null);
+  const { theme, fontSize, spacing, radius } = useTheme();
+  const colors = theme.colors;
+  const listRef = useRef<FlatList<GlossaryTermEntry>>(null);
 
-  const filtered = useMemo<GlossaryTermDef[]>(
+  const filtered = useMemo<GlossaryTermEntry[]>(
     () =>
       GLOSSARY_TERMS.filter(
         (t) =>
@@ -176,11 +178,11 @@ export default function GlossaryScreen(): React.ReactElement {
       </Text>
 
       {/* Term list */}
-      <FlatList<GlossaryTermDef>
+      <FlatList<GlossaryTermEntry>
         ref={listRef}
         data={filtered}
         keyExtractor={(item) => item.slug}
-        renderItem={({ item }: ListRenderItemInfo<GlossaryTermDef>) => (
+        renderItem={({ item }: ListRenderItemInfo<GlossaryTermEntry>) => (
           <TermRow item={item} />
         )}
         contentContainerStyle={{ paddingBottom: spacing.s6 ?? 48 }}

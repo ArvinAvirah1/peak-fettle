@@ -23,8 +23,8 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '../src/theme/ThemeContext';
 import { useAuth } from '../src/hooks/useAuth';
 import { apiClient } from '../src/api/client';
-import PFCard from '../src/components/ui/PFCard';
-import PFButton from '../src/components/ui/PFButton';
+import { PFCard } from '../src/components/ui/PFCard';
+import { PFButton } from '../src/components/ui/PFButton';
 
 // ---------------------------------------------------------------------------
 // Types

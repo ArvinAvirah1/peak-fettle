@@ -389,7 +389,7 @@ function AddConstraintModal({
 
 export default function ProfileScreen(): React.ReactElement {
   const { user, logout, updateUser } = useAuth();
-  const { theme } = useTheme();
+  const { theme, themeName } = useTheme();
   const router = useRouter();
 
   // Map camelCase theme keys to display names for the Appearance row

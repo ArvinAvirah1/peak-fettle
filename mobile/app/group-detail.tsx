@@ -649,6 +649,7 @@ export default function GroupDetailScreen() {
   const { id: groupId } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { user } = useAuth();
+  const { theme } = useTheme();
 
   // useGroups for leaveGroup (the detail hook doesn't expose leave)
   const { leaveGroup, isLeaving } = useGroups();

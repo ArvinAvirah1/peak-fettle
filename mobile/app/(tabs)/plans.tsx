@@ -447,6 +447,7 @@ function StatChip({ label, value, valueStyle }: StatChipProps): React.ReactEleme
 export default function PlansScreen(): React.ReactElement {
   const { user } = useAuth();
   const { theme } = useTheme();
+  const router = useRouter();
   const isPaid = user?.is_paid ?? false;
 
   const {

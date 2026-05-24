@@ -62,8 +62,7 @@ import { setAuthHandlers } from '../api/client';
 import { setAccessToken as setPowerSyncToken } from '../db/connector';
 import * as AuthApi from '../api/auth';
 import { User } from '../types/api';
-import { registerForPushNotifications } from '../services/pushNotifications';
-import { registerPushToken } from '../api/pushTokens';
+import { registerForPushNotificationsAsync } from '../services/pushNotifications';
 
 // ---------------------------------------------------------------------------
 // DEV MOCK — bypass the real API and accept any credentials.
@@ -302,11 +301,7 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
    */
   const _registerPushToken = useCallback(async () => {
     try {
-      const result = await registerForPushNotifications();
-      if (result) {
-        // Best-effort — 404 expected until backend /user/push-token ships.
-        await registerPushToken({ token: result.token, platform: result.platform });
-      }
+      await registerForPushNotificationsAsync();
     } catch {
       // Swallow — push registration is non-blocking.
     }
