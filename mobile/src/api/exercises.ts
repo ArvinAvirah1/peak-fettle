@@ -62,4 +62,50 @@ export async function searchExercises(
 ): Promise<ExerciseSearchResult> {
   try {
     const response = await apiClient.get<ExerciseSearchResult>('/exercises/search', {
-      params: { q: query, limit, ...(kind && { kin
+      params: { q: query, limit, ...(kind && { kind }) },
+    });
+    return response.data;
+  } catch {
+    // IMPORTANT: do NOT fall back to mock exercises on search failure.
+    // Mock IDs (00000000-...) are valid UUIDs but are NOT rows in the
+    // exercises table on the production DB. Using them as exercise_id on
+    // POST /sets causes a FK violation (500). The same exercise names
+    // (Deadlift, Squat, etc.) exist in both mock and DB under *different*
+    // UUIDs, so a mock search result silently breaks set logging for those
+    // exercises — the user sees the right name but the UUID is wrong.
+    // Return empty results so the "Add as custom" prompt is shown instead.
+    return { results: [], total: 0 };
+  }
+}
+
+/**
+ * Create (or look up) a custom exercise by name.
+ * Called when the user types an exercise name that isn't in the library.
+ * Server uses INSERT ... ON CONFLICT DO NOTHING, so if the name already
+ * exists the existing row's UUID is returned — safe to call redundantly.
+ */
+export async function createExercise(
+  name: string,
+  category: ExerciseCategory = 'lift'
+): Promise<Exercise> {
+  const response = await apiClient.post<{ exercise: Exercise }>('/exercises', {
+    name: name.trim(),
+    category,
+    muscle_groups: [],
+    is_compound: false,
+  });
+  return response.data.exercise;
+}
+
+/**
+ * Fetch all known aliases for an exercise (used by admin/edit screens).
+ */
+export async function getExerciseAliases(exerciseId: string): Promise<{ id: string; alias: string }[]> {
+  const response = await apiClient.get<{ aliases: { id: string; alias: string }[] }>(
+    `/exercises/${exerciseId}/aliases`
+  );
+  return response.data.aliases;
+}
+
+// Re-export Exercise for convenience so screens can import from one place.
+export type { Exercise };

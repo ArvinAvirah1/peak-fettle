@@ -275,6 +275,37 @@ RETURNING id, unit_pref, experience_level, weight_class_kg
 
 **Best practice.** After every Write/Edit tool call on files in the OneDrive path, immediately run `wc -l` and `tail -5` to confirm the file ends where it should. For any file that matters, follow with a parse check (`node --check` for JS, `@babel/parser` for TSX). Never assume a write succeeded because the tool didn't raise an error.
 
+
+## L-021 · Mock exercise names collide with real DB names under different UUIDs
+
+**Root cause.** `searchExercises()` fell back to `MOCK_EXERCISES` on any server search failure. The mock included standard exercises ("Deadlift", "Squat", "Bench Press") with placeholder UUIDs (`00000000-...-000003` etc.). When the search server was unavailable, the user saw "Deadlift" in the picker but with a fake UUID. That UUID passes Zod `z.string().uuid()` validation but is not a row in the `exercises` table — the `sets.exercise_id` FK constraint fires on INSERT → 500. Meanwhile, exercises like "Alternating Dumbbell Curl" that are NOT in the mock only appear via real server results, so they always carry a valid UUID and succeed.
+
+**Fix.** `searchExercises()` now returns `{ results: [], total: 0 }` on failure instead of mock data. The "Add as custom exercise" button replaces the fallback — it calls `POST /exercises` and gets a real server UUID.
+
+**Best practice.** Any mock data that flows into a server-side FK must share the same UUID as the real row. If it can't (because the real UUID is unknown at dev time), don't surface it as a selectable result — show an empty state instead. A mock UUID that looks legitimate to the client but fails a DB FK is worse than no result.
+
+---
+
+## L-022 · `searchExercises` mock fallback silently disabled free-text exercise entry
+
+**Root cause.** Because `searchExercises()` always returned *something* (even on failure), there was no "no results" code path to hang a "create custom" CTA on. The user was implicitly forced to pick from the library with no escape hatch.
+
+**Fix.** Empty results from `searchExercises()` now trigger a visible "Add '[query]' as custom exercise" button. Tapping it calls `POST /exercises` (upsert by name) and immediately selects the result.
+
+**Best practice.** Any input-backed list that restricts to a fixed set should always offer a "create new" escape. Design the empty state first — it defines the user's only path forward when their desired item doesn't exist.
+
+---
+
+## L-023 · Weight display precision: kg×8 fixed-point round-trips lose quarter-lb accuracy
+
+**Root cause.** The server stores weight as `weight_raw SMALLINT` (kg × 8, nearest eighth-kg). On a lbs round-trip: 45 lbs → 20.412 kg → `ROUND(163.29) = 163` → `163/8 = 20.375 kg` → `20.375 × 2.20462 = 44.919 lbs`. The `formatWeight` function displayed `44.9 lbs` with no rounding, confusing users who entered `45`.
+
+**Fix (band-aid).** `formatWeight` now applies `Math.round(lbs × 4) / 4` before `toFixed()` when unit is lbs. Standard plate weights (45, 135, 225 lbs) round-trip exactly because they land on quarter-pound boundaries through the kg×8 encoding.
+
+**Long-term fix.** Store the user's entered weight in their preferred unit so no conversion happens for display. The kg conversion is only needed for the server-side E1RM/percentile computation.
+
+---
+
 ---
 
 ## Summary: pre-build checklist
