@@ -45,4 +45,6 @@ export function liftIdToName(liftId: string | null | undefined): string {
   // Fallback: replace underscores with spaces, title-case each word.
   return liftId
     .split('_')
-    .map((word) => word.charAt(0).toUppe
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}

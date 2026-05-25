@@ -1311,4 +1311,15 @@ const addConstraintStyles = StyleSheet.create({
   saveButton: {
     borderRadius: 10,
     paddingVertical: 14,
-    alignItems
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 52,
+  },
+  saveButtonDisabled: {
+    opacity: 0.45,
+  },
+  saveButtonText: {
+    fontSize: fontSize.bodyMd,     // E-003: was 16
+    fontWeight: fontWeight.semibold, // E-003: was '600'
+  },
+});

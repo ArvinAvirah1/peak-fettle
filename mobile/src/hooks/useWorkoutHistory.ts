@@ -173,4 +173,13 @@ export function useWorkoutHistory(): UseWorkoutHistoryResult {
         err instanceof Error ? err.message : 'Failed to load workout history';
       setError(message);
     } finally {
-      set
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  return { history, streak, isLoading, error, refetch: load };
+}
