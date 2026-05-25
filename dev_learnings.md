@@ -1,6 +1,6 @@
 # Peak Fettle — Dev Learnings & Best Practices
 
-A record of bugs, root causes, and the practices that prevent them. Updated 2026-05-24.
+A record of bugs, root causes, and the practices that prevent them. Updated 2026-05-25.
 
 ---
 
@@ -303,6 +303,59 @@ RETURNING id, unit_pref, experience_level, weight_class_kg
 **Fix (band-aid).** `formatWeight` now applies `Math.round(lbs × 4) / 4` before `toFixed()` when unit is lbs. Standard plate weights (45, 135, 225 lbs) round-trip exactly because they land on quarter-pound boundaries through the kg×8 encoding.
 
 **Long-term fix.** Store the user's entered weight in their preferred unit so no conversion happens for display. The kg conversion is only needed for the server-side E1RM/percentile computation.
+
+---
+
+
+## L-024 · Calling an undeployed DB function → always-500 on a whole tab
+
+**What happened.** `GET /percentile` (and its `/lift/:liftId` alias) both called `compute_wilks_score()` — a PostgreSQL function that was planned but never had a migration deployed. Every request 500'd, making the Rankings tab always show an error. No exception was surfaced in the Railway logs beyond a generic function-not-found error. The roadmap described the function as "OD-2 (deferred)" but the code still called it.
+
+**Root cause.** The route was written referencing a future DB function without a `NULL` stub fallback. When the migration didn't land, the code was never updated to guard the call.
+
+**Fix applied.** Replaced both `ROUND(compute_wilks_score(...)::NUMERIC, 2)::DOUBLE PRECISION AS wilks_score` calls with `NULL::DOUBLE PRECISION AS wilks_score`, matching the "OD-2 deferred" roadmap intent. Also removed the `JOIN users u` that was only needed to feed sex/weight_class params to the missing function.
+
+**Best practice.**
+- Any DB function call in a route must have a corresponding migration. If the migration is deferred, the route must return `NULL` (or omit the field) with a comment explaining when it will be populated.
+- Before deploying a server file that calls a DB function, verify the function exists: `SELECT proname FROM pg_proc WHERE proname = 'function_name'`.
+- If a whole UI tab always errors, the first suspect is a server-side query that references something that doesn't exist (function, column, view). Check Railway logs for `42883` (undefined function) or `42703` (undefined column).
+
+---
+
+## L-025 · API response shape mismatch: server returns array, client expected object
+
+**What happened.** `GET /workouts` returns a plain `ApiWorkout[]` array. The workout history screen used `res.data?.workouts ?? []`, expecting `{workouts: [...]}`. This always evaluated to `undefined ?? []`, making the history screen permanently empty even with real workout data.
+
+**Root cause.** The server was written first and returned a plain array (simpler for the initial implementation). The client was written later and assumed the common envelope pattern `{workouts: []}` without checking the actual server response.
+
+**Fix applied.** Changed to `Array.isArray(res.data) ? res.data : []`. Also verified the server's `GET /workouts` query included `total_sets`, `exercise_count`, and `total_volume_kg` via a LEFT JOIN + GROUP BY — these fields are rendered on each row. The server was updated to include them in the same pass.
+
+**Best practice.**
+- When writing a client-side fetch, always check the actual server route (in `peak-fettle-agents/server/routes/`) to confirm the response shape. Don't assume envelope vs. bare array.
+- Any time a list screen is perpetually empty despite confirmed backend data, immediately check what `res.data` actually contains vs. what the client dereferences.
+
+---
+
+## L-026 · OneDrive injects null bytes after Edit tool writes (not just truncation)
+
+**What happened.** After the Edit tool made a targeted change to a file, the resulting file parsed fine initially but later had ` ` null bytes appended after the final valid character. This caused `SyntaxError: Invalid or unexpected token` at a line beyond the actual end of the file. The issue is distinct from OneDrive truncation (L-001) — the file was the right size but contained null-byte padding.
+
+**Root cause.** OneDrive apparently pads or re-pads files after a write. The null bytes appear at the end and are invisible in most text editors.
+
+**Fix applied.** After every file write to the mount (Edit tool or bash), strip null bytes:
+```python
+with open(path, 'rb') as f:
+    raw = f.read()
+cleaned = raw.replace(b'\x00', b'')
+if len(cleaned) != len(raw):
+    with open(path, 'wb') as f:
+        f.write(cleaned)
+```
+
+**Best practice.**
+- After any file write on the OneDrive mount, run the null-byte strip above before committing.
+- Build this check into every file-verification pass alongside `node --check`. A file can have null bytes even if `wc -l` and byte count look correct.
+- Prefer writing via `cat /tmp/file > mount/target` (which overwrites cleanly) over the Edit tool for large files or files that have already been corrupted once.
 
 ---
 

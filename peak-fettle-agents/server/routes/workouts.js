@@ -178,10 +178,26 @@ router.get('/', async (req, res, next) => {
         }
 
         const { rows } = await pool.query(
-            `SELECT id, user_id, day_key, notes, created_at, updated_at
+            `SELECT
+                w.id,
+                w.user_id,
+                w.day_key,
+                w.notes,
+                w.created_at,
+                w.updated_at,
+                -- Aggregated stats used by the workout history list UI.
+                -- total_sets / exercise_count count lift sets only.
+                COUNT(s.id)          FILTER (WHERE s.kind = 'lift')              AS total_sets,
+                COUNT(DISTINCT s.exercise_id) FILTER (WHERE s.kind = 'lift')     AS exercise_count,
+                COALESCE(
+                    SUM(s.weight_raw) FILTER (WHERE s.kind = 'lift' AND s.weight_raw > 0),
+                    0
+                ) / 8.0                                                           AS total_volume_kg
              FROM workouts w
+             LEFT JOIN sets s ON s.workout_id = w.id
              WHERE ${conditions.join(' AND ')}
-             ORDER BY day_key DESC
+             GROUP BY w.id, w.user_id, w.day_key, w.notes, w.created_at, w.updated_at
+             ORDER BY w.day_key DESC
              LIMIT 90`,
             params
         );
