@@ -160,6 +160,7 @@ router.get('/', async (req, res, next) => {
     } catch (err) { next(err); }
 });
 
+
 // ---------------------------------------------------------------------------
 // GET /sets/personal-best/:exerciseId
 //
@@ -169,4 +170,107 @@ router.get('/', async (req, res, next) => {
 //
 // "All-time best"   — set with the highest Epley estimated 1RM across all
 //                     logged history (weight_raw/8 × (1 + reps/30)).
-// 
+// "Last session"    — heaviest set from the most-recent day_key that
+//                     contains at least one set for this exercise.
+//
+// Response:
+//   {
+//     all_time_best:  { weight_kg, reps, logged_at, day_key } | null,
+//     last_session:   { weight_kg, reps, logged_at, day_key } | null
+//   }
+//
+// Returns { all_time_best: null, last_session: null } if the user has never
+// logged this exercise.
+// ---------------------------------------------------------------------------
+router.get('/personal-best/:exerciseId', async (req, res, next) => {
+    try {
+        const { exerciseId } = req.params;
+
+        // All-time best: highest Epley e1rm across all sets for this exercise.
+        const atbResult = await pool.query(
+            `SELECT
+                s.weight_raw / 8.0                                   AS weight_kg,
+                s.reps,
+                s.logged_at,
+                w.day_key,
+                CASE
+                    WHEN s.reps = 1 THEN s.weight_raw / 8.0
+                    ELSE (s.weight_raw / 8.0) * (1.0 + s.reps::float / 30.0)
+                END                                                  AS e1rm_kg
+             FROM sets s
+             JOIN workouts w ON w.id = s.workout_id
+             WHERE w.user_id    = $1
+               AND s.exercise_id = $2
+               AND s.kind        = 'lift'
+               AND s.weight_raw  > 0
+               AND s.reps       >= 1
+             ORDER BY e1rm_kg DESC
+             LIMIT 1`,
+            [req.user.id, exerciseId]
+        );
+
+        // Last session: most recent day that has a set for this exercise,
+        // then the heaviest set from that day.
+        const lsResult = await pool.query(
+            `WITH last_day AS (
+                SELECT MAX(w.day_key) AS day_key
+                FROM sets s
+                JOIN workouts w ON w.id = s.workout_id
+                WHERE w.user_id    = $1
+                  AND s.exercise_id = $2
+                  AND s.kind        = 'lift'
+                  AND s.weight_raw  > 0
+                  AND s.reps       >= 1
+             )
+             SELECT
+                s.weight_raw / 8.0 AS weight_kg,
+                s.reps,
+                s.logged_at,
+                w.day_key
+             FROM sets s
+             JOIN workouts w ON w.id = s.workout_id
+             WHERE w.user_id    = $1
+               AND s.exercise_id = $2
+               AND s.kind        = 'lift'
+               AND s.weight_raw  > 0
+               AND s.reps       >= 1
+               AND w.day_key     = (SELECT day_key FROM last_day)
+             ORDER BY s.weight_raw DESC, s.reps DESC
+             LIMIT 1`,
+            [req.user.id, exerciseId]
+        );
+
+        const atb = atbResult.rows[0] ?? null;
+        const ls  = lsResult.rows[0] ?? null;
+
+        res.json({
+            all_time_best: atb ? {
+                weight_kg: parseFloat(atb.weight_kg),
+                reps:      atb.reps,
+                logged_at: atb.logged_at,
+                day_key:   atb.day_key,
+            } : null,
+            last_session: ls ? {
+                weight_kg: parseFloat(ls.weight_kg),
+                reps:      ls.reps,
+                logged_at: ls.logged_at,
+                day_key:   ls.day_key,
+            } : null,
+        });
+    } catch (err) { next(err); }
+});
+
+// DELETE /sets/:id
+// N-13 (2026-05-03): delete endpoint with ownership check.
+router.delete('/:id', async (req, res, next) => {
+    try {
+        const { rowCount } = await pool.query(
+            `DELETE FROM sets WHERE id = $1 AND user_id = $2`,
+            [req.params.id, req.user.id]
+        );
+        if (rowCount === 0) return res.status(404).json({ error: 'not_found' });
+        res.status(204).end();
+    } catch (err) { next(err); }
+});
+
+module.exports = router;
