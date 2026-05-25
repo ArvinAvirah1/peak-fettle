@@ -62,6 +62,7 @@ import { PressableCard, ScreenLayout, PFInput } from '../../src/components/ui';
 import { GlossaryTerm } from '../../src/components/Tooltip';
 import { useReduceMotion } from '../../src/hooks/useReduceMotion';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { TabErrorBoundary } from '../../src/components/TabErrorBoundary';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -579,7 +580,7 @@ function ErrorBanner({
 //          ScrollView's contentContainerStyle padding takes precedence)
 // ---------------------------------------------------------------------------
 
-export default function RankingsScreen(): React.ReactElement {
+function RankingsScreen(): React.ReactElement {
   const { response, isLoading, error, refetch } = usePercentile();
   const { user } = useAuth();
   const { theme } = useTheme();
@@ -1070,7 +1071,4 @@ const confirmSheetStyles = StyleSheet.create({
     justifyContent: 'center',
   },
   doneButtonText: {
-    fontSize: fontSize.bodyMd,
-    fontWeight: fontWeight.medium,
-  },
-});
+    fontSize: fo
