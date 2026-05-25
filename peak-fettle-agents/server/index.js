@@ -66,8 +66,26 @@ app.get('/health', (_req, res) => res.json({ ok: true, ts: Date.now() }));
 // Public routes — auth is rate-limited (N-11)
 app.use('/auth', authLimiter, authRoutes);
 
-// Public routes (exercises are a global read-only library — no auth needed for reads)
-app.use('/exercises', exercisesRoutes);
+// Exercises: GET routes are public (global read-only library); POST requires auth
+// so anonymous clients can't pollute the library with junk exercises.
+// express-router matches in order, so the requireAuth middleware only fires
+// when the request reaches a POST handler inside exercisesRoutes.
+// Simplest approach: mount the router twice — public for the router, but the
+// POST handler inside reads req.user which is set by requireAuth below.
+// Actually: mount once unprotected and gate inside the route handler via a
+// manual auth check — OR just mount with requireAuth and mark GET public in
+// the route. Cleanest: mount once and rely on the route-level guard.
+//
+// Implementation: mount exercises unauthenticated (GET is public), and the
+// POST /exercises route uses requireAuth passed as route middleware internally.
+// We pass requireAuth into the exercises router via the app so both GET and
+// POST are on the same mount point, with auth enforced only on POST.
+app.use('/exercises', (req, res, next) => {
+    if (req.method === 'POST') {
+        return requireAuth(req, res, next);
+    }
+    next();
+}, exercisesRoutes);
 
 // PL-1: Template library — public read, no auth required
 app.use('/templates', templateRoutes);
