@@ -221,6 +221,60 @@ git -c core.multiPackIndex=false log --oneline -1
 - Always use a fresh, timestamped temp index (`/tmp/pf_$(date +%s%N).idx`) — never reuse one from a previous sandbox session (different uid, can't be removed).
 - Pushing is not possible from the agent sandbox. After committing, give the user the `git push origin main` command to run from their own machine.
 
+
+## L-016 · Mock exercise IDs that fail UUID validation block set logging
+
+**Root cause.** `getExercises()` falls back to `MOCK_LIBRARY` on any server failure. The mock IDs were `'ex-001'`, `'ex-002'`, etc. — not UUIDs. The server's Zod schema uses `z.string().uuid()` for `exercise_id`, so every set logged with a mock exercise ID returned HTTP 400 `validation_failed`. Because the error was swallowed (L-012), the user saw nothing but a failure.
+
+**Fix.** Mock IDs changed to UUID format: `'00000000-0000-0000-0000-000000000001'` through `'00000000-0000-0000-0000-000000000010'`. These are valid UUIDs that Zod accepts.
+
+**Real fix.** Seed the production database with the exercises library so `getExercises()` never falls back to mock. Run `migrations/20260502_seed_exercise_library.sql` in the Supabase SQL editor.
+
+**Best practice.** Any mock data that flows into a server request must pass that server's validation. If the server uses `z.string().uuid()`, the mock must use a UUID. Review every mock ID whenever a new Zod schema is written.
+
+---
+
+## L-017 · `RETURNING` clause referencing unapplied migration columns causes 500 on prod
+
+**Root cause.** `PATCH /user/profile` had a `RETURNING` clause listing columns added in later migrations (`use_1rm_confirmation`, `theme_preference`, `fcm_token`). If the production database had not run those migrations yet, the `UPDATE … RETURNING` query threw `column "use_1rm_confirmation" does not exist` → 500. The client's catch block silently reverted the UI — the user saw the unit selector flip back with no explanation.
+
+**Fix.** `RETURNING` pared back to only columns present in the baseline schema:
+```sql
+RETURNING id, unit_pref, experience_level, weight_class_kg
+```
+
+**Best practice.** A `RETURNING` clause is as fragile as a `SELECT`. Every column it names must exist in every deployment that runs the route. When a migration adds a column, audit all routes that touch that table and defer adding the new column to `RETURNING` until the migration is confirmed deployed on prod.
+
+---
+
+## L-018 · Silent catch blocks turn server errors into phantom UI resets
+
+**Root cause.** Profile update (unit pref, experience level) caught API errors with an empty `catch` block and called `setUnitPref(user?.unit_pref)` to "roll back" the UI — so the user saw their change silently revert. No alert, no log output. The actual cause (`RETURNING` clause 500, Zod UUID rejection) was invisible.
+
+**Fix.** Every catch that rolls back UI state must also show an `Alert.alert` with the real error message extracted from the response body (`data.message ?? data.error ?? err.message`).
+
+**Best practice.** A catch block that swallows errors is worse than no try/catch at all — it actively hides problems. Always either: (a) surface the error to the user, or (b) log it with enough context for a developer to find it. Prefer both. "Silent rollback" is never an acceptable UX pattern for a failed write.
+
+---
+
+## L-019 · Tab crashes with no error boundary show a blank screen with no feedback
+
+**Root cause.** A JS render-time exception in a tab screen (e.g., `.map()` on `undefined`) unmounted the entire screen with no error state — the user saw a white/dark blank with no way to recover or report the error.
+
+**Fix.** `TabErrorBoundary` (class component with `getDerivedStateFromError`) wraps each tab screen. On error it shows a "Something went wrong" card with the error message and a "Try again" button that resets the boundary.
+
+**Best practice.** Every tab screen that fetches data or does complex rendering should be wrapped in an error boundary. This is especially important on React Native where there is no browser console visible to end users. The error boundary should log to `console.error` (for Sentry/Crashlytics in production) and display the message so it can be reported.
+
+---
+
+## L-020 · OneDrive truncates files mid-write — always verify after any write
+
+**Root cause.** OneDrive's live-sync process can truncate a file mid-write, leaving it cut off mid-token, mid-line, or at an exact byte boundary. This hit `index.tsx` which was 1013 lines but the mount showed only 1000 lines ending with `moda` (the start of `modalOverlay`). No write error is raised — the file silently ends early.
+
+**Fix.** Restore the complete version from the git object store (`git show HEAD:<path> > <path>`), verify the HEAD blob itself parses, apply the diff on top, then write via `cat tmp > target` and recount lines.
+
+**Best practice.** After every Write/Edit tool call on files in the OneDrive path, immediately run `wc -l` and `tail -5` to confirm the file ends where it should. For any file that matters, follow with a parse check (`node --check` for JS, `@babel/parser` for TSX). Never assume a write succeeded because the tool didn't raise an error.
+
 ---
 
 ## Summary: pre-build checklist
