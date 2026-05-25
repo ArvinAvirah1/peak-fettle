@@ -150,7 +150,9 @@ export function useWorkoutHistory(): UseWorkoutHistoryResult {
         const liftNames: string[] = [];
         for (const s of rawSets) {
           if (s.kind === 'lift') {
-            const name = exerciseMap.get(s.exercise_id) ?? s.exercise_id;
+            const liftSet = s as LiftSet;
+            if (!liftSet.exercise_id) continue; // guard: skip sets with missing exercise_id
+            const name = exerciseMap.get(liftSet.exercise_id) ?? liftSet.exercise_id;
             if (!seen.has(name)) {
               seen.add(name);
               liftNames.push(name);
@@ -171,13 +173,4 @@ export function useWorkoutHistory(): UseWorkoutHistoryResult {
         err instanceof Error ? err.message : 'Failed to load workout history';
       setError(message);
     } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  return { history, streak, isLoading, error, refetch: load };
-}
+      set

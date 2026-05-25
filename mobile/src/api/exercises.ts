@@ -31,10 +31,12 @@ const MOCK_EXERCISES: Exercise[] = [
 ];
 
 const MOCK_LIBRARY: ExerciseLibrary = {
-  lift: MOCK_EXERCISES.filter(e => e.category === 'lift'),
-  cardio: MOCK_EXERCISES.filter(e => e.category === 'cardio'),
-  sport: [],
-  mobility: [],
+  exercises: {
+    lift: MOCK_EXERCISES.filter(e => e.category === 'lift'),
+    cardio: MOCK_EXERCISES.filter(e => e.category === 'cardio'),
+    sport: [],
+    mobility: [],
+  },
 };
 
 export async function getExercises(kind?: ExerciseCategory): Promise<ExerciseLibrary> {
@@ -77,5 +79,4 @@ export async function getExerciseAliases(exerciseId: string): Promise<{ id: stri
   return response.data.aliases;
 }
 
-// Re-export Exercise for convenience so screens can import from one place.
-export type { Exercise };
+// Re-export Exercise for convenience so screens can import from one place

@@ -198,7 +198,6 @@ router.get('/', async (req, res, next) => {
 // Logs an intentional rest day for the current user (streak-preserved).
 // session_type = 'rest_day' is counted as an active day by the streak cron.
 router.post('/rest-day', async (req, res, next) => {
-    return next('route');
     try {
         const userId = req.user.id;
         const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
@@ -233,7 +232,6 @@ router.post('/rest-day', async (req, res, next) => {
 // DELETE /workouts/rest-day/today
 // Undo a rest day logged today (user changes their mind and actually works out).
 router.delete('/rest-day/today', async (req, res, next) => {
-    return next('route');
     try {
         const userId = req.user.id;
         const today = new Date().toISOString().split('T')[0];
@@ -345,62 +343,6 @@ router.delete('/:id', async (req, res, next) => {
         );
         if (rowCount === 0) return res.status(404).json({ error: 'not_found' });
         res.status(204).end();
-    } catch (err) { next(err); }
-});
-
-// ---------------------------------------------------------------------------
-// PL-3: Rest Day Designation
-// ---------------------------------------------------------------------------
-
-// POST /workouts/rest-day
-// Logs an intentional rest day for the current user (streak-preserved).
-// session_type = 'rest_day' is counted as an active day by the streak cron.
-router.post('/rest-day', async (req, res, next) => {
-    try {
-        const userId = req.user.id;
-        const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-
-        // Prevent duplicate rest-day entries for the same calendar day
-        const { rows: existing } = await pool.query(
-            `SELECT id FROM workouts
-             WHERE user_id = $1
-               AND session_type = 'rest_day'
-               AND created_at >= ($2 || 'T00:00:00Z')::timestamptz
-               AND created_at <= ($2 || 'T23:59:59Z')::timestamptz
-             LIMIT 1`,
-            [userId, today]
-        );
-
-        if (existing.length > 0) {
-            return res.status(409).json({ error: 'Rest day already logged for today.' });
-        }
-
-        const { rows } = await pool.query(
-            `INSERT INTO workouts (user_id, session_type)
-             VALUES ($1, 'rest_day')
-             RETURNING id, user_id, session_type, created_at, updated_at`,
-            [userId]
-        );
-
-        return res.status(201).json({ message: 'Rest day logged.', workout: rows[0] });
-    } catch (err) { next(err); }
-});
-
-// DELETE /workouts/rest-day/today
-// Undo a rest day logged today (user changes their mind and actually works out).
-router.delete('/rest-day/today', async (req, res, next) => {
-    try {
-        const userId = req.user.id;
-        const today = new Date().toISOString().split('T')[0];
-        await pool.query(
-            `DELETE FROM workouts
-             WHERE user_id = $1
-               AND session_type = 'rest_day'
-               AND created_at >= ($2 || 'T00:00:00Z')::timestamptz
-               AND created_at <= ($2 || 'T23:59:59Z')::timestamptz`,
-            [userId, today]
-        );
-        return res.json({ message: 'Rest day removed.' });
     } catch (err) { next(err); }
 });
 
