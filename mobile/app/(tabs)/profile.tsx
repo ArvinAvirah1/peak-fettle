@@ -457,15 +457,20 @@ export default function ProfileScreen(): React.ReactElement {
       setUnitPref(pref); // optimistic
       setIsUpdatingUnit(true);
       try {
-        // TODO(TICKET-026): patchProfile hits /user/profile which is not yet
-        // built on the server. This call will 404 until the backend ships.
-        // The optimistic update still persists locally for the session.
         await patchProfile({ unit_pref: pref });
         updateUser?.({ unit_pref: pref });
-      } catch {
-        // Silently revert on failure — 404 expected until backend ships
-        // but don't alarm the user unnecessarily.
+      } catch (err) {
+        // Revert optimistic update and tell the user what went wrong.
         setUnitPref(user?.unit_pref ?? 'kg');
+        const msg =
+          err != null && typeof err === 'object' && 'response' in err
+            ? ((err as { response?: { data?: { message?: string; error?: string } } }).response?.data?.message ??
+               (err as { response?: { data?: { error?: string } } }).response?.data?.error ??
+               'Server error — could not save unit preference')
+            : err instanceof Error
+            ? err.message
+            : 'Could not save unit preference';
+        Alert.alert('Could not save preference', msg);
       } finally {
         setIsUpdatingUnit(false);
       }
@@ -1306,15 +1311,4 @@ const addConstraintStyles = StyleSheet.create({
   saveButton: {
     borderRadius: 10,
     paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 52,
-  },
-  saveButtonDisabled: {
-    opacity: 0.45,
-  },
-  saveButtonText: {
-    fontSize: fontSize.bodyMd,     // E-003: was 16
-    fontWeight: fontWeight.semibold, // E-003: was '600'
-  },
-});
+    alignItems

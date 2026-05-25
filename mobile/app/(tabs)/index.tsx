@@ -45,6 +45,7 @@ import { PFCard, PFButton, ScreenLayout } from '../../src/components/ui';
 import { getPlans, getPlan } from '../../src/api/plans';
 import { getPercentile } from '../../src/api/percentile';
 import { apiClient } from '../../src/api/client';
+import { TabErrorBoundary } from '../../src/components/TabErrorBoundary';
 
 // ---------------------------------------------------------------------------
 // Rest Day API
@@ -315,7 +316,7 @@ function StatCard({ label, value }: { label: string; value: string }): React.Rea
 // Screen
 // ---------------------------------------------------------------------------
 
-export default function HomeScreen(): React.ReactElement {
+function HomeScreen(): React.ReactElement {
   const router = useRouter();
   const { user } = useAuth();
   const { sets: todaySets, isLoading: todayLoading } = useWorkout();
@@ -1002,3 +1003,11 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
 });
+
+export default function HomeScreenWithBoundary(): React.ReactElement {
+  return (
+    <TabErrorBoundary screenName="Home">
+      <HomeScreen />
+    </TabErrorBoundary>
+  );
+}
