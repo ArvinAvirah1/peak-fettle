@@ -46,6 +46,7 @@ import { useTheme } from '../../src/theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
 import { haptics } from '../../src/utils/haptics';
 import { apiClient } from '../../src/api/client';
+import { getPersonalBest, PersonalBest } from '../../src/api/sets';
 import { ScreenLayout } from '../../src/components/ui';
 
 // MOCK-002 fix (2026-05-16): the previous `MOCK_WORKOUT` constant was
@@ -566,6 +567,7 @@ export default function LogScreen(): React.ReactElement {
 
   // PL-3: Rest day toast state
   const [restDayLogged, setRestDayLogged] = useState(false);
+  const [exercisePB, setExercisePB] = useState<PersonalBest | null>(null);
 
   const groups = useMemo(() => groupSetsByExercise(sets), [sets]);
   const totalSets = sets.length;
@@ -579,6 +581,14 @@ export default function LogScreen(): React.ReactElement {
       next.set(exercise.id, exercise.name);
       return next;
     });
+    // Fetch PB for lift exercises so SetEntryForm can show reference card.
+    // Cardio exercises don't have weight-based PBs, so skip the fetch.
+    if (exercise.category === 'lift') {
+      setExercisePB(null); // clear stale PB immediately
+      getPersonalBest(exercise.id).then(setExercisePB).catch(() => {});
+    } else {
+      setExercisePB(null);
+    }
   }, []);
 
   const handleSetLogged = useCallback((_set: WorkoutSet) => {}, []);
@@ -850,6 +860,7 @@ export default function LogScreen(): React.ReactElement {
           onLogged={handleSetLogged}
           onClose={() => setSelectedExercise(null)}
           onSubmit={handleSubmitSet}
+          personalBest={exercisePB}
         />
       ) : null}
 

@@ -105,10 +105,6 @@ router.get('/', async (req, res, next) => {
                 -- BUG-002 fix: e1rm_kg column was dropped; compute Epley inline from
                 -- weight_raw (SMALLINT, kg × 8). reps == 1 returns the raw weight directly.
                 -- EPLEY-001 fix (2026-05-16): explicit s.kind = 'lift' guard.
-                -- weight_raw > 0 filters most cardio rows today (cardio sets have
-                -- NULL weight_raw), but if an exercise is ever logged as both kinds
-                -- the exercise_id join could pull in a cardio row with non-null
-                -- weight. The explicit kind filter makes this defensive.
                 (
                     SELECT MAX(
                         CASE
@@ -124,34 +120,11 @@ router.get('/', async (req, res, next) => {
                       AND s.weight_raw > 0
                       AND s.reps >= 1
                 )                                                       AS epley_estimate_kg,
-                -- OD-2: Wilks2 (2020) score for cross-bodyweight-class comparison.
-                -- Uses confirmed_kg if available, else falls back to epley estimate.
-                ROUND(
-                  compute_wilks_score(
-                    u.sex,
-                    COALESCE(u.weight_class_kg, CASE u.sex WHEN 'MALE' THEN 83.0 ELSE 66.0 END),
-                    COALESCE(
-                      ucr.confirmed_kg,
-                      (
-                        SELECT MAX(
-                          CASE
-                            WHEN s2.reps = 1 THEN s2.weight_raw / 8.0
-                            ELSE (s2.weight_raw / 8.0) * (1.0 + s2.reps::float / 30.0)
-                          END
-                        )
-                        FROM sets s2
-                        JOIN workouts w2 ON w2.id = s2.workout_id
-                        WHERE w2.user_id = upr.user_id
-                          AND s2.exercise_id = upr.lift_id
-                          AND s2.kind = 'lift'
-                          AND s2.weight_raw > 0
-                          AND s2.reps >= 1
-                      )
-                    )
-                  )::NUMERIC, 2
-                )::DOUBLE PRECISION                                      AS wilks_score
+                -- OD-2: wilks_score deferred — compute_wilks_score() DB function not
+                -- yet deployed. Returns NULL until the migration lands. Clients should
+                -- treat null wilks_score as "not yet available" (spec §OD-2).
+                NULL::DOUBLE PRECISION                                  AS wilks_score
              FROM user_percentile_rankings upr
-             JOIN users u ON u.id = upr.user_id
              LEFT JOIN user_confirmed_1rm ucr
                 ON  ucr.user_id = upr.user_id
                 AND ucr.lift_id = upr.lift_id
@@ -197,8 +170,7 @@ async function percentileByLift(req, res, next) {
                 upr.model_version,
                 ucr.confirmed_kg AS confirmed_1rm_kg,
                 -- BUG-002 fix: compute Epley inline from weight_raw (e1rm_kg dropped).
-                -- EPLEY-001 fix (2026-05-16): explicit s.kind = 'lift' guard
-                -- (matches the GET / route -- see comment there for rationale).
+                -- EPLEY-001 fix (2026-05-16): explicit s.kind = 'lift' guard.
                 (
                     SELECT MAX(
                         CASE
@@ -214,33 +186,9 @@ async function percentileByLift(req, res, next) {
                       AND s.weight_raw > 0
                       AND s.reps >= 1
                 )                AS epley_estimate_kg,
-                -- OD-2: Wilks2 (2020) score for cross-bodyweight-class comparison.
-                ROUND(
-                  compute_wilks_score(
-                    u.sex,
-                    COALESCE(u.weight_class_kg, CASE u.sex WHEN 'MALE' THEN 83.0 ELSE 66.0 END),
-                    COALESCE(
-                      ucr.confirmed_kg,
-                      (
-                        SELECT MAX(
-                          CASE
-                            WHEN s2.reps = 1 THEN s2.weight_raw / 8.0
-                            ELSE (s2.weight_raw / 8.0) * (1.0 + s2.reps::float / 30.0)
-                          END
-                        )
-                        FROM sets s2
-                        JOIN workouts w2 ON w2.id = s2.workout_id
-                        WHERE w2.user_id = upr.user_id
-                          AND s2.exercise_id = upr.lift_id
-                          AND s2.kind = 'lift'
-                          AND s2.weight_raw > 0
-                          AND s2.reps >= 1
-                      )
-                    )
-                  )::NUMERIC, 2
-                )::DOUBLE PRECISION AS wilks_score
+                -- OD-2: wilks_score deferred — compute_wilks_score() not yet deployed.
+                NULL::DOUBLE PRECISION AS wilks_score
              FROM user_percentile_rankings upr
-             JOIN users u ON u.id = upr.user_id
              LEFT JOIN user_confirmed_1rm ucr
                 ON  ucr.user_id = upr.user_id
                 AND ucr.lift_id = upr.lift_id

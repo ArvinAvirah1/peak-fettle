@@ -160,17 +160,13 @@ router.get('/', async (req, res, next) => {
     } catch (err) { next(err); }
 });
 
-// DELETE /sets/:id
-// N-13 (2026-05-03): delete endpoint with ownership check.
-router.delete('/:id', async (req, res, next) => {
-    try {
-        const { rowCount } = await pool.query(
-            `DELETE FROM sets WHERE id = $1 AND user_id = $2`,
-            [req.params.id, req.user.id]
-        );
-        if (rowCount === 0) return res.status(404).json({ error: 'not_found' });
-        res.status(204).end();
-    } catch (err) { next(err); }
-});
-
-module.exports = router;
+// ---------------------------------------------------------------------------
+// GET /sets/personal-best/:exerciseId
+//
+// Returns the all-time best set and the last-session best set for the
+// authenticated user × a specific exercise. Used by the Log screen to show
+// a reference PB card after the user selects an exercise.
+//
+// "All-time best"   — set with the highest Epley estimated 1RM across all
+//                     logged history (weight_raw/8 × (1 + reps/30)).
+// 
