@@ -35,9 +35,6 @@ router.get('/search', async (req, res, next) => {
             kindClause = `AND e.category = $${params.length}`;
         }
 
-        // Join against aliases so users can search by common nicknames.
-        // CTE de-dupes: an exercise can match on both its name AND an alias —
-        // we keep only the highest-scoring row per exercise.
         const { rows } = await pool.query(
             `WITH scored AS (
                 SELECT
@@ -75,7 +72,6 @@ router.get('/search', async (req, res, next) => {
             params
         );
 
-        // Second sort: highest score first, then alphabetical within same score.
         rows.sort((a, b) =>
             b.score !== a.score
                 ? b.score - a.score
@@ -110,7 +106,6 @@ router.get('/', async (req, res, next) => {
             params
         );
 
-        // Group by category for a convenient front-end response shape.
         const grouped = {};
         for (const ex of rows) {
             if (!grouped[ex.category]) grouped[ex.category] = [];
@@ -138,4 +133,51 @@ router.get('/:id/aliases', async (req, res, next) => {
     } catch (err) { next(err); }
 });
 
-// ----------------------
+// ---------------------------------------------------------------------------
+// POST /exercises — create a custom exercise (free-text entry from mobile)
+//
+// Allows users to log sets for exercises not yet in the global library.
+// Uses INSERT ... ON CONFLICT DO NOTHING so a name that already exists is
+// silently re-used, and the real UUID is always returned via the SELECT.
+//
+// Auth required (enforced by inline middleware in index.js) so anonymous
+// clients cannot pollute the library.
+//
+// Body: { name, category?, muscle_groups?, is_compound? }
+// Response: { exercise: { id, name, category, muscle_groups, is_compound } }
+// ---------------------------------------------------------------------------
+router.post('/', async (req, res, next) => {
+    try {
+        const schema = z.object({
+            name:          z.string().trim().min(1).max(100),
+            category:      z.enum(['lift', 'cardio', 'sport', 'mobility']).optional().default('lift'),
+            muscle_groups: z.array(z.string().trim().max(50)).optional().default([]),
+            is_compound:   z.boolean().optional().default(false),
+        });
+        const body = schema.parse(req.body);
+
+        // Insert if name is new; silently skip if it already exists.
+        await pool.query(
+            `INSERT INTO exercises (name, category, muscle_groups, is_compound)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT DO NOTHING`,
+            [body.name, body.category, body.muscle_groups, body.is_compound]
+        );
+
+        // Always SELECT back so we return the authoritative UUID regardless of
+        // whether the INSERT ran or was skipped due to conflict.
+        const { rows } = await pool.query(
+            `SELECT id, name, category, muscle_groups, is_compound
+             FROM exercises WHERE name = $1`,
+            [body.name]
+        );
+
+        if (rows.length === 0) {
+            return res.status(500).json({ error: 'exercise_not_found_after_insert' });
+        }
+
+        res.status(201).json({ exercise: rows[0] });
+    } catch (err) { next(err); }
+});
+
+module.exports = router;
