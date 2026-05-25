@@ -1071,4 +1071,17 @@ const confirmSheetStyles = StyleSheet.create({
     justifyContent: 'center',
   },
   doneButtonText: {
-    fontSize: fo
+    fontSize: fontSize.bodyMd,
+    fontWeight: fontWeight.medium,
+  },
+});
+
+// Wrap the screen in an error boundary so a render-time JS crash shows a
+// "Something went wrong" card with the error message instead of a blank screen.
+export default function RankingsScreenWithBoundary(): React.ReactElement {
+  return (
+    <TabErrorBoundary screenName="Rankings">
+      <RankingsScreen />
+    </TabErrorBoundary>
+  );
+}

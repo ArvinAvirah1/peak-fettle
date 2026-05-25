@@ -579,4 +579,51 @@ export default function TemplatesScreen(): React.ReactElement {
                   label={starting ? 'Starting…' : 'Start Workout'}
                   onPress={handleStartWorkout}
                   variant="primary"
-         
+                  fullWidth
+                  disabled={starting}
+                />
+              </View>
+            </>
+          )}
+        </View>
+      </Modal>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+  searchRow: { marginBottom: 8 },
+  searchInput: { flex: 1 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  inlineChip: { alignSelf: 'flex-start' },
+  chip: { alignSelf: 'flex-start' },
+  skeletonCard: {},
+  skeletonLine: { height: 14, borderRadius: 6 },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 64,
+    paddingHorizontal: 32,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalSheet: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+  },
+  modalHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  sessionRow: {},
+});
