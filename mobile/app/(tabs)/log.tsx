@@ -48,6 +48,7 @@ import { haptics } from '../../src/utils/haptics';
 import { logRestDay, undoRestDay } from '../../src/api/workouts';
 import { getPersonalBest, PersonalBest } from '../../src/api/sets';
 import { ScreenLayout } from '../../src/components/ui';
+import { RoutineStrip, RoutineSession, RoutineSessionExercise } from '../../src/components/RoutineStrip';
 
 // MOCK-002 fix (2026-05-16): the previous `MOCK_WORKOUT` constant was
 // unconditionally injected as the active workout regardless of auth state.
@@ -574,6 +575,30 @@ export default function LogScreen(): React.ReactElement {
   const restDayLogged = workout?.session_type === 'rest_day';
   const [exercisePB, setExercisePB] = useState<PersonalBest | null>(null);
 
+  // ── TICKET-055/056: Routine session state ─────────────────────────────────
+  // Set when the user taps "Start" on a routine/template from the RoutineStrip.
+  // exercises tracks per-exercise logged set counts + done state for the checklist.
+  const [routineSession, setRoutineSession] = useState<RoutineSession | null>(null);
+
+  /** Update a single exercise in the active routine session (e.g. after logging a set). */
+  const updateRoutineExercise = useCallback((exerciseId: string) => {
+    setRoutineSession((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        exercises: prev.exercises.map((ex) =>
+          ex.exerciseId === exerciseId
+            ? { ...ex, loggedSetCount: ex.loggedSetCount + 1, done: true }
+            : ex
+        ),
+      };
+    });
+  }, []);
+
+  const handleStartRoutine = useCallback((session: RoutineSession) => {
+    setRoutineSession(session);
+  }, []);
+
   const groups = useMemo(() => groupSetsByExercise(sets), [sets]);
   const totalSets = sets.length;
 
@@ -594,6 +619,13 @@ export default function LogScreen(): React.ReactElement {
     } else {
       setExercisePB(null);
     }
+    // TICKET-056: advance routine currentIndex to this exercise if it's in the routine
+    setRoutineSession((prev) => {
+      if (!prev) return prev;
+      const idx = prev.exercises.findIndex((ex) => ex.exerciseId === exercise.id);
+      if (idx === -1) return prev; // off-routine exercise — leave session as-is
+      return { ...prev, currentIndex: idx };
+    });
   }, []);
 
   const handleSetLogged = useCallback((_set: WorkoutSet) => {}, []);
@@ -612,9 +644,11 @@ export default function LogScreen(): React.ReactElement {
       setTimerActive(true);
       // P1-001b: reset rest countdown
       setRestSecondsLeft(REST_DEFAULT);
+      // TICKET-056: mark exercise done in routine session
+      if (selectedExercise) updateRoutineExercise(selectedExercise.id);
       return result;
     },
-    [logSet]
+    [logSet, selectedExercise, updateRoutineExercise]
   );
 
   const handleDeleteSet = useCallback(
@@ -709,6 +743,114 @@ export default function LogScreen(): React.ReactElement {
           <Text style={[styles.addButtonText, { color: theme.components.buttonPrimaryText }]}>+</Text>
         </TouchableOpacity>
       </View>
+
+      {/* ---- TICKET-055: Routine + Splits strips (collapse after first set) ---- */}
+      {!restDayLogged && (
+        <RoutineStrip
+          hasLoggedSets={totalSets > 0}
+          onStartRoutine={handleStartRoutine}
+          onStartTemplate={handleStartRoutine}
+        />
+      )}
+
+      {/* ---- TICKET-056: Routine exercise checklist (shown when session active) ---- */}
+      {routineSession && routineSession.exercises.length > 0 && (
+        <View style={[styles.checklistContainer, { borderColor: theme.colors.borderDefault }]}>
+          <View style={styles.checklistHeader}>
+            <Text style={[styles.checklistTitle, { color: theme.colors.textPrimary }]}>
+              {routineSession.name}
+            </Text>
+            <TouchableOpacity
+              onPress={() => setRoutineSession(null)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Exit routine"
+            >
+              <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodySm }}>
+                Exit
+              </Text>
+            </TouchableOpacity>
+          </View>
+          {routineSession.exercises.map((ex, idx) => {
+            const isActive = idx === routineSession.currentIndex;
+            return (
+              <TouchableOpacity
+                key={`${ex.exerciseId}-${idx}`}
+                onPress={() => {
+                  // Select this exercise for logging; picker bypassed (TICKET-056 AC#1)
+                  const syntheticExercise = {
+                    id: ex.exerciseId || `routine-ex-${idx}`,
+                    name: ex.name,
+                    category: 'lift' as const,
+                    muscles: [],
+                    equipment: [],
+                    contraindications: [],
+                  };
+                  handleExerciseSelect(syntheticExercise);
+                  setRoutineSession((prev) =>
+                    prev ? { ...prev, currentIndex: idx } : prev
+                  );
+                }}
+                style={[
+                  styles.checklistRow,
+                  {
+                    backgroundColor: isActive
+                      ? theme.colors.accentSecondary
+                      : theme.colors.bgSecondary,
+                    borderColor: isActive
+                      ? theme.colors.accentDefault
+                      : theme.colors.borderDefault,
+                  },
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={`${ex.name}${ex.done ? ', done' : ''}`}
+              >
+                <Text
+                  style={[
+                    styles.checklistCheck,
+                    { color: ex.done ? theme.colors.accentDefault : theme.colors.textTertiary },
+                  ]}
+                >
+                  {ex.done ? '✓' : '○'}
+                </Text>
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={[
+                      styles.checklistName,
+                      {
+                        color: ex.done
+                          ? theme.colors.textSecondary
+                          : theme.colors.textPrimary,
+                        textDecorationLine: ex.done ? 'line-through' : 'none',
+                      },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {ex.name}
+                  </Text>
+                  {ex.targetSets || ex.targetReps ? (
+                    <Text style={[styles.checklistTarget, { color: theme.colors.textTertiary }]}>
+                      {[
+                        ex.targetSets ? `${ex.targetSets} sets` : null,
+                        ex.targetReps ? `${ex.targetReps} reps` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </Text>
+                  ) : null}
+                </View>
+                {ex.loggedSetCount > 0 && (
+                  <Text
+                    style={[styles.checklistSetCount, { color: theme.colors.accentDefault }]}
+                  >
+                    {ex.loggedSetCount} set{ex.loggedSetCount !== 1 ? 's' : ''}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
 
       {/* ---- PL-3 / TICKET-054: Rest day link — shown when no sets logged yet ---- */}
       {totalSets === 0 && !isLoading && !restDayLogged && (
@@ -1061,5 +1203,56 @@ const styles = StyleSheet.create({
   restTimerDismissText: {
     fontSize: 20,
     lineHeight: 24,
+  },
+
+  /* ── TICKET-056: Routine exercise checklist ─────────────────────────────── */
+  checklistContainer: {
+    borderWidth: 1,
+    borderRadius: radius.md,
+    marginHorizontal: spacing.s4,
+    marginBottom: spacing.s3,
+    overflow: 'hidden',
+  },
+  checklistHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.s4,
+    paddingVertical: spacing.s3,
+  },
+  checklistTitle: {
+    fontSize: fontSize.bodySm,
+    fontWeight: fontWeight.semiBold,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  checklistRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: spacing.s4,
+    paddingVertical: spacing.s3,
+    gap: spacing.s3,
+  },
+  checklistCheck: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checklistName: {
+    flex: 1,
+    fontSize: fontSize.bodyMd,
+  },
+  checklistTarget: {
+    fontSize: fontSize.bodySm,
+    marginRight: spacing.s2,
+  },
+  checklistSetCount: {
+    fontSize: fontSize.bodySm,
+    fontWeight: fontWeight.semiBold,
+    minWidth: 24,
+    textAlign: 'right',
   },
 });
