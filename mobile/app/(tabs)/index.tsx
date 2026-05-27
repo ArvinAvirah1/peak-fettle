@@ -46,6 +46,7 @@ import { getPlans, getPlan } from '../../src/api/plans';
 import { getPercentile } from '../../src/api/percentile';
 import { logRestDay, undoRestDay } from '../../src/api/workouts';
 import { TabErrorBoundary } from '../../src/components/TabErrorBoundary';
+import { BrandLogo } from '../../src/components/BrandLogo'; // TICKET-063
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -620,6 +621,11 @@ function HomeScreen(): React.ReactElement {
         </View>
       </Modal>
 
+      {/* ── TICKET-063: Brand logo bar (horizontal, above greeting) ── */}
+      <View style={styles.logoBannerRow}>
+        <BrandLogo height={36} dark horizontal />
+      </View>
+
       {/* ── A. Greeting header ── */}
       <View style={[styles.headerSection, { marginBottom: spacing.s5 }]}>
         <View style={styles.headerRow}>
@@ -925,6 +931,10 @@ const styles = StyleSheet.create({
   },
 
   // Header
+  // TICKET-063: horizontal logo bar above greeting
+  logoBannerRow: {
+    marginBottom: spacing.s4,
+  },
   headerSection: {},
   headerRow: {
     flexDirection: 'row',
