@@ -13,6 +13,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'expo-router';
 import {
   View,
   Text,
@@ -109,12 +110,15 @@ function StripHeader({
   label,
   expanded,
   onToggle,
+  rightNode,
 }: {
   label: string;
   expanded: boolean;
   onToggle: () => void;
+  rightNode?: React.ReactNode;
 }) {
   const { theme } = useTheme();
+  const router = useRouter();
   return (
     <TouchableOpacity
       onPress={onToggle}
@@ -123,9 +127,12 @@ function StripHeader({
       accessibilityLabel={expanded ? `Collapse ${label}` : `Expand ${label}`}
     >
       <Text style={[styles.stripLabel, { color: theme.colors.textTertiary }]}>{label}</Text>
-      <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodySm }}>
-        {expanded ? '▲' : '▼'}
-      </Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+        {rightNode}
+        <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodySm }}>
+          {expanded ? '▲' : '▼'}
+        </Text>
+      </View>
     </TouchableOpacity>
   );
 }
@@ -287,6 +294,18 @@ export function RoutineStrip({
         label="MY ROUTINES"
         expanded={routinesExpanded}
         onToggle={() => setRoutinesExpanded((v) => !v)}
+        rightNode={
+          <TouchableOpacity
+            onPress={() => router.push('/routines')}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Manage routines"
+          >
+            <Text style={{ color: theme.colors.accentDefault, fontSize: fontSize.bodySm }}>
+              Manage →
+            </Text>
+          </TouchableOpacity>
+        }
       />
 
       {routinesExpanded && (

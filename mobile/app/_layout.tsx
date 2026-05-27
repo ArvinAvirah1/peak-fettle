@@ -98,6 +98,8 @@ function RootNavigator(): React.ReactElement {
         <Stack.Screen name="templates" options={{ title: 'Workout Templates', headerShown: true, gestureEnabled: true }} />
         {/* PL-2: CSV import from Garmin / Strava */}
         <Stack.Screen name="csv-import" options={{ title: 'Import Activity Data', headerShown: true, gestureEnabled: true }} />
+        {/* TICKET-061: Routines management page */}
+        <Stack.Screen name="routines" options={{ title: 'Routines', headerShown: false, gestureEnabled: true }} />
         {/* P2-002: Exercise Library — searchable/filterable browse screen */}
         <Stack.Screen name="exercise-library" options={{ title: 'Exercise Library', headerShown: true, gestureEnabled: true }} />
         {/* Progress & Analytics push screen */}
