@@ -24,6 +24,7 @@ const userRoutes         = require('./routes/user');           // TICKET-014
 // PL-1/PL-2/PL-3 routes
 const templateRoutes     = require('./routes/templates');      // PL-1
 const csvImportRoutes    = require('./routes/csvImport');      // PL-2
+const routinesRoutes     = require('./routes/routines');       // TICKET-055/056
 const { errorHandler } = require('./middleware/errorHandler');
 const { requireAuth }  = require('./middleware/requireAuth');
 
@@ -89,6 +90,7 @@ app.use('/exercises', (req, res, next) => {
 
 // PL-1: Template library — public read, no auth required
 app.use('/templates', templateRoutes);
+app.use('/routines',  requireAuth, routinesRoutes); // TICKET-055/056
 
 // Protected routes — JWT required
 app.use('/workouts',   requireAuth, workoutsRoutes);
