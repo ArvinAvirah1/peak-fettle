@@ -44,16 +44,8 @@ import { useTheme } from '../../src/theme/ThemeContext';
 import { PFCard, PFButton, ScreenLayout } from '../../src/components/ui';
 import { getPlans, getPlan } from '../../src/api/plans';
 import { getPercentile } from '../../src/api/percentile';
-import { apiClient } from '../../src/api/client';
+import { logRestDay, undoRestDay } from '../../src/api/workouts';
 import { TabErrorBoundary } from '../../src/components/TabErrorBoundary';
-
-// ---------------------------------------------------------------------------
-// Rest Day API
-// ---------------------------------------------------------------------------
-
-async function logRestDay(): Promise<void> {
-  await apiClient.post('/workouts/rest-day');
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -457,7 +449,15 @@ function HomeScreen(): React.ReactElement {
   const planReasoning = plan?.structure?.reasoning ?? null;
 
   // ── PL-3: Rest day state ─────────────────────────────────────────────────
-  const [restDayLoggedToday, setRestDayLoggedToday] = useState(false);
+  // TICKET-054: hydrate from history — no extra fetch needed.
+  // history is already loaded by useWorkoutHistory(); once session_type is
+  // returned by GET /workouts the memo below reflects the real server state.
+  const restDayLoggedToday = useMemo(
+    () => history.some(
+      (e) => e.workout.day_key === todayKey && e.workout.session_type === 'rest_day'
+    ),
+    [history, todayKey]
+  );
   const [restDayLoading, setRestDayLoading] = useState(false);
 
   const handleLogRestDay = useCallback(async () => {
@@ -465,13 +465,27 @@ function HomeScreen(): React.ReactElement {
     setRestDayLoading(true);
     try {
       await logRestDay();
-      setRestDayLoggedToday(true);
+      // Refetch history so the memo picks up the new rest_day row.
+      await refetch();
     } catch {
       Alert.alert('Could not log rest day', 'Please try again.');
     } finally {
       setRestDayLoading(false);
     }
-  }, [restDayLoggedToday, restDayLoading]);
+  }, [restDayLoggedToday, restDayLoading, refetch]);
+
+  const handleUndoRestDay = useCallback(async () => {
+    if (!restDayLoggedToday || restDayLoading) return;
+    setRestDayLoading(true);
+    try {
+      await undoRestDay();
+      await refetch();
+    } catch {
+      Alert.alert('Could not undo rest day', 'Please try again.');
+    } finally {
+      setRestDayLoading(false);
+    }
+  }, [restDayLoggedToday, restDayLoading, refetch]);
 
   // ── P1-006: Streak detail sheet ──────────────────────────────────────────
   const [streakDetailVisible, setStreakDetailVisible] = useState(false);
@@ -746,12 +760,12 @@ function HomeScreen(): React.ReactElement {
         volumeDisplay={todayVolumeDisplay}
         isLoading={todayLoading}
       />
-      {/* PL-3: Rest day button */}
+      {/* PL-3: Rest day button — TICKET-054: hydrated from history; undo affordance added */}
       <TouchableOpacity
-        onPress={handleLogRestDay}
-        disabled={restDayLoggedToday || restDayLoading}
+        onPress={restDayLoggedToday ? undefined : handleLogRestDay}
+        disabled={restDayLoading}
         accessibilityRole="button"
-        accessibilityLabel="Log rest day"
+        accessibilityLabel={restDayLoggedToday ? 'Rest day logged' : 'Log rest day'}
         style={[
           styles.restDayButton,
           {
@@ -759,19 +773,39 @@ function HomeScreen(): React.ReactElement {
             borderColor: restDayLoggedToday ? theme.colors.borderDefault : theme.colors.accentDefault,
             borderWidth: 1,
             borderRadius: radius.md,
-            opacity: restDayLoggedToday ? 0.6 : 1,
           },
         ]}
       >
         {restDayLoading ? (
           <ActivityIndicator size="small" color={theme.colors.accentDefault} />
+        ) : restDayLoggedToday ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={{
+              color: theme.colors.accentDefault,
+              fontSize: fontSize.bodySm,
+              fontWeight: fontWeight.medium,
+              flex: 1,
+            }}>
+              ✓ Rest day logged — your streak is safe.
+            </Text>
+            <TouchableOpacity
+              onPress={handleUndoRestDay}
+              hitSlop={{ top: 8, bottom: 8, left: 12, right: 0 }}
+              accessibilityRole="button"
+              accessibilityLabel="Undo rest day"
+            >
+              <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.caption, marginLeft: 8 }}>
+                Undo
+              </Text>
+            </TouchableOpacity>
+          </View>
         ) : (
           <Text style={{
-            color: restDayLoggedToday ? theme.colors.textTertiary : theme.colors.accentDefault,
+            color: theme.colors.accentDefault,
             fontSize: fontSize.bodySm,
             fontWeight: fontWeight.medium,
           }}>
-            {restDayLoggedToday ? '✓ Rest day logged — your streak is safe.' : '😴 Log rest day'}
+            😴 Log rest day
           </Text>
         )}
       </TouchableOpacity>
@@ -934,7 +968,6 @@ const styles = StyleSheet.create({
   },
   ctaButton: {
     width: '100%',
-    paddingVertical: 14,
     alignItems: 'center',
   },
 

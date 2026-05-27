@@ -45,7 +45,7 @@ import { Exercise, WorkoutSet, LiftSet, CardioSet, LogSetPayload } from '../../s
 import { useTheme } from '../../src/theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
 import { haptics } from '../../src/utils/haptics';
-import { apiClient } from '../../src/api/client';
+import { logRestDay, undoRestDay } from '../../src/api/workouts';
 import { getPersonalBest, PersonalBest } from '../../src/api/sets';
 import { ScreenLayout } from '../../src/components/ui';
 
@@ -565,8 +565,13 @@ export default function LogScreen(): React.ReactElement {
     return () => clearTimeout(t);
   }, [restSecondsLeft]);
 
-  // PL-3: Rest day toast state
-  const [restDayLogged, setRestDayLogged] = useState(false);
+  // PL-3 / TICKET-054: Rest day state — hydrated from workout.session_type so the
+  // button reflects the real server state after a mount or a background refresh.
+  // workout is returned by usePowerSyncLog() which calls POST /workouts on mount;
+  // POST /workouts now returns session_type in the RETURNING clause, so if today's
+  // row already has session_type='rest_day' this will be true immediately.
+  const [restDayLoading, setRestDayLoading] = useState(false);
+  const restDayLogged = workout?.session_type === 'rest_day';
   const [exercisePB, setExercisePB] = useState<PersonalBest | null>(null);
 
   const groups = useMemo(() => groupSetsByExercise(sets), [sets]);
@@ -624,18 +629,39 @@ export default function LogScreen(): React.ReactElement {
     [deleteSet]
   );
 
-  // PL-3: Log rest day handler
+  // PL-3 / TICKET-054: Log rest day handler — uses shared api/workouts.ts function.
+  // On success, router.replace navigates home (workout object updates there).
   const handleLogRestDay = useCallback(async () => {
+    if (restDayLogged || restDayLoading) return;
+    setRestDayLoading(true);
     try {
-      await apiClient.post('/workouts/rest-day');
-      setRestDayLogged(true);
+      await logRestDay();
       haptics.success();
       setTimeout(() => router.replace('/(tabs)/'), 1200);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Could not log rest day';
       Alert.alert('Error', msg);
+    } finally {
+      setRestDayLoading(false);
     }
-  }, [router]);
+  }, [restDayLogged, restDayLoading, router]);
+
+  // TICKET-054: Undo rest day
+  const handleUndoRestDay = useCallback(async () => {
+    if (!restDayLogged || restDayLoading) return;
+    setRestDayLoading(true);
+    try {
+      await undoRestDay();
+      haptics.light();
+      // Returning to home clears the stale workout state; user can re-log sets.
+      router.replace('/(tabs)/');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Could not undo rest day';
+      Alert.alert('Error', msg);
+    } finally {
+      setRestDayLoading(false);
+    }
+  }, [restDayLogged, restDayLoading, router]);
 
   const nextSetIndex = selectedExercise
     ? countSetsForExercise(sets, selectedExercise.id)
@@ -684,27 +710,42 @@ export default function LogScreen(): React.ReactElement {
         </TouchableOpacity>
       </View>
 
-      {/* ---- PL-3: Rest day link — only when no sets logged yet ---- */}
+      {/* ---- PL-3 / TICKET-054: Rest day link — shown when no sets logged yet ---- */}
       {totalSets === 0 && !isLoading && !restDayLogged && (
         <TouchableOpacity
           onPress={handleLogRestDay}
+          disabled={restDayLoading}
           style={[styles.restDayLink, { marginTop: spacing.s2 }]}
           accessibilityRole="button"
           accessibilityLabel="Log rest day"
         >
-          <Text style={[styles.restDayText, { color: theme.colors.textTertiary, fontSize: fontSize.bodySm }]}>
-            Taking a rest day?{' '}
-            <Text style={{ color: theme.colors.accentDefault }}>Log it →</Text>
-          </Text>
+          {restDayLoading ? (
+            <ActivityIndicator size="small" color={theme.colors.accentDefault} />
+          ) : (
+            <Text style={[styles.restDayText, { color: theme.colors.textTertiary, fontSize: fontSize.bodySm }]}>
+              Taking a rest day?{' '}
+              <Text style={{ color: theme.colors.accentDefault }}>Log it →</Text>
+            </Text>
+          )}
         </TouchableOpacity>
       )}
 
-      {/* Rest day success message */}
+      {/* Rest day logged — with undo affordance (TICKET-054) */}
       {restDayLogged && (
-        <View style={[styles.restDaySuccess, { backgroundColor: theme.colors.bgElevated }]}>
+        <View style={[styles.restDaySuccess, { backgroundColor: theme.colors.bgElevated, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }]}>
           <Text style={[{ color: theme.colors.accentDefault, fontSize: fontSize.bodySm, textAlign: 'center' }]}>
-            Rest day logged! Redirecting…
+            ✓ Rest day logged — your streak is safe.
           </Text>
+          <TouchableOpacity
+            onPress={handleUndoRestDay}
+            disabled={restDayLoading}
+            hitSlop={{ top: 8, bottom: 8, left: 12, right: 8 }}
+            accessibilityRole="button"
+            accessibilityLabel="Undo rest day"
+            style={{ marginLeft: 10 }}
+          >
+            <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.caption }}>Undo</Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -924,7 +965,6 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
   addButton: {
-    width: 40,
     height: 40,
     borderRadius: radius.full,
     alignItems: 'center',
