@@ -30,8 +30,10 @@ async function countRealSessions(userId) {
         `SELECT COUNT(*)::int AS total
          FROM workouts
          WHERE user_id     = $1
-           AND deleted_at  IS NULL
-           AND (session_type IS NULL OR session_type = 'lift')`,
+           -- FIX (data-audit 2026-05-27): the workouts table has no soft-delete column,
+           -- and session_type is 'workout'|'rest_day'|'emergency_override'|'cardio_import'
+           -- per the DB CHECK constraint (never 'lift'). Count real training days only.
+           AND session_type = 'workout'`,
         [userId]
     );
     return rows[0]?.total ?? 0;
@@ -108,8 +110,8 @@ router.post('/', async (req, res, next) => {
             const { rows: [{ count }] } = await pool.query(
               `SELECT COUNT(*)::int AS count FROM workouts
                WHERE user_id = $1
-                 AND deleted_at IS NULL
-                 AND (session_type IS NULL OR session_type = 'lift')`,
+                 -- FIX (data-audit 2026-05-27): no soft-delete column; real session = 'workout'
+                 AND session_type = 'workout'`,
               [req.user.id]
             );
 

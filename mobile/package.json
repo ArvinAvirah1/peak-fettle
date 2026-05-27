@@ -46,7 +46,11 @@
   "devDependencies": {
     "@babel/core": "^7.25.0",
     "@types/react": "~19.1.10",
+    "@types/react-native": "^0.72.8",
     "eslint": "^8.57.0",
     "eslint-config-expo": "~10.0.0",
     "prettier": "^3.3.3",
-    "typescript": "^5.3.
+    "typescript": "^5.3.3"
+  },
+  "private": true
+}

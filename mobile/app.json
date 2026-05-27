@@ -21,7 +21,7 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0f172a"
+        "backgroundColor": "#13415C"
       },
       "package": "com.peakfettle.app"
     },
@@ -32,7 +32,14 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "expo-notifications"
+      "expo-notifications",
+      [
+        "react-native-health",
+        {
+          "NSHealthShareUsageDescription": "Peak Fettle reads resting heart rate, HRV, sleep, and active energy data to personalise your training plans.",
+          "NSHealthUpdateUsageDescription": "Peak Fettle does not write health data."
+        }
+      ]
     ],
     "scheme": "peak-fettle",
     "experiments": {

@@ -113,9 +113,14 @@ router.get('/', async (req, res, next) => {
                         END
                     )
                     FROM sets s
-                    JOIN workouts w ON w.id = s.workout_id
+                    JOIN workouts w  ON w.id = s.workout_id
+                    JOIN exercises e ON e.id = s.exercise_id
                     WHERE w.user_id = upr.user_id
-                      AND s.exercise_id = upr.lift_id
+                      -- FIX (data-audit 2026-05-27): lift_id is the snake_case exercise NAME
+                      -- (REPLACE(LOWER(e.name),' ','_')), NOT the UUID exercise_id. The old
+                      -- comparison s.exercise_id = upr.lift_id was uuid = text -> 500 on every
+                      -- GET /percentile, surfacing as the Rankings error banner (TICKET-051).
+                      AND REPLACE(LOWER(e.name), ' ', '_') = upr.lift_id
                       AND s.kind = 'lift'
                       AND s.weight_raw > 0
                       AND s.reps >= 1
@@ -179,9 +184,14 @@ async function percentileByLift(req, res, next) {
                         END
                     )
                     FROM sets s
-                    JOIN workouts w ON w.id = s.workout_id
+                    JOIN workouts w  ON w.id = s.workout_id
+                    JOIN exercises e ON e.id = s.exercise_id
                     WHERE w.user_id = upr.user_id
-                      AND s.exercise_id = upr.lift_id
+                      -- FIX (data-audit 2026-05-27): lift_id is the snake_case exercise NAME
+                      -- (REPLACE(LOWER(e.name),' ','_')), NOT the UUID exercise_id. The old
+                      -- comparison s.exercise_id = upr.lift_id was uuid = text -> 500 on every
+                      -- GET /percentile, surfacing as the Rankings error banner (TICKET-051).
+                      AND REPLACE(LOWER(e.name), ' ', '_') = upr.lift_id
                       AND s.kind = 'lift'
                       AND s.weight_raw > 0
                       AND s.reps >= 1

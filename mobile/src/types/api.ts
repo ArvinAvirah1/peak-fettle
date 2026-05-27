@@ -69,7 +69,8 @@ export interface Workout {
    * 'rest_day' = intentional rest; streak cron counts it as an active week.
    * 'cardio_import' = Strava/imported cardio; excluded from strength set counts.
    */
-  session_type?: 'lift' | 'rest_day' | 'cardio_import' | null;
+  // DB CHECK (migrations 20260517): 'workout' is the default training day; 'lift' was never a valid value.
+  session_type?: 'workout' | 'rest_day' | 'emergency_override' | 'cardio_import' | null;
   created_at: string;
   updated_at: string;
   /**
