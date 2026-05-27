@@ -266,9 +266,23 @@ export interface PlanSession {
   exercises: PlanExercise[];
 }
 
+/** Single day within a multi-week program (TICKET-058) */
+export interface PlanWeekSession {
+  day_label: string;       // e.g. "Day 1 – Push"
+  exercises: PlanExercise[];
+}
+
+/** One week block in a multi-week program (TICKET-058) */
+export interface PlanWeek {
+  week_number: number;
+  sessions: PlanWeekSession[];
+}
+
 /** Opaque JSONB structure stored on the server. Shape depends on how the plan was created. */
 export interface PlanStructure {
   session?: PlanSession;
+  /** Multi-week program structure (TICKET-058); present for plans generated after v058 */
+  weeks?: PlanWeek[];
   reasoning?: string;
   generated_at?: string;
   model?: string;
@@ -302,7 +316,8 @@ export interface PlansResponse {
 
 export interface GeneratePlanResponse {
   plan_id: string;
-  session: PlanSession;
+  session: PlanSession;         // backward compat: first session of week 1
+  weeks?: PlanWeek[];           // multi-week structure (TICKET-058)
   reasoning: string;
 }
 
@@ -385,4 +400,22 @@ export interface CreateGroupPayload {
   name: string;
   /** Hard cap on membership (2–12). */
   sizeCap: number;
+}
+
+export interface JoinGroupPayload {
+  /** The group's invite token UUID (from the share-link). */
+  token: string;
+}
+
+export interface UpdateMemberGoalPayload {
+  /** Must match server field: workoutsPerWeek. Min 1, max 14. */
+  workoutsPerWeek: number;
+}
+
+export interface GroupsResponse {
+  groups: Group[];
+}
+
+export interface EvaluationsResponse {
+  history: GroupWeekEvaluation[];
 }
