@@ -34,6 +34,7 @@ import { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, View, StyleSheet } from 'react-native';
+import { useFonts } from 'expo-font';
 
 import { AuthProvider } from '../src/context/AuthContext';
 import { PowerSyncProvider } from '../src/context/PowerSyncContext';
@@ -117,6 +118,19 @@ function RootNavigator(): React.ReactElement {
 // ---------------------------------------------------------------------------
 
 export default function RootLayout(): React.ReactElement {
+  // TICKET-057: Load Outfit font family (offline-bundled in assets/fonts/).
+  // fontsLoaded is false on the first frame; expo-router prevents the splash from
+  // hiding so we just gate rendering until the fonts are ready.
+  const [fontsLoaded] = useFonts({
+    'Outfit-Regular':  require('../assets/fonts/Outfit-Regular.ttf'),
+    'Outfit-Medium':   require('../assets/fonts/Outfit-Medium.ttf'),
+    'Outfit-SemiBold': require('../assets/fonts/Outfit-SemiBold.ttf'),
+    'Outfit-Bold':     require('../assets/fonts/Outfit-Bold.ttf'),
+  });
+
+  // Hold rendering until fonts are ready to avoid a flash of unstyled text.
+  if (!fontsLoaded) return <View style={{ flex: 1 }} />;
+
   return (
     <ThemeProvider
       onThemeChange={async (newTheme: ThemeName) => {
