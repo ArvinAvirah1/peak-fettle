@@ -50,6 +50,7 @@ import { getPersonalBest, PersonalBest } from '../../src/api/sets';
 import { ScreenLayout } from '../../src/components/ui';
 import { RoutineStrip, RoutineSession, RoutineSessionExercise } from '../../src/components/RoutineStrip';
 import StepperLogger, { LoggedSet } from '../../src/components/StepperLogger';
+import { suggestNextExercise, SessionExercise, SuggestCandidate } from '../../src/utils/smartSuggest';
 
 // MOCK-002 fix (2026-05-16): the previous `MOCK_WORKOUT` constant was
 // unconditionally injected as the active workout regardless of auth state.
@@ -669,6 +670,38 @@ export default function LogScreen(): React.ReactElement {
     [],
   );
 
+  // ── TICKET-062: Non-routine stepper state ─────────────────────────────────
+  const [smartSuggestion, setSmartSuggestion] = useState<SuggestCandidate | null>(null);
+
+  const recomputeSuggestion = useCallback(() => {
+    if (!routineSession || routineSession.source === 'routine') return;
+    const sessionLog: SessionExercise[] = Array.from(stepperSets.entries()).map(
+      ([exerciseId, sets]) => ({
+        exerciseId,
+        name: routineSession.exercises.find((e) => e.exerciseId === exerciseId)?.name ?? exerciseId,
+        setCount: sets.length,
+      }),
+    );
+    const historyNames = Array.from(exerciseNames.values());
+    const allEx = Array.from(exerciseNames.entries()).map(([id, name]) => ({ id, name }));
+    setSmartSuggestion(suggestNextExercise(sessionLog, historyNames, allEx));
+  }, [routineSession, stepperSets, exerciseNames]);
+
+  const handleSaveAsRoutine = useCallback(async () => {
+    if (!routineSession) return;
+    const { createRoutine } = await import('../../src/api/routines');
+    const exercises = routineSession.exercises
+      .filter((ex) => ex.loggedSetCount > 0)
+      .map((ex) => ({ exercise_id: ex.exerciseId, name: ex.name, target_sets: ex.loggedSetCount }));
+    if (exercises.length === 0) return;
+    try {
+      await createRoutine({ name: `Session ${new Date().toLocaleDateString()}`, exercises });
+      Alert.alert('Routine saved', 'Your session has been saved as a new routine.');
+      setStepperVisible(false);
+      setRoutineSession(null);
+    } catch { Alert.alert('Error', 'Could not save routine'); }
+  }, [routineSession]);
+
   const groups = useMemo(() => groupSetsByExercise(sets), [sets]);
   const totalSets = sets.length;
 
@@ -1154,6 +1187,17 @@ export default function LogScreen(): React.ReactElement {
               setStepperVisible(false);
               setPickerVisible(true);
             }}
+            variant={
+              routineSession?.source === 'routine'
+                ? 'routine'
+                : 'smart'  /* TICKET-062: 'smart' for free sessions (algo suggest) */
+            }
+            suggestion={smartSuggestion}
+            onAddNextExercise={() => {
+              recomputeSuggestion();
+              setPickerVisible(true);
+            }}
+            onSaveAsRoutine={handleSaveAsRoutine}
             pbLabel={exercisePB ? exercisePB.weight + ' × ' + exercisePB.reps : null}
             repTarget={
               routineSession.exercises[routineSession.currentIndex]?.targetReps ?? null

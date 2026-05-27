@@ -42,6 +42,7 @@ import {
 } from '../theme/tokens';
 import { RoutineSession, RoutineSessionExercise } from './RoutineStrip';
 import ExerciseSwitcherSheet from './ExerciseSwitcherSheet';
+import { SuggestCandidate } from '../utils/smartSuggest';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -91,6 +92,22 @@ interface Props {
   ) => void;
   /** Close / dismiss the stepper (returns to normal log view) */
   onClose: () => void;
+  /**
+   * Stepper variant (TICKET-062):
+   * - 'routine'  : routine session — "Continue to <next>" (default)
+   * - 'free'     : add-as-you-go — "＋ Add next exercise" / "Finish & save as routine"
+   * - 'smart'    : paid smart-suggest — shows suggestion card after each exercise
+   */
+  variant?: 'routine' | 'free' | 'smart';
+  /**
+   * For variant='smart': the algorithmically-suggested next exercise.
+   * Recalculated by the parent after each set is logged.
+   */
+  suggestion?: SuggestCandidate | null;
+  /** For variant='free': called when user taps "＋ Add next exercise" */
+  onAddNextExercise?: () => void;
+  /** For variant='free'|'smart': save current ad-hoc session as a routine */
+  onSaveAsRoutine?: () => void;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -118,6 +135,10 @@ export default function StepperLogger({
   currentExerciseSets,
   onAddOffRoutineExercise,
   onClose,
+  variant = 'routine',
+  suggestion,
+  onAddNextExercise,
+  onSaveAsRoutine,
 }: Props): React.ReactElement {
   const { exercises, currentIndex, name: routineName } = routineSession;
   const currentEx: RoutineSessionExercise | undefined = exercises[currentIndex];
@@ -289,29 +310,84 @@ export default function StepperLogger({
         </TouchableOpacity>
       </ScrollView>
 
-      {/* ── Bottom action bar ─────────────────────────────────────────────── */}
+      {/* ── Bottom action bar — varies by variant ──────────────────────────── */}
       <View style={styles.actionBar}>
-        {/* Continue / Finish */}
-        <TouchableOpacity
-          style={styles.continueBtn}
-          onPress={handleContinue}
-          accessibilityRole="button"
-          accessibilityLabel={isLast ? 'Finish workout' : `Continue to ${nextEx?.name ?? 'next'}`}
-        >
-          <Text style={styles.continueBtnLabel}>
-            {isLast ? 'Finish workout' : `Continue to ${nextEx?.name ?? 'next'} →`}
-          </Text>
-        </TouchableOpacity>
-
-        {/* Select different exercise */}
-        <TouchableOpacity
-          style={styles.switchBtn}
-          onPress={() => setSwitcherVisible(true)}
-          accessibilityRole="button"
-          accessibilityLabel="Select different exercise"
-        >
-          <Text style={styles.switchBtnLabel}>Select different exercise</Text>
-        </TouchableOpacity>
+        {variant === 'free' ? (
+          /* Variant 1: add-as-you-go */
+          <>
+            <TouchableOpacity
+              style={styles.continueBtn}
+              onPress={onAddNextExercise}
+              accessibilityRole="button"
+              accessibilityLabel="Add next exercise"
+            >
+              <Text style={styles.continueBtnLabel}>＋ Add next exercise</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.switchBtn}
+              onPress={onSaveAsRoutine}
+              accessibilityRole="button"
+              accessibilityLabel="Finish and save as routine"
+            >
+              <Text style={styles.switchBtnLabel}>Finish &amp; save as routine</Text>
+            </TouchableOpacity>
+          </>
+        ) : variant === 'smart' ? (
+          /* Variant 3: smart-suggest — show suggestion card if available */
+          <>
+            {suggestion ? (
+              <View style={styles.suggestionCard}>
+                <View style={styles.suggestionCardTop}>
+                  <View style={styles.suggestionPill}>
+                    <Text style={styles.suggestionPillLabel}>Suggested next</Text>
+                  </View>
+                  <Text style={styles.suggestionReason}>{suggestion.reason}</Text>
+                </View>
+                <Text style={styles.suggestionName}>{suggestion.name}</Text>
+              </View>
+            ) : null}
+            <TouchableOpacity
+              style={styles.continueBtn}
+              onPress={suggestion ? () => onAddNextExercise?.() : onFinish}
+              accessibilityRole="button"
+              accessibilityLabel={suggestion ? `Continue to ${suggestion.name}` : 'Finish workout'}
+            >
+              <Text style={styles.continueBtnLabel}>
+                {suggestion ? `Continue to ${suggestion.name} →` : 'Finish workout'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.switchBtn}
+              onPress={() => setSwitcherVisible(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Select different exercise"
+            >
+              <Text style={styles.switchBtnLabel}>Select different exercise</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          /* Variant default: routine mode */
+          <>
+            <TouchableOpacity
+              style={styles.continueBtn}
+              onPress={handleContinue}
+              accessibilityRole="button"
+              accessibilityLabel={isLast ? 'Finish workout' : `Continue to ${nextEx?.name ?? 'next'}`}
+            >
+              <Text style={styles.continueBtnLabel}>
+                {isLast ? 'Finish workout' : `Continue to ${nextEx?.name ?? 'next'} →`}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.switchBtn}
+              onPress={() => setSwitcherVisible(true)}
+              accessibilityRole="button"
+              accessibilityLabel="Select different exercise"
+            >
+              <Text style={styles.switchBtnLabel}>Select different exercise</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
 
       {/* ── Off-routine placement prompt ──────────────────────────────────── */}
@@ -614,6 +690,47 @@ const styles = StyleSheet.create({
     color: stepperPalette.accentInk,
   },
 });
+
+const styles_extra = StyleSheet.create({
+  suggestionCard: {
+    backgroundColor: stepperPalette.accentSurface,
+    borderWidth: 1,
+    borderColor: stepperPalette.accentLine,
+    borderRadius: radius.md,
+    padding: spacing.s3,
+    marginBottom: spacing.s2,
+  },
+  suggestionCardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.s1,
+  },
+  suggestionPill: {
+    backgroundColor: stepperPalette.accent,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.s2,
+    paddingVertical: 2,
+  },
+  suggestionPillLabel: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSize.caption,
+    color: stepperPalette.accentInk,
+  },
+  suggestionReason: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSize.caption,
+    color: stepperPalette.muted,
+  },
+  suggestionName: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSize.bodyLg,
+    color: stepperPalette.text,
+  },
+});
+
+// Merge extra styles into main styles object at runtime
+Object.assign(styles, styles_extra);
 
 const chipStyles = StyleSheet.create({
   chip: {
