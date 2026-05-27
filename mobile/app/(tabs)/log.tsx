@@ -49,6 +49,7 @@ import { logRestDay, undoRestDay } from '../../src/api/workouts';
 import { getPersonalBest, PersonalBest } from '../../src/api/sets';
 import { ScreenLayout } from '../../src/components/ui';
 import { RoutineStrip, RoutineSession, RoutineSessionExercise } from '../../src/components/RoutineStrip';
+import StepperLogger, { LoggedSet } from '../../src/components/StepperLogger';
 
 // MOCK-002 fix (2026-05-16): the previous `MOCK_WORKOUT` constant was
 // unconditionally injected as the active workout regardless of auth state.
@@ -599,6 +600,75 @@ export default function LogScreen(): React.ReactElement {
     setRoutineSession(session);
   }, []);
 
+  // ── TICKET-059/060: Focus Stepper visibility + per-exercise set cache ──────
+  // stepperSets maps exerciseId → sets logged THIS session so the stepper can
+  // display chips without re-querying PowerSync.
+  const [stepperVisible, setStepperVisible] = useState(false);
+  const [stepperSets, setStepperSets] = useState<Map<string, LoggedSet[]>>(new Map());
+
+  const handleStartStepper = useCallback((session: RoutineSession) => {
+    setRoutineSession(session);
+    setStepperSets(new Map());
+    setStepperVisible(true);
+  }, []);
+
+  const handleStepperLogSet = useCallback(
+    async (exerciseId: string, weight: string, reps: string) => {
+      // Append to local chip cache first (optimistic)
+      setStepperSets((prev) => {
+        const next = new Map(prev);
+        const existing = next.get(exerciseId) ?? [];
+        next.set(exerciseId, [...existing, { weight, reps }]);
+        return next;
+      });
+      // Update routine session counters
+      updateRoutineExercise(exerciseId);
+      // Persist via PowerSync if workout exists
+      if (!workout?.id || !selectedExercise) return;
+      try {
+        await logSet({
+          workout_id: workout.id,
+          exercise_id: exerciseId || selectedExercise.id,
+          set_type: 'lift',
+          weight: parseFloat(weight) || 0,
+          reps: parseInt(reps) || 0,
+        } as LogSetPayload);
+        haptics.success();
+        setTimerActive(true);
+        setRestSecondsLeft(REST_DEFAULT);
+      } catch {
+        // Non-blocking — set is in local chip cache regardless
+      }
+    },
+    [workout, selectedExercise, logSet, updateRoutineExercise],
+  );
+
+  const handleStepperAdvance = useCallback((toIndex: number) => {
+    setRoutineSession((prev) => prev ? { ...prev, currentIndex: toIndex } : prev);
+  }, []);
+
+  const handleStepperAddOffRoutine = useCallback(
+    (exerciseId: string, exerciseName: string, position: 'end' | 'after_current') => {
+      setRoutineSession((prev) => {
+        if (!prev) return prev;
+        const newEx = {
+          exerciseId,
+          name: exerciseName,
+          loggedSetCount: 0,
+          done: false,
+        };
+        const exercises = [...prev.exercises];
+        if (position === 'end') {
+          exercises.push(newEx);
+        } else {
+          exercises.splice(prev.currentIndex + 1, 0, newEx);
+        }
+        return { ...prev, exercises };
+      });
+    },
+    [],
+  );
+
   const groups = useMemo(() => groupSetsByExercise(sets), [sets]);
   const totalSets = sets.length;
 
@@ -748,8 +818,8 @@ export default function LogScreen(): React.ReactElement {
       {!restDayLogged && (
         <RoutineStrip
           hasLoggedSets={totalSets > 0}
-          onStartRoutine={handleStartRoutine}
-          onStartTemplate={handleStartRoutine}
+          onStartRoutine={handleStartStepper}
+          onStartTemplate={handleStartStepper}
         />
       )}
 
@@ -1064,6 +1134,40 @@ export default function LogScreen(): React.ReactElement {
           </TouchableOpacity>
         </View>
       )}
+      {/* ── TICKET-059/060: Focus Stepper modal ───────────────────────────── */}
+      <Modal
+        visible={stepperVisible}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={() => setStepperVisible(false)}
+      >
+        {routineSession && (
+          <StepperLogger
+            routineSession={routineSession}
+            onLogSet={handleStepperLogSet}
+            onAdvance={handleStepperAdvance}
+            onFinish={() => {
+              setStepperVisible(false);
+              setRoutineSession(null);
+            }}
+            onBrowseLibrary={() => {
+              setStepperVisible(false);
+              setPickerVisible(true);
+            }}
+            pbLabel={exercisePB ? exercisePB.weight + ' × ' + exercisePB.reps : null}
+            repTarget={
+              routineSession.exercises[routineSession.currentIndex]?.targetReps ?? null
+            }
+            currentExerciseSets={
+              stepperSets.get(
+                routineSession.exercises[routineSession.currentIndex]?.exerciseId ?? '',
+              ) ?? []
+            }
+            onAddOffRoutineExercise={handleStepperAddOffRoutine}
+            onClose={() => setStepperVisible(false)}
+          />
+        )}
+      </Modal>
     </View>
     </ScreenLayout>
   );
