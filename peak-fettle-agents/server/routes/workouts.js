@@ -51,7 +51,7 @@ router.post('/', async (req, res, next) => {
              ON CONFLICT (user_id, day_key) DO UPDATE
                 SET notes = COALESCE(EXCLUDED.notes, workouts.notes),
                     updated_at = NOW()
-             RETURNING id, user_id, day_key, notes, created_at, updated_at,
+             RETURNING id, user_id, day_key, notes, session_type, created_at, updated_at,
                        (xmax = 0) AS inserted`,
             [req.user.id, dayKey, notes || null]
         );
@@ -183,6 +183,7 @@ router.get('/', async (req, res, next) => {
                 w.user_id,
                 w.day_key,
                 w.notes,
+                w.session_type,
                 w.created_at,
                 w.updated_at,
                 -- Aggregated stats used by the workout history list UI.
@@ -196,7 +197,7 @@ router.get('/', async (req, res, next) => {
              FROM workouts w
              LEFT JOIN sets s ON s.workout_id = w.id
              WHERE ${conditions.join(' AND ')}
-             GROUP BY w.id, w.user_id, w.day_key, w.notes, w.created_at, w.updated_at
+             GROUP BY w.id, w.user_id, w.day_key, w.notes, w.session_type, w.created_at, w.updated_at
              ORDER BY w.day_key DESC
              LIMIT 90`,
             params
@@ -339,7 +340,7 @@ router.get('/pace-trend', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
     try {
         const { rows } = await pool.query(
-            `SELECT id, user_id, day_key, notes, created_at, updated_at
+            `SELECT id, user_id, day_key, notes, session_type, created_at, updated_at
              FROM workouts
              WHERE id = $1 AND user_id = $2`,
             [req.params.id, req.user.id]

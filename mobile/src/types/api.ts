@@ -63,6 +63,13 @@ export interface Workout {
   user_id: string;
   day_key: string; // YYYY-MM-DD
   notes: string | null;
+  /**
+   * TICKET-054: session_type is now returned by GET /workouts and GET /workouts/:id.
+   * 'lift' (or null) = regular strength session counted by streaks.
+   * 'rest_day' = intentional rest; streak cron counts it as an active week.
+   * 'cardio_import' = Strava/imported cardio; excluded from strength set counts.
+   */
+  session_type?: 'lift' | 'rest_day' | 'cardio_import' | null;
   created_at: string;
   updated_at: string;
   /**
@@ -378,22 +385,4 @@ export interface CreateGroupPayload {
   name: string;
   /** Hard cap on membership (2–12). */
   sizeCap: number;
-}
-
-export interface JoinGroupPayload {
-  /** The group's invite token UUID (from the share-link). */
-  token: string;
-}
-
-export interface UpdateMemberGoalPayload {
-  /** Must match server field: workoutsPerWeek. Min 1, max 14. */
-  workoutsPerWeek: number;
-}
-
-export interface GroupsResponse {
-  groups: Group[];
-}
-
-export interface EvaluationsResponse {
-  history: GroupWeekEvaluation[];
 }
