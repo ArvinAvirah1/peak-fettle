@@ -497,7 +497,7 @@ function PercentileRankHeroCard({ rankings }: { rankings: PercentileRanking[] })
           {pct}
         </Text>
         <Text style={{ color: theme.colors.textPrimary, fontSize: fs.bodyLg, fontWeight: fw.semibold, marginTop: sp.s3 }}>
-          {top.lift_name ?? liftIdToName(top.lift_id)}
+          {liftIdToName(top.lift_id)}
         </Text>
         <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodySm, marginTop: sp.s1, fontVariant: ['tabular-nums'] }}>
           Top {topPct}% of lifters
