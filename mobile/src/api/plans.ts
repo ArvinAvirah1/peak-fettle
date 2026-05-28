@@ -76,19 +76,3 @@ export async function activatePlan(id: string): Promise<Plan> {
 export async function deactivateAllPlans(): Promise<void> {
   await apiClient.post('/plans/deactivate');
 }
-
-/**
- * Regenerate the AI content for an existing plan in-place.
- *
- * TICKET-058: calls POST /plans/:id/regenerate which re-runs the Haiku prompt
- * against fresh workout history and replaces the plan's `structure` column.
- * The plan_id is preserved so the user keeps the same record active.
- *
- * Subject to the same 3/day throttle as /generate (server-enforced).
- * @throws 429 if the daily limit has been reached.
- * @throws 403 if the user is on the free tier.
- */
-export async function regeneratePlan(id: string): Promise<GeneratePlanResponse> {
-  const response = await apiClient.post<GeneratePlanResponse>(`/plans/${id}/regenerate`);
-  return response.data;
-}

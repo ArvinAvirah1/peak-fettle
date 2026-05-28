@@ -240,7 +240,6 @@ export default function TemplatesScreen(): React.ReactElement {
   const [disciplineFilter, setDisciplineFilter] = useState('All');
   const [levelFilter, setLevelFilter] = useState('All');
   const [selected, setSelected] = useState<Template | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
   const [starting, setStarting] = useState(false);
 
   const fetchTemplates = useCallback(async () => {
@@ -253,9 +252,8 @@ export default function TemplatesScreen(): React.ReactElement {
 
       const query = new URLSearchParams(params).toString();
       const url = `/templates${query ? `?${query}` : ''}`;
-      const res = await apiClient.get<Template[] | { templates: Template[] }>(url);
-      const payload = res.data;
-      setTemplates(Array.isArray(payload) ? payload : payload.templates ?? []);
+      const res = await apiClient.get<Template[]>(url);
+      setTemplates(res.data ?? []);
     } catch {
       setError('Could not load templates. Check your connection and try again.');
     } finally {
@@ -282,24 +280,8 @@ export default function TemplatesScreen(): React.ReactElement {
     return matchesSearch;
   });
 
-  // Fetch the full template (with sessions) before opening the detail modal.
-  // The list endpoint returns summaries only — sessions are on GET /templates/:id.
-  const handleSelectTemplate = useCallback(async (t: Template) => {
-    setDetailLoading(true);
-    setSelected(t); // open modal immediately with what we have
-    try {
-      const res = await apiClient.get<Template>(`/templates/${t.id}`);
-      setSelected(res.data);
-    } catch {
-      // If detail fetch fails, keep the summary in selected (sessions will be [] / undefined).
-      // The modal will render a graceful empty state.
-    } finally {
-      setDetailLoading(false);
-    }
-  }, []);
-
   const handleStartWorkout = async () => {
-    if (!selected || !(selected.sessions?.length)) return;
+    if (!selected || !selected.sessions.length) return;
     setStarting(true);
     try {
       const firstSession = selected.sessions[0];
@@ -409,7 +391,7 @@ export default function TemplatesScreen(): React.ReactElement {
           renderItem={({ item }) => (
             <TemplateCard
               template={item}
-              onPress={() => handleSelectTemplate(item)}
+              onPress={() => setSelected(item)}
               colors={colors}
               fontSize={fontSize}
               fontWeight={fontWeight}
@@ -436,7 +418,7 @@ export default function TemplatesScreen(): React.ReactElement {
                   <View key={t.id} style={{ marginBottom: spacing.s3 }}>
                     <TemplateCard
                       template={t}
-                      onPress={() => handleSelectTemplate(t)}
+                      onPress={() => setSelected(t)}
                       colors={colors}
                       fontSize={fontSize}
                       fontWeight={fontWeight}
@@ -532,10 +514,6 @@ export default function TemplatesScreen(): React.ReactElement {
                 style={{ maxHeight: 280 }}
                 contentContainerStyle={{ paddingHorizontal: spacing.s6, paddingBottom: spacing.s4 }}
               >
-                {detailLoading ? (
-                  <ActivityIndicator color={colors.accentDefault} style={{ marginVertical: spacing.s4 }} />
-                ) : (
-                  <>
                 <Text
                   style={{
                     fontSize: fontSize.heading3,
@@ -544,9 +522,9 @@ export default function TemplatesScreen(): React.ReactElement {
                     marginBottom: spacing.s3,
                   }}
                 >
-                  Sessions ({(selected.sessions ?? []).length})
+                  Sessions ({selected.sessions.length})
                 </Text>
-                {(selected.sessions ?? []).map((session, idx) => (
+                {selected.sessions.map((session, idx) => (
                   <View
                     key={session.id}
                     style={[
@@ -569,8 +547,6 @@ export default function TemplatesScreen(): React.ReactElement {
                     ))}
                   </View>
                 ))}
-                  </>
-                )}
               </ScrollView>
 
               {/* CTA */}

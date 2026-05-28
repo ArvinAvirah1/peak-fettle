@@ -37,8 +37,7 @@ const LIFT_NAME_MAP: Record<string, string> = {
  * Returns a human-readable name for the given lift_id.
  * Checks the static map first; falls back to title-casing the raw ID.
  */
-export function liftIdToName(liftId: string | null | undefined): string {
-  if (!liftId) return 'Unknown lift';
+export function liftIdToName(liftId: string): string {
   if (LIFT_NAME_MAP[liftId]) {
     return LIFT_NAME_MAP[liftId];
   }

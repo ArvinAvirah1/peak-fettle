@@ -34,15 +34,13 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createWorkout } from '../api/workouts';
-import {
-  getSetsForWorkout,
-  logSet as apiLogSet,
-  deleteSet as apiDeleteSet,
-} from '../api/sets';
 import { db } from '../db/powerSyncClient';
+import { useAuth } from './useAuth';
 import {
   Workout,
   WorkoutSet,
+  LiftSet,
+  CardioSet,
   LogSetPayload,
 } from '../types/api';
 
@@ -56,6 +54,26 @@ function getTodayKey(): string {
   const mm = String(now.getMonth() + 1).padStart(2, '0');
   const dd = String(now.getDate()).padStart(2, '0');
   return `${yyyy}-${mm}-${dd}`;
+}
+
+/**
+ * UUID v4 generator — uses Math.random() as a fallback for environments where
+ * crypto.randomUUID() is unavailable. Sufficient for local-only primary keys
+ * (uniqueness within the app session is all that is required before server sync).
+ */
+function generateUUID(): string {
+  if (
+    typeof crypto !== 'undefined' &&
+    typeof crypto.randomUUID === 'function'
+  ) {
+    return crypto.randomUUID();
+  }
+  // Fallback: RFC 4122 v4 via Math.random()
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +159,7 @@ export interface UsePowerSyncLogResult {
 // ---------------------------------------------------------------------------
 
 export function usePowerSyncLog(): UsePowerSyncLogResult {
+  const { user } = useAuth();
 
   // Stable today key — doesn't change within a session.
   const todayKey = useMemo(() => getTodayKey(), []);
@@ -167,12 +186,8 @@ export function usePowerSyncLog(): UsePowerSyncLogResult {
     setInitError(null);
     try {
       const w = await createWorkout(todayKey);
-      // Set ref BEFORE triggering re-render so the watch effect always sees a
-      // valid workoutId even on the first render triggered by setWorkout().
-      workoutIdRef.current = w.id;
       setWorkout(w);
-      const serverSets = await getSetsForWorkout(w.id);
-      setSets(serverSets);
+      workoutIdRef.current = w.id;
       // Phase 1.5: server fires paywall_trigger=true exactly once (the session
       // that crosses the free-tier limit). Surface it so the UI can prompt.
       if (w.paywall_trigger) {
@@ -273,18 +288,88 @@ export function usePowerSyncLog(): UsePowerSyncLogResult {
   const logSet = useCallback(
     async (payload: LogSetPayload): Promise<WorkoutSet> => {
       const wid = workoutIdRef.current;
-      if (!wid) {
-        // Workout hasn't been initialised yet (still loading or offline).
+      if (!wid || !user) {
         throw new Error('Workout not ready — please wait or retry');
       }
-      // Note: `user` is NOT checked here. The server authenticates via the
-      // Bearer token (attached by the Axios interceptor). This allows logSet
-      // to work even on a cold-start where user may not yet be hydrated.
-      const serverSet = await apiLogSet({ ...payload, workoutId: wid });
-      setSets((prev) => [...prev, serverSet]);
-      return serverSet;
+
+      const id = generateUUID();
+      const now = new Date().toISOString();
+
+      if (payload.kind === 'lift') {
+        // Encode weight_kg → weight_raw (kg × 8) for the local SMALLINT column.
+        const weightRaw = Math.round(payload.weightKg * 8);
+        // rir: use -1 (not recorded) when omitted, matching the DB CHECK constraint.
+        const rir = payload.rir ?? -1;
+
+        await db.execute(
+          `INSERT INTO sets
+             (id, workout_id, user_id, exercise_id, kind, set_index,
+              reps, weight_raw, rir, logged_at)
+           VALUES (?, ?, ?, ?, 'lift', ?, ?, ?, ?, ?)`,
+          [
+            id,
+            wid,
+            user.id,
+            payload.exerciseId,
+            payload.setIndex,
+            payload.reps,
+            weightRaw,
+            rir,
+            now,
+          ]
+        );
+
+        const newSet: LiftSet = {
+          id,
+          workout_id: wid,
+          user_id: user.id,
+          exercise_id: payload.exerciseId,
+          kind: 'lift',
+          set_index: payload.setIndex,
+          reps: payload.reps,
+          weight_kg: payload.weightKg,
+          rir: payload.rir ?? null,
+          // TYPE-001: `e1rm_kg` removed — compute Epley inline at the call site
+          // when needed (the server column was dropped in 20260505).
+          logged_at: now,
+        };
+        return newSet;
+      }
+
+      // Cardio set
+      await db.execute(
+        `INSERT INTO sets
+           (id, workout_id, user_id, exercise_id, kind, set_index,
+            duration_sec, distance_m, avg_pace_sec_per_km, logged_at)
+         VALUES (?, ?, ?, ?, 'cardio', ?, ?, ?, ?, ?)`,
+        [
+          id,
+          wid,
+          user.id,
+          payload.exerciseId,
+          payload.setIndex,
+          payload.durationSec,
+          payload.distanceM ?? null,
+          payload.avgPaceSecPerKm ?? null,
+          now,
+        ]
+      );
+
+      const newSet: CardioSet = {
+        id,
+        workout_id: wid,
+        user_id: user.id,
+        exercise_id: payload.exerciseId,
+        kind: 'cardio',
+        set_index: payload.setIndex,
+        duration_sec: payload.durationSec,
+        distance_m: payload.distanceM ?? null,
+        avg_pace_sec_per_km: payload.avgPaceSecPerKm ?? null,
+        logged_at: now,
+      };
+      return newSet;
     },
-    [] // no React-state deps — relies only on workoutIdRef (a ref) and apiLogSet (stable)
+    [user]
   );
 
   /**
@@ -292,8 +377,7 @@ export function usePowerSyncLog(): UsePowerSyncLogResult {
    * and applies it server-side when online.
    */
   const deleteSet = useCallback(async (id: string): Promise<void> => {
-    await apiDeleteSet(id);
-    setSets((prev) => prev.filter((s) => s.id !== id));
+    await db.execute('DELETE FROM sets WHERE id = ?', [id]);
   }, []);
 
   // ── Refetch (retry after offline init failure) ──────────────────────────

@@ -942,3 +942,234 @@ const styles = StyleSheet.create({
     marginTop: spacing.s4,
   },
 });
+ap: 16, paddingBottom: 40 },
+
+  // Balance banner
+  balanceBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: radius.md,
+    padding: 16,
+    gap: 14,
+    borderWidth: 1,
+  },
+  balanceGem: { fontSize: fontSize.heading1 },  // E-003: was 28
+  balanceTextBlock: { flex: 1 },
+  balanceAmount: {
+    fontSize: fontSize.heading3,  // E-003: was 22
+    fontWeight: fontWeight.bold,  // E-003: was '700'
+  },
+  balanceSubtitle: {
+    fontSize: fontSize.bodySm,  // E-003: was 13
+    marginTop: 2,
+  },
+
+  // Section
+  section: { gap: 10 },
+  sectionTitle: {
+    fontSize: fontSize.bodySm,  // E-003: was 13
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+
+  // Group row
+  groupRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: radius.md,
+    padding: 14,
+    borderWidth: 1,
+  },
+  groupRowLeft: { flex: 1 },
+  groupRowHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
+  fireEmoji: { fontSize: fontSize.bodyMd },  // E-003: was 16
+  groupName: {
+    fontSize: fontSize.bodyMd,  // E-003: was 16
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
+    flex: 1,
+  },
+  groupMeta: {
+    fontSize: fontSize.bodySm,  // E-003: was 13
+  },
+  dormantBadge: {
+    fontSize: fontSize.caption,  // E-003: was 12
+    marginTop: 4,
+  },
+  chevron: {
+    fontSize: fontSize.heading3,  // E-003: was 22
+    marginLeft: 8,
+  },
+
+  // Empty state
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 40,
+    gap: 10,
+  },
+  emptyEmoji: { fontSize: fontSize.display },  // E-003: was 44 (nearest token: display=40)
+  emptyTitle: {
+    fontSize: fontSize.bodyLg,  // E-003: was 18
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
+  },
+  emptySubtitle: {
+    fontSize: fontSize.bodySm,  // E-003: was 14
+    textAlign: 'center',
+    maxWidth: 280,
+  },
+
+  // CTAs
+  ctaRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+  ctaButton: {
+    flex: 1,
+    borderRadius: radius.md,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 52,
+  },
+  ctaButtonSecondary: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+  },
+  ctaText: {
+    fontSize: fontSize.bodyMd,  // E-003: was 16
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
+  },
+  capNote: {
+    fontSize: fontSize.caption,  // E-003: was 12
+    textAlign: 'center',
+    marginTop: 4,
+  },
+
+  // Error card
+  errorCard: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    padding: 14,
+    gap: 10,
+  },
+  errorText: {
+    fontSize: fontSize.bodySm,  // E-003: was 14
+    flex: 1,
+  },
+  retryBtn: {
+    alignSelf: 'flex-start',
+  },
+  retryText: {
+    fontSize: fontSize.bodySm,  // E-003: was 14
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
+  },
+
+  // Skeleton
+  skeletonList: { gap: 10 },
+  skeletonRow: {
+    height: 72,
+    borderRadius: radius.md,
+    opacity: 0.5,
+  },
+
+  // Modal shared layout
+  modalContainer: {
+    flex: 1,
+  },
+  // P2-007: drag handle visual cue at top of modal sheet
+  modalHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: radius.full,
+    alignSelf: 'center',
+    marginTop: 10,
+    marginBottom: 4,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.s5,
+    paddingVertical: spacing.s4,
+    borderBottomWidth: 1,
+  },
+  modalTitle: {
+    fontSize: fontSize.bodyLg,  // E-003: was 18
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
+  },
+  modalCancel: {
+    fontSize: fontSize.bodyMd,  // E-003: was 16
+    fontWeight: fontWeight.medium,  // E-003: was '500'
+  },
+  modalBody: {
+    flex: 1,
+    paddingHorizontal: spacing.s5,
+    paddingTop: spacing.s4,
+  },
+  modalFooter: {
+    padding: spacing.s5,
+    borderTopWidth: 1,
+  },
+
+  // Primary action button (modal footer)
+  primaryButton: {
+    borderRadius: radius.md,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 52,
+  },
+  primaryButtonText: {
+    fontSize: fontSize.bodyMd,  // E-003: was 16
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
+  },
+  buttonDisabled: {
+    opacity: 0.5,
+  },
+
+  // Goal picker (inside modals)
+  goalPicker: {
+    gap: 8,
+    marginTop: spacing.s4,
+  },
+  goalOption: {
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.s4,
+    paddingVertical: spacing.s3,
+    gap: 2,
+  },
+  goalOptionLabel: {
+    fontSize: fontSize.bodyMd,  // E-003: was 15
+    fontWeight: fontWeight.medium,  // E-003: was '500'
+  },
+  goalOptionModifier: {
+    fontSize: fontSize.caption,  // E-003: was 12
+  },
+  goalNote: {
+    fontSize: fontSize.caption,  // E-003: was 12
+    lineHeight: 18,
+    marginTop: 4,
+  },
+
+  // Shared label above inputs
+  inputLabel: {
+    fontSize: fontSize.bodySm,  // E-003: was 14
+    fontWeight: fontWeight.medium,  // E-003: was '500'
+    marginBottom: spacing.s2,
+  },
+
+  // Section note (helper text in modals)
+  sectionNote: {
+    fontSize: fontSize.bodySm,  // E-003: was 13
+    lineHeight: 20,
+    marginTop: spacing.s4,
+  },
+});

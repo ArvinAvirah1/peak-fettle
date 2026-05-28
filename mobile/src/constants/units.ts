@@ -33,28 +33,11 @@ export function lbsToKg(lbs: number): number {
 }
 
 /**
- * Round a lbs value to the nearest quarter pound (0.25 lb).
- *
- * Band-aid for weight_raw fixed-point precision loss:
- *   45 lbs → kg → SMALLINT (kg×8) → kg → lbs = 44.919 lbs
- * Rounding to the nearest 0.25 lb restores standard plate values.
- * (Standard plates land on quarter-pound boundaries after any lbs↔kg
- * round-trip through the kg×8 encoding used by weight_raw.)
- */
-export function roundToNearestQuarterLb(lbs: number): number {
-  return Math.round(lbs * 4) / 4;
-}
-
-/**
  * Format a weight for display given the user's unit preference.
  * @param weightKg - Weight in kilograms (server-side value)
  * @param unitPref - The user's preferred unit system
  * @param decimals - Number of decimal places (default 1)
  * @returns Formatted string e.g. "100.0 kg" or "220.5 lbs"
- *
- * When unitPref is 'lbs', the value is rounded to the nearest 0.25 lb
- * before formatting to correct precision loss from the kg×8 fixed-point
- * encoding in weight_raw (SMALLINT).
  */
 export function formatWeight(
   weightKg: number,
@@ -62,8 +45,7 @@ export function formatWeight(
   decimals = 1
 ): string {
   if (unitPref === 'lbs') {
-    const lbs = roundToNearestQuarterLb(kgToLbs(weightKg));
-    return `${lbs.toFixed(decimals)} lbs`;
+    return `${kgToLbs(weightKg).toFixed(decimals)} lbs`;
   }
   return `${weightKg.toFixed(decimals)} kg`;
 }

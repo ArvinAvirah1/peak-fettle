@@ -290,37 +290,3 @@ export const a11y = {
   minTouchTarget: 48, // pt — all interactive elements
   minTouchTargetAndroid: 48, // dp
 } as const;
-
-// ============================================================================
-// FONT FAMILY — TICKET-057
-// Outfit is bundled offline in assets/fonts/ and loaded via expo-font in
-// _layout.tsx. Use these string constants everywhere instead of bare literals.
-// ============================================================================
-
-export const fontFamily = {
-  regular:  'Outfit-Regular',
-  medium:   'Outfit-Medium',
-  semiBold: 'Outfit-SemiBold',
-  bold:     'Outfit-Bold',
-} as const;
-
-// ============================================================================
-// STEPPER PALETTE — TICKET-057
-// Derived from set-logging-stepper-flow.html :root CSS variables.
-// Used by the Focus Stepper (TICKET-059/060) and Routines page (TICKET-061).
-// Kept as a standalone palette so stepper screens are self-contained and
-// don't break other themes.
-// ============================================================================
-
-export const stepperPalette = {
-  bg:            '#0b1622',                   // --bg
-  frame:         '#0a121c',                   // --frame (field / input bg)
-  card:          '#13212f',                   // --card
-  accent:        '#2dd4bf',                   // --accent (teal)
-  accentInk:     '#06231f',                   // --accent-ink (dark text on accent btn)
-  text:          '#e8eef2',                   // --text
-  muted:         '#7d8b99',                   // --muted
-  line:          'rgba(255,255,255,0.10)',     // --line (borders/dividers)
-  accentSurface: 'rgba(45,212,191,0.14)',     // --acs (tinted bg on active chips)
-  accentLine:    'rgba(45,212,191,0.40)',     // --acl (tinted border on active chips)
-} as const;

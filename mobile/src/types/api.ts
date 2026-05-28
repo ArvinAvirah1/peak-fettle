@@ -63,14 +63,6 @@ export interface Workout {
   user_id: string;
   day_key: string; // YYYY-MM-DD
   notes: string | null;
-  /**
-   * TICKET-054: session_type is now returned by GET /workouts and GET /workouts/:id.
-   * 'lift' (or null) = regular strength session counted by streaks.
-   * 'rest_day' = intentional rest; streak cron counts it as an active week.
-   * 'cardio_import' = Strava/imported cardio; excluded from strength set counts.
-   */
-  // DB CHECK (migrations 20260517): 'workout' is the default training day; 'lift' was never a valid value.
-  session_type?: 'workout' | 'rest_day' | 'emergency_override' | 'cardio_import' | null;
   created_at: string;
   updated_at: string;
   /**
@@ -267,23 +259,9 @@ export interface PlanSession {
   exercises: PlanExercise[];
 }
 
-/** Single day within a multi-week program (TICKET-058) */
-export interface PlanWeekSession {
-  day_label: string;       // e.g. "Day 1 – Push"
-  exercises: PlanExercise[];
-}
-
-/** One week block in a multi-week program (TICKET-058) */
-export interface PlanWeek {
-  week_number: number;
-  sessions: PlanWeekSession[];
-}
-
 /** Opaque JSONB structure stored on the server. Shape depends on how the plan was created. */
 export interface PlanStructure {
   session?: PlanSession;
-  /** Multi-week program structure (TICKET-058); present for plans generated after v058 */
-  weeks?: PlanWeek[];
   reasoning?: string;
   generated_at?: string;
   model?: string;
@@ -317,8 +295,7 @@ export interface PlansResponse {
 
 export interface GeneratePlanResponse {
   plan_id: string;
-  session: PlanSession;         // backward compat: first session of week 1
-  weeks?: PlanWeek[];           // multi-week structure (TICKET-058)
+  session: PlanSession;
   reasoning: string;
 }
 
