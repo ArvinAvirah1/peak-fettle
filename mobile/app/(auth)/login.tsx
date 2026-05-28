@@ -26,6 +26,7 @@ import { useAuth } from '../../src/hooks/useAuth';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
 import { ScreenLayout, PFButton, PFInput } from '../../src/components/ui';
+import { BrandLogo } from '../../src/components/BrandLogo';
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -86,10 +87,10 @@ export default function LoginScreen(): React.ReactElement {
 
   return (
     <ScreenLayout scrollable keyboardAvoiding contentStyle={styles.content}>
-      {/* Header */}
-      <Text style={[styles.title, { color: theme.colors.accentDefault }]}>
-        Peak Fettle
-      </Text>
+      {/* Header — TICKET-063: brand logo */}
+      <View style={styles.logoContainer}>
+        <BrandLogo height={100} dark />
+      </View>
       <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>
         Sign in to your account
       </Text>
@@ -207,12 +208,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: spacing.s12,
   },
-  title: {
-    fontSize: fontSize.heading1,
-    fontWeight: fontWeight.bold,
-    textAlign: 'center',
-    marginBottom: spacing.s2,
-    letterSpacing: -0.5,
+  // TICKET-063: logo container replaces the old text title
+  logoContainer: {
+    alignItems: 'center',
+    marginBottom: spacing.s4,
   },
   subtitle: {
     fontSize: fontSize.bodyMd,

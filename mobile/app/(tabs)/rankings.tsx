@@ -62,6 +62,7 @@ import { PressableCard, ScreenLayout, PFInput } from '../../src/components/ui';
 import { GlossaryTerm } from '../../src/components/Tooltip';
 import { useReduceMotion } from '../../src/hooks/useReduceMotion';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { TabErrorBoundary } from '../../src/components/TabErrorBoundary';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -496,7 +497,7 @@ function PercentileRankHeroCard({ rankings }: { rankings: PercentileRanking[] })
           {pct}
         </Text>
         <Text style={{ color: theme.colors.textPrimary, fontSize: fs.bodyLg, fontWeight: fw.semibold, marginTop: sp.s3 }}>
-          {top.lift_name ?? liftIdToName(top.lift_id)}
+          {liftIdToName(top.lift_id)}
         </Text>
         <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodySm, marginTop: sp.s1, fontVariant: ['tabular-nums'] }}>
           Top {topPct}% of lifters
@@ -579,7 +580,7 @@ function ErrorBanner({
 //          ScrollView's contentContainerStyle padding takes precedence)
 // ---------------------------------------------------------------------------
 
-export default function RankingsScreen(): React.ReactElement {
+function RankingsScreen(): React.ReactElement {
   const { response, isLoading, error, refetch } = usePercentile();
   const { user } = useAuth();
   const { theme } = useTheme();
@@ -1074,3 +1075,13 @@ const confirmSheetStyles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
 });
+
+// Wrap the screen in an error boundary so a render-time JS crash shows a
+// "Something went wrong" card with the error message instead of a blank screen.
+export default function RankingsScreenWithBoundary(): React.ReactElement {
+  return (
+    <TabErrorBoundary screenName="Rankings">
+      <RankingsScreen />
+    </TabErrorBoundary>
+  );
+}
