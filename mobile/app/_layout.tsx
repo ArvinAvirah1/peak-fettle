@@ -30,10 +30,10 @@
  * double-render issues.
  */
 
-import { useEffect } from 'react';
+import React, { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { ActivityIndicator, View, StyleSheet } from 'react-native';
+import { ActivityIndicator, View, StyleSheet, Text, ScrollView } from 'react-native';
 import { useFonts } from 'expo-font';
 
 import { AuthProvider } from '../src/context/AuthContext';
@@ -44,17 +44,63 @@ import { patchProfile } from '../src/api/user';
 import { registerForPushNotificationsAsync } from '../src/services/pushNotifications';
 
 // ---------------------------------------------------------------------------
+// Root-level Error Boundary (2026-05-28)
+// Surfaces ANY JS crash at boot with a visible red-screen error message
+// instead of a blank screen. Without this, every previous startup crash
+// (CORRUPT-001, PUSH-001, expo-font mismatch) presented as "the app launches
+// and instantly dies with no feedback", making every root-cause hunt blind.
+// ---------------------------------------------------------------------------
+
+interface BootErrorBoundaryState {
+  error: Error | null;
+}
+
+class BootErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  BootErrorBoundaryState
+> {
+  state: BootErrorBoundaryState = { error: null };
+
+  static getDerivedStateFromError(error: Error): BootErrorBoundaryState {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo): void {
+    // eslint-disable-next-line no-console
+    console.error('[BootErrorBoundary] Crash at app root:', error, info?.componentStack);
+  }
+
+  render(): React.ReactNode {
+    if (this.state.error) {
+      return (
+        <ScrollView
+          style={{ flex: 1, backgroundColor: '#0f172a' }}
+          contentContainerStyle={{ padding: 24, paddingTop: 80 }}
+        >
+          <Text style={{ color: '#fca5a5', fontSize: 18, fontWeight: 'bold', marginBottom: 12 }}>
+            Peak Fettle failed to start
+          </Text>
+          <Text style={{ color: '#fff', fontSize: 14, marginBottom: 16 }}>
+            {String(this.state.error?.message ?? this.state.error)}
+          </Text>
+          <Text style={{ color: '#94a3b8', fontSize: 11, fontFamily: 'monospace' }}>
+            {String(this.state.error?.stack ?? '')}
+          </Text>
+        </ScrollView>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Inner component — has access to AuthContext via useAuth()
 // ---------------------------------------------------------------------------
 
 function RootNavigator(): React.ReactElement {
   const { isLoading } = useAuth();
-  // Access theme tokens so the loading spinner uses the design system —
-  // no hardcoded hex values in this file (E-001 acceptance criterion).
   const { theme } = useTheme();
 
-  // TICKET-024: Register for push notifications once the auth state has resolved.
-  // Silent — registerForPushNotificationsAsync swallows all errors internally.
   useEffect(() => {
     if (!isLoading) {
       registerForPushNotificationsAsync();
@@ -62,9 +108,6 @@ function RootNavigator(): React.ReactElement {
   }, [isLoading]);
 
   if (isLoading) {
-    // Show a loading spinner while the cold-start refresh runs.
-    // This prevents flashing the login screen on every app open for
-    // already-authenticated users.
     return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.colors.bgPrimary }]}>
         <ActivityIndicator size="large" color={theme.colors.accentDefault} />
@@ -72,43 +115,26 @@ function RootNavigator(): React.ReactElement {
     );
   }
 
-  // expo-router's <Stack> renders the file-based route tree.
-  // Groups /(auth)/ and /(tabs)/ handle their own headers/tab bars.
-  // The initial route is determined by expo-router's file structure;
-  // AuthContext.login() and logout() drive navigation via router.replace().
   return (
     <>
       <StatusBar style="auto" />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        {/* Post-registration onboarding — biological sex + discipline (TICKET-038 / ROADMAP 1.6) */}
         <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false }} />
-        {/* Push screens accessible from any tab */}
         <Stack.Screen name="health-metrics" options={{ headerShown: false }} />
         <Stack.Screen name="groups" options={{ headerShown: false }} />
         <Stack.Screen name="group-detail" options={{ headerShown: false }} />
-        {/* Glossary — TICKET-043 / ROADMAP 1.1 */}
         <Stack.Screen name="glossary" options={{ title: 'Glossary', headerShown: true, gestureEnabled: true }} />
-        {/* P2-001: Animated splash — routes new vs returning users */}
         <Stack.Screen name="splash" options={{ headerShown: false, gestureEnabled: false }} />
-        {/* §2.2: Day 1 beginner intro — shown once after first launch */}
         <Stack.Screen name="intro" options={{ headerShown: false, gestureEnabled: false }} />
-        {/* PL-1: Workout template browser */}
         <Stack.Screen name="templates" options={{ title: 'Workout Templates', headerShown: true, gestureEnabled: true }} />
-        {/* PL-2: CSV import from Garmin / Strava */}
         <Stack.Screen name="csv-import" options={{ title: 'Import Activity Data', headerShown: true, gestureEnabled: true }} />
-        {/* TICKET-061: Routines management page */}
         <Stack.Screen name="routines" options={{ title: 'Routines', headerShown: false, gestureEnabled: true }} />
-        {/* P2-002: Exercise Library — searchable/filterable browse screen */}
         <Stack.Screen name="exercise-library" options={{ title: 'Exercise Library', headerShown: true, gestureEnabled: true }} />
-        {/* Progress & Analytics push screen */}
         <Stack.Screen name="progress" options={{ title: 'Progress', headerShown: true, gestureEnabled: true }} />
-        {/* Day-detail drill-down from RECENT ACTIVITY rows */}
         <Stack.Screen name="workout-day" options={{ title: '', headerShown: true, gestureEnabled: true }} />
-        {/* Full paginated workout history browse */}
         <Stack.Screen name="workout-history" options={{ title: 'Workout History', headerShown: true, gestureEnabled: true }} />
-        {/* Cosmetics & shop — Phase F */}
         <Stack.Screen name="cosmetics" options={{ title: 'Achievements & Shop', headerShown: true, gestureEnabled: true }} />
       </Stack>
     </>
@@ -116,38 +142,38 @@ function RootNavigator(): React.ReactElement {
 }
 
 // ---------------------------------------------------------------------------
-// Root layout — provides AuthContext + PowerSync to the entire tree
+// Root layout — provides ThemeProvider + AuthContext + PowerSync to the tree
 // ---------------------------------------------------------------------------
 
 export default function RootLayout(): React.ReactElement {
   // TICKET-057: Load Outfit font family (offline-bundled in assets/fonts/).
-  // fontsLoaded is false on the first frame; expo-router prevents the splash from
-  // hiding so we just gate rendering until the fonts are ready.
-  const [fontsLoaded] = useFonts({
+  // 2026-05-28: capture error and don't block forever if font load fails — the
+  // app stayed blank when expo-font returned an error before the bump.
+  const [fontsLoaded, fontError] = useFonts({
     'Outfit-Regular':  require('../assets/fonts/Outfit-Regular.ttf'),
     'Outfit-Medium':   require('../assets/fonts/Outfit-Medium.ttf'),
     'Outfit-SemiBold': require('../assets/fonts/Outfit-SemiBold.ttf'),
     'Outfit-Bold':     require('../assets/fonts/Outfit-Bold.ttf'),
   });
 
-  // Hold rendering until fonts are ready to avoid a flash of unstyled text.
-  if (!fontsLoaded) return <View style={{ flex: 1 }} />;
+  if (!fontsLoaded && !fontError) {
+    return <View style={{ flex: 1, backgroundColor: '#0f172a' }} />;
+  }
 
   return (
-    <ThemeProvider
-      onThemeChange={async (newTheme: ThemeName) => {
-        // Persist theme preference to Supabase whenever the user changes it.
-        // Runs inside ThemeProvider so it has access to the new theme name.
-        // Silent — do not block the UI on network availability.
-        await patchProfile({ theme_preference: newTheme }).catch(() => {});
-      }}
-    >
-      <AuthProvider>
-        <PowerSyncProvider>
-          <RootNavigator />
-        </PowerSyncProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <BootErrorBoundary>
+      <ThemeProvider
+        onThemeChange={async (newTheme: ThemeName) => {
+          await patchProfile({ theme_preference: newTheme }).catch(() => {});
+        }}
+      >
+        <AuthProvider>
+          <PowerSyncProvider>
+            <RootNavigator />
+          </PowerSyncProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </BootErrorBoundary>
   );
 }
 
