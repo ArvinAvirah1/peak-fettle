@@ -2,16 +2,8 @@
  * useStreak — pure hook that computes the current week-streak from a list of
  * Workout objects.
  *
- * ── CANONICAL STREAK DEFINITION (TICKET-054) ────────────────────────────────
- * A week counts as "active" if the workouts array contains at least one row
- * whose day_key falls in that ISO week — REGARDLESS of session_type.
- * That means lift sessions, rest_day rows, and cardio_import rows all satisfy
- * the weekly requirement.  Rationale: logging a rest day is intentional
- * self-care; it should preserve the streak just as a lift would.
- * ─────────────────────────────────────────────────────────────────────────────
- *
  * Definition: count consecutive ISO weeks (Monday–Sunday) going backward from
- * the current week where at least one workout row was logged.
+ * the current week where at least one workout was logged.
  *
  * Special rule: the current week is NOT penalised for having 0 workouts yet —
  * it is still "live". The streak can only be broken by a fully elapsed week

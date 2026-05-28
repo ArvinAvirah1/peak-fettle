@@ -94,6 +94,8 @@ function toDateKey(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
+const PAGE_SIZE = 50;
+
 /** Group a flat sorted-desc list of workouts into ISO-week sections. */
 function groupIntoWeeks(workouts: ApiWorkout[]): WorkoutSection[] {
   const sectionMap = new Map<string, WorkoutSection>();
@@ -163,28 +165,39 @@ export default function WorkoutHistoryScreen(): React.ReactElement {
   // ── State ─────────────────────────────────────────────────────────────────
   const [allWorkouts, setAllWorkouts] = useState<ApiWorkout[]>([]);
   const [sections, setSections] = useState<WorkoutSection[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [loadingMore] = useState(false); // kept for ListFooterComponent type compat
+  const [loading, setLoading] = useState(true);       // first page
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(true);
 
+  const offsetRef = useRef(0);
   const fetchingRef = useRef(false);
 
-  // ── Fetch ──────────────────────────────────────────────────────────────────
-  // GET /workouts returns a plain array (not {workouts:[]}). The server limits
-  // to 90 rows desc by day_key and includes total_sets, exercise_count, and
-  // total_volume_kg via a LEFT JOIN + GROUP BY — no client-side aggregation needed.
-  const fetchPage = useCallback(async (_offset: number = 0) => {
+  // ── Fetch page ─────────────────────────────────────────────────────────────
+  const fetchPage = useCallback(async (offset: number) => {
     if (fetchingRef.current) return;
     fetchingRef.current = true;
 
     try {
-      const res = await apiClient.get<ApiWorkout[]>('/workouts');
-      const raw: ApiWorkout[] = Array.isArray(res.data) ? res.data : [];
+      const res = await apiClient.get<{ workouts: ApiWorkout[] }>(
+        `/workouts?limit=${PAGE_SIZE}&offset=${offset}`
+      );
 
+      const raw = res.data?.workouts ?? [];
+
+      // Sort descending by date (server may not guarantee order)
       const sorted = [...raw].sort((a, b) => b.day_key.localeCompare(a.day_key));
-      setAllWorkouts(sorted);
-      setSections(groupIntoWeeks(sorted));
-      setHasMore(false); // server caps at 90; no further pages
+
+      setAllWorkouts((prev) => {
+        const merged = offset === 0 ? sorted : [...prev, ...sorted];
+        // Re-sort the full list to keep descending order after merge
+        merged.sort((a, b) => b.day_key.localeCompare(a.day_key));
+        setSections(groupIntoWeeks(merged));
+        return merged;
+      });
+
+      offsetRef.current = offset + sorted.length;
+      setHasMore(raw.length >= PAGE_SIZE);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load workout history');
     } finally {
@@ -194,18 +207,23 @@ export default function WorkoutHistoryScreen(): React.ReactElement {
     }
   }, []);
 
-  // Mount: load workouts
+  // Mount: fetch page 0
   useEffect(() => {
     fetchPage(0);
   }, [fetchPage]);
 
-  // ── Load more (no-op — server returns all history in one call) ────────────
-  const handleEndReached = useCallback(() => {}, []);
+  // ── Load more ──────────────────────────────────────────────────────────────
+  const handleEndReached = useCallback(() => {
+    if (!hasMore || loadingMore || loading || fetchingRef.current) return;
+    setLoadingMore(true);
+    fetchPage(offsetRef.current);
+  }, [hasMore, loadingMore, loading, fetchPage]);
 
   // ── Retry ─────────────────────────────────────────────────────────────────
   const handleRetry = useCallback(() => {
     setError(null);
     setLoading(true);
+    offsetRef.current = 0;
     fetchPage(0);
   }, [fetchPage]);
 

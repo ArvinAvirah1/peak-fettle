@@ -11,7 +11,6 @@ import Animated, { FadeIn, SlideInUp, useReducedMotion } from 'react-native-rean
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../src/theme/ThemeContext';
-import { BrandLogo } from '../src/components/BrandLogo';
 
 const FIRST_LAUNCH_KEY = '@peak_fettle/first_launch_done';
 
@@ -42,23 +41,30 @@ export default function SplashScreen(): React.ReactElement {
     return () => clearTimeout(timer);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const logoEntering  = reducedMotion ? undefined : FadeIn.duration(700);
+  const wordmarkEntering = reducedMotion ? undefined : FadeIn.duration(600);
   const sublineEntering = reducedMotion
     ? undefined
-    : SlideInUp.duration(400).delay(300);
+    : SlideInUp.duration(400).delay(200);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
-      {/* TICKET-063: Brand logo (scatter + trendline lockup, dark variant) */}
-      <Animated.View entering={logoEntering}>
-        <BrandLogo height={140} dark />
-      </Animated.View>
+      <Animated.Text
+        entering={wordmarkEntering}
+        style={{
+          fontSize: fontSize.display,
+          fontWeight: fontWeight.bold,
+          color: colors.accentDefault,
+          letterSpacing: 4,
+        }}
+      >
+        PEAK FETTLE
+      </Animated.Text>
       <Animated.Text
         entering={sublineEntering}
         style={{
           fontSize: fontSize.bodyLg,
           color: colors.textSecondary,
-          marginTop: 20,
+          marginTop: 12,
           letterSpacing: 1,
         }}
       >

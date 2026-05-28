@@ -21,7 +21,6 @@
     "expo-constants": "~18.0.13",
     "expo-dev-client": "~6.0.21",
     "expo-document-picker": "~14.0.8",
-    "expo-font": "~14.0.11",
     "expo-haptics": "~15.0.8",
     "expo-linear-gradient": "~15.0.8",
     "expo-linking": "~8.0.12",
@@ -46,7 +45,6 @@
   "devDependencies": {
     "@babel/core": "^7.25.0",
     "@types/react": "~19.1.10",
-    "@types/react-native": "^0.72.8",
     "eslint": "^8.57.0",
     "eslint-config-expo": "~10.0.0",
     "prettier": "^3.3.3",

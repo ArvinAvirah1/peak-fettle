@@ -45,12 +45,8 @@ import { Exercise, WorkoutSet, LiftSet, CardioSet, LogSetPayload } from '../../s
 import { useTheme } from '../../src/theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
 import { haptics } from '../../src/utils/haptics';
-import { logRestDay, undoRestDay } from '../../src/api/workouts';
-import { getPersonalBest, PersonalBest } from '../../src/api/sets';
+import { apiClient } from '../../src/api/client';
 import { ScreenLayout } from '../../src/components/ui';
-import { RoutineStrip, RoutineSession, RoutineSessionExercise } from '../../src/components/RoutineStrip';
-import StepperLogger, { LoggedSet } from '../../src/components/StepperLogger';
-import { suggestNextExercise, SessionExercise, SuggestCandidate } from '../../src/utils/smartSuggest';
 
 // MOCK-002 fix (2026-05-16): the previous `MOCK_WORKOUT` constant was
 // unconditionally injected as the active workout regardless of auth state.
@@ -568,139 +564,8 @@ export default function LogScreen(): React.ReactElement {
     return () => clearTimeout(t);
   }, [restSecondsLeft]);
 
-  // PL-3 / TICKET-054: Rest day state — hydrated from workout.session_type so the
-  // button reflects the real server state after a mount or a background refresh.
-  // workout is returned by usePowerSyncLog() which calls POST /workouts on mount;
-  // POST /workouts now returns session_type in the RETURNING clause, so if today's
-  // row already has session_type='rest_day' this will be true immediately.
-  const [restDayLoading, setRestDayLoading] = useState(false);
-  const restDayLogged = workout?.session_type === 'rest_day';
-  const [exercisePB, setExercisePB] = useState<PersonalBest | null>(null);
-
-  // ── TICKET-055/056: Routine session state ─────────────────────────────────
-  // Set when the user taps "Start" on a routine/template from the RoutineStrip.
-  // exercises tracks per-exercise logged set counts + done state for the checklist.
-  const [routineSession, setRoutineSession] = useState<RoutineSession | null>(null);
-
-  /** Update a single exercise in the active routine session (e.g. after logging a set). */
-  const updateRoutineExercise = useCallback((exerciseId: string) => {
-    setRoutineSession((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        exercises: prev.exercises.map((ex) =>
-          ex.exerciseId === exerciseId
-            ? { ...ex, loggedSetCount: ex.loggedSetCount + 1, done: true }
-            : ex
-        ),
-      };
-    });
-  }, []);
-
-  const handleStartRoutine = useCallback((session: RoutineSession) => {
-    setRoutineSession(session);
-  }, []);
-
-  // ── TICKET-059/060: Focus Stepper visibility + per-exercise set cache ──────
-  // stepperSets maps exerciseId → sets logged THIS session so the stepper can
-  // display chips without re-querying PowerSync.
-  const [stepperVisible, setStepperVisible] = useState(false);
-  const [stepperSets, setStepperSets] = useState<Map<string, LoggedSet[]>>(new Map());
-
-  const handleStartStepper = useCallback((session: RoutineSession) => {
-    setRoutineSession(session);
-    setStepperSets(new Map());
-    setStepperVisible(true);
-  }, []);
-
-  const handleStepperLogSet = useCallback(
-    async (exerciseId: string, weight: string, reps: string) => {
-      // Append to local chip cache first (optimistic)
-      setStepperSets((prev) => {
-        const next = new Map(prev);
-        const existing = next.get(exerciseId) ?? [];
-        next.set(exerciseId, [...existing, { weight, reps }]);
-        return next;
-      });
-      // Update routine session counters
-      updateRoutineExercise(exerciseId);
-      // Persist via PowerSync if workout exists
-      if (!workout?.id || !selectedExercise) return;
-      try {
-        await logSet({
-          workout_id: workout.id,
-          exercise_id: exerciseId || selectedExercise.id,
-          set_type: 'lift',
-          weight: parseFloat(weight) || 0,
-          reps: parseInt(reps) || 0,
-        } as LogSetPayload);
-        haptics.success();
-        setTimerActive(true);
-        setRestSecondsLeft(REST_DEFAULT);
-      } catch {
-        // Non-blocking — set is in local chip cache regardless
-      }
-    },
-    [workout, selectedExercise, logSet, updateRoutineExercise],
-  );
-
-  const handleStepperAdvance = useCallback((toIndex: number) => {
-    setRoutineSession((prev) => prev ? { ...prev, currentIndex: toIndex } : prev);
-  }, []);
-
-  const handleStepperAddOffRoutine = useCallback(
-    (exerciseId: string, exerciseName: string, position: 'end' | 'after_current') => {
-      setRoutineSession((prev) => {
-        if (!prev) return prev;
-        const newEx = {
-          exerciseId,
-          name: exerciseName,
-          loggedSetCount: 0,
-          done: false,
-        };
-        const exercises = [...prev.exercises];
-        if (position === 'end') {
-          exercises.push(newEx);
-        } else {
-          exercises.splice(prev.currentIndex + 1, 0, newEx);
-        }
-        return { ...prev, exercises };
-      });
-    },
-    [],
-  );
-
-  // ── TICKET-062: Non-routine stepper state ─────────────────────────────────
-  const [smartSuggestion, setSmartSuggestion] = useState<SuggestCandidate | null>(null);
-
-  const recomputeSuggestion = useCallback(() => {
-    if (!routineSession || routineSession.source === 'routine') return;
-    const sessionLog: SessionExercise[] = Array.from(stepperSets.entries()).map(
-      ([exerciseId, sets]) => ({
-        exerciseId,
-        name: routineSession.exercises.find((e) => e.exerciseId === exerciseId)?.name ?? exerciseId,
-        setCount: sets.length,
-      }),
-    );
-    const historyNames = Array.from(exerciseNames.values());
-    const allEx = Array.from(exerciseNames.entries()).map(([id, name]) => ({ id, name }));
-    setSmartSuggestion(suggestNextExercise(sessionLog, historyNames, allEx));
-  }, [routineSession, stepperSets, exerciseNames]);
-
-  const handleSaveAsRoutine = useCallback(async () => {
-    if (!routineSession) return;
-    const { createRoutine } = await import('../../src/api/routines');
-    const exercises = routineSession.exercises
-      .filter((ex) => ex.loggedSetCount > 0)
-      .map((ex) => ({ exercise_id: ex.exerciseId, name: ex.name, target_sets: ex.loggedSetCount }));
-    if (exercises.length === 0) return;
-    try {
-      await createRoutine({ name: `Session ${new Date().toLocaleDateString()}`, exercises });
-      Alert.alert('Routine saved', 'Your session has been saved as a new routine.');
-      setStepperVisible(false);
-      setRoutineSession(null);
-    } catch { Alert.alert('Error', 'Could not save routine'); }
-  }, [routineSession]);
+  // PL-3: Rest day toast state
+  const [restDayLogged, setRestDayLogged] = useState(false);
 
   const groups = useMemo(() => groupSetsByExercise(sets), [sets]);
   const totalSets = sets.length;
@@ -713,21 +578,6 @@ export default function LogScreen(): React.ReactElement {
       const next = new Map(prev);
       next.set(exercise.id, exercise.name);
       return next;
-    });
-    // Fetch PB for lift exercises so SetEntryForm can show reference card.
-    // Cardio exercises don't have weight-based PBs, so skip the fetch.
-    if (exercise.category === 'lift') {
-      setExercisePB(null); // clear stale PB immediately
-      getPersonalBest(exercise.id).then(setExercisePB).catch(() => {});
-    } else {
-      setExercisePB(null);
-    }
-    // TICKET-056: advance routine currentIndex to this exercise if it's in the routine
-    setRoutineSession((prev) => {
-      if (!prev) return prev;
-      const idx = prev.exercises.findIndex((ex) => ex.exerciseId === exercise.id);
-      if (idx === -1) return prev; // off-routine exercise — leave session as-is
-      return { ...prev, currentIndex: idx };
     });
   }, []);
 
@@ -747,11 +597,9 @@ export default function LogScreen(): React.ReactElement {
       setTimerActive(true);
       // P1-001b: reset rest countdown
       setRestSecondsLeft(REST_DEFAULT);
-      // TICKET-056: mark exercise done in routine session
-      if (selectedExercise) updateRoutineExercise(selectedExercise.id);
       return result;
     },
-    [logSet, selectedExercise, updateRoutineExercise]
+    [logSet]
   );
 
   const handleDeleteSet = useCallback(
@@ -766,39 +614,18 @@ export default function LogScreen(): React.ReactElement {
     [deleteSet]
   );
 
-  // PL-3 / TICKET-054: Log rest day handler — uses shared api/workouts.ts function.
-  // On success, router.replace navigates home (workout object updates there).
+  // PL-3: Log rest day handler
   const handleLogRestDay = useCallback(async () => {
-    if (restDayLogged || restDayLoading) return;
-    setRestDayLoading(true);
     try {
-      await logRestDay();
+      await apiClient.post('/workouts/rest-day');
+      setRestDayLogged(true);
       haptics.success();
       setTimeout(() => router.replace('/(tabs)/'), 1200);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Could not log rest day';
       Alert.alert('Error', msg);
-    } finally {
-      setRestDayLoading(false);
     }
-  }, [restDayLogged, restDayLoading, router]);
-
-  // TICKET-054: Undo rest day
-  const handleUndoRestDay = useCallback(async () => {
-    if (!restDayLogged || restDayLoading) return;
-    setRestDayLoading(true);
-    try {
-      await undoRestDay();
-      haptics.light();
-      // Returning to home clears the stale workout state; user can re-log sets.
-      router.replace('/(tabs)/');
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Could not undo rest day';
-      Alert.alert('Error', msg);
-    } finally {
-      setRestDayLoading(false);
-    }
-  }, [restDayLogged, restDayLoading, router]);
+  }, [router]);
 
   const nextSetIndex = selectedExercise
     ? countSetsForExercise(sets, selectedExercise.id)
@@ -847,150 +674,27 @@ export default function LogScreen(): React.ReactElement {
         </TouchableOpacity>
       </View>
 
-      {/* ---- TICKET-055: Routine + Splits strips (collapse after first set) ---- */}
-      {!restDayLogged && (
-        <RoutineStrip
-          hasLoggedSets={totalSets > 0}
-          onStartRoutine={handleStartStepper}
-          onStartTemplate={handleStartStepper}
-        />
-      )}
-
-      {/* ---- TICKET-056: Routine exercise checklist (shown when session active) ---- */}
-      {routineSession && routineSession.exercises.length > 0 && (
-        <View style={[styles.checklistContainer, { borderColor: theme.colors.borderDefault }]}>
-          <View style={styles.checklistHeader}>
-            <Text style={[styles.checklistTitle, { color: theme.colors.textPrimary }]}>
-              {routineSession.name}
-            </Text>
-            <TouchableOpacity
-              onPress={() => setRoutineSession(null)}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              accessibilityRole="button"
-              accessibilityLabel="Exit routine"
-            >
-              <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodySm }}>
-                Exit
-              </Text>
-            </TouchableOpacity>
-          </View>
-          {routineSession.exercises.map((ex, idx) => {
-            const isActive = idx === routineSession.currentIndex;
-            return (
-              <TouchableOpacity
-                key={`${ex.exerciseId}-${idx}`}
-                onPress={() => {
-                  // Select this exercise for logging; picker bypassed (TICKET-056 AC#1)
-                  const syntheticExercise = {
-                    id: ex.exerciseId || `routine-ex-${idx}`,
-                    name: ex.name,
-                    category: 'lift' as const,
-                    muscles: [],
-                    equipment: [],
-                    contraindications: [],
-                  };
-                  handleExerciseSelect(syntheticExercise);
-                  setRoutineSession((prev) =>
-                    prev ? { ...prev, currentIndex: idx } : prev
-                  );
-                }}
-                style={[
-                  styles.checklistRow,
-                  {
-                    backgroundColor: isActive
-                      ? theme.colors.accentSecondary
-                      : theme.colors.bgSecondary,
-                    borderColor: isActive
-                      ? theme.colors.accentDefault
-                      : theme.colors.borderDefault,
-                  },
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel={`${ex.name}${ex.done ? ', done' : ''}`}
-              >
-                <Text
-                  style={[
-                    styles.checklistCheck,
-                    { color: ex.done ? theme.colors.accentDefault : theme.colors.textTertiary },
-                  ]}
-                >
-                  {ex.done ? '✓' : '○'}
-                </Text>
-                <View style={{ flex: 1 }}>
-                  <Text
-                    style={[
-                      styles.checklistName,
-                      {
-                        color: ex.done
-                          ? theme.colors.textSecondary
-                          : theme.colors.textPrimary,
-                        textDecorationLine: ex.done ? 'line-through' : 'none',
-                      },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {ex.name}
-                  </Text>
-                  {ex.targetSets || ex.targetReps ? (
-                    <Text style={[styles.checklistTarget, { color: theme.colors.textTertiary }]}>
-                      {[
-                        ex.targetSets ? `${ex.targetSets} sets` : null,
-                        ex.targetReps ? `${ex.targetReps} reps` : null,
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </Text>
-                  ) : null}
-                </View>
-                {ex.loggedSetCount > 0 && (
-                  <Text
-                    style={[styles.checklistSetCount, { color: theme.colors.accentDefault }]}
-                  >
-                    {ex.loggedSetCount} set{ex.loggedSetCount !== 1 ? 's' : ''}
-                  </Text>
-                )}
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-      )}
-
-      {/* ---- PL-3 / TICKET-054: Rest day link — shown when no sets logged yet ---- */}
+      {/* ---- PL-3: Rest day link — only when no sets logged yet ---- */}
       {totalSets === 0 && !isLoading && !restDayLogged && (
         <TouchableOpacity
           onPress={handleLogRestDay}
-          disabled={restDayLoading}
           style={[styles.restDayLink, { marginTop: spacing.s2 }]}
           accessibilityRole="button"
           accessibilityLabel="Log rest day"
         >
-          {restDayLoading ? (
-            <ActivityIndicator size="small" color={theme.colors.accentDefault} />
-          ) : (
-            <Text style={[styles.restDayText, { color: theme.colors.textTertiary, fontSize: fontSize.bodySm }]}>
-              Taking a rest day?{' '}
-              <Text style={{ color: theme.colors.accentDefault }}>Log it →</Text>
-            </Text>
-          )}
+          <Text style={[styles.restDayText, { color: theme.colors.textTertiary, fontSize: fontSize.bodySm }]}>
+            Taking a rest day?{' '}
+            <Text style={{ color: theme.colors.accentDefault }}>Log it →</Text>
+          </Text>
         </TouchableOpacity>
       )}
 
-      {/* Rest day logged — with undo affordance (TICKET-054) */}
+      {/* Rest day success message */}
       {restDayLogged && (
-        <View style={[styles.restDaySuccess, { backgroundColor: theme.colors.bgElevated, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }]}>
+        <View style={[styles.restDaySuccess, { backgroundColor: theme.colors.bgElevated }]}>
           <Text style={[{ color: theme.colors.accentDefault, fontSize: fontSize.bodySm, textAlign: 'center' }]}>
-            ✓ Rest day logged — your streak is safe.
+            Rest day logged! Redirecting…
           </Text>
-          <TouchableOpacity
-            onPress={handleUndoRestDay}
-            disabled={restDayLoading}
-            hitSlop={{ top: 8, bottom: 8, left: 12, right: 8 }}
-            accessibilityRole="button"
-            accessibilityLabel="Undo rest day"
-            style={{ marginLeft: 10 }}
-          >
-            <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.caption }}>Undo</Text>
-          </TouchableOpacity>
         </View>
       )}
 
@@ -1146,7 +850,6 @@ export default function LogScreen(): React.ReactElement {
           onLogged={handleSetLogged}
           onClose={() => setSelectedExercise(null)}
           onSubmit={handleSubmitSet}
-          personalBest={exercisePB}
         />
       ) : null}
 
@@ -1167,51 +870,6 @@ export default function LogScreen(): React.ReactElement {
           </TouchableOpacity>
         </View>
       )}
-      {/* ── TICKET-059/060: Focus Stepper modal ───────────────────────────── */}
-      <Modal
-        visible={stepperVisible}
-        animationType="slide"
-        presentationStyle="fullScreen"
-        onRequestClose={() => setStepperVisible(false)}
-      >
-        {routineSession && (
-          <StepperLogger
-            routineSession={routineSession}
-            onLogSet={handleStepperLogSet}
-            onAdvance={handleStepperAdvance}
-            onFinish={() => {
-              setStepperVisible(false);
-              setRoutineSession(null);
-            }}
-            onBrowseLibrary={() => {
-              setStepperVisible(false);
-              setPickerVisible(true);
-            }}
-            variant={
-              routineSession?.source === 'routine'
-                ? 'routine'
-                : 'smart'  /* TICKET-062: 'smart' for free sessions (algo suggest) */
-            }
-            suggestion={smartSuggestion}
-            onAddNextExercise={() => {
-              recomputeSuggestion();
-              setPickerVisible(true);
-            }}
-            onSaveAsRoutine={handleSaveAsRoutine}
-            pbLabel={exercisePB ? exercisePB.weight + ' × ' + exercisePB.reps : null}
-            repTarget={
-              routineSession.exercises[routineSession.currentIndex]?.targetReps ?? null
-            }
-            currentExerciseSets={
-              stepperSets.get(
-                routineSession.exercises[routineSession.currentIndex]?.exerciseId ?? '',
-              ) ?? []
-            }
-            onAddOffRoutineExercise={handleStepperAddOffRoutine}
-            onClose={() => setStepperVisible(false)}
-          />
-        )}
-      </Modal>
     </View>
     </ScreenLayout>
   );
@@ -1255,6 +913,7 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
   addButton: {
+    width: 40,
     height: 40,
     borderRadius: radius.full,
     alignItems: 'center',
@@ -1351,56 +1010,5 @@ const styles = StyleSheet.create({
   restTimerDismissText: {
     fontSize: 20,
     lineHeight: 24,
-  },
-
-  /* ── TICKET-056: Routine exercise checklist ─────────────────────────────── */
-  checklistContainer: {
-    borderWidth: 1,
-    borderRadius: radius.md,
-    marginHorizontal: spacing.s4,
-    marginBottom: spacing.s3,
-    overflow: 'hidden',
-  },
-  checklistHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.s4,
-    paddingVertical: spacing.s3,
-  },
-  checklistTitle: {
-    fontSize: fontSize.bodySm,
-    fontWeight: fontWeight.semiBold,
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-  },
-  checklistRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.s4,
-    paddingVertical: spacing.s3,
-    gap: spacing.s3,
-  },
-  checklistCheck: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  checklistName: {
-    flex: 1,
-    fontSize: fontSize.bodyMd,
-  },
-  checklistTarget: {
-    fontSize: fontSize.bodySm,
-    marginRight: spacing.s2,
-  },
-  checklistSetCount: {
-    fontSize: fontSize.bodySm,
-    fontWeight: fontWeight.semiBold,
-    minWidth: 24,
-    textAlign: 'right',
   },
 });

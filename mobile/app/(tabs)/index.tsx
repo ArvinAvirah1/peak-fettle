@@ -44,9 +44,15 @@ import { useTheme } from '../../src/theme/ThemeContext';
 import { PFCard, PFButton, ScreenLayout } from '../../src/components/ui';
 import { getPlans, getPlan } from '../../src/api/plans';
 import { getPercentile } from '../../src/api/percentile';
-import { logRestDay, undoRestDay } from '../../src/api/workouts';
-import { TabErrorBoundary } from '../../src/components/TabErrorBoundary';
-import { BrandLogo } from '../../src/components/BrandLogo'; // TICKET-063
+import { apiClient } from '../../src/api/client';
+
+// ---------------------------------------------------------------------------
+// Rest Day API
+// ---------------------------------------------------------------------------
+
+async function logRestDay(): Promise<void> {
+  await apiClient.post('/workouts/rest-day');
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -309,7 +315,7 @@ function StatCard({ label, value }: { label: string; value: string }): React.Rea
 // Screen
 // ---------------------------------------------------------------------------
 
-function HomeScreen(): React.ReactElement {
+export default function HomeScreen(): React.ReactElement {
   const router = useRouter();
   const { user } = useAuth();
   const { sets: todaySets, isLoading: todayLoading } = useWorkout();
@@ -450,15 +456,7 @@ function HomeScreen(): React.ReactElement {
   const planReasoning = plan?.structure?.reasoning ?? null;
 
   // ── PL-3: Rest day state ─────────────────────────────────────────────────
-  // TICKET-054: hydrate from history — no extra fetch needed.
-  // history is already loaded by useWorkoutHistory(); once session_type is
-  // returned by GET /workouts the memo below reflects the real server state.
-  const restDayLoggedToday = useMemo(
-    () => history.some(
-      (e) => e.workout.day_key === todayKey && e.workout.session_type === 'rest_day'
-    ),
-    [history, todayKey]
-  );
+  const [restDayLoggedToday, setRestDayLoggedToday] = useState(false);
   const [restDayLoading, setRestDayLoading] = useState(false);
 
   const handleLogRestDay = useCallback(async () => {
@@ -466,27 +464,13 @@ function HomeScreen(): React.ReactElement {
     setRestDayLoading(true);
     try {
       await logRestDay();
-      // Refetch history so the memo picks up the new rest_day row.
-      await refetch();
+      setRestDayLoggedToday(true);
     } catch {
       Alert.alert('Could not log rest day', 'Please try again.');
     } finally {
       setRestDayLoading(false);
     }
-  }, [restDayLoggedToday, restDayLoading, refetch]);
-
-  const handleUndoRestDay = useCallback(async () => {
-    if (!restDayLoggedToday || restDayLoading) return;
-    setRestDayLoading(true);
-    try {
-      await undoRestDay();
-      await refetch();
-    } catch {
-      Alert.alert('Could not undo rest day', 'Please try again.');
-    } finally {
-      setRestDayLoading(false);
-    }
-  }, [restDayLoggedToday, restDayLoading, refetch]);
+  }, [restDayLoggedToday, restDayLoading]);
 
   // ── P1-006: Streak detail sheet ──────────────────────────────────────────
   const [streakDetailVisible, setStreakDetailVisible] = useState(false);
@@ -620,11 +604,6 @@ function HomeScreen(): React.ReactElement {
           </View>
         </View>
       </Modal>
-
-      {/* ── TICKET-063: Brand logo bar (horizontal, above greeting) ── */}
-      <View style={styles.logoBannerRow}>
-        <BrandLogo height={36} dark horizontal />
-      </View>
 
       {/* ── A. Greeting header ── */}
       <View style={[styles.headerSection, { marginBottom: spacing.s5 }]}>
@@ -766,12 +745,12 @@ function HomeScreen(): React.ReactElement {
         volumeDisplay={todayVolumeDisplay}
         isLoading={todayLoading}
       />
-      {/* PL-3: Rest day button — TICKET-054: hydrated from history; undo affordance added */}
+      {/* PL-3: Rest day button */}
       <TouchableOpacity
-        onPress={restDayLoggedToday ? undefined : handleLogRestDay}
-        disabled={restDayLoading}
+        onPress={handleLogRestDay}
+        disabled={restDayLoggedToday || restDayLoading}
         accessibilityRole="button"
-        accessibilityLabel={restDayLoggedToday ? 'Rest day logged' : 'Log rest day'}
+        accessibilityLabel="Log rest day"
         style={[
           styles.restDayButton,
           {
@@ -779,39 +758,19 @@ function HomeScreen(): React.ReactElement {
             borderColor: restDayLoggedToday ? theme.colors.borderDefault : theme.colors.accentDefault,
             borderWidth: 1,
             borderRadius: radius.md,
+            opacity: restDayLoggedToday ? 0.6 : 1,
           },
         ]}
       >
         {restDayLoading ? (
           <ActivityIndicator size="small" color={theme.colors.accentDefault} />
-        ) : restDayLoggedToday ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Text style={{
-              color: theme.colors.accentDefault,
-              fontSize: fontSize.bodySm,
-              fontWeight: fontWeight.medium,
-              flex: 1,
-            }}>
-              ✓ Rest day logged — your streak is safe.
-            </Text>
-            <TouchableOpacity
-              onPress={handleUndoRestDay}
-              hitSlop={{ top: 8, bottom: 8, left: 12, right: 0 }}
-              accessibilityRole="button"
-              accessibilityLabel="Undo rest day"
-            >
-              <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.caption, marginLeft: 8 }}>
-                Undo
-              </Text>
-            </TouchableOpacity>
-          </View>
         ) : (
           <Text style={{
-            color: theme.colors.accentDefault,
+            color: restDayLoggedToday ? theme.colors.textTertiary : theme.colors.accentDefault,
             fontSize: fontSize.bodySm,
             fontWeight: fontWeight.medium,
           }}>
-            😴 Log rest day
+            {restDayLoggedToday ? '✓ Rest day logged — your streak is safe.' : '😴 Log rest day'}
           </Text>
         )}
       </TouchableOpacity>
@@ -931,10 +890,6 @@ const styles = StyleSheet.create({
   },
 
   // Header
-  // TICKET-063: horizontal logo bar above greeting
-  logoBannerRow: {
-    marginBottom: spacing.s4,
-  },
   headerSection: {},
   headerRow: {
     flexDirection: 'row',
@@ -978,6 +933,7 @@ const styles = StyleSheet.create({
   },
   ctaButton: {
     width: '100%',
+    paddingVertical: 14,
     alignItems: 'center',
   },
 
@@ -1046,11 +1002,3 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
 });
-
-export default function HomeScreenWithBoundary(): React.ReactElement {
-  return (
-    <TabErrorBoundary screenName="Home">
-      <HomeScreen />
-    </TabErrorBoundary>
-  );
-}

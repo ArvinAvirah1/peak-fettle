@@ -34,8 +34,8 @@ import {
 } from 'react-native';
 import { useAuth } from '../../src/hooks/useAuth';
 import { usePlans } from '../../src/hooks/usePlans';
-import { getPlan, activatePlan, regeneratePlan } from '../../src/api/plans';
-import { Plan, PlanWithStructure, PlanExercise, PlanWeek, PlanWeekSession, GeneratePlanResponse } from '../../src/types/api';
+import { getPlan, activatePlan } from '../../src/api/plans';
+import { Plan, PlanWithStructure, PlanExercise, GeneratePlanResponse } from '../../src/types/api';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
 import { haptics } from '../../src/utils/haptics';
@@ -254,11 +254,8 @@ function PlanDetailModal({ planId, onClose, onRegenerate }: PlanDetailProps): Re
   const [plan, setPlan] = React.useState<PlanWithStructure | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
-  const [isRegenerating, setIsRegenerating] = React.useState(false);
-  const [selectedWeek, setSelectedWeek] = React.useState(0);
-  const [selectedDay, setSelectedDay] = React.useState(0);
 
-  const loadPlan = React.useCallback(() => {
+  React.useEffect(() => {
     setIsLoading(true);
     setError(null);
     getPlan(planId)
@@ -269,38 +266,8 @@ function PlanDetailModal({ planId, onClose, onRegenerate }: PlanDetailProps): Re
       .finally(() => setIsLoading(false));
   }, [planId]);
 
-  React.useEffect(() => {
-    setSelectedWeek(0);
-    setSelectedDay(0);
-    loadPlan();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [planId]);
-
-  const handleRegenerate = React.useCallback(async () => {
-    setIsRegenerating(true);
-    haptics.medium();
-    try {
-      await regeneratePlan(planId);
-      haptics.success();
-      setSelectedWeek(0);
-      setSelectedDay(0);
-      loadPlan();
-    } catch (err) {
-      haptics.error();
-      const msg = err instanceof Error ? err.message : 'Regeneration failed';
-      Alert.alert('Regeneration failed', msg);
-    } finally {
-      setIsRegenerating(false);
-    }
-  }, [planId, loadPlan]);
-
-  // Derive exercises from multi-week structure or legacy single-session
-  const hasWeeks = (plan?.structure?.weeks?.length ?? 0) > 0;
-  const weeks: PlanWeek[] = plan?.structure?.weeks ?? [];
-  const currentWeekSessions: PlanWeekSession[] = weeks[selectedWeek]?.sessions ?? [];
-  const exercises: PlanExercise[] = hasWeeks
-    ? (currentWeekSessions[selectedDay]?.exercises ?? [])
-    : (plan?.structure?.session?.exercises ?? []);
+  const exercises: PlanExercise[] =
+    plan?.structure?.session?.exercises ?? [];
   const reasoning = plan?.structure?.reasoning ?? null;
   const model = plan?.structure?.model ?? null;
 
@@ -372,62 +339,6 @@ function PlanDetailModal({ planId, onClose, onRegenerate }: PlanDetailProps): Re
               </View>
             ) : null}
 
-            {/* Week picker — shown for multi-week plans (TICKET-058) */}
-            {hasWeeks && weeks.length > 1 && (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <View style={detailStyles.pickerRow}>
-                  {weeks.map((week, idx) => (
-                    <TouchableOpacity
-                      key={week.week_number}
-                      style={[
-                        detailStyles.pickerChip,
-                        { borderColor: idx === selectedWeek ? theme.colors.accentDefault : theme.colors.borderDefault },
-                        idx === selectedWeek && { backgroundColor: theme.colors.accentDefault + '22' },
-                      ]}
-                      onPress={() => { setSelectedWeek(idx); setSelectedDay(0); }}
-                      accessibilityRole="button"
-                      accessibilityLabel={`View Week ${week.week_number}`}
-                    >
-                      <Text style={[
-                        detailStyles.pickerChipText,
-                        { color: idx === selectedWeek ? theme.colors.accentDefault : theme.colors.textSecondary },
-                      ]}>
-                        Week {week.week_number}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </ScrollView>
-            )}
-
-            {/* Day picker — shown when multi-week plan has sessions loaded */}
-            {hasWeeks && currentWeekSessions.length > 0 && (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                <View style={detailStyles.pickerRow}>
-                  {currentWeekSessions.map((session, idx) => (
-                    <TouchableOpacity
-                      key={idx}
-                      style={[
-                        detailStyles.pickerChip,
-                        { borderColor: idx === selectedDay ? theme.colors.accentDefault : theme.colors.borderDefault },
-                        idx === selectedDay && { backgroundColor: theme.colors.accentDefault + '22' },
-                      ]}
-                      onPress={() => setSelectedDay(idx)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`View ${session.day_label}`}
-                    >
-                      <Text style={[
-                        detailStyles.pickerChipText,
-                        { color: idx === selectedDay ? theme.colors.accentDefault : theme.colors.textSecondary },
-                      ]}>
-                        {session.day_label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              </ScrollView>
-            )}
-
             {/* Exercise list */}
             {exercises.length > 0 ? (
               <View style={detailStyles.exerciseList}>
@@ -457,8 +368,8 @@ function PlanDetailModal({ planId, onClose, onRegenerate }: PlanDetailProps): Re
             />
             <PFButton
               variant="ghost"
-              label={isRegenerating ? 'Regenerating…' : 'Regenerate Plan'}
-              onPress={handleRegenerate}
+              label="Regenerate Plan"
+              onPress={onRegenerate}
             />
           </View>
         )}
@@ -1144,24 +1055,5 @@ const detailStyles = StyleSheet.create({
     fontStyle: 'italic',
     marginTop: spacing.s2,
     lineHeight: fontSize.bodySm * 1.45,
-  },
-  // Week/day picker — TICKET-058
-  pickerRow: {
-    flexDirection: 'row',
-    gap: spacing.s2,
-    paddingBottom: spacing.s1,
-  },
-  pickerChip: {
-    borderRadius: radius.full,
-    borderWidth: 1,
-    paddingHorizontal: spacing.s4,
-    paddingVertical: spacing.s2,
-    minHeight: 36,
-    justifyContent: 'center' as const,
-    alignItems: 'center' as const,
-  },
-  pickerChipText: {
-    fontSize: fontSize.bodySm,
-    fontWeight: fontWeight.medium,
   },
 });

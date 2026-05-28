@@ -26,9 +26,8 @@ import {
   SafeAreaView,
   Alert,
 } from 'react-native';
-import { displayToKg, formatWeight } from '../constants/units';
+import { displayToKg } from '../constants/units';
 import { Exercise, WorkoutSet, LogSetPayload } from '../types/api';
-import { PersonalBest } from '../api/sets';
 import { UnitSystem } from '../constants/units';
 import { useTheme } from '../theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
@@ -47,8 +46,6 @@ export interface SetEntryFormProps {
   onClose: () => void;
   /** Called with the payload so the parent can perform the actual API call. */
   onSubmit: (payload: LogSetPayload) => Promise<WorkoutSet>;
-  /** PB data for lift exercises — shows last-session and all-time best cards. */
-  personalBest?: PersonalBest | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -119,7 +116,6 @@ export function SetEntryForm({
   onLogged,
   onClose,
   onSubmit,
-  personalBest,
 }: SetEntryFormProps): React.ReactElement {
   const { theme } = useTheme();
   const isLift = exercise.category === 'lift';
@@ -433,34 +429,6 @@ export function SetEntryForm({
               </Text>
             </View>
 
-
-            {/* Personal Best card — lift exercises only */}
-            {isLift && personalBest && (personalBest.last_session || personalBest.all_time_best) ? (
-              <View style={[styles.pbCard, {
-                backgroundColor: theme.colors.bgSecondary,
-                borderColor: theme.colors.accentDefault,
-              }]}>
-                <Text style={[styles.pbCardTitle, { color: theme.colors.accentDefault }]}>
-                  Personal Bests
-                </Text>
-                {personalBest.last_session ? (
-                  <View style={styles.pbRow}>
-                    <Text style={[styles.pbRowLabel, { color: theme.colors.textSecondary }]}>Last session</Text>
-                    <Text style={[styles.pbRowValue, { color: theme.colors.textPrimary }]}>
-                      {formatWeight(personalBest.last_session.weight_kg, unitPref)} × {personalBest.last_session.reps} reps
-                    </Text>
-                  </View>
-                ) : null}
-                {personalBest.all_time_best ? (
-                  <View style={styles.pbRow}>
-                    <Text style={[styles.pbRowLabel, { color: theme.colors.textSecondary }]}>All-time best</Text>
-                    <Text style={[styles.pbRowValue, { color: theme.colors.textPrimary }]}>
-                      {formatWeight(personalBest.all_time_best.weight_kg, unitPref)} × {personalBest.all_time_best.reps} reps
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-            ) : null}
             {/* Form fields */}
             {isLift ? renderLiftForm() : renderCardioForm()}
 
@@ -635,31 +603,5 @@ const styles = StyleSheet.create({
   logAnotherText: {
     fontSize: fontSize.bodyMd,  // E-003: was 16
     fontWeight: fontWeight.semibold,  // E-003: was '600'
-  },
-  pbCard: {
-    borderRadius: radius.md,
-    borderWidth: 1,
-    padding: spacing.s4,
-    gap: spacing.s2,
-  },
-  pbCardTitle: {
-    fontSize: fontSize.caption,
-    fontWeight: fontWeight.bold,
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    marginBottom: 2,
-  },
-  pbRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  pbRowLabel: {
-    fontSize: fontSize.bodySm,
-  },
-  pbRowValue: {
-    fontSize: fontSize.bodySm,
-    fontWeight: fontWeight.semibold,
-    fontVariant: ['tabular-nums'] as const,
   },
 });

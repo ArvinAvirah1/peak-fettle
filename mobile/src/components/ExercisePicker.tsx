@@ -4,11 +4,6 @@
  * Shows a search bar (debounced 300 ms) and a flat list of exercises
  * grouped by category. Tapping an exercise calls onSelect and closes.
  *
- * Free-text / custom exercise: when the user types a name that isn't in the
- * library, an "Add as custom exercise" button appears. Tapping it calls
- * POST /exercises (which uses ON CONFLICT DO NOTHING so the same name always
- * returns the same server-assigned UUID) and immediately selects the result.
- *
  * TODO(TICKET-027): swap for PowerSync hook after sync layer lands
  */
 
@@ -26,7 +21,7 @@ import {
   Platform,
   SafeAreaView,
 } from 'react-native';
-import { getExercises, searchExercises, createExercise } from '../api/exercises';
+import { getExercises, searchExercises } from '../api/exercises';
 import { Exercise, ExerciseCategory, ExerciseLibrary } from '../types/api';
 import { useTheme } from '../theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
@@ -74,7 +69,6 @@ export function ExercisePicker({
   const [library, setLibrary] = useState<ExerciseLibrary | null>(null);
   const [searchResults, setSearchResults] = useState<Exercise[] | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -114,7 +108,6 @@ export function ExercisePicker({
         setSearchResults(result.results);
       } catch {
         // Swallow search errors silently — the library is still visible
-        setSearchResults([]);
       }
     }, DEBOUNCE_MS);
   }, []);
@@ -144,26 +137,6 @@ export function ExercisePicker({
     },
     [onSelect]
   );
-
-  // Create a custom exercise from the current search query, then select it.
-  // Uses POST /exercises which returns the real server-assigned UUID (or the
-  // existing row's UUID if the name already exists — safe to call redundantly).
-  // This is the correct path for exercises not in the library; using a mock
-  // UUID would cause a FK violation on POST /sets.
-  const handleCreateCustom = useCallback(async () => {
-    const name = query.trim();
-    if (!name) return;
-    setIsCreating(true);
-    try {
-      const exercise = await createExercise(name);
-      onSelect(exercise);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Could not add exercise';
-      setError(msg);
-    } finally {
-      setIsCreating(false);
-    }
-  }, [query, onSelect]);
 
   const renderItem = ({ item }: { item: ListItem }) => {
     if (item.type === 'header') {
@@ -205,29 +178,6 @@ export function ExercisePicker({
     );
   };
 
-  // Footer shown at the bottom of search results (or in place of them) so the
-  // user can add any exercise not yet in the library by exact typed name.
-  const renderCustomButton = () => {
-    if (query.trim().length === 0) return null;
-    return (
-      <TouchableOpacity
-        style={[styles.customFooter, { borderTopColor: theme.colors.borderDefault }]}
-        onPress={handleCreateCustom}
-        disabled={isCreating}
-        accessibilityRole="button"
-        accessibilityLabel={`Add ${query.trim()} as a custom exercise`}
-      >
-        {isCreating ? (
-          <ActivityIndicator color={theme.colors.accentDefault} size="small" />
-        ) : (
-          <Text style={[styles.customFooterText, { color: theme.colors.accentDefault }]}>
-            + Add "{query.trim()}" as custom exercise
-          </Text>
-        )}
-      </TouchableOpacity>
-    );
-  };
-
   return (
     <Modal
       visible={visible}
@@ -261,12 +211,12 @@ export function ExercisePicker({
                 color: theme.colors.textPrimary,
                 borderColor: theme.colors.borderDefault,
               }]}
-              placeholder="Search exercises or type a custom name…"
+              placeholder="Search exercises..."
               placeholderTextColor={theme.colors.textTertiary}
               value={query}
               onChangeText={handleQueryChange}
               autoCorrect={false}
-              autoCapitalize="words"
+              autoCapitalize="none"
               returnKeyType="search"
               clearButtonMode="while-editing"
               accessibilityLabel="Search exercises"
@@ -303,12 +253,10 @@ export function ExercisePicker({
               </TouchableOpacity>
             </View>
           ) : listItems.length === 0 && query.trim().length > 0 ? (
-            // No search results — offer to add the typed name as a custom exercise
             <View style={styles.centered}>
               <Text style={[styles.emptyText, { color: theme.colors.textTertiary }]}>
                 No exercises found for "{query}"
               </Text>
-              {renderCustomButton()}
             </View>
           ) : (
             <FlatList
@@ -324,9 +272,6 @@ export function ExercisePicker({
                 offset: 64 * index,
                 index,
               })}
-              // When searching, show "Add as custom" below results so users can
-              // log anything not in the library without clearing their query.
-              ListFooterComponent={renderCustomButton()}
             />
           )}
         </KeyboardAvoidingView>
@@ -355,8 +300,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   headerTitle: {
-    fontSize: fontSize.bodyLg,
-    fontWeight: fontWeight.bold,
+    fontSize: fontSize.bodyLg,  // E-003: was 18
+    fontWeight: fontWeight.bold,  // E-003: was '700'
   },
   closeButton: {
     minWidth: 48,
@@ -365,8 +310,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   closeButtonText: {
-    fontSize: fontSize.bodyMd,
-    fontWeight: fontWeight.medium,
+    fontSize: fontSize.bodyMd,  // E-003: was 16
+    fontWeight: fontWeight.medium,  // E-003: was '500'
   },
   searchContainer: {
     paddingHorizontal: spacing.s4,
@@ -377,7 +322,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     paddingHorizontal: spacing.s4,
     paddingVertical: spacing.s3,
-    fontSize: fontSize.bodyMd,
+    fontSize: fontSize.bodyMd,  // E-003: was 16
     minHeight: 48,
     borderWidth: 1,
   },
@@ -390,8 +335,8 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
   sectionHeaderText: {
-    fontSize: fontSize.caption,
-    fontWeight: fontWeight.bold,
+    fontSize: fontSize.caption,  // E-003: was 12
+    fontWeight: fontWeight.bold,  // E-003: was '700'
     letterSpacing: 0.8,
     textTransform: 'uppercase',
   },
@@ -408,11 +353,11 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   exerciseName: {
-    fontSize: fontSize.bodyMd,
-    fontWeight: fontWeight.medium,
+    fontSize: fontSize.bodyMd,  // E-003: was 16
+    fontWeight: fontWeight.medium,  // E-003: was '500'
   },
   exerciseMeta: {
-    fontSize: fontSize.bodySm,
+    fontSize: fontSize.bodySm,  // E-003: was 13
   },
   compoundBadge: {
     borderRadius: radius.sm,
@@ -421,8 +366,8 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   compoundBadgeText: {
-    fontSize: fontSize.caption,
-    fontWeight: fontWeight.semibold,
+    fontSize: fontSize.caption,  // E-003: was 11
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
   },
   centered: {
     flex: 1,
@@ -432,14 +377,14 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   loadingText: {
-    fontSize: fontSize.bodySm,
+    fontSize: fontSize.bodySm,  // E-003: was 14
   },
   errorText: {
-    fontSize: fontSize.bodyMd,
+    fontSize: fontSize.bodyMd,  // E-003: was 15
     textAlign: 'center',
   },
   emptyText: {
-    fontSize: fontSize.bodyMd,
+    fontSize: fontSize.bodyMd,  // E-003: was 15
     textAlign: 'center',
   },
   retryButton: {
@@ -451,19 +396,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   retryButtonText: {
-    fontSize: fontSize.bodyMd,
-    fontWeight: fontWeight.semibold,
-  },
-  customFooter: {
-    paddingHorizontal: spacing.s5,
-    paddingVertical: spacing.s4,
-    minHeight: 56,
-    justifyContent: 'center',
-    alignItems: 'flex-start',
-    borderTopWidth: 1,
-  },
-  customFooterText: {
-    fontSize: fontSize.bodyMd,
-    fontWeight: fontWeight.medium,
+    fontSize: fontSize.bodyMd,  // E-003: was 15
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
   },
 });
