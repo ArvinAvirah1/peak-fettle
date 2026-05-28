@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
-    "jsEngine": "hermes",
+    "jsEngine": "jsc",
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
@@ -15,6 +15,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.peakfettle.app",
+      "jsEngine": "jsc",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
