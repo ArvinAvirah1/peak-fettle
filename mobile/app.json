@@ -33,14 +33,7 @@
     "plugins": [
       "expo-router",
       "expo-secure-store",
-      "expo-notifications",
-      [
-        "react-native-health",
-        {
-          "NSHealthShareUsageDescription": "Peak Fettle reads resting heart rate, HRV, sleep, and active energy data to personalise your training plans.",
-          "NSHealthUpdateUsageDescription": "Peak Fettle does not write health data."
-        }
-      ]
+      "expo-notifications"
     ],
     "scheme": "peak-fettle",
     "experiments": {
