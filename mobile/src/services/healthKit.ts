@@ -1,39 +1,33 @@
 /**
- * HealthKit integration service — iOS only.
+ * HealthKit integration service — TEMPORARILY STUBBED (2026-05-28).
  *
- * TICKET-022: This module provides a platform-safe abstraction over
- * Apple HealthKit. It returns graceful no-ops on Android.
+ * ROOT CAUSE OF THE STUB:
+ *   Native crash on launch under iOS 26.5 BETA — Hermes EXC_BAD_ACCESS at
+ *   address 0x0e inside facebook::react::TurboModuleConvertUtils::
+ *   convertNSExceptionToJSError. An ObjC TurboModule (most likely the
+ *   react-native-health bridge) threw an NSException at app startup that
+ *   RN could not safely convert into a JS error, segfaulting the process
+ *   before any UI rendered. react-native-health is also the only third-
+ *   party native module in the project most likely to break under an iOS
+ *   beta (HealthKit auth/threading semantics change in every iOS major).
  *
- * ── Installation requirement ──────────────────────────────────────────────
- * HealthKit access requires a development build (EAS build or bare workflow).
- * It cannot run in Expo Go.
+ *   Removing the dep + plugin lets the rest of the app boot. The health-
+ *   metrics screen will report "data unavailable" until react-native-health
+ *   (or a replacement) is verified working on iOS 26.
  *
- * Install before use:
- *   npx expo install react-native-health
- *
- * Then configure in app.json plugins:
- *   {
- *     "plugins": [
- *       ["react-native-health", {
- *         "NSHealthShareUsageDescription": "Peak Fettle reads resting heart rate, HRV, and sleep data to personalise your training plans.",
- *         "NSHealthUpdateUsageDescription": "Peak Fettle does not write health data."
- *       }]
- *     ]
- *   }
- *
- * Note: NSHealth* plist keys are already in app.json (added in TICKET-016 scaffold).
- * ─────────────────────────────────────────────────────────────────────────
- *
- * TODO(HealthKit): Uncomment the react-native-health import and implementation
- *   once the EAS development build is set up. The function signatures and
- *   return types are stable — callers don't need to change.
+ * Restore path:
+ *   1. Re-add 'react-native-health': '^1.19.0' to mobile/package.json deps.
+ *   2. Re-add the react-native-health plugin block to mobile/app.json plugins.
+ *   3. Replace this file with the previous implementation (preserved at
+ *      git commit 234e0f7^:mobile/src/services/healthKit.ts) — or use
+ *      git log to find the last revision before this stub.
+ *   4. EAS rebuild and verify the launch crash does not return.
  */
 
 import { Platform } from 'react-native';
-import { toDateKey } from '../utils/dateHelpers';
 
 // ---------------------------------------------------------------------------
-// Types
+// Types (kept identical to the real module so call sites still typecheck)
 // ---------------------------------------------------------------------------
 
 export interface DailyHealthKitSample {
@@ -45,88 +39,29 @@ export interface DailyHealthKitSample {
 }
 
 // ---------------------------------------------------------------------------
-// Platform guard
+// Platform guard — always false while the native module is removed
 // ---------------------------------------------------------------------------
 
-export const isHealthKitAvailable = Platform.OS === 'ios';
+export const isHealthKitAvailable = false;
 
 // ---------------------------------------------------------------------------
-// Permission request
+// Permission request — no-op stub
 // ---------------------------------------------------------------------------
 
-/**
- * Request HealthKit read permissions for: resting HR, HRV, sleep analysis,
- * active energy burned.
- *
- * Returns true if permissions were granted (or already granted).
- * Returns false on Android or if the user denies.
- *
- * @throws if HealthKit is not available on the device (e.g. iPad without sensors).
- */
 export async function requestHealthKitPermissions(): Promise<boolean> {
-  if (!isHealthKitAvailable) return false;
-
-  // TODO(HealthKit): replace stub with real implementation:
-  //
-  // import AppleHealthKit, { HealthKitPermissions } from 'react-native-health';
-  //
-  // return new Promise((resolve) => {
-  //   const permissions: HealthKitPermissions = {
-  //     permissions: {
-  //       read: [
-  //         AppleHealthKit.Constants.Permissions.HeartRate,
-  //         AppleHealthKit.Constants.Permissions.HeartRateVariability,
-  //         AppleHealthKit.Constants.Permissions.SleepAnalysis,
-  //         AppleHealthKit.Constants.Permissions.ActiveEnergyBurned,
-  //         AppleHealthKit.Constants.Permissions.RestingHeartRate,
-  //       ],
-  //       write: [],
-  //     },
-  //   };
-  //   AppleHealthKit.initHealthKit(permissions, (error) => {
-  //     resolve(!error);
-  //   });
-  // });
-
-  console.warn('[HealthKit] stub: react-native-health not yet installed');
+  if (Platform.OS !== 'ios') return false;
+  // eslint-disable-next-line no-console
+  console.warn('[HealthKit] STUB: react-native-health is removed pending iOS 26 compat.');
   return false;
 }
 
 // ---------------------------------------------------------------------------
-// Data fetch
+// Data fetch — returns empty array
 // ---------------------------------------------------------------------------
 
-/**
- * Fetch HealthKit data for the last N days.
- * Returns one record per day. Missing data fields are null.
- *
- * On Android or when HealthKit is unavailable: returns [].
- */
 export async function fetchHealthKitData(
-  days: number = 7
+  _startDate?: Date,
+  _endDate?: Date,
 ): Promise<DailyHealthKitSample[]> {
-  if (!isHealthKitAvailable) return [];
-
-  // TODO(HealthKit): replace stub with real implementation.
-  //
-  // The implementation should:
-  // 1. Build a date range: startDate = today - days, endDate = today
-  // 2. Query each metric type via the AppleHealthKit API
-  // 3. Aggregate to daily averages/sums
-  // 4. Return one DailyHealthKitSample per day in the range
-  //
-  // Example for resting HR:
-  //   AppleHealthKit.getRestingHeartRateSamples(
-  //     { startDate: startDate.toISOString(), endDate: endDate.toISOString() },
-  //     (error, results) => { ... }
-  //   );
-  //
-  // The field mapping to the server schema:
-  //   restingHrBpm → resting_hr_bpm (from HeartRate or RestingHeartRate samples)
-  //   hrvMs        → hrv_ms         (from HeartRateVariability samples)
-  //   sleepHours   → sleep_hours    (from SleepAnalysis, sum of 'ASLEEP' minutes / 60)
-  //   activeKcal   → active_kcal    (from ActiveEnergyBurned, sum per day)
-
-  console.warn('[HealthKit] stub: react-native-health not yet installed');
   return [];
 }
