@@ -379,7 +379,7 @@ router.patch('/profile', async (req, res, next) => {
             `UPDATE users
              SET ${setClauses.join(', ')}
              WHERE id = $1
-             RETURNING id, unit_pref, experience_level, weight_class_kg, use_1rm_confirmation, theme_preference, fcm_token`,
+             RETURNING id, unit_pref, experience_level, weight_class_kg`,
             params
         );
 

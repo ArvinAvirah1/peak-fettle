@@ -80,7 +80,7 @@ function Swatch({ meta, isSelected, onPress }: SwatchProps): React.ReactElement 
           {/* Checkmark when selected */}
           {isSelected && (
             <View style={styles.checkmarkOverlay}>
-              <Text style={{ fontSize: fontSize.bodyLg,  // E-003: was 18 color: meta.accentHex }}>✓</Text>
+              <Text style={{ fontSize: fontSize.bodyLg, color: meta.accentHex }}>✓</Text>
             </View>
           )}
         </View>
@@ -107,8 +107,8 @@ export function ThemeSelectorInline(): React.ReactElement {
   return (
     <View style={[styles.inlineContainer, { backgroundColor: theme.colors.bgSecondary,
       borderColor: theme.colors.borderDefault, padding: spacing.s4 }]}>
-      <Text style={{ color: theme.colors.textSecondary, fontSize: fontSize.caption,  // E-003: was 12 marginBottom: spacing.s3,
-        textTransform: 'uppercase', fontWeight: fontWeight.semibold,  // E-003: was '600' letterSpacing: 1 }}>
+      <Text style={{ color: theme.colors.textSecondary, fontSize: fontSize.caption, marginBottom: spacing.s3,
+        textTransform: 'uppercase', fontWeight: fontWeight.semibold, letterSpacing: 1 }}>
         Choose your theme
       </Text>
       <View style={styles.swatchRow}>
@@ -155,7 +155,7 @@ export function ThemeSelectorModal({ visible, onClose }: ThemeSelectorModalProps
             }]}>
               {/* Header */}
               <View style={styles.modalHeaderRow}>
-                <Text style={{ fontSize: fontSize.heading3, fontWeight: fontWeight.bold,  // E-003: was '700' color: theme.colors.textPrimary }}>
+                <Text style={{ fontSize: fontSize.heading3, fontWeight: fontWeight.bold, color: theme.colors.textPrimary }}>
                   Appearance
                 </Text>
                 <TouchableOpacity onPress={onClose} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }} accessibilityRole="button" accessibilityLabel="Close theme picker">
