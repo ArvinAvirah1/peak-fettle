@@ -47,7 +47,7 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '../../src/components/Icon';
 import { useAuth } from '../../src/hooks/useAuth';
 import {
   getConstraints,
