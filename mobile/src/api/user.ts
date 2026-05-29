@@ -81,6 +81,8 @@ export interface PatchProfilePayload {
   streak_notifications_enabled?: boolean;
   /** Opt-out of plan-ready push notifications. Default: true (opted in). */
   plan_notifications_enabled?: boolean;
+  /** TICKET-066: user opted in to seeing their Wilks2 score in the rankings tab. */
+  show_wilks?: boolean;
 }
 
 export async function patchProfile(payload: PatchProfilePayload): Promise<void> {

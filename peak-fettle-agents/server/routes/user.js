@@ -351,6 +351,7 @@ router.patch('/profile', async (req, res, next) => {
             theme_preference,
             sex,
             primary_discipline,
+            show_wilks,
         } = req.body ?? {};
 
         // Build SET clause dynamically — only update fields that were provided.
@@ -415,6 +416,18 @@ router.patch('/profile', async (req, res, next) => {
             setClauses.push(`theme_preference = $${params.length}`);
         }
 
+        // TICKET-066: per-user Wilks2 display preference.
+        if (show_wilks !== undefined) {
+            if (typeof show_wilks !== 'boolean') {
+                return res.status(400).json({
+                    error: 'invalid_show_wilks',
+                    message: 'show_wilks must be a boolean.',
+                });
+            }
+            params.push(show_wilks);
+            setClauses.push(`show_wilks = $${params.length}`);
+        }
+
         if (setClauses.length === 0) {
             return res.status(400).json({
                 error: 'no_fields',
@@ -426,7 +439,7 @@ router.patch('/profile', async (req, res, next) => {
             `UPDATE users
              SET ${setClauses.join(', ')}
              WHERE id = $1
-             RETURNING id, unit_pref, experience_level, weight_class_kg`,
+             RETURNING id, unit_pref, experience_level, weight_class_kg, show_wilks`,
             params
         );
 
