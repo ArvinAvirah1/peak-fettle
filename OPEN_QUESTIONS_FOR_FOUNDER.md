@@ -48,4 +48,28 @@ Found in TICKET-064 audit (F-003/F-004). Two competing paths exist:
 - **Answer:** **(a)** — build `/user/push-token` on the server. Migrate `pushNotifications.ts` to call `registerPushToken` / `unregisterPushToken` from `pushTokens.ts`. Delete the `patchProfile({ fcm_token })` path. TICKET-065 owns the implementation.
 
 ---
-*Add new questions below as Q7, Q8, … — never silently assume an answer.*
+
+## Q7 — Peak Fettle Mind: app name confirmed? `OPEN`
+"Peak Fettle Mind" applied as default in `COMPANION_APP_ROADMAP_2026-05-29.md`. Alternatives from the pitch: "Fettle Mind", "Headroom", "Even Keel", "Baseline".
+- **Impact:** bundle ID, App Store listing, brand assets. Easy to change before TICKET-074 (foundation).
+
+## Q8 — AI reflection in v1 or deferred? `OPEN`
+Pitch recommendation: defer to P4 (Claude Haiku journaling prompts with safety guardrails). Applied as default.
+- **Options:** (a) keep deferred to P4; (b) include in v1 with conservative safety prompting.
+- **Impact:** gates whether TICKET-078 exercise library includes any AI-generated prompts.
+
+## Q9 — Who human-reviews the crisis copy? `OPEN`
+TICKET-073 (safety scaffolding) requires a human to approve crisis resource text (988 copy, contextual trigger wording, disclaimer language) before any build ships. An agent can draft; a human must sign off.
+- **Impact:** TICKET-073 cannot be marked done without a named reviewer.
+- **Action needed:** nominate yourself or a designated reviewer.
+
+## Q10 — Encryption key management for mood notes / journal entries? `OPEN`
+Mind stores sensitive `note_encrypted` and `body_encrypted` fields. Three options:
+- **(a) Client-side AES** — key derived from session token. Notes lost if session key rotates without migration. Most private.
+- **(b) Server-side encryption** — server encrypts before storing. Simpler, operationally recoverable, but server holds the key.
+- **(c) Defer encryption** — store plain text in v1, encrypt in a fast-follow migration.
+- **Recommendation:** (b) for v1 simplicity; upgrade to (a) post-beta if user trust requires it.
+- **Impact:** gates TICKET-076 note implementation.
+
+---
+*Add new questions below as Q11, Q12, … — never silently assume an answer.*
