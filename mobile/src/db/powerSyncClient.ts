@@ -19,7 +19,7 @@ async function* emptyWatch(): AsyncGenerator<void> {
 
 export const db = {
   currentStatus: {
-    connected: false,
+    connected: true,
     downloading: false,
     uploading: false,
     lastSyncedAt: null as Date | null,

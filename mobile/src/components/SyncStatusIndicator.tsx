@@ -17,11 +17,12 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Animated } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
+import { useAuth } from '../hooks/useAuth';
 // DEV STUB: @powersync/react-native requires a native build — not available in Expo Go / web.
 // Replace with real import once running a development build.
 // import { usePowerSyncStatus } from '@powersync/react-native';
 function usePowerSyncStatus() {
-  return { connected: false, downloading: false, uploading: false };
+  return { connected: true, downloading: false, uploading: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -48,7 +49,8 @@ function deriveSyncState(status: StatusLike): SyncState {
 
 export function SyncStatusIndicator(): React.ReactElement {
   const { theme } = useTheme();
-  const status = usePowerSyncStatus();
+  const { isAuthenticated } = useAuth();
+  const status = { ...usePowerSyncStatus(), connected: isAuthenticated };
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
   const syncState = deriveSyncState({

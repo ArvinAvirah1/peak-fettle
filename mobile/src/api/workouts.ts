@@ -54,3 +54,26 @@ export async function createWorkout(dayKey: string, notes?: string): Promise<Wor
 export async function deleteWorkout(id: string): Promise<void> {
   await apiClient.delete(`/workouts/${id}`);
 }
+
+/**
+ * TICKET-054: Log an intentional rest day for today.
+ * Server upserts workouts(user_id, today, session_type='rest_day').
+ * Returns 409 if a rest_day row already exists (idempotent guard).
+ * The weekly streak cron counts rest_day rows as active days so the
+ * streak is preserved without requiring a lift session.
+ */
+export async function logRestDay(): Promise<{ id: string; day_key: string; session_type: string }> {
+  const response = await apiClient.post<{ id: string; day_key: string; session_type: string }>(
+    '/workouts/rest-day'
+  );
+  return response.data;
+}
+
+/**
+ * TICKET-054: Undo a rest day log for today.
+ * Calls DELETE /workouts/rest-day/today (server checks user ownership).
+ * Returns 404 if no rest_day row exists for today (safe to ignore).
+ */
+export async function undoRestDay(): Promise<void> {
+  await apiClient.delete('/workouts/rest-day/today');
+}
