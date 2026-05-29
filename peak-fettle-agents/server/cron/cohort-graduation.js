@@ -37,6 +37,7 @@
 
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const { pool } = require('../db');
+const { NOTIFICATION_TYPES } = require('../lib/notificationTypes');
 
 // ---------------------------------------------------------------------------
 // Band helpers — exported for tests
@@ -92,8 +93,8 @@ async function queueGraduationNotification(client, userId, oldBand, newBand) {
     try {
         await client.query(
             `INSERT INTO notification_queue (user_id, type, title, body, data, created_at)
-             VALUES ($1, 'cohort_graduation', $2, $3, $4::jsonb, now())`,
-            [userId, title, body, data]
+             VALUES ($1, $2, $3, $4, $5::jsonb, now())`,
+            [userId, NOTIFICATION_TYPES.COHORT_GRADUATION, title, body, data]
         );
     } catch (err) {
         console.warn(

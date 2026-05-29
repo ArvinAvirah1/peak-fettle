@@ -94,7 +94,10 @@ router.post('/', async (req, res, next) => {
              VALUES ($1, $2, $3, $4, $5,
                      $6, $7, $8,
                      $9, $10, $11)
-             RETURNING *`,
+             RETURNING id, workout_id, user_id, exercise_id, kind, set_index,
+                       reps, weight_raw, rir,
+                       duration_sec, distance_m, avg_pace_sec_per_km,
+                       is_pr, logged_at`,
             [
                 body.workoutId, req.user.id, body.exerciseId, body.kind, body.setIndex,
                 body.kind === 'lift' ? body.reps : null,
