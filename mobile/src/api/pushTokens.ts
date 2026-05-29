@@ -1,18 +1,15 @@
 /**
- * Push token API module — register and unregister FCM/APNs device tokens.
+ * Push token API module — register and unregister Expo device push tokens.
  *
- * Server endpoint: POST /user/push-token
+ * Server: POST /user/push-token  (TICKET-065 — implemented)
+ *         DELETE /user/push-token
  *
- * TODO(backend): The /user/push-token endpoint is not yet built on the server.
- * Add it to peak-fettle-agents/server/routes/user.js:
- *
- *   POST /user/push-token
- *   Body: { token: string, platform: 'ios' | 'android' }
- *   Action: upsert into a push_tokens table (user_id, token, platform, updated_at)
- *   The FCM sender (future feature) reads this table to deliver notifications.
- *
- * This client module is defined now so AuthContext can wire it immediately
- * when the server endpoint ships.
+ * Token transport note (PUSH-001/L-013):
+ *   Tokens come from Notifications.getExpoPushTokenAsync() — ExponentPushToken[…]
+ *   format. The server stores them in users.fcm_token and the push-dispatcher
+ *   routes them through the Expo Push API (exp.host), NOT FCM directly.
+ *   Never send an Expo token to FCM's `to` field — it will be rejected as
+ *   InvalidRegistration and the token will be silently wiped (PUSH-001).
  */
 
 import { apiClient } from './client';

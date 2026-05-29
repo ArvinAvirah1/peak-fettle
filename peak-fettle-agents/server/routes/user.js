@@ -262,6 +262,65 @@ router.delete('/account', deleteLimiter, async (req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /user/push-token
+// Register a device push token for this user.
+// Body: { token: string, platform: 'ios' | 'android' }
+// Upserts users.fcm_token — the push-dispatcher reads this column.
+// Safe to call multiple times (idempotent).
+// ---------------------------------------------------------------------------
+router.post('/push-token', async (req, res, next) => {
+    try {
+        const { token, platform } = req.body ?? {};
+
+        if (typeof token !== 'string' || token.length === 0 || token.length > 512) {
+            return res.status(400).json({
+                error: 'invalid_token',
+                message: 'token must be a non-empty string of ≤512 characters.',
+            });
+        }
+        if (!['ios', 'android'].includes(platform)) {
+            return res.status(400).json({
+                error: 'invalid_platform',
+                message: "platform must be 'ios' or 'android'.",
+            });
+        }
+
+        await pool.query(
+            `UPDATE users SET fcm_token = $1 WHERE id = $2`,
+            [token, req.user.id]
+        );
+
+        res.status(204).end();
+    } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /user/push-token
+// Unregister the device push token (call on logout).
+// Body: { token: string } — only clears the token if it matches the stored value
+// so concurrent logouts from multiple devices don't clobber each other.
+// ---------------------------------------------------------------------------
+router.delete('/push-token', async (req, res, next) => {
+    try {
+        const { token } = req.body ?? {};
+
+        if (typeof token !== 'string' || token.length === 0) {
+            return res.status(400).json({
+                error: 'invalid_token',
+                message: 'token must be a non-empty string.',
+            });
+        }
+
+        await pool.query(
+            `UPDATE users SET fcm_token = NULL WHERE id = $1 AND fcm_token = $2`,
+            [req.user.id, token]
+        );
+
+        res.status(204).end();
+    } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
 // PATCH /user/profile
 // Partial update for user profile fields.
 //
@@ -273,11 +332,13 @@ router.delete('/account', deleteLimiter, async (req, res, next) => {
 //   theme_preference     — 'deepOcean'|'ember'|'forest'|'midnight'|'monochrome' (E-002)
 //   sex                  — 'MALE'|'FEMALE'|'UNDISCLOSED' (ROADMAP 1.6)
 //   primary_discipline   — 7-value CHECK string (ROADMAP 1.6)
-//   fcm_token            — Expo/FCM push token (TICKET-024); null to clear
 //
 // E-002: theme_preference is written by the mobile ThemeProvider whenever the
 // user changes their theme. It is read at login and merged into the session so
 // the selected theme follows the user across devices.
+//
+// Push token registration is handled by the dedicated POST /user/push-token
+// endpoint — do not pass fcm_token here.
 // ---------------------------------------------------------------------------
 router.patch('/profile', async (req, res, next) => {
     try {
@@ -290,7 +351,6 @@ router.patch('/profile', async (req, res, next) => {
             theme_preference,
             sex,
             primary_discipline,
-            fcm_token,
         } = req.body ?? {};
 
         // Build SET clause dynamically — only update fields that were provided.
@@ -353,19 +413,6 @@ router.patch('/profile', async (req, res, next) => {
             }
             params.push(theme_preference);
             setClauses.push(`theme_preference = $${params.length}`);
-        }
-
-        // TICKET-024: FCM push token — stored so the server can target this device.
-        // Pass null to explicitly clear the token (e.g. on logout).
-        if (fcm_token !== undefined) {
-            if (fcm_token !== null && (typeof fcm_token !== 'string' || fcm_token.length > 512)) {
-                return res.status(400).json({
-                    error: 'invalid_fcm_token',
-                    message: 'fcm_token must be a string of ≤512 characters, or null.',
-                });
-            }
-            params.push(fcm_token);
-            setClauses.push(`fcm_token = $${params.length}`);
         }
 
         if (setClauses.length === 0) {
