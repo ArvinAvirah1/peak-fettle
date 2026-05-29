@@ -52,6 +52,7 @@ import { useAuth } from '../../src/hooks/useAuth';
 import { PercentileBar } from '../../src/components/PercentileBar';
 import { ConfidenceRing, confidenceRingTooltip } from '../../src/components/ConfidenceRing';
 import { confirm1rm } from '../../src/api/percentile';
+import { patchProfile } from '../../src/api/user';
 import { liftIdToName } from '../../src/utils/liftNames';
 import { PercentileRanking } from '../../src/types/api';
 import { useTheme } from '../../src/theme/ThemeContext';
@@ -325,12 +326,14 @@ function RankingCard({
   use1rmConfirmation,
   locallyConfirmed,
   primaryDiscipline,
+  showWilks,
   onConfirmRequest,
 }: {
   ranking: PercentileRanking;
   use1rmConfirmation: boolean;
   locallyConfirmed: boolean;
   primaryDiscipline?: string | null;
+  showWilks: boolean;
   onConfirmRequest: (ranking: PercentileRanking) => void;
 }): React.ReactElement {
   const { theme } = useTheme();
@@ -393,7 +396,7 @@ function RankingCard({
         <View style={styles.scoresRow}>
           <ScoreBlock
             value={ranking.percentile}
-            label={<GlossaryTerm slug="percentile">Percentile</GlossaryTerm>}
+            label={<GlossaryTerm slug="percentile">vs. your experience band</GlossaryTerm>}
           />
           <View style={[styles.scoresDivider, { backgroundColor: theme.colors.borderDefault }]} />
           <ScoreBlock
@@ -403,8 +406,8 @@ function RankingCard({
         </View>
       )}
 
-      {/* OD-2: Wilks2 score — subtle caption below the score blocks */}
-      {ranking.wilks_score != null && (
+      {/* OD-2: Wilks2 score — shown only when the user has enabled the Wilks preference (TICKET-066) */}
+      {showWilks && ranking.wilks_score != null && (
         <Text
           style={{
             fontSize: fontSize.caption,
@@ -507,6 +510,64 @@ function PercentileRankHeroCard({ rankings }: { rankings: PercentileRanking[] })
   );
 }
 
+/**
+ * OverallPercentileCard — shows the median of all exercise percentile values.
+ * Only rendered when rankings.length >= 10 (TICKET-066 founder spec).
+ * Uses `percentile` (experience-adjusted) values for the median computation.
+ */
+function OverallPercentileCard({ rankings }: { rankings: PercentileRanking[] }): React.ReactElement | null {
+  const { theme, fontSize: fs, fontWeight: fw, spacing: sp, radius: r } = useTheme();
+
+  // Collect non-null experience-adjusted percentile values and compute median
+  const values = rankings
+    .map((rk) => rk.percentile)
+    .filter((v): v is number => v != null)
+    .sort((a, b) => a - b);
+
+  if (values.length === 0) return null;
+
+  const mid = Math.floor(values.length / 2);
+  const median =
+    values.length % 2 === 0
+      ? (values[mid - 1] + values[mid]) / 2
+      : values[mid];
+
+  const medianRounded = Math.round(median);
+  const topPct = 100 - medianRounded;
+
+  return (
+    <View style={{ marginTop: sp.s4 }}>
+      <View style={{
+        backgroundColor: theme.colors.bgSecondary,
+        borderRadius: r.lg,
+        borderWidth: 1,
+        borderColor: theme.colors.borderDefault,
+        padding: sp.s5,
+        alignItems: 'center',
+        gap: sp.s2,
+      }}>
+        <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodySm }}>
+          Your overall percentile
+        </Text>
+        <Text style={{
+          fontSize: fs.metric,
+          fontWeight: fw.bold,
+          color: theme.colors.accentDefault,
+          fontVariant: ['tabular-nums'],
+        }}>
+          {medianRounded}%
+        </Text>
+        <Text style={{ color: theme.colors.textSecondary, fontSize: fs.bodyMd, fontWeight: fw.semibold }}>
+          Top {topPct}% of lifters
+        </Text>
+        <Text style={{ color: theme.colors.textTertiary, fontSize: fs.caption, textAlign: 'center' }}>
+          Median across {values.length} exercises · experience-adjusted
+        </Text>
+      </View>
+    </View>
+  );
+}
+
 function SkeletonCard(): React.ReactElement {
   const { theme } = useTheme();
   return (
@@ -582,11 +643,28 @@ function ErrorBanner({
 
 function RankingsScreen(): React.ReactElement {
   const { response, isLoading, error, refetch } = usePercentile();
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const { theme } = useTheme();
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isTogglingWilks, setIsTogglingWilks] = useState(false);
 
   const use1rmConfirmation = user?.use_1rm_confirmation ?? false;
+  const showWilks = user?.show_wilks ?? false;
+
+  const handleToggleWilks = useCallback(async () => {
+    const next = !showWilks;
+    // Optimistic update
+    updateUser({ show_wilks: next });
+    setIsTogglingWilks(true);
+    try {
+      await patchProfile({ show_wilks: next });
+    } catch {
+      // Revert on failure
+      updateUser({ show_wilks: !next });
+    } finally {
+      setIsTogglingWilks(false);
+    }
+  }, [showWilks, updateUser]);
 
   // BUG-008 (2026-05-23): persist confirmed lift IDs to AsyncStorage so the
   // "confirmed" state survives an app restart before the nightly batch flips
@@ -669,7 +747,26 @@ function RankingsScreen(): React.ReactElement {
         {/* Header                                                            */}
         {/* ---------------------------------------------------------------- */}
         <View style={styles.header}>
-          <Text style={[styles.title, { color: theme.colors.textPrimary }]}>Your Rankings</Text>
+          <View style={styles.headerRow}>
+            <Text style={[styles.title, { color: theme.colors.textPrimary }]}>Your Rankings</Text>
+            <TouchableOpacity
+              style={[
+                styles.wilksToggle,
+                {
+                  backgroundColor: showWilks ? theme.colors.accentDefault + '22' : theme.colors.bgSecondary,
+                  borderColor: showWilks ? theme.colors.accentDefault : theme.colors.borderDefault,
+                },
+              ]}
+              onPress={handleToggleWilks}
+              disabled={isTogglingWilks}
+              accessibilityRole="button"
+              accessibilityLabel={showWilks ? 'Hide Wilks score' : 'Show Wilks score'}
+            >
+              <Text style={[styles.wilksToggleText, { color: showWilks ? theme.colors.accentDefault : theme.colors.textTertiary }]}>
+                Wilks
+              </Text>
+            </TouchableOpacity>
+          </View>
           <Text style={[styles.subtitle, { color: theme.colors.textTertiary }]}>{cohortNote}</Text>
           <View style={[styles.chip, { backgroundColor: theme.colors.bgSecondary }]}>
             <Text style={[styles.chipText, { color: theme.colors.textTertiary }]}>🕐 Updated weekly</Text>
@@ -735,10 +832,22 @@ function RankingsScreen(): React.ReactElement {
                 use1rmConfirmation={use1rmConfirmation}
                 locallyConfirmed={confirmedThisSession.has(ranking.lift_id) || ranking.confirmed_1rm_kg != null}
                 primaryDiscipline={user?.primary_discipline ?? null}
+                showWilks={showWilks}
                 onConfirmRequest={handleConfirmRequest}
               />
             ))}
           </View>
+
+          {/* Median overall percentile card — only shown once ≥10 different exercises are logged */}
+          {rankings.length >= 10 ? (
+            <OverallPercentileCard rankings={rankings} />
+          ) : (
+            <View style={[styles.medianHint, { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault }]}>
+              <Text style={[styles.medianHintText, { color: theme.colors.textTertiary }]}>
+                Log 10+ different exercises to see your overall rank.
+              </Text>
+            </View>
+          )}
           </>
         ) : null}
       </ScrollView>
@@ -772,6 +881,22 @@ const styles = StyleSheet.create({
   header: {
     marginBottom: 24,
     gap: 8,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  // Wilks toggle button in header (TICKET-066)
+  wilksToggle: {
+    borderRadius: radius.full,
+    borderWidth: 1,
+    paddingHorizontal: spacing.s3,
+    paddingVertical: 4,
+  },
+  wilksToggleText: {
+    fontSize: fontSize.caption,
+    fontWeight: fontWeight.medium,
   },
   title: {
     fontSize: fontSize.heading1,  // E-003: was 28
@@ -956,6 +1081,20 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 20,
     marginTop: 4,
+  },
+
+  // Median hint (shown when < 10 exercises logged, TICKET-066)
+  medianHint: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    padding: 14,
+    marginTop: 12,
+    alignItems: 'center',
+  },
+  medianHintText: {
+    fontSize: fontSize.bodySm,
+    textAlign: 'center',
+    lineHeight: 20,
   },
 
   // Error banner

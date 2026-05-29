@@ -43,6 +43,8 @@ export interface User {
   plan_notifications_enabled?: boolean;
   /** ROADMAP 1.6 — primary sport/discipline for cohort routing. */
   primary_discipline?: string | null;
+  /** TICKET-066: user opted in to seeing their Wilks2 score in the rankings tab. Default: false. */
+  show_wilks?: boolean;
 }
 
 export interface AuthTokens {
