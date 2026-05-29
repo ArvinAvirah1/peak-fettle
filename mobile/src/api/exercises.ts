@@ -45,14 +45,18 @@ const MOCK_LIBRARY: ExerciseLibrary = {
 };
 
 export async function getExercises(kind?: ExerciseCategory): Promise<ExerciseLibrary> {
-  try {
-    const response = await apiClient.get<ExerciseLibrary>('/exercises', {
-      params: kind ? { kind } : undefined,
-    });
-    return response.data;
-  } catch {
-    return MOCK_LIBRARY;
-  }
+  // IMPORTANT: do NOT fall back to mock exercises on failure.
+  // Mock IDs (00000000-…) are NOT rows in the production exercises table.
+  // If a user picks a mock exercise and logs a set, the server returns a 500
+  // FK violation and the set is lost silently. The same exercise names exist
+  // in both mock and DB under *different* UUIDs, so the mock fallback looks
+  // correct in the UI but breaks logging. Let the error propagate so the
+  // ExercisePicker shows its "Try Again" UI — the user can retry when network
+  // recovers. (Same rationale as the searchExercises catch block below.)
+  const response = await apiClient.get<ExerciseLibrary>('/exercises', {
+    params: kind ? { kind } : undefined,
+  });
+  return response.data;
 }
 
 export async function searchExercises(
