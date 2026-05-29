@@ -220,11 +220,11 @@ export function RoutineStrip({
   useEffect(() => {
     getRoutines()
       .then(setRoutines)
-      .catch(() => {})
+      .catch((err: unknown) => { console.warn('[PF] RoutineStrip/getRoutines:', err instanceof Error ? err.message : String(err)); })
       .finally(() => setLoadingRoutines(false));
     getTemplates()
       .then((all) => setTemplates(all.filter((t) => t.is_featured).slice(0, 6)))
-      .catch(() => {})
+      .catch((err: unknown) => { console.warn('[PF] RoutineStrip/getTemplates:', err instanceof Error ? err.message : String(err)); })
       .finally(() => setLoadingTemplates(false));
   }, []);
 
@@ -262,7 +262,8 @@ export function RoutineStrip({
       setLoadingDetail(true);
       try {
         full = await getTemplate(template.id);
-      } catch {
+      } catch (err) {
+        console.warn('[PF] RoutineStrip/openTemplateSheet:', err instanceof Error ? err.message : String(err));
         full = template;
       } finally {
         setLoadingDetail(false);

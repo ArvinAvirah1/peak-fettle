@@ -82,8 +82,9 @@ export function ThemeProvider({
           setThemeName(name);
           setThemeObj(THEMES[name]);
         }
-      } catch {
+      } catch (err) {
         // If AsyncStorage fails, fall back to default silently
+        console.warn('[PF] ThemeContext/loadTheme:', err instanceof Error ? err.message : String(err));
       } finally {
         setIsReady(true);
       }
@@ -107,16 +108,18 @@ export function ThemeProvider({
       // Persist locally
       try {
         await AsyncStorage.setItem(THEME_STORAGE_KEY, name);
-      } catch {
+      } catch (err) {
         // Non-fatal: theme is still applied in memory
+        console.warn('[PF] ThemeContext/setTheme persist:', err instanceof Error ? err.message : String(err));
       }
 
       // Persist to Supabase if callback provided (E-002)
       if (onThemeChange) {
         try {
           await onThemeChange(name);
-        } catch {
+        } catch (err) {
           // Non-fatal: local preference is already saved
+          console.warn('[PF] ThemeContext/setTheme onThemeChange:', err instanceof Error ? err.message : String(err));
         }
       }
     },

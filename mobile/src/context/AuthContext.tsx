@@ -187,8 +187,9 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
   const persistUser = useCallback(async (u: User) => {
     try {
       await safeSecureStore.setItemAsync(USER_PROFILE_KEY, JSON.stringify(u));
-    } catch {
+    } catch (err) {
       // Non-blocking — worst case the user has to log in again after restart.
+      console.warn('[PF] AuthContext/persistUser:', err instanceof Error ? err.message : String(err));
     }
   }, []);
 
@@ -196,8 +197,9 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
   const clearUser = useCallback(async () => {
     try {
       await safeSecureStore.deleteItemAsync(USER_PROFILE_KEY);
-    } catch {
+    } catch (err) {
       // Ignore
+      console.warn('[PF] AuthContext/clearUser:', err instanceof Error ? err.message : String(err));
     }
   }, []);
 
@@ -303,11 +305,13 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
             if (storedUser) {
               setUser(JSON.parse(storedUser) as User);
             }
-          } catch {
+          } catch (err) {
             // Corrupted or missing — leave user null; login will fix it.
+            console.warn('[PF] AuthContext/bootstrap restoreUser:', err instanceof Error ? err.message : String(err));
           }
         }
-      } catch {
+      } catch (err) {
+        console.warn('[PF] AuthContext/bootstrap silentRefresh:', err instanceof Error ? err.message : String(err));
         if (!cancelled) {
           // Refresh token was revoked/expired — clear everything and show login.
           await clearRefreshToken();
@@ -342,8 +346,9 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
   const _registerPushToken = useCallback(async () => {
     try {
       await registerForPushNotificationsAsync();
-    } catch {
+    } catch (err) {
       // Swallow — push registration is non-blocking.
+      console.warn('[PF] AuthContext/_registerPushToken:', err instanceof Error ? err.message : String(err));
     }
   }, []);
 
