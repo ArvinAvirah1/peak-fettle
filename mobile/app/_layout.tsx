@@ -2,39 +2,34 @@
  * Root layout — wraps the entire app in <ThemeProvider> + <AuthProvider> + <PowerSyncProvider>
  * and implements the auth guard.
  *
- * Provider nesting order (outermost → innermost):
- *   ThemeProvider       — design token system; provides useTheme() app-wide (E-001)
- *   AuthProvider        — provides Supabase JWT, user state, login/logout
- *   PowerSyncProvider   — opens the local SQLite DB and connects the sync
- *                         service using the JWT from AuthContext
- *   RootNavigator       — reads auth state to show spinner or route tree
+ * 2026-05-28 IOS-26-CRASH-FIX:
+ * Removed `useFonts` call from this file. Diff analysis vs known-working
+ * commit 0088129 (pre-TICKET-051+) showed that the ONLY new boot-time
+ * native TurboModule call introduced since the working build was
+ * useFonts({ Outfit-Regular, Medium, SemiBold, Bold }) added in TICKET-057.
  *
- * ThemeProvider is the outermost wrapper so every component (including auth
- * screens) can access design tokens. It reads the persisted theme from
- * AsyncStorage before rendering children to eliminate first-frame color flicker.
+ * Crash log PeakFettle-2026-05-28-174319.ips on iOS 26.5 PUBLIC release
+ * showed an ObjC TurboModule throwing NSException at boot, which Hermes
+ * could not safely convert to a JS error — segfaulting the app before
+ * any UI rendered. Every other boot-time call (push registration,
+ * SecureStore reads, AsyncStorage, status bar) was already present in
+ * the working build, so they are NOT the culprit.
  *
- * PowerSyncProvider MUST be inside AuthProvider because it consumes useAuth()
- * to get the access token and to call setAccessToken() on the connector
- * whenever the token rotates.
+ * Fonts now fall back to iOS system font (San Francisco). The Outfit
+ * font referenced by src/theme/tokens.ts `fontFamily.*` constants will
+ * simply not resolve on iOS — RN falls back gracefully. Visual difference
+ * is limited to the BrandLogo horizontal variant and stepper screens.
  *
- * expo-router renders this component as the root of the navigation tree.
- * The auth guard works by:
- *   1. Rendering nothing (or a loading indicator) while isLoading is true
- *      (cold-start silent refresh in flight).
- *   2. Once isLoading resolves, expo-router's <Slot> renders the matched route.
- *   3. AuthContext.login() / logout() call router.replace() to switch between
- *      /(auth)/* and /(tabs)/*, which re-evaluates this guard on the next render.
- *
- * We do NOT implement a redirect loop in the layout because expo-router handles
- * redirects inside AuthContext directly. This keeps the layout simple and avoids
- * double-render issues.
+ * Restore path (when expo-font is fixed for iOS 26):
+ *   1. Re-add `import { useFonts } from 'expo-font'`
+ *   2. Restore the useFonts call + fontsLoaded gate inside RootLayout()
+ *   3. EAS rebuild and verify launch.
  */
 
 import React, { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, View, StyleSheet, Text, ScrollView } from 'react-native';
-import { useFonts } from 'expo-font';
 
 import { AuthProvider } from '../src/context/AuthContext';
 import { PowerSyncProvider } from '../src/context/PowerSyncContext';
@@ -46,9 +41,8 @@ import { registerForPushNotificationsAsync } from '../src/services/pushNotificat
 // ---------------------------------------------------------------------------
 // Root-level Error Boundary (2026-05-28)
 // Surfaces ANY JS crash at boot with a visible red-screen error message
-// instead of a blank screen. Without this, every previous startup crash
-// (CORRUPT-001, PUSH-001, expo-font mismatch) presented as "the app launches
-// and instantly dies with no feedback", making every root-cause hunt blind.
+// instead of a blank screen. Cannot catch native-level crashes (e.g. Hermes
+// segfault from NSException) — for those the iOS crash log is the only signal.
 // ---------------------------------------------------------------------------
 
 interface BootErrorBoundaryState {
@@ -146,20 +140,7 @@ function RootNavigator(): React.ReactElement {
 // ---------------------------------------------------------------------------
 
 export default function RootLayout(): React.ReactElement {
-  // TICKET-057: Load Outfit font family (offline-bundled in assets/fonts/).
-  // 2026-05-28: capture error and don't block forever if font load fails — the
-  // app stayed blank when expo-font returned an error before the bump.
-  const [fontsLoaded, fontError] = useFonts({
-    'Outfit-Regular':  require('../assets/fonts/Outfit-Regular.ttf'),
-    'Outfit-Medium':   require('../assets/fonts/Outfit-Medium.ttf'),
-    'Outfit-SemiBold': require('../assets/fonts/Outfit-SemiBold.ttf'),
-    'Outfit-Bold':     require('../assets/fonts/Outfit-Bold.ttf'),
-  });
-
-  if (!fontsLoaded && !fontError) {
-    return <View style={{ flex: 1, backgroundColor: '#0f172a' }} />;
-  }
-
+  // useFonts removed (IOS-26-CRASH-FIX above). System fonts will be used.
   return (
     <BootErrorBoundary>
       <ThemeProvider
