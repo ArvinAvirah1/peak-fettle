@@ -428,7 +428,7 @@ function RankingCard({
             />
             <Text style={[styles.confidenceText, { color: theme.colors.textTertiary, fontVariant: ['tabular-nums'] }]} numberOfLines={2}>
               {/* UX-003: casual tooltip for non-strength disciplines */}
-              {/* TODO: expose primary_discipline on user object from useAuth() if not yet available */}
+              {/* primary_discipline is now typed on User (TICKET-067) */}
               {(() => {
                 const NON_STRENGTH = ['Running', 'Cycling', 'Swimming', 'Other/Mixed'];
                 const discipline = primaryDiscipline ?? null;
@@ -734,7 +734,7 @@ function RankingsScreen(): React.ReactElement {
                 ranking={ranking}
                 use1rmConfirmation={use1rmConfirmation}
                 locallyConfirmed={confirmedThisSession.has(ranking.lift_id) || ranking.confirmed_1rm_kg != null}
-                primaryDiscipline={(user as any)?.primary_discipline ?? null}
+                primaryDiscipline={user?.primary_discipline ?? null}
                 onConfirmRequest={handleConfirmRequest}
               />
             ))}

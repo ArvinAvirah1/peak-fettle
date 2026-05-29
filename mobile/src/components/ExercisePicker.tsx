@@ -9,7 +9,8 @@
  * POST /exercises (which uses ON CONFLICT DO NOTHING so the same name always
  * returns the same server-assigned UUID) and immediately selects the result.
  *
- * TODO(TICKET-027): swap for PowerSync hook after sync layer lands
+ * PowerSync does not cache the exercise library (read-only global table) —
+ * direct API calls via getExercises/searchExercises are correct here.
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -78,8 +79,8 @@ export function ExercisePicker({
   const [error, setError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load full library when modal opens
-  // TODO(TICKET-027): swap for PowerSync hook after sync layer lands
+  // Load full library when modal opens.
+  // PowerSync does not cache exercises (global read-only library) — direct API call is correct.
   useEffect(() => {
     if (!visible) return;
     setQuery('');
@@ -97,8 +98,8 @@ export function ExercisePicker({
       .finally(() => setIsLoading(false));
   }, [visible]);
 
-  // Debounced search
-  // TODO(TICKET-027): swap for PowerSync hook after sync layer lands
+  // Debounced search.
+  // PowerSync does not cache exercises (global read-only library) — direct API call is correct.
   const handleQueryChange = useCallback((text: string) => {
     setQuery(text);
     if (debounceRef.current) clearTimeout(debounceRef.current);

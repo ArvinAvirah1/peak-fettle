@@ -41,6 +41,8 @@ export interface User {
   streak_notifications_enabled?: boolean;
   /** Opt-out of plan-ready push notifications. Default: true (opted in). */
   plan_notifications_enabled?: boolean;
+  /** ROADMAP 1.6 — primary sport/discipline for cohort routing. */
+  primary_discipline?: string | null;
 }
 
 export interface AuthTokens {
