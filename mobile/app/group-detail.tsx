@@ -39,7 +39,7 @@ import {
   Platform,
   Modal,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '../src/components/Icon';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useGroupDetail, useGroups } from '../src/hooks/useGroups';
 import { useAuth } from '../src/hooks/useAuth';

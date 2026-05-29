@@ -22,7 +22,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '../src/components/Icon';
 import { useTheme } from '../src/theme/ThemeContext';
 import { PFButton, PFProgressBar, ScreenLayout } from '../src/components/ui';
 import { apiClient } from '../src/api/client';

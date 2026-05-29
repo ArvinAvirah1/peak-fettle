@@ -23,7 +23,7 @@
 import React from 'react';
 import { View, TouchableOpacity } from 'react-native';
 import { Redirect, Tabs, useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '../../src/components/Icon';
 import Animated, {
   useAnimatedStyle,
   withSpring,

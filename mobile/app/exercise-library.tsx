@@ -49,7 +49,7 @@ import {
   Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '../src/components/Icon';
 
 import { useTheme } from '../src/theme/ThemeContext';
 import { PFButton } from '../src/components/ui/PFButton';

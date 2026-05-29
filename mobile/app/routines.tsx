@@ -27,7 +27,7 @@ import {
   Pressable,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '../src/components/Icon';
 import { useTheme } from '../src/theme/ThemeContext';
 import { fontFamily, fontSize, spacing, radius, stepperPalette } from '../src/theme/tokens';
 import {

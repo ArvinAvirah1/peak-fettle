@@ -20,10 +20,12 @@
  * simply not resolve on iOS — RN falls back gracefully. Visual difference
  * is limited to the BrandLogo horizontal variant and stepper screens.
  *
- * Restore path (when expo-font is fixed for iOS 26):
- *   1. Re-add `import { useFonts } from 'expo-font'`
- *   2. Restore the useFonts call + fontsLoaded gate inside RootLayout()
- *   3. EAS rebuild and verify launch.
+ * UPDATE 2026-05-29 (IOS-26-CRASH-FIX, part 2): Do NOT re-add useFonts here.
+ * The Outfit + Ionicons fonts are now EMBEDDED natively at build time via the
+ * `expo-font` config plugin in app.json, so they resolve by fontFamily name
+ * with NO runtime loadAsync (the call that crashed iOS 26). Re-adding useFonts
+ * would re-introduce the boot crash. Icons render via src/components/Icon.tsx,
+ * a <Text>-glyph shim that never calls expo-font.loadAsync.
  */
 
 import React, { useEffect } from 'react';

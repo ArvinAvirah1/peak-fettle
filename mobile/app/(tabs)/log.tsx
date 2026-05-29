@@ -34,7 +34,7 @@ import {
   Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons } from '../../src/components/Icon';
 import { useAuth } from '../../src/hooks/useAuth';
 import { usePowerSyncLog } from '../../src/hooks/usePowerSyncLog';
 import { ExercisePicker } from '../../src/components/ExercisePicker';
