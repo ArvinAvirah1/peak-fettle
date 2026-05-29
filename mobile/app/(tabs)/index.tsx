@@ -5,8 +5,9 @@
  * Implements TICKET-018, P0-002, P0-005.
  * E-001 update: all hardcoded hex values replaced with semantic tokens via useTheme().
  *
- * PR detection is client-side / approximate (30-day window only).
- * TODO: replace with GET /prs once backend endpoint ships
+ * PR detection is client-side only (30-day window, sets already in local state).
+ * A dedicated GET /prs endpoint would be more accurate but is not yet built.
+ * This is an intentional approximation — track as TICKET-073 if/when accuracy matters.
  *
  * TICKET-027: PowerSync sync indicator shown in the greeting header.
  * Initial sync is triggered automatically by PowerSyncProvider in _layout.tsx
@@ -360,8 +361,9 @@ function HomeScreen(): React.ReactElement {
         const detail = await getPlan(plans[0].id);
         setPlan(detail);
       }
-    } catch {
+    } catch (err) {
       // Silently ignore — plan card is non-critical
+      console.warn('[PF] index/loadPlan:', err instanceof Error ? err.message : String(err));
     } finally {
       setPlanLoading(false);
     }
@@ -382,8 +384,9 @@ function HomeScreen(): React.ReactElement {
           .filter((v): v is number => v !== null);
         if (values.length > 0) setBestPercentile(Math.max(...values));
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         // Non-critical — leave as null
+        console.warn('[PF] index/getPercentile:', err instanceof Error ? err.message : String(err));
       });
   }, []);
 

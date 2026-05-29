@@ -48,9 +48,10 @@ async function loadSeenSet(): Promise<Set<string>> {
         const raw = await AsyncStorage.getItem(SEEN_STORAGE_KEY);
         const arr: unknown = raw ? JSON.parse(raw) : [];
         seenCache = new Set(Array.isArray(arr) ? (arr as string[]) : []);
-      } catch {
+      } catch (err) {
         // Corrupt/unavailable storage — fail open with an empty set. Worst case
         // the user sees a tooltip an extra time; never a crash.
+        console.warn('[PF] Tooltip/loadSeenSet:', err instanceof Error ? err.message : String(err));
         seenCache = new Set();
       }
       return seenCache;
@@ -62,9 +63,10 @@ async function loadSeenSet(): Promise<Set<string>> {
 async function persistSeenSet(set: Set<string>): Promise<void> {
   try {
     await AsyncStorage.setItem(SEEN_STORAGE_KEY, JSON.stringify([...set]));
-  } catch {
+  } catch (err) {
     // Best-effort. If the write fails the in-memory cache still suppresses the
     // bubble for the rest of this session.
+    console.warn('[PF] Tooltip/persistSeenSet:', err instanceof Error ? err.message : String(err));
   }
 }
 

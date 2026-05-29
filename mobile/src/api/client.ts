@@ -140,7 +140,8 @@ apiClient.interceptors.response.use(
         ] = `Bearer ${newAccessToken}`;
       }
       return apiClient(originalRequest);
-    } catch {
+    } catch (err) {
+      console.warn('[PF] client/responseInterceptor:', err instanceof Error ? err.message : String(err));
       _authHandlers.onLogout();
       return Promise.reject(error);
     }

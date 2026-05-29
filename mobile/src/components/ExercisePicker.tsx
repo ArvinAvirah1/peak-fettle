@@ -113,8 +113,9 @@ export function ExercisePicker({
       try {
         const result = await searchExercises(text.trim());
         setSearchResults(result.results);
-      } catch {
+      } catch (err) {
         // Swallow search errors silently — the library is still visible
+        console.warn('[PF] ExercisePicker/handleQueryChange:', err instanceof Error ? err.message : String(err));
         setSearchResults([]);
       }
     }, DEBOUNCE_MS);

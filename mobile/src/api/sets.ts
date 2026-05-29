@@ -51,3 +51,39 @@ export async function logSet(payload: LogSetPayload): Promise<WorkoutSet> {
 export async function deleteSet(id: string): Promise<void> {
   await apiClient.delete(`/sets/${id}`);
 }
+
+// ---------------------------------------------------------------------------
+// Personal Best
+// ---------------------------------------------------------------------------
+
+export interface PersonalBestEntry {
+  weight_kg: number;
+  reps: number;
+  logged_at: string;
+  day_key: string; // YYYY-MM-DD
+}
+
+export interface PersonalBest {
+  /** Best set by estimated 1RM across all time. Null if no sets logged. */
+  all_time_best: PersonalBestEntry | null;
+  /** Best set (by weight) from the most recent session. Null if no sets logged. */
+  last_session: PersonalBestEntry | null;
+}
+
+/**
+ * Fetch all-time best and last-session best for a lift exercise.
+ * Calls GET /sets/personal-best/:exerciseId (auth required).
+ * Returns { all_time_best: null, last_session: null } on network failure so
+ * the caller can treat missing PB as "no history yet" rather than an error.
+ */
+export async function getPersonalBest(exerciseId: string): Promise<PersonalBest> {
+  try {
+    const response = await apiClient.get<PersonalBest>(
+      `/sets/personal-best/${exerciseId}`
+    );
+    return response.data;
+  } catch (err) {
+    console.warn('[PF] sets/getPersonalBest:', err instanceof Error ? err.message : String(err));
+    return { all_time_best: null, last_session: null };
+  }
+}
