@@ -45,6 +45,7 @@ Found in TICKET-064 audit (F-003/F-004). Two competing paths exist:
 - **Options:** (a) Build `/user/push-token` on the server, migrate `pushNotifications.ts` to use the dedicated endpoint; (b) Delete `pushTokens.ts`, keep `patchProfile` path as intentional; (c) other.
 - **Recommendation:** (a) — dedicated endpoint is cleaner, decouples token lifecycle from profile updates, easier to debug. (b) is safe short-term.
 - **Impact:** gates TICKET-065 push pipeline rewrite design.
+- **Answer:** **(a)** — build `/user/push-token` on the server. Migrate `pushNotifications.ts` to call `registerPushToken` / `unregisterPushToken` from `pushTokens.ts`. Delete the `patchProfile({ fcm_token })` path. TICKET-065 owns the implementation.
 
 ---
 *Add new questions below as Q7, Q8, … — never silently assume an answer.*

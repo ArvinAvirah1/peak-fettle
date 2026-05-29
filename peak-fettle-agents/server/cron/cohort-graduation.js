@@ -72,35 +72,32 @@ function inferExperienceLevel(trainingYears) {
 // ---------------------------------------------------------------------------
 
 /**
- * Queues a cohort-promotion in-app notification.
- * If a `notification_queue` table exists, inserts a row.
- * Otherwise logs to console (graceful degradation until the table is created).
+ * Queues a cohort-promotion push notification into notification_queue.
+ * The push-dispatcher cron polls this table and sends via the Expo Push API.
  *
- * Notification payload follows FCM Data Message format:
- *   { type: 'cohort_graduation', old_band, new_band }
+ * Schema (migration 20260517_notification_queue.sql):
+ *   user_id, type, title, body, data (jsonb), sent_at, error, created_at
+ *
+ * F-001 fix (TICKET-065, 2026-05-29): the previous version inserted a `payload`
+ * column that does not exist in the schema — every graduation notification
+ * silently failed with "column payload does not exist". Fixed by writing the
+ * correct columns (type, title, body, data) that match both the migration and
+ * the push-dispatcher's SELECT.
  */
 async function queueGraduationNotification(client, userId, oldBand, newBand) {
-    const payload = JSON.stringify({
-        type: 'cohort_graduation',
-        old_band: oldBand,
-        new_band: newBand,
-        title: "You've leveled up 🏋️",
-        body: `Based on your logged progress, we've moved you into the ${bandLabel(newBand)} cohort — you're ranking against stronger competition now.`,
-    });
+    const title = "You've leveled up 🏋️";
+    const body  = `Based on your logged progress, we've moved you into the ${bandLabel(newBand)} cohort — you're ranking against stronger competition now.`;
+    const data  = JSON.stringify({ old_band: oldBand, new_band: newBand });
 
     try {
         await client.query(
-            `INSERT INTO notification_queue (user_id, payload, created_at)
-             VALUES ($1, $2::jsonb, now())
-             ON CONFLICT DO NOTHING`,
-            [userId, payload]
+            `INSERT INTO notification_queue (user_id, type, title, body, data, created_at)
+             VALUES ($1, 'cohort_graduation', $2, $3, $4::jsonb, now())`,
+            [userId, title, body, data]
         );
     } catch (err) {
-        // notification_queue table may not exist yet — log and continue.
-        // TODO (Phase D): create migrations/YYYYMMDD_notification_queue.sql
         console.warn(
-            `[cohort-graduation] notification_queue unavailable — ` +
-            `skipping FCM for user ${userId}: ${err.message}`
+            `[cohort-graduation] failed to queue notification for user ${userId}: ${err.message}`
         );
     }
 }

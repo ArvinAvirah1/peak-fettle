@@ -62,7 +62,10 @@ import { setAuthHandlers } from '../api/client';
 import { setAccessToken as setPowerSyncToken } from '../db/connector';
 import * as AuthApi from '../api/auth';
 import { User } from '../types/api';
-import { registerForPushNotificationsAsync } from '../services/pushNotifications';
+import {
+  registerForPushNotificationsAsync,
+  unregisterForPushNotificationsAsync,
+} from '../services/pushNotifications';
 
 // ---------------------------------------------------------------------------
 // DEV MOCK — bypass the real API and accept any credentials.
@@ -211,6 +214,10 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
     setPowerSyncToken(null);
     await clearRefreshToken();
     await clearUser();
+
+    // Fire-and-forget: unregister push token so this device stops receiving
+    // notifications. Errors are swallowed in the service — never blocks logout.
+    unregisterForPushNotificationsAsync();
 
     // Fire-and-forget server-side revocation. AuthApi.logout() swallows
     // network errors gracefully.
