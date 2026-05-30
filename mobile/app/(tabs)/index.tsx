@@ -46,7 +46,6 @@ import { PFCard, PFButton, ScreenLayout } from '../../src/components/ui';
 import { getPlans, getPlan } from '../../src/api/plans';
 import { getPercentile } from '../../src/api/percentile';
 import { logRestDay, undoRestDay } from '../../src/api/workouts';
-import { TabErrorBoundary } from '../../src/components/TabErrorBoundary';
 import { BrandLogo } from '../../src/components/BrandLogo'; // TICKET-063
 
 // ---------------------------------------------------------------------------
@@ -310,7 +309,7 @@ function StatCard({ label, value }: { label: string; value: string }): React.Rea
 // Screen
 // ---------------------------------------------------------------------------
 
-function HomeScreen(): React.ReactElement {
+export default function HomeScreen(): React.ReactElement {
   const router = useRouter();
   const { user } = useAuth();
   const { sets: todaySets, isLoading: todayLoading } = useWorkout();
@@ -1050,10 +1049,9 @@ const styles = StyleSheet.create({
   },
 });
 
-export default function HomeScreenWithBoundary(): React.ReactElement {
-  return (
-    <TabErrorBoundary screenName="Home">
-      <HomeScreen />
-    </TabErrorBoundary>
-  );
-}
+// (IOS-RELEASE-ROUTE fix 2026-05-30) HomeScreen is now the DIRECT default export.
+// The previous `export default HomeScreenWithBoundary` wrapper (wrapping the screen
+// in <TabErrorBoundary>) was the only structural difference vs the working tabs
+// (log/profile/plans) and made this route module resolve as `undefined` in the
+// Release/Hermes sync bundle ("Cannot read property 'ErrorBoundary' of undefined").
+// Crash protection is covered by the root BootErrorBoundary + the expo-router guard.
