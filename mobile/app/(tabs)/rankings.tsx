@@ -63,7 +63,6 @@ import { PressableCard, ScreenLayout, PFInput } from '../../src/components/ui';
 import { GlossaryTerm } from '../../src/components/Tooltip';
 import { useReduceMotion } from '../../src/hooks/useReduceMotion';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { TabErrorBoundary } from '../../src/components/TabErrorBoundary';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -641,7 +640,7 @@ function ErrorBanner({
 //          ScrollView's contentContainerStyle padding takes precedence)
 // ---------------------------------------------------------------------------
 
-function RankingsScreen(): React.ReactElement {
+export default function RankingsScreen(): React.ReactElement {
   const { response, isLoading, error, refetch } = usePercentile();
   const { user, updateUser } = useAuth();
   const { theme } = useTheme();
@@ -1215,12 +1214,8 @@ const confirmSheetStyles = StyleSheet.create({
   },
 });
 
-// Wrap the screen in an error boundary so a render-time JS crash shows a
-// "Something went wrong" card with the error message instead of a blank screen.
-export default function RankingsScreenWithBoundary(): React.ReactElement {
-  return (
-    <TabErrorBoundary screenName="Rankings">
-      <RankingsScreen />
-    </TabErrorBoundary>
-  );
-}
+// (IOS-RELEASE-ROUTE fix 2026-05-30) RankingsScreen is now the DIRECT default
+// export. The previous `export default RankingsScreenWithBoundary` wrapper (in
+// <TabErrorBoundary>) made this route module resolve as `undefined` in the
+// Release/Hermes sync bundle. Crash protection is covered by the root
+// BootErrorBoundary + the expo-router route guard.

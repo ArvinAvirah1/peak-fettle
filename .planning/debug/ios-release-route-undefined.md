@@ -1,6 +1,6 @@
 ---
 slug: ios-release-route-undefined
-status: reopened-recurred-in-tabs
+status: fix2-applied-pending-device-verify
 trigger: "App crashes at startup on iOS Release/TestFlight only (works in dev). BootErrorBoundary catches: TypeError: Cannot read property 'ErrorBoundary' of undefined at expo-router fromImport → getQualifiedRouteComponent → getComponent → SceneView."
 created: 2026-05-29
 updated: 2026-05-29
@@ -68,4 +68,46 @@ New TestFlight screenshots: BootErrorBoundary still catches `TypeError: Cannot r
 
 ### Next action
 Founder rebuilds from latest origin/main (must include index.tsx fix 94ac279 + native fix 8015db0 + both patches). Capture the on-screen route name from the fallback, then fix that specific file's root cause (likely a module-eval edge: a top-level value resolving undefined in Hermes sync, a bad re-export, or a Metro/route-context quirk). Confirm whether the deployed crashing build actually contained these commits — if it pre-dated them, a clean rebuild may already resolve it.
+
+---
+
+## ROOT CAUSE IDENTIFIED + FIX 2 (2026-05-30) — device-confirmed culprit via guard
+
+The guard (patches/expo-router+6.0.23.patch) did its job: on the rebuilt TestFlight
+build the app BOOTED and the fallback named the two failing routes on screen:
+**`(tabs)/index.tsx` (Home)** and **`(tabs)/rankings.tsx`**. log/profile/plans work.
+
+PERFECT correlation across all 5 tabs:
+- index  : `export default function HomeScreenWithBoundary()` wrapping <TabErrorBoundary> → UNDEFINED
+- rankings: `export default function RankingsScreenWithBoundary()` wrapping <TabErrorBoundary> → UNDEFINED
+- log     : `export default function LogScreen()` direct → works
+- profile : `export default function ProfileScreen()` direct → works
+- plans   : `export default function PlansScreen()` direct → works
+
+The ONLY structural difference between the 2 broken and 3 working screens: the broken
+ones export a SEPARATE `…WithBoundary` wrapper function (importing the `TabErrorBoundary`
+class and using it as the route module's default export). In the Release/Hermes SYNC
+bundle this made the route module resolve as `undefined`. (No cycle — madge clean; both
+files parse; deployed == working tree; not corruption.)
+
+### Fix 2 applied
+- app/(tabs)/index.tsx: made `HomeScreen` the DIRECT default export; removed the
+  `HomeScreenWithBoundary` wrapper + the now-unused `TabErrorBoundary` import.
+- app/(tabs)/rankings.tsx: made `RankingsScreen` the direct default export; removed
+  the `RankingsScreenWithBoundary` wrapper + `TabErrorBoundary` import.
+- Now structurally identical to the 3 working tabs. Per-screen crash protection is
+  covered by the root BootErrorBoundary + the expo-router guard (kept as a safety net).
+- src/components/TabErrorBoundary.tsx is now orphaned (no references) — harmless dead
+  code; can be removed in a cleanup pass.
+
+### Verification
+Parse-sweep clean (119 files). DEVICE verify pending: founder pushes + rebuilds; Home
+and Rankings should now render their real content (no "This screen failed to load").
+
+### SEPARATE ISSUE surfaced (NOT this bug): backend 500s
+Log Workout shows "Request failed with status code 500"; Templates shows "Could not load
+templates." Those screens RESOLVE fine (no route-undefined) — the SERVER is rejecting the
+data calls. Likely an undeployed DB column / migration (see CLAUDE.md L-017/L-024: an
+undeployed column = always-500 on the whole tab) or a backend deploy/config issue. Track
+separately against peak-fettle-agents/server.
 </content>
