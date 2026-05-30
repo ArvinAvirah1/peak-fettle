@@ -31,7 +31,7 @@
 import React, { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { ActivityIndicator, View, StyleSheet, Text, ScrollView } from 'react-native';
+import { ActivityIndicator, View, StyleSheet, Text, ScrollView, InteractionManager } from 'react-native';
 
 import { AuthProvider } from '../src/context/AuthContext';
 import { PowerSyncProvider } from '../src/context/PowerSyncContext';
@@ -111,14 +111,28 @@ class BootErrorBoundary extends React.Component<
 // ---------------------------------------------------------------------------
 
 function RootNavigator(): React.ReactElement {
-  const { isLoading } = useAuth();
+  const { isLoading, isAuthenticated } = useAuth();
   const { theme } = useTheme();
 
+  // Push-token registration (IOS-26-CRASH-FIX, part 3 — 2026-05-30).
+  // Two changes vs the old "fire on !isLoading" effect:
+  //   1. Gate on isAuthenticated. registerPushToken() hits an authenticated
+  //      endpoint, so firing at boot for logged-out users was a no-op that still
+  //      triggered expo-notifications' native calls + permission prompt. The only
+  //      case this effect must cover is silent-refresh auto-login (which IS
+  //      authenticated); explicit login/register already register in AuthContext.
+  //   2. Defer off the fragile app-boot frame via InteractionManager. On iOS 26,
+  //      a TurboModule NSException thrown during the first ~2s of startup corrupts
+  //      the Hermes heap (the underlying RN bug — see
+  //      patches/react-native+0.81.5.patch). Keeping expo-notifications' native
+  //      calls off the boot critical path avoids tripping that window at all.
   useEffect(() => {
-    if (!isLoading) {
+    if (isLoading || !isAuthenticated) return;
+    const task = InteractionManager.runAfterInteractions(() => {
       registerForPushNotificationsAsync();
-    }
-  }, [isLoading]);
+    });
+    return () => task.cancel();
+  }, [isLoading, isAuthenticated]);
 
   if (isLoading) {
     return (
