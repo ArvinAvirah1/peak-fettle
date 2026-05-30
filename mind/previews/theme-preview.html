@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Peak Fettle Mind — Theme Preview (4 sibling families)</title>
+<!--
+  Visual preview for COMPANION_APP_STYLE_OPTIONS / TICKET-072.
+  Renders one representative Mind "Today" screen in all 8 palettes
+  (4 sibling families x light+dark) from the exact hexes in
+  mind/src/theme/palettes.ts. Open in any browser — no build needed.
+
+  Semantic/component mapping mirrors Peak Fettle's buildSemanticTokens()/
+  buildComponentTokens(); sibling overrides applied: 18pt cards, pill CTAs,
+  airier spacing, SemiBold weight ceiling. Crisis affordance always shown
+  (safety rule). Not production code — a design reference only.
+-->
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+    background: #1a1a1f; color: #e8e8ea; padding: 32px 20px 64px;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1 { font-size: 22px; font-weight: 600; margin-bottom: 6px; }
+  .sub { color: #9a9aa0; font-size: 13px; margin-bottom: 28px; max-width: 760px; line-height: 1.5; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 28px; max-width: 1400px; }
+  .cell { }
+  .cell .meta { font-size: 12px; color: #b8b8be; margin-bottom: 8px; }
+  .cell .meta b { color: #fff; font-weight: 600; }
+  .cell .ratios { font-size: 10px; color: #76767c; font-family: ui-monospace, monospace; margin-top: 6px; }
+
+  /* ---- the phone frame; all colors come from CSS vars set per palette ---- */
+  .phone {
+    width: 100%; border-radius: 28px; overflow: hidden;
+    background: var(--bg-primary);
+    border: 1px solid rgba(255,255,255,.08);
+    box-shadow: 0 12px 40px rgba(0,0,0,.45);
+  }
+  .screen { padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+  .topbar { display:flex; justify-content:space-between; align-items:center; }
+  .greet { color: var(--text-primary); font-size: 22px; font-weight: 600; line-height: 1.15; }
+  .date { color: var(--text-secondary); font-size: 13px; margin-top: 2px; }
+  .gear { width: 36px; height: 36px; border-radius: 9999px; background: var(--bg-tertiary);
+          display:flex; align-items:center; justify-content:center; color: var(--text-secondary); font-size: 16px; }
+
+  .card { background: var(--card-bg); border: 1px solid var(--card-border); border-radius: 18px; padding: 18px; }
+  .card h3 { color: var(--text-primary); font-size: 16px; font-weight: 600; margin-bottom: 14px; }
+  .card .hint { color: var(--text-secondary); font-size: 12px; }
+
+  /* mood scale */
+  .moods { display:flex; justify-content: space-between; gap: 8px; }
+  .mood { flex:1; aspect-ratio: 1; border-radius: 9999px; display:flex; align-items:center; justify-content:center;
+          background: var(--bg-tertiary); font-size: 20px; }
+  .mood.sel { background: var(--accent); }
+  .tags { display:flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+  .tag { font-size: 12px; color: var(--text-secondary); border: 1px solid var(--border); border-radius: 9999px; padding: 6px 12px; }
+  .tag.on { color: var(--btn-text); background: var(--accent); border-color: var(--accent); }
+
+  /* habits */
+  .habit { display:flex; align-items:center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+  .habit:first-of-type { border-top: 0; }
+  .ring { width: 34px; height: 34px; border-radius: 9999px; flex: none;
+          background: conic-gradient(var(--accent) var(--p), var(--bg-tertiary) 0); display:flex; align-items:center; justify-content:center; }
+  .ring i { width: 24px; height: 24px; border-radius: 9999px; background: var(--card-bg); display:flex; align-items:center; justify-content:center;
+            font-size: 12px; color: var(--text-primary); font-style: normal; }
+  .habit .name { color: var(--text-primary); font-size: 14px; font-weight: 500; flex:1; }
+  .habit .streak { color: var(--text-secondary); font-size: 12px; }
+  .habit .rest { color: var(--accent); font-size: 12px; font-weight: 600; }
+
+  /* exercise + sparkline */
+  .ex { display:flex; align-items:center; gap: 14px; }
+  .play { width: 44px; height: 44px; border-radius: 9999px; background: var(--accent); color: var(--btn-text);
+          display:flex; align-items:center; justify-content:center; font-size: 16px; flex:none; }
+  .ex .t { color: var(--text-primary); font-size: 14px; font-weight: 600; }
+  .ex .s { color: var(--text-secondary); font-size: 12px; margin-top: 2px; }
+  .spark { margin-top: 12px; }
+
+  /* CTA pill + crisis row */
+  .cta { background: var(--accent); color: var(--btn-text); border: 0; border-radius: 9999px;
+         padding: 15px; font-size: 15px; font-weight: 600; width: 100%; }
+  .crisis { display:flex; align-items:center; justify-content:center; gap: 8px; padding: 12px; border-radius: 12px;
+            background: var(--bg-tertiary); color: var(--text-primary); font-size: 13px; font-weight: 600; border: 1px solid var(--border); }
+  .crisis .dot { color: var(--status-error); }
+</style>
+</head>
+<body>
+  <h1>Peak Fettle Mind — theme preview</h1>
+  <p class="sub">Sibling brand: same component shapes as Peak Fettle, calmer palette + airier spacing + pill CTAs.
+  One representative "Today" screen rendered in all four families (light + dark). Colors are the exact hexes from
+  <b>mind/src/theme/palettes.ts</b>; every text/accent/button pair is WCAG-AA verified. The "Need help?" crisis row is
+  always shown per the safety rules. Default recommendation: <b>Cool &amp; Serene</b>.</p>
+  <div class="grid" id="grid"></div>
+
+<script>
+// 12-slot primitives, straight from mind/src/theme/palettes.ts
+const P = {
+  stillWater:  {b950:'#F7FAFC',b900:'#EDF3F6',b800:'#E1EAEF',b700:'#D2DEE5',b600:'#B8CAD4',a5:'#5B9AA6',a4:'#7FB3BD',a6:'#48808B',w:'#1B2A30',s4:'#5A6B72',s6:'#78878D',bt:'#0F2024',ok:'#5FA46F',wn:'#B0832E',er:'#C2564B'},
+  deepCalm:    {b950:'#0C1418',b900:'#111C22',b800:'#16252C',b700:'#1D3038',b600:'#234049',a5:'#5FB3B8',a4:'#7FC7CB',a6:'#469499',w:'#E8F0F2',s4:'#9DB0B6',s6:'#76888E',bt:'#08161A',ok:'#56B36B',wn:'#D6A24A',er:'#D06A60'},
+  warmSand:    {b950:'#FAF6F1',b900:'#F2EAE0',b800:'#E9DDCE',b700:'#DCCBB6',b600:'#C9B299',a5:'#A85539',a4:'#C2745A',a6:'#8E4630',w:'#2C2420',s4:'#6E6258',s6:'#8A7C70',bt:'#FFF8F2',ok:'#6E8A54',wn:'#A9772B',er:'#BF5E4E'},
+  clayDusk:    {b950:'#141009',b900:'#1D170F',b800:'#261E14',b700:'#33271A',b600:'#46341F',a5:'#D98E6A',a4:'#E6A684',a6:'#BD7250',w:'#F0E7DD',s4:'#B09C8A',s6:'#897668',bt:'#1A130C',ok:'#86A45E',wn:'#D6A24A',er:'#CC6B57'},
+  paper:       {b950:'#FCFCFB',b900:'#F4F4F2',b800:'#EAEAE7',b700:'#DCDCD8',b600:'#C3C3BD',a5:'#4F7388',a4:'#6A8CA4',a6:'#3D5C70',w:'#222220',s4:'#5E5E59',s6:'#7C7C76',bt:'#FFFFFF',ok:'#5E9468',wn:'#9A7A2E',er:'#B85B4E'},
+  ink:         {b950:'#0C0C0D',b900:'#151517',b800:'#1F1F22',b700:'#2B2B2F',b600:'#3A3A40',a5:'#9FB2C2',a4:'#B8C7D4',a6:'#7E94A6',w:'#EDEDEF',s4:'#9A9AA0',s6:'#74747A',bt:'#0C0C0D',ok:'#66BB6A',wn:'#D6A24A',er:'#D06A60'},
+  sage:        {b950:'#F5F8F3',b900:'#E9F0E6',b800:'#DCE7D7',b700:'#C9D8C2',b600:'#AEC4A4',a5:'#4A7A5A',a4:'#6E9E78',a6:'#3C6449',w:'#1F2A21',s4:'#5C6B5F',s6:'#79877B',bt:'#FFFFFF',ok:'#5FA46F',wn:'#A9772B',er:'#C2564B'},
+  forestNight: {b950:'#0A120C',b900:'#101B13',b800:'#16241A',b700:'#1E3124',b600:'#284332',a5:'#6FB07E',a4:'#8FC79C',a6:'#4F8C61',w:'#E6EFE8',s4:'#9DB0A2',s6:'#76887B',bt:'#08130C',ok:'#5FA46F',wn:'#D6A24A',er:'#C8665A'},
+};
+
+const FAMILIES = [
+  {fam:'Cool & Serene (recommended default)', light:['Still Water','stillWater'], dark:['Deep Calm','deepCalm']},
+  {fam:'Warm & Grounding',                    light:['Warm Sand','warmSand'],     dark:['Clay & Dusk','clayDusk']},
+  {fam:'Minimal / Editorial',                 light:['Paper','paper'],            dark:['Ink','ink']},
+  {fam:'Nature / Restorative',                light:['Sage','sage'],              dark:['Forest Night','forestNight']},
+];
+
+function vars(p){
+  return [
+    ['--bg-primary',p.b950],['--bg-secondary',p.b900],['--bg-tertiary',p.b800],['--bg-elevated',p.b700],
+    ['--accent',p.a5],['--accent-hover',p.a4],['--accent-pressed',p.a6],
+    ['--text-primary',p.w],['--text-secondary',p.s4],['--text-tertiary',p.s6],
+    ['--border',p.b700],['--card-bg',p.b900],['--card-border',p.b700],['--btn-text',p.bt],
+    ['--status-error',p.er]
+  ].map(([k,v])=>k+':'+v).join(';');
+}
+
+function sparkline(p){
+  // gentle 14-point mood trend
+  const pts=[3,3,2,4,3,4,5,4,3,4,4,5,4,5];
+  const w=240,h=40,max=5,min=1;
+  const step=w/(pts.length-1);
+  const path=pts.map((v,i)=>`${(i*step).toFixed(1)},${(h-((v-min)/(max-min))*h).toFixed(1)}`).join(' ');
+  return `<svg class="spark" width="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+    <polyline fill="none" stroke="${p.a5}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" points="${path}"/>
+  </svg>`;
+}
+
+function screen(p){
+  return `<div class="screen">
+    <div class="topbar">
+      <div><div class="greet">Good evening</div><div class="date">Friday, May 29</div></div>
+      <div class="gear">&#9881;</div>
+    </div>
+
+    <div class="card">
+      <h3>How are you feeling?</h3>
+      <div class="moods">
+        <div class="mood">&#128542;</div><div class="mood">&#128528;</div>
+        <div class="mood sel">&#128578;</div><div class="mood">&#128522;</div><div class="mood">&#129392;</div>
+      </div>
+      <div class="tags">
+        <span class="tag on">calm</span><span class="tag">slept well</span><span class="tag">social</span><span class="tag">tired</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Today&rsquo;s habits</h3>
+      <div class="habit"><div class="ring" style="--p:300deg"><i>&#10003;</i></div><span class="name">Breathing &middot; 2 min</span><span class="streak">12&#8209;day streak</span></div>
+      <div class="habit"><div class="ring" style="--p:150deg"><i></i></div><span class="name">Gratitude</span><span class="streak">5&#8209;day streak</span></div>
+      <div class="habit"><div class="ring" style="--p:360deg"><i>&#10003;</i></div><span class="name">Evening walk</span><span class="rest">rest day &middot; kept</span></div>
+    </div>
+
+    <div class="card">
+      <h3>Take a moment</h3>
+      <div class="ex">
+        <div class="play">&#9654;</div>
+        <div><div class="t">4&#8209;7&#8209;8 Breathing</div><div class="s">3 min &middot; calming</div></div>
+      </div>
+      <h3 style="margin-top:18px;margin-bottom:6px;">Mood this fortnight</h3>
+      ${sparkline(p)}
+    </div>
+
+    <button class="cta">Start today&rsquo;s check&#8209;in</button>
+    <div class="crisis"><span class="dot">&#9679;</span> Need to talk to someone? Crisis resources</div>
+  </div>`;
+}
+
+const grid=document.getElementById('grid');
+FAMILIES.forEach(f=>{
+  [['Light',f.light],['Dark',f.dark]].forEach(([mode,[name,key]])=>{
+    const p=P[key];
+    const cell=document.createElement('div');
+    cell.className='cell';
+    cell.innerHTML =
+      `<div class="meta"><b>${f.fam}</b> &mdash; ${name} (${mode})</div>
+       <div class="phone" style="${vars(p)}">${screen(p)}</div>
+       <div class="ratios">accent ${p.a5} &middot; AA-verified text/accent/button</div>`;
+    grid.appendChild(cell);
+  });
+});
+</script>
+</body>
+</html>
