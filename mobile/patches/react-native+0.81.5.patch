@@ -1,0 +1,31 @@
+diff --git a/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm b/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
+index 2a67797..d5e84f9 100644
+--- a/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
++++ b/node_modules/react-native/ReactCommon/react/nativemodule/core/platform/ios/ReactCommon/RCTTurboModule.mm
+@@ -435,7 +435,25 @@ void ObjCTurboModule::performVoidMethodInvocation(
+     @try {
+       [inv invokeWithTarget:strongModule];
+     } @catch (NSException *exception) {
+-      throw convertNSExceptionToJSError(runtime, exception, std::string{moduleName}, methodNameStr);
++      // PEAK-FETTLE iOS-26 BOOT-CRASH FIX (RN 0.81.5) ---------------------------
++      // For VOID TurboModule methods invoked on the ASYNC TurboModule queue
++      // (com.meta.react.turbomodulemanager.queue), converting the NSException to
++      // a jsi::JSError here touches the Hermes runtime OFF the JS thread. On
++      // iOS 26 that corrupts the Hermes heap -> EXC_BAD_ACCESS / SIGSEGV at app
++      // startup, and the rethrown C++ exception cannot be caught by anything on
++      // this background queue anyway. Only the SYNCHRONOUS path can meaningfully
++      // convert & rethrow as a JSError. PR #50193 fixed this same bug in
++      // performMethodInvocation but left performVoidMethodInvocation broken.
++      // Refs: facebook/react-native#54859, #53960; reactwg/...#276.
++      if (shouldVoidMethodsExecuteSync_) {
++        throw convertNSExceptionToJSError(runtime, exception, std::string{moduleName}, methodNameStr);
++      }
++      RCTLogError(
++          @"[TurboModule] Uncaught exception in async void method %s.%s: %@",
++          moduleName,
++          methodNameStr.c_str(),
++          exception);
++      // ------------------------------------------------------------------------
+     } @finally {
+       [retainedObjectsForInvocation removeAllObjects];
+     }

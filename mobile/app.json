@@ -44,6 +44,14 @@
             "./assets/fonts/Outfit-Bold.ttf"
           ]
         }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "buildReactNativeFromSource": true
+          }
+        }
       ]
     ],
     "scheme": "peak-fettle",
