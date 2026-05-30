@@ -47,23 +47,35 @@ import { registerForPushNotificationsAsync } from '../src/services/pushNotificat
 // segfault from NSException) — for those the iOS crash log is the only signal.
 // ---------------------------------------------------------------------------
 
+// IOS-RELEASE-ROUTE-FIX (2026-05-29): make "index" the deterministic initial
+// route for the root Stack so expo-router never has to resolve "/" to an
+// implicit/undefined node in the Release (sync) bundle.
+export const unstable_settings = {
+  initialRouteName: 'index',
+};
+
 interface BootErrorBoundaryState {
   error: Error | null;
+  componentStack: string | null;
 }
 
 class BootErrorBoundary extends React.Component<
   { children: React.ReactNode },
   BootErrorBoundaryState
 > {
-  state: BootErrorBoundaryState = { error: null };
+  state: BootErrorBoundaryState = { error: null, componentStack: null };
 
-  static getDerivedStateFromError(error: Error): BootErrorBoundaryState {
+  static getDerivedStateFromError(error: Error): Partial<BootErrorBoundaryState> {
     return { error };
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo): void {
     // eslint-disable-next-line no-console
     console.error('[BootErrorBoundary] Crash at app root:', error, info?.componentStack);
+    // Persist the component stack so it renders on-screen too — if a route ever
+    // fails to resolve again, the stack names the offending screen component
+    // (the raw error message does not). Avoids another blind crash-report loop.
+    this.setState({ componentStack: info?.componentStack ?? null });
   }
 
   render(): React.ReactNode {
@@ -82,6 +94,11 @@ class BootErrorBoundary extends React.Component<
           <Text style={{ color: '#94a3b8', fontSize: 11, fontFamily: 'monospace' }}>
             {String(this.state.error?.stack ?? '')}
           </Text>
+          {this.state.componentStack ? (
+            <Text style={{ color: '#64748b', fontSize: 11, fontFamily: 'monospace', marginTop: 12 }}>
+              {`Component stack:${this.state.componentStack}`}
+            </Text>
+          ) : null}
         </ScrollView>
       );
     }
@@ -115,6 +132,7 @@ function RootNavigator(): React.ReactElement {
     <>
       <StatusBar style="auto" />
       <Stack screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false }} />
