@@ -1,0 +1,31 @@
+diff --git a/node_modules/expo-router/build/useScreens.js b/node_modules/expo-router/build/useScreens.js
+index af29ef7..e1834cd 100644
+--- a/node_modules/expo-router/build/useScreens.js
++++ b/node_modules/expo-router/build/useScreens.js
+@@ -181,7 +181,25 @@ function getQualifiedRouteComponent(value) {
+     }
+     else {
+         const res = value.loadRoute();
+-        ScreenComponent = fromImport(value, res).default;
++        if (res == null) {
++            // PEAK-FETTLE route-undefined guard + diagnostic (IOS-RELEASE-ROUTE) -------
++            // In the Release (sync) bundle, a route whose loadRoute() returns undefined
++            // used to crash the WHOLE app with the cryptic "Cannot read property
++            // 'ErrorBoundary' of undefined" inside fromImport (it destructures res).
++            // Instead, render a visible fallback that NAMES the offending route, so the
++            // app still boots (other tabs work) and the bad file identifies itself.
++            const __pfKey = (value && (value.contextKey || value.route)) || 'unknown';
++            console.error('[expo-router][PF] Route loaded as undefined: ' + __pfKey);
++            const __pfRN = require('react-native');
++            ScreenComponent = function PFUndefinedRoute() {
++                return (react_1.default.createElement(__pfRN.View, { style: { flex: 1, backgroundColor: '#0f172a', alignItems: 'center', justifyContent: 'center', padding: 24 } },
++                    react_1.default.createElement(__pfRN.Text, { style: { color: '#fca5a5', fontSize: 16, fontWeight: '700', marginBottom: 8, textAlign: 'center' } }, 'This screen failed to load'),
++                    react_1.default.createElement(__pfRN.Text, { style: { color: '#ffffff', fontSize: 13, textAlign: 'center' } }, String(__pfKey))));
++            };
++        }
++        else {
++            ScreenComponent = fromImport(value, res).default;
++        }
+     }
+     function BaseRoute({ 
+     // Remove these React Navigation props to

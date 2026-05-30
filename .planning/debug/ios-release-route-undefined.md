@@ -1,6 +1,6 @@
 ---
 slug: ios-release-route-undefined
-status: resolved-pending-device-verify
+status: reopened-recurred-in-tabs
 trigger: "App crashes at startup on iOS Release/TestFlight only (works in dev). BootErrorBoundary catches: TypeError: Cannot read property 'ErrorBoundary' of undefined at expo-router fromImport → getQualifiedRouteComponent → getComponent → SceneView."
 created: 2026-05-29
 updated: 2026-05-29
@@ -45,4 +45,27 @@ No concrete component for the `/` route in Release sync mode. Fix: add `app/inde
 - **Verification:** parse-sweep clean (all files parse). DEVICE verification pending: founder must `git push origin main`, trigger a new EAS build, and confirm the Release/TestFlight build boots past the error screen.
 - **files_changed:** mobile/app/index.tsx (new), mobile/app/_layout.tsx
 - **If it recurs:** the on-screen component stack will now name the failing route — capture it and reopen with `/gsd:debug continue ios-release-route-undefined`.
+
+---
+
+## RECURRENCE 2026-05-30 (reopened)
+
+New TestFlight screenshots: BootErrorBoundary still catches `TypeError: Cannot read property 'ErrorBoundary' of undefined`, but now the component stack shows the failure is INSIDE `BottomTabNavigator` / `TabsLayout` (app/(tabs)/_layout.tsx, jsbundle:180410) — i.e. the `/` route now resolves (prior index.tsx fix worked) and the app gets into the `(tabs)` navigator, but a **tab screen module loads as `undefined`** in the Release sync bundle.
+
+### New evidence (2026-05-30)
+- Mechanism confirmed in source: useScreens.js getQualifiedRouteComponent sync branch does `const res = value.loadRoute(); fromImport(value, res)` and `fromImport` destructures `{ ErrorBoundary, ...component }` from `res`. `res === undefined` → "Cannot read property 'ErrorBoundary' of undefined" (Hermes destructure-of-undefined). So a route's `loadRoute()` RETURNS undefined (it does NOT throw — a throw would surface the real error).
+- `madge --circular app src` (full 92-file graph): **NO circular dependency** — prior "no cycle" claim re-confirmed at depth. So NOT a cycle.
+- All 5 tab routes (index, log, rankings, plans, profile) + (tabs)/_layout have valid `export default`.
+- origin/main HAS all route files incl. app/index.tsx; no app/ diff between origin/main and local HEAD. So not a missing-file / stale-tree issue.
+- Could NOT identify the specific undefined route by static analysis alone (no source map for the deployed bundle; line numbers are expo-router lib internals).
+
+### Eliminated (this round)
+- circular import (madge clean) · missing default export (all present) · missing file on origin/main (all present).
+
+### Action taken (2026-05-30) — guard + diagnostic, NOT yet root-caused
+- patches/expo-router+6.0.23.patch: getQualifiedRouteComponent sync path now guards `res == null` — renders a visible "This screen failed to load: <contextKey>" fallback and console.error's the key, instead of crashing the whole app. JS-only patch (Metro bundles it; NO native rebuild / buildReactNativeFromSource needed). Picked up via patch-package postinstall.
+- Effect on next build: app BOOTS even with a bad route; working tabs work; the broken tab NAMES itself on screen → definitive identification.
+
+### Next action
+Founder rebuilds from latest origin/main (must include index.tsx fix 94ac279 + native fix 8015db0 + both patches). Capture the on-screen route name from the fallback, then fix that specific file's root cause (likely a module-eval edge: a top-level value resolving undefined in Hermes sync, a bad re-export, or a Metro/route-context quirk). Confirm whether the deployed crashing build actually contained these commits — if it pre-dated them, a clean rebuild may already resolve it.
 </content>
