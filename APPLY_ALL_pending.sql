@@ -3,9 +3,11 @@
 -- The only non-idempotent statement (CREATE POLICY) is guarded with DROP ... IF EXISTS.
 
 -- ====================================================================
--- notification_queue (clean rebuild — source migration 20260517 is corrupted
--- with duplicated column blocks; this is the correct schema the push-dispatcher
--- cron + workouts.js paywall/streak enqueues need. Absent from prod dump.)
+-- notification_queue (absent from prod dump; written by workouts.js paywall/
+-- streak enqueues + plans.js + cohort cron, polled by push-dispatcher cron).
+-- Schema matches the dispatcher: pending = sent_at IS NULL; retry_count +
+-- failed_permanently for the retry cap. All enqueues are swallowed try/catch so
+-- this never 500s a screen, but push delivery can't work without the table.
 -- ====================================================================
 CREATE TABLE IF NOT EXISTS notification_queue (
     id                 UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -13,16 +15,16 @@ CREATE TABLE IF NOT EXISTS notification_queue (
     type               TEXT         NOT NULL,
     title              TEXT         NOT NULL,
     body               TEXT         NOT NULL,
-    data               JSONB        NOT NULL DEFAULT '{}'::jsonb,
-    status             TEXT         NOT NULL DEFAULT 'pending',
-    created_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-    sent_at            TIMESTAMPTZ,
-    scheduled_for      TIMESTAMPTZ,
+    data               JSONB,
+    sent_at            TIMESTAMPTZ,            -- NULL = pending
+    error              TEXT,                   -- last dispatch error if any
     retry_count        INTEGER      NOT NULL DEFAULT 0,
-    failed_permanently BOOLEAN      NOT NULL DEFAULT FALSE
+    failed_permanently BOOLEAN      NOT NULL DEFAULT FALSE,
+    created_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_notification_queue_user_pending
-    ON notification_queue (user_id, status);
+CREATE INDEX IF NOT EXISTS idx_notification_queue_pending
+    ON notification_queue (created_at ASC)
+    WHERE sent_at IS NULL AND failed_permanently = FALSE;
 
 -- ====================================================================
 -- 20260526_routines_table.sql
@@ -181,6 +183,18 @@ BEGIN
             CHECK (session_type IN ('workout', 'rest_day', 'emergency_override', 'cardio_import'));
     END IF;
 END $$;
+
+-- ====================================================================
+-- 20260531_workouts_cardio_columns.sql
+-- ====================================================================
+-- csvImport.js inserts these + workouts.js mileage/pace analytics GROUP BY
+-- activity_type; none existed on workouts (CSV import + cardio analytics 500'd).
+ALTER TABLE workouts
+    ADD COLUMN IF NOT EXISTS activity_type       TEXT,
+    ADD COLUMN IF NOT EXISTS duration_seconds    INTEGER,
+    ADD COLUMN IF NOT EXISTS distance_m          INTEGER,
+    ADD COLUMN IF NOT EXISTS avg_pace_sec_per_km INTEGER,
+    ADD COLUMN IF NOT EXISTS source              TEXT;
 
 -- ====================================================================
 -- 20260531_users_paywall_triggered_at.sql
