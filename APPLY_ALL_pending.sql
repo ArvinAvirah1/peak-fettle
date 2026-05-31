@@ -3,6 +3,28 @@
 -- The only non-idempotent statement (CREATE POLICY) is guarded with DROP ... IF EXISTS.
 
 -- ====================================================================
+-- notification_queue (clean rebuild — source migration 20260517 is corrupted
+-- with duplicated column blocks; this is the correct schema the push-dispatcher
+-- cron + workouts.js paywall/streak enqueues need. Absent from prod dump.)
+-- ====================================================================
+CREATE TABLE IF NOT EXISTS notification_queue (
+    id                 UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id            UUID         NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    type               TEXT         NOT NULL,
+    title              TEXT         NOT NULL,
+    body               TEXT         NOT NULL,
+    data               JSONB        NOT NULL DEFAULT '{}'::jsonb,
+    status             TEXT         NOT NULL DEFAULT 'pending',
+    created_at         TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    sent_at            TIMESTAMPTZ,
+    scheduled_for      TIMESTAMPTZ,
+    retry_count        INTEGER      NOT NULL DEFAULT 0,
+    failed_permanently BOOLEAN      NOT NULL DEFAULT FALSE
+);
+CREATE INDEX IF NOT EXISTS idx_notification_queue_user_pending
+    ON notification_queue (user_id, status);
+
+-- ====================================================================
 -- 20260526_routines_table.sql
 -- ====================================================================
 CREATE TABLE IF NOT EXISTS routines (
