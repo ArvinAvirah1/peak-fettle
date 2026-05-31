@@ -6,6 +6,8 @@
 const express = require('express');
 const { z } = require('zod');
 const { pool } = require('../db');
+const { requireAuth } = require('../middleware/requireAuth');
+const { requirePaid } = require('../middleware/requirePaid');
 
 const router = express.Router();
 
@@ -177,6 +179,106 @@ router.post('/', async (req, res, next) => {
         }
 
         res.status(201).json({ exercise: rows[0] });
+    } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// GET /exercises/:id/alternatives — PRO feature (machine-busy swap)
+//
+// Returns exercises that train the same muscles as :id, ranked by overlap.
+// Pro-gated: /exercises GETs are public at the mount, so we apply requireAuth +
+// requirePaid at the ROUTE level here.
+//
+// Matching:
+//   • Primary signal: shared muscle_heads (granular: 'lower_chest', 'side_delt').
+//   • Until exercises are tagged with muscle_heads, falls back to the coarse
+//     muscle_groups so the endpoint degrades gracefully (never errors).
+//   • Same category; prefer same compound/isolation profile.
+//   • ?avoid=machine (or dumbbell/etc.) down-ranks that equipment and rewards
+//     alternatives on different equipment — the actual "machine is busy" case.
+//   • Excludes movements contraindicated by the user's saved constraints.
+//
+// Query: ?limit=6 (max 20) &avoid=<equipment>
+// Response: { source, tagged, alternatives: [{ id, name, equipment,
+//             muscle_heads, shared_heads, is_compound }] }
+// ---------------------------------------------------------------------------
+router.get('/:id/alternatives', requireAuth, requirePaid, async (req, res, next) => {
+    try {
+        const limit = Math.min(parseInt(req.query.limit, 10) || 6, 20);
+        const avoid = typeof req.query.avoid === 'string' ? req.query.avoid : null;
+
+        // 1. Source exercise
+        const { rows: srcRows } = await pool.query(
+            `SELECT id, name, category, muscle_groups, muscle_heads, equipment, is_compound
+             FROM exercises WHERE id = $1`,
+            [req.params.id]
+        );
+        if (srcRows.length === 0) return res.status(404).json({ error: 'exercise_not_found' });
+        const src = srcRows[0];
+
+        const srcHeads = Array.isArray(src.muscle_heads) ? src.muscle_heads : [];
+        const srcGroups = Array.isArray(src.muscle_groups) ? src.muscle_groups : [];
+        const useHeads = srcHeads.length > 0;
+
+        // 2. Candidates: same category, sharing a head (or, pre-tagging, a group)
+        const { rows: candidates } = await pool.query(
+            `SELECT id, name, category, muscle_groups, muscle_heads, equipment,
+                    is_compound, contraindications
+             FROM exercises
+             WHERE id <> $1
+               AND category = $2
+               AND (
+                   ($3::text[] <> '{}' AND muscle_heads && $3::text[])
+                   OR ($3::text[] = '{}' AND muscle_groups && $4::text[])
+               )`,
+            [src.id, src.category, srcHeads, srcGroups]
+        );
+
+        // 3. User constraints — drop contraindicated movements
+        const { rows: consRows } = await pool.query(
+            `SELECT constraint_type FROM user_constraints WHERE user_id = $1`,
+            [req.user.id]
+        );
+        const userConstraints = new Set(consRows.map((c) => c.constraint_type));
+
+        const headSet = new Set(srcHeads);
+        const groupSet = new Set(srcGroups);
+
+        const scored = candidates
+            .filter((ex) => {
+                const contra = Array.isArray(ex.contraindications) ? ex.contraindications : [];
+                return !contra.some((c) => userConstraints.has(c));
+            })
+            .map((ex) => {
+                const heads = Array.isArray(ex.muscle_heads) ? ex.muscle_heads : [];
+                const groups = Array.isArray(ex.muscle_groups) ? ex.muscle_groups : [];
+                const sharedHeads = heads.filter((h) => headSet.has(h));
+                const sharedGroups = groups.filter((g) => groupSet.has(g));
+
+                let score = sharedHeads.length * 10 + sharedGroups.length * 2;
+                if (ex.is_compound === src.is_compound) score += 1;
+                if (avoid && ex.equipment) {
+                    if (ex.equipment === avoid) score -= 4;   // same busy equipment — avoid
+                    else score += 4;                          // different equipment — preferred
+                }
+                return {
+                    id: ex.id,
+                    name: ex.name,
+                    equipment: ex.equipment,
+                    muscle_heads: heads,
+                    shared_heads: sharedHeads,
+                    is_compound: ex.is_compound,
+                    score,
+                };
+            })
+            .sort((a, b) => b.score - a.score)
+            .slice(0, limit);
+
+        res.json({
+            source: { id: src.id, name: src.name },
+            tagged: useHeads,   // false until exercises get muscle_heads — UI can hint "improving"
+            alternatives: scored,
+        });
     } catch (err) { next(err); }
 });
 
