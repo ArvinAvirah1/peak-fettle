@@ -282,7 +282,7 @@ router.post('/generate', async (req, res, next) => {
     try {
         // ── 1. Check paid tier ──────────────────────────────────────────────
         const { rows: userRows } = await pool.query(
-            `SELECT is_paid FROM users WHERE id = $1`,
+            `SELECT (tier = 'paid') AS is_paid FROM users WHERE id = $1`,
             [req.user.id]
         );
         if (!userRows[0]?.is_paid) {
