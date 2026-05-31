@@ -1,16 +1,14 @@
 -- APPLY_ALL_pending.sql — pending Supabase migrations, made fully idempotent.
 -- Safe to run multiple times. Run in the Supabase SQL Editor (this is the Supabase DB).
--- The only non-idempotent statement (CREATE POLICY) is now guarded with DROP ... IF EXISTS.
+-- The only non-idempotent statement (CREATE POLICY) is guarded with DROP ... IF EXISTS.
 
 -- ====================================================================
 -- 20260526_routines_table.sql
 -- ====================================================================
--- TICKET-055/056: User-saved workout routines
 CREATE TABLE IF NOT EXISTS routines (
     id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id      UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     name         TEXT        NOT NULL CHECK (char_length(name) BETWEEN 1 AND 100),
-    -- exercises: [{exercise_id, name, target_sets, target_reps}]
     exercises    JSONB       NOT NULL DEFAULT '[]'::jsonb,
     created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -18,7 +16,6 @@ CREATE TABLE IF NOT EXISTS routines (
 
 CREATE INDEX IF NOT EXISTS idx_routines_user ON routines(user_id);
 
--- RLS (Supabase)
 ALTER TABLE routines ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS routines_user_policy ON routines;
@@ -59,7 +56,7 @@ CREATE TABLE IF NOT EXISTS template_exercises (
     session_id    UUID        NOT NULL REFERENCES template_sessions(id) ON DELETE CASCADE,
     exercise_name TEXT        NOT NULL,
     sets          INT         NOT NULL CHECK (sets BETWEEN 1 AND 20),
-    reps          TEXT        NOT NULL,            -- TEXT on purpose: "5", "8-12", "AMRAP"
+    reps          TEXT        NOT NULL,
     rest_seconds  INT,
     form_cue      TEXT,
     order_index   INT         NOT NULL DEFAULT 0
@@ -67,16 +64,14 @@ CREATE TABLE IF NOT EXISTS template_exercises (
 CREATE INDEX IF NOT EXISTS idx_template_exercises_session ON template_exercises(session_id);
 
 -- Seed — PLACEHOLDER starter content (FOUNDER: review / expand / replace).
--- Guarded by NOT EXISTS so re-running is safe and won't duplicate.
 DO $$
 DECLARE
-    fb_id    UUID;
-    ul_id    UUID;
-    s_id     UUID;
+    fb_id UUID;
+    ul_id UUID;
+    s_id  UUID;
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM workout_templates) THEN
 
-        -- 1) Full Body 3-Day (beginner, featured) --------------------------------
         INSERT INTO workout_templates (name, description, discipline, experience_level, days_per_week, is_featured)
         VALUES ('Full Body 3-Day',
                 'A simple full-body routine three days a week. Great first program for building the main lifts.',
@@ -107,7 +102,6 @@ BEGIN
             (s_id, 'Seated Cable Row', 3, '10-12', 120, 2),
             (s_id, 'Back Extension',  3, '12-15', 60, 3);
 
-        -- 2) Upper / Lower 4-Day (intermediate, featured) ------------------------
         INSERT INTO workout_templates (name, description, discipline, experience_level, days_per_week, is_featured)
         VALUES ('Upper / Lower 4-Day',
                 'Four-day upper/lower split balancing strength and hypertrophy across the week.',
@@ -167,14 +161,21 @@ BEGIN
 END $$;
 
 -- ====================================================================
+-- 20260531_users_paywall_triggered_at.sql
+-- ====================================================================
+-- routes/workouts.js paywall block reads/writes users.paywall_triggered_at,
+-- which was missing (silently broke paywall persistence; non-fatal — swallowed).
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS paywall_triggered_at TIMESTAMPTZ;
+
+-- ====================================================================
 -- 20260531_workouts_unique_day.sql
 -- ====================================================================
--- POST /workouts uses ON CONFLICT (user_id, day_key); needs a unique index on those columns.
+-- POST /workouts uses ON CONFLICT (user_id, day_key); needs a unique index there.
 DO $$
 BEGIN
     IF NOT EXISTS (
-        SELECT 1
-        FROM pg_indexes
+        SELECT 1 FROM pg_indexes
         WHERE tablename = 'workouts'
           AND indexdef ILIKE '%UNIQUE%'
           AND indexdef ILIKE '%(user_id, day_key)%'
