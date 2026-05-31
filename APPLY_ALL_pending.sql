@@ -229,3 +229,21 @@ BEGIN
             ON workouts (user_id, day_key);
     END IF;
 END $$;
+
+-- ====================================================================
+-- 20260531_users_comp_pro.sql
+-- ====================================================================
+-- Permanent manual/promo Pro grants (billing-safe). comp_pro=TRUE marks a
+-- comped account that future billing must never downgrade or charge.
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS comp_pro BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- ====================================================================
+-- 20260531_exercises_alt_fields.sql
+-- ====================================================================
+-- Foundation for the Pro alternative-exercise (machine-busy swap) feature.
+-- muscle_heads: granular targets (lower_chest, front_delt, ...) for accurate
+-- same-muscle matching; equipment: barbell|dumbbell|cable|machine|bodyweight.
+ALTER TABLE exercises
+    ADD COLUMN IF NOT EXISTS muscle_heads TEXT[] NOT NULL DEFAULT '{}',
+    ADD COLUMN IF NOT EXISTS equipment    TEXT;
