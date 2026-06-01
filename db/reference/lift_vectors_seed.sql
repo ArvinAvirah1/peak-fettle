@@ -43,6 +43,20 @@
 --      COALESCE in resolve_lift_vector correctly inherits from the parent —
 --      a v1 schema bug where NOT NULL with no default caused silent failures.
 --
+-- V2.1 ADDITIVE LAYER (TICKET-052, 2026-05-27) — sex-only univariate model:
+--   6. NEW columns mu_sex_m / sigma_sex_m / mu_sex_f / sigma_sex_f hold the
+--      sex-only (no bodyweight / age / experience) log-normal of ABSOLUTE load.
+--      Derived by marginalising bodyweight out of the v2 population model:
+--        mu_sex   = pop_mu + alpha * ln(G / bw_ref_kg)
+--        sigma_sex = sqrt(alpha^2 * s^2 + pop_sigma^2)
+--      with population BW geometric mean G and ln-BW SD s per sex:
+--        M: G=85.0 kg, s=0.17   F: G=68.0 kg, s=0.18   (see strength_curve_model.md §4.5).
+--      BOTH the M and F rows of each lift carry the full (m + f) sex-only pair
+--      so compute_percentile_sex_only() can resolve the undisclosed-sex mid
+--      curve from a single lookup. Inherited lifts leave all four NULL and
+--      resolve them as mu_sex_child = mu_sex_parent + ln(ratio) (sigma inherited),
+--      identical to the mu / pop_mu inheritance. model_version stays 2 (additive).
+--
 -- SOURCES (highest-evidence tier first per M1 in data_analyst_skill.md):
 --   Tier 1 — Bielik et al. 2024 (n=809,986 competition entries)
 --             https://pubmed.ncbi.nlm.nih.gov/39060209/
@@ -101,12 +115,14 @@ DELETE FROM lift_vectors WHERE model_version = 2;
 INSERT INTO lift_vectors (
     lift_id, sex, model_version,
     mu, sigma, pop_mu, pop_sigma,
+    mu_sex_m, sigma_sex_m, mu_sex_f, sigma_sex_f,   -- v2.1 sex-only layer (TICKET-052)
     alpha, bw_ref_kg,
     training_floor, training_tau_years,
     fit_source, fit_sample_size, notes
 ) VALUES
  ('back_squat', 'M', 2,
   5.1465, 0.2245, 4.7228, 0.3660,
+  4.8063, 0.3832, 4.2045, 0.3822,
   0.667, 75,
   0.3273, 3.0,
   'Bielik 2024 (n=809,986) + Strength Level (n>2M) + USAPL standards',
@@ -114,6 +130,7 @@ INSERT INTO lift_vectors (
   'f₀=0.3273 (beg/int=0.75/1.50=0.50); μ→asymptote via int@2yr; σ=adv/int at 90th pctile; pop_σ=eli/beg span'),
  ('back_squat', 'F', 2,
   4.5983, 0.2342, 4.1744, 0.3629,
+  4.8063, 0.3832, 4.2045, 0.3822,
   0.667, 65,
   0.3273, 3.0,
   'Bielik 2024 (n=809,986) + Strength Level (n>2M) + USAPL standards',
@@ -148,12 +165,14 @@ INSERT INTO lift_vectors (
 INSERT INTO lift_vectors (
     lift_id, sex, model_version,
     mu, sigma, pop_mu, pop_sigma,
+    mu_sex_m, sigma_sex_m, mu_sex_f, sigma_sex_f,   -- v2.1 sex-only layer (TICKET-052)
     alpha, bw_ref_kg,
     training_floor, training_tau_years,
     fit_source, fit_sample_size, notes
 ) VALUES
  ('bench_press', 'M', 2,
   4.7409, 0.1741, 4.3175, 0.3340,
+  4.4010, 0.3527, 3.8483, 0.4128,
   0.667, 75,
   0.3273, 3.0,
   'Bielik 2024 (n=809,986) + Strength Level (n>2M) + USAPL standards',
@@ -161,6 +180,7 @@ INSERT INTO lift_vectors (
   'f₀=0.3273 (beg/int=0.50/1.00=0.50); F:M upper-body ratio ~0.69 per Bielik 2024'),
  ('bench_press', 'F', 2,
   4.2894, 0.1961, 3.8182, 0.3950,
+  4.4010, 0.3527, 3.8483, 0.4128,
   0.667, 65,
   0.2674, 3.0,
   'Bielik 2024 (n=809,986) + Strength Level (n>2M) + USAPL standards',
@@ -191,12 +211,14 @@ INSERT INTO lift_vectors (
 INSERT INTO lift_vectors (
     lift_id, sex, model_version,
     mu, sigma, pop_mu, pop_sigma,
+    mu_sex_m, sigma_sex_m, mu_sex_f, sigma_sex_f,   -- v2.1 sex-only layer (TICKET-052)
     alpha, bw_ref_kg,
     training_floor, training_tau_years,
     fit_source, fit_sample_size, notes
 ) VALUES
  ('deadlift', 'M', 2,
   5.2501, 0.1961, 4.8771, 0.3075,
+  4.9606, 0.3277, 4.4276, 0.3549,
   0.667, 75,
   0.3935, 3.0,
   'Bielik 2024 (n=809,986) + Strength Level (n>2M) + USAPL standards',
@@ -204,6 +226,7 @@ INSERT INTO lift_vectors (
   'f₀=0.3935 (beg/int=1.00/1.75=0.5714); higher f₀ than bench — deadlift easier for novices'),
  ('deadlift', 'F', 2,
   4.8072, 0.2166, 4.3975, 0.3340,
+  4.9606, 0.3277, 4.4276, 0.3549,
   0.667, 65,
   0.3452, 3.0,
   'Bielik 2024 (n=809,986) + Strength Level (n>2M) + USAPL standards',
@@ -236,12 +259,14 @@ INSERT INTO lift_vectors (
 INSERT INTO lift_vectors (
     lift_id, sex, model_version,
     mu, sigma, pop_mu, pop_sigma,
+    mu_sex_m, sigma_sex_m, mu_sex_f, sigma_sex_f,   -- v2.1 sex-only layer (TICKET-052)
     alpha, bw_ref_kg,
     training_floor, training_tau_years,
     fit_source, fit_sample_size, notes
 ) VALUES
  ('overhead_press', 'M', 2,
   4.2280, 0.2094, 3.8867, 0.2934,
+  3.9702, 0.3145, 3.4060, 0.4194,
   0.667, 75,
   0.4378, 3.0,
   'Strength Level (n~50,000) + Nuckols/SBS + industry standards',
@@ -249,6 +274,7 @@ INSERT INTO lift_vectors (
   'f₀=0.4378 (beg/int=0.40/0.65=0.6154); no federation competition data for OHP; cross-validated vs Symmetric Strength'),
  ('overhead_press', 'F', 2,
   3.8369, 0.2245, 3.3759, 0.4018,
+  3.9702, 0.3145, 3.4060, 0.4194,
   0.667, 65,
   0.2802, 3.0,
   'Strength Level (n~25,000) + Nuckols/SBS + industry standards',
@@ -270,12 +296,14 @@ INSERT INTO lift_vectors (
 INSERT INTO lift_vectors (
     lift_id, sex, model_version,
     mu, sigma, pop_mu, pop_sigma,
+    mu_sex_m, sigma_sex_m, mu_sex_f, sigma_sex_f,   -- v2.1 sex-only layer (TICKET-052)
     alpha, bw_ref_kg,
     training_floor, training_tau_years,
     fit_source, fit_sample_size, notes
 ) VALUES
  ('barbell_row', 'M', 2,
   4.6358, 0.1741, 4.2122, 0.3340,
+  4.2957, 0.3527, 3.7425, 0.4128,
   0.667, 75,
   0.3273, 3.0,
   'Strength Level (n~80,000) + 0.90 × bench press distribution',
@@ -283,6 +311,7 @@ INSERT INTO lift_vectors (
   'Calibrated to 90% of bench press distribution at all levels; serves as canonical row parent'),
  ('barbell_row', 'F', 2,
   4.1843, 0.1961, 3.7124, 0.3950,
+  4.2957, 0.3527, 3.7425, 0.4128,
   0.667, 65,
   0.2674, 3.0,
   'Strength Level (n~40,000) + 0.90 × bench press distribution',
@@ -437,6 +466,10 @@ SELECT
     round(sigma::numeric,   4) AS sigma,
     round(pop_mu::numeric,  4) AS pop_mu,
     round(pop_sigma::numeric,4) AS pop_sigma,
+    round(mu_sex_m::numeric, 4) AS mu_sex_m,
+    round(sigma_sex_m::numeric,4) AS sigma_sex_m,
+    round(mu_sex_f::numeric, 4) AS mu_sex_f,
+    round(sigma_sex_f::numeric,4) AS sigma_sex_f,
     training_floor,
     fit_sample_size,
     notes

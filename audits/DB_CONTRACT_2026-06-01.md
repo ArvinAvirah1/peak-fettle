@@ -75,14 +75,19 @@ Logging a set now succeeds. (`node --check` passes.)
 
 ---
 
-## ⚠️ Remaining TICKET-068 work (open)
+## ✅ Column-contract sweep of INSERT/RETURNING sites — DONE (1 real break)
 
-A full column-level sweep of the other **52** INSERT/RETURNING/SELECT sites was **not** done
-this session. The newest server migrations (`session_type`, `comp_pro`, `exercises_alt_fields`,
-`workouts_cardio_columns`, `routines.exercises` JSONB) are the highest-risk for the same
-class of mismatch and should be swept next. Recommended mechanical check (now trivial): parse
-each query's identifier list, diff against the column set in `db/schema.sql`, fail on any
-identifier absent from the schema.
+An automated sweep extracted every `INSERT INTO (…cols…)` and `RETURNING …` column across all
+15 route files + 4 cron jobs and diffed each against the 176 columns defined in `db/schema.sql`.
+
+Result: **`is_pr` was the only real break** (fixed above). The only other hits —
+`confirmed_kg` / `confirmed_at` in `percentile.js` — are **false positives**: both columns
+exist in `user_confirmed_1rm` (the static extractor missed them; such misses can only produce
+false *positives*, never missed bugs, because the known-good set is built from the schema).
+
+**Still open (do during the TICKET-073 live run):** `SELECT` / `WHERE` / `JOIN` column
+references were not statically swept (too noisy to extract reliably). Booting the server against
+the fresh DB and exercising every route catches those definitively.
 
 ---
 

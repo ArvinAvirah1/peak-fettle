@@ -17,6 +17,13 @@
 --   4. compute_percentile_simple() added: gender + bodyweight only comparison
 --      against the full trained-population distribution.
 --   5. Calibration anchors corrected — see strength_curve_model.md §4.
+--
+-- V2.1 ADDITIVE LAYER (TICKET-052, 2026-05-27):
+--   6. Sex-only univariate columns (mu_sex_m/sigma_sex_m/mu_sex_f/sigma_sex_f)
+--      + compute_percentile_sex_only() (no bodyweight/age/experience) and the
+--      overall_strength_percentile()/_detail() aggregation that the strength
+--      tier (TICKET-053) consumes. Fully additive: model_version stays 2, the
+--      v2 equations/columns are untouched. See strength_curve_model.md §4.5.
 -- ===========================================================================
 
 
@@ -40,6 +47,19 @@ CREATE TABLE IF NOT EXISTS lift_vectors (
     -- Source: intermediate/elite/beginner standards; validated against Bielik 2024 and Strength Level (n>2M).
     pop_mu               DOUBLE PRECISION,
     pop_sigma            DOUBLE PRECISION,
+
+    -- ---- Sex-only univariate distribution (v2.1 additive layer, TICKET-052) ----
+    -- Log-normal of ABSOLUTE lifted load (kg) within a sex, bodyweight marginalised out.
+    -- mu_sex   = pop_mu + alpha*ln(G/bw_ref_kg);  sigma_sex = sqrt(alpha^2*s^2 + pop_sigma^2)
+    --   with population BW geometric mean G and ln-BW SD s per sex (M: 85.0/0.17, F: 68.0/0.18).
+    -- BOTH the M and F rows of a lift carry the full (m + f) pair so the undisclosed-sex
+    -- mid curve resolves from one lookup. Inherited rows leave these NULL and resolve as
+    -- mu_sex_child = mu_sex_parent + ln(inheritance_ratio); sigma_sex inherited unchanged.
+    -- See strength_curve_model.md §4.5.
+    mu_sex_m             DOUBLE PRECISION,
+    sigma_sex_m          DOUBLE PRECISION,
+    mu_sex_f             DOUBLE PRECISION,
+    sigma_sex_f          DOUBLE PRECISION,
 
     -- ---- Bodyweight scaling ----
     alpha                DOUBLE PRECISION NOT NULL DEFAULT 0.667,
@@ -85,6 +105,12 @@ CREATE INDEX IF NOT EXISTS lift_vectors_lookup_idx
 --   ALTER TABLE lift_vectors ALTER COLUMN training_floor DROP DEFAULT;
 --   ALTER TABLE lift_vectors ADD COLUMN IF NOT EXISTS pop_mu    DOUBLE PRECISION;
 --   ALTER TABLE lift_vectors ADD COLUMN IF NOT EXISTS pop_sigma DOUBLE PRECISION;
+-- If upgrading to the v2.1 sex-only layer (TICKET-052), also run:
+--   ALTER TABLE lift_vectors ADD COLUMN IF NOT EXISTS mu_sex_m    DOUBLE PRECISION;
+--   ALTER TABLE lift_vectors ADD COLUMN IF NOT EXISTS sigma_sex_m DOUBLE PRECISION;
+--   ALTER TABLE lift_vectors ADD COLUMN IF NOT EXISTS mu_sex_f    DOUBLE PRECISION;
+--   ALTER TABLE lift_vectors ADD COLUMN IF NOT EXISTS sigma_sex_f DOUBLE PRECISION;
+-- then re-run lift_vectors_seed.sql to populate them.
 
 
 -- ---------------------------------------------------------------------------
@@ -145,6 +171,10 @@ RETURNS TABLE (
     sigma                DOUBLE PRECISION,
     pop_mu               DOUBLE PRECISION,
     pop_sigma            DOUBLE PRECISION,
+    mu_sex_m             DOUBLE PRECISION,
+    sigma_sex_m          DOUBLE PRECISION,
+    mu_sex_f             DOUBLE PRECISION,
+    sigma_sex_f          DOUBLE PRECISION,
     alpha                DOUBLE PRECISION,
     bw_ref_kg            DOUBLE PRECISION,
     age_peak_lo          INTEGER,
@@ -173,6 +203,7 @@ BEGIN
         RETURN QUERY SELECT
             rec.mu, rec.sigma,
             rec.pop_mu, rec.pop_sigma,
+            rec.mu_sex_m, rec.sigma_sex_m, rec.mu_sex_f, rec.sigma_sex_f,
             rec.alpha, rec.bw_ref_kg,
             rec.age_peak_lo, rec.age_peak_hi,
             rec.youth_decay_per_year, rec.age_decay_per_year,
@@ -180,7 +211,7 @@ BEGIN
         RETURN;
     END IF;
 
-    -- Inherited: pull parent row, offset mu and pop_mu by ln(ratio)
+    -- Inherited: pull parent row, offset mu / pop_mu / mu_sex_* by ln(ratio)
     SELECT * INTO parent_rec
       FROM resolve_lift_vector(rec.parent_lift_id, p_sex, p_model_version);
 
@@ -189,6 +220,11 @@ BEGIN
         parent_rec.sigma                                AS sigma,
         parent_rec.pop_mu + ln(rec.inheritance_ratio)   AS pop_mu,
         parent_rec.pop_sigma                            AS pop_sigma,
+        -- v2.1 sex-only: a multiplicative ratio shifts the log-median, not the log-spread
+        parent_rec.mu_sex_m + ln(rec.inheritance_ratio) AS mu_sex_m,
+        parent_rec.sigma_sex_m                          AS sigma_sex_m,
+        parent_rec.mu_sex_f + ln(rec.inheritance_ratio) AS mu_sex_f,
+        parent_rec.sigma_sex_f                          AS sigma_sex_f,
         COALESCE(rec.alpha,                parent_rec.alpha)           AS alpha,
         COALESCE(rec.bw_ref_kg,            parent_rec.bw_ref_kg)       AS bw_ref_kg,
         COALESCE(rec.age_peak_lo,          parent_rec.age_peak_lo),
@@ -352,6 +388,131 @@ $$;
 
 
 -- ---------------------------------------------------------------------------
+-- 5b. compute_percentile_sex_only — sex-only univariate (v2.1, TICKET-052)
+-- ---------------------------------------------------------------------------
+-- Inputs:
+--   p_lift_id       text    — lift identifier
+--   p_sex           char(1) — 'M', 'F', or anything else / NULL = undisclosed
+--   p_lift_kg       double  — the user's lift weight (1RM equivalent) in kg
+--   p_model_version integer — defaults to 2
+--
+-- Returns: percentile [0, 100]; null on invalid input.
+-- Interpretation: "How strong is this lift for someone of my sex — ignoring
+-- bodyweight, age, and experience entirely?"  This is the casual-user score
+-- ("how strong am I for a guy/girl?") and the basis for the overall strength
+-- tier (TICKET-053).
+--
+-- Equation (no bodyweight term — that is the point):
+--   z = (ln(lift_kg) - mu_sex) / sigma_sex
+-- where (mu_sex, sigma_sex) is the sex-keyed pair from lift_vectors.
+-- Undisclosed sex -> mid curve: mu = (mu_sex_m+mu_sex_f)/2, sigma = (sigma_sex_m+sigma_sex_f)/2.
+--
+-- Derivation: bodyweight marginalised out of the v2 population model.
+-- See strength_curve_model.md §4.5.
+
+CREATE OR REPLACE FUNCTION compute_percentile_sex_only(
+    p_lift_id        TEXT,
+    p_sex            CHAR(1),
+    p_lift_kg        DOUBLE PRECISION,
+    p_model_version  INTEGER DEFAULT 2
+)
+RETURNS DOUBLE PRECISION
+LANGUAGE plpgsql
+STABLE PARALLEL SAFE AS $$
+DECLARE
+    v RECORD;
+    lookup_sex CHAR(1);
+    mu_use     DOUBLE PRECISION;
+    sigma_use  DOUBLE PRECISION;
+    z          DOUBLE PRECISION;
+BEGIN
+    -- Input validation
+    IF p_lift_kg IS NULL OR p_lift_kg <= 0 THEN RETURN NULL; END IF;
+
+    -- Both the M and F rows carry the full (m + f) sex-only pair, so for the
+    -- undisclosed-sex case we can look up either row. Use 'M' as the canonical
+    -- lookup; this also keeps the inheritance chain (which is keyed by sex) valid.
+    lookup_sex := CASE WHEN p_sex IN ('M','F') THEN p_sex ELSE 'M' END;
+
+    SELECT * INTO v FROM resolve_lift_vector(p_lift_id, lookup_sex, p_model_version);
+
+    IF p_sex = 'M' THEN
+        mu_use := v.mu_sex_m; sigma_use := v.sigma_sex_m;
+    ELSIF p_sex = 'F' THEN
+        mu_use := v.mu_sex_f; sigma_use := v.sigma_sex_f;
+    ELSE
+        -- Undisclosed / other: average the two sex curves (mu_mid / sigma_mid convention)
+        mu_use    := (v.mu_sex_m    + v.mu_sex_f)    / 2.0;
+        sigma_use := (v.sigma_sex_m + v.sigma_sex_f) / 2.0;
+    END IF;
+
+    -- Sex-only params may be absent (e.g. a pre-v2.1 row not yet re-seeded): fail safe to NULL.
+    IF mu_use IS NULL OR sigma_use IS NULL OR sigma_use <= 0 THEN
+        RETURN NULL;
+    END IF;
+
+    z := GREATEST(-4.0, LEAST(4.0, (ln(p_lift_kg) - mu_use) / sigma_use));
+
+    RETURN 100.0 * norm_cdf(z);
+END;
+$$;
+
+
+-- ---------------------------------------------------------------------------
+-- 5c. overall_strength_percentile — mean of per-lift sex-only percentiles
+-- ---------------------------------------------------------------------------
+-- The user's overall strength score (TICKET-052 §4.5.6): the arithmetic mean
+-- of the sex-only percentile across the lifts the user has logged, using the
+-- same "best e1RM per lift" input the weekly batch derives (v_user_lift_inputs).
+--
+-- Scalar form: returns the mean (NULL if the user has no logged lifts).
+-- The MINIMUM-LIFTS rule for *showing a tier* lives in the detail form below
+-- (recommended >= 3 distinct lifts); this scalar intentionally returns a value
+-- for >= 1 lift so callers can inspect an early/unstable score if they choose.
+
+CREATE OR REPLACE FUNCTION overall_strength_percentile(
+    p_user_id        UUID,
+    p_model_version  INTEGER DEFAULT 2
+)
+RETURNS DOUBLE PRECISION
+LANGUAGE sql
+STABLE PARALLEL SAFE AS $$
+    SELECT AVG(
+        compute_percentile_sex_only(u.lift_id, u.sex, u.best_one_rm_kg, p_model_version)
+    )
+    FROM v_user_lift_inputs u
+    WHERE u.user_id = p_user_id
+      AND u.best_one_rm_kg > 0;
+$$;
+
+
+-- Detail form for TICKET-053: returns the overall percentile, the distinct-lift
+-- count, and whether the founder-tunable minimum (default 3) is met, so the tier
+-- UI can gate on min_lifts_met without re-deriving the threshold client-side.
+CREATE OR REPLACE FUNCTION overall_strength_percentile_detail(
+    p_user_id        UUID,
+    p_model_version  INTEGER DEFAULT 2,
+    p_min_lifts      INTEGER DEFAULT 3
+)
+RETURNS TABLE (
+    overall_percentile DOUBLE PRECISION,
+    n_lifts            INTEGER,
+    min_lifts_met      BOOLEAN
+)
+LANGUAGE sql
+STABLE PARALLEL SAFE AS $$
+    SELECT
+        AVG(compute_percentile_sex_only(u.lift_id, u.sex, u.best_one_rm_kg, p_model_version)) AS overall_percentile,
+        COUNT(DISTINCT u.lift_id)::INTEGER                                                    AS n_lifts,
+        (COUNT(DISTINCT u.lift_id) >= p_min_lifts)                                            AS min_lifts_met
+    FROM v_user_lift_inputs u
+    WHERE u.user_id = p_user_id
+      AND u.best_one_rm_kg > 0
+      AND compute_percentile_sex_only(u.lift_id, u.sex, u.best_one_rm_kg, p_model_version) IS NOT NULL;
+$$;
+
+
+-- ---------------------------------------------------------------------------
 -- 6. Bulk batch function (weekly job)
 -- ---------------------------------------------------------------------------
 
@@ -399,6 +560,10 @@ SELECT
     round(sigma::numeric, 4)    AS sigma,
     round(pop_mu::numeric, 4)   AS pop_mu,
     round(pop_sigma::numeric, 4) AS pop_sigma,
+    round(mu_sex_m::numeric, 4)    AS mu_sex_m,
+    round(sigma_sex_m::numeric, 4) AS sigma_sex_m,
+    round(mu_sex_f::numeric, 4)    AS mu_sex_f,
+    round(sigma_sex_f::numeric, 4) AS sigma_sex_f,
     training_floor,
     fit_sample_size,
     notes

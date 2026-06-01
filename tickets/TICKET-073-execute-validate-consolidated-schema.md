@@ -15,9 +15,13 @@ proven `all_migrations.sql` sequence + appending the post-2026-05-15 additive mi
 statically verified (coverage of all 42 files, balanced `$$`, all code-referenced
 tables/functions/views present — see `audits/DB_CONTRACT_2026-06-01.md`).
 
-It has **NOT** been executed against a live Postgres. The old files are kept in place
-(marked superseded) until this ticket proves the replacement on a real DB. **This is the gate
-that makes the "nuke" safe and reversible.**
+It has **NOT** been executed against a live Postgres. **Update 2026-06-01:** the founder
+confirmed the deployed DB was non-functional for everything but sign-in and authorized the
+full nuke — so the old migration pile (`migrations/*.sql`, `peak-fettle-agents/server/
+migrations/*.sql`, `all_migrations.sql`, `APPLY_ALL_pending.sql`) was **deleted** from the
+tree (recoverable from git history at `815fb47`); the percentile model source was moved to
+`db/reference/`. This ticket is now purely about **proving `db/schema.sql` on a real DB** and
+the full route-contract sweep — not gating deletion.
 
 ## Goal
 Prove `db/schema.sql` produces a working database, then physically retire the old migration
@@ -35,12 +39,12 @@ pile so there is exactly one source of truth.
    fixed 2026-06-01 in `routes/sets.js`).
 4. Seed data present and sane: exercise library + aliases, `lift_vectors` (v1 + v2 rows),
    cosmetics, workout templates. Spot-check counts vs the old seed files.
-5. **Only after 1–4 pass:** delete the superseded files (git history preserves them):
-   `migrations/*.sql`, `peak-fettle-agents/server/migrations/*.sql`, `all_migrations.sql`,
-   `APPLY_ALL_pending.sql`, `migrations/SUPERSEDED.md`. Keep `compute_percentile.sql` +
-   `lift_vectors_seed.sql` (TICKET-066 reference) — move them to `db/reference/`.
-6. Update `db/README.md` to drop the "validation gate" + "superseded files kept in place"
-   sections once removal is done.
+5. ✅ **DONE 2026-06-01** — old pile deleted from the tree; percentile model source moved to
+   `db/reference/`; redirect left at `migrations/README.md`.
+6. ✅ **DONE 2026-06-01** — `db/README.md` updated to reflect the completed nuke.
+7. The column-contract audit (`audits/DB_CONTRACT_2026-06-01.md`) found `is_pr` as the only
+   real INSERT/RETURNING break (fixed). Extend it to **SELECT/WHERE/JOIN** columns during the
+   live route sweep — those weren't statically swept and a live run catches them definitively.
 
 ## Implementation plan
 - Use a throwaway Supabase project (never a DB with data).

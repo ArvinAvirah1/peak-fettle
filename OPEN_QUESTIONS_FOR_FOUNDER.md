@@ -49,27 +49,46 @@ Found in TICKET-064 audit (F-003/F-004). Two competing paths exist:
 
 ---
 
-## Q7 — Peak Fettle Mind: app name confirmed? `OPEN`
-"Peak Fettle Mind" applied as default in `COMPANION_APP_ROADMAP_2026-05-29.md`. Alternatives from the pitch: "Fettle Mind", "Headroom", "Even Keel", "Baseline".
-- **Impact:** bundle ID, App Store listing, brand assets. Easy to change before TICKET-074 (foundation).
+## Q7 — Companion app name? `OPEN — founder rejected "Peak Fettle Mind", reviewing new options`
+Founder does not like "Peak Fettle Mind." Expanded option set in `COMPANION_APP_NAMING_2026-05-29.md` (grouped: Fettle-family, mountain/trail siblings, standalone calm names). Build proceeds name-agnostic via a single `PRODUCT_NAME` constant (`mind/src/config/product.ts`) so the final pick is a one-line swap.
+- **Working title in code:** "Fettle Rest" placeholder (clearly marked TBD) until founder picks.
+- **Impact:** bundle ID, App Store listing, brand assets, all disclaimer/crisis copy. Needed before TICKET-081 (store submission); NOT a blocker for TICKET-073/074 thanks to the constant.
 
-## Q8 — AI reflection in v1 or deferred? `OPEN`
-Pitch recommendation: defer to P4 (Claude Haiku journaling prompts with safety guardrails). Applied as default.
+## Q8 — AI reflection in v1 or deferred? `ANSWERED (2026-05-29)`
+Pitch recommendation: defer to P4 (Claude Haiku journaling prompts with safety guardrails).
 - **Options:** (a) keep deferred to P4; (b) include in v1 with conservative safety prompting.
-- **Impact:** gates whether TICKET-078 exercise library includes any AI-generated prompts.
+- **Answer:** **(a)** — deferred to P4. No LLM in v1. TICKET-078 exercise library ships with seeded, human-written content only.
 
-## Q9 — Who human-reviews the crisis copy? `OPEN`
-TICKET-073 (safety scaffolding) requires a human to approve crisis resource text (988 copy, contextual trigger wording, disclaimer language) before any build ships. An agent can draft; a human must sign off.
-- **Impact:** TICKET-073 cannot be marked done without a named reviewer.
-- **Action needed:** nominate yourself or a designated reviewer.
+## Q9 — Who human-reviews the crisis copy? `ANSWERED (2026-05-29)`
+TICKET-073 requires a human to approve crisis resource text (988 copy, contextual trigger wording, disclaimer language) before any build ships.
+- **Answer:** **Founder reviews it.** TICKET-073 drafts the copy; it is marked `PENDING FOUNDER REVIEW` and cannot ship until the founder signs off in `mind/CONTENT_SAFETY.md`.
 
-## Q10 — Encryption key management for mood notes / journal entries? `OPEN`
-Mind stores sensitive `note_encrypted` and `body_encrypted` fields. Three options:
-- **(a) Client-side AES** — key derived from session token. Notes lost if session key rotates without migration. Most private.
-- **(b) Server-side encryption** — server encrypts before storing. Simpler, operationally recoverable, but server holds the key.
-- **(c) Defer encryption** — store plain text in v1, encrypt in a fast-follow migration.
-- **Recommendation:** (b) for v1 simplicity; upgrade to (a) post-beta if user trust requires it.
-- **Impact:** gates TICKET-076 note implementation.
+## Q10 — Encryption key management for mood notes / journal entries? `ANSWERED (2026-05-29)`
+Mind stores sensitive `note_encrypted` and `body_encrypted` fields.
+- **(a) Client-side AES** — most private; notes lost if session key rotates.
+- **(b) Server-side encryption** — simpler, operationally recoverable, server holds key.
+- **(c) Defer encryption** — plain text v1.
+- **Answer:** **(b) for v1 simplicity; upgrade to (a) post-beta if user trust requires it.** TICKET-076 encrypts notes server-side at write; migration column stays `note_encrypted` so an (a) upgrade is non-breaking.
+
+## Q11 — Set-logging stepper format `ANSWERED (2026-06-01)`
+Founder reported the live set-addition didn't match the wanted format; 5 annotated mockups provided.
+- **Answer (drives TICKET-074 + TICKET-077):**
+  - Stepper is the format. **`routine`** variant is default; **`free`** (add-as-you-go) variant
+    for no-routine sessions; **`smart`** (suggested-next) variant is **PRO** → TICKET-077.
+  - **Off-routine logging** → prompt to add the exercise to the routine with **three** placements:
+    `End of routine` / `After current` (default) / `Pick position…`.
+  - **RIR**: optional, **shown by default** (not behind a disclosure, not required).
+  - **Cardio**: **deferred** — founder unsure of the format; leave cardio path unchanged for now.
+  - **"Choose alternative exercise"** (machine busy at the gym → ranked swaps) is a **PRO**
+    feature; backend `GET /exercises/:id/alternatives` already exists + `requirePaid` → TICKET-077.
+
+## Q12 — Nuke the previous database? `ANSWERED (2026-06-01)`
+Founder: "willing to just nuke the previous db because none of the pulls from it were working
+other than the initial sign in."
+- **Answer:** **Yes.** Old migration pile deleted from the tree (recoverable from git `815fb47`);
+  `db/schema.sql` is the single source of truth. Founder to drop the Supabase DB and re-run
+  `db/schema.sql` on a fresh project (TICKET-073). The "no pulls worked" symptom is consistent
+  with the deployed DB missing schema the code needs — a fresh, complete `db/schema.sql` is the fix.
 
 ---
-*Add new questions below as Q11, Q12, … — never silently assume an answer.*
+*Add new questions below as Q13, Q14, … — never silently assume an answer.*
