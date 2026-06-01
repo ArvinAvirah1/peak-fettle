@@ -97,7 +97,13 @@ router.post('/', async (req, res, next) => {
              RETURNING id, workout_id, user_id, exercise_id, kind, set_index,
                        reps, weight_raw, rir,
                        duration_sec, distance_m, avg_pace_sec_per_km,
-                       is_pr, logged_at`,
+                       logged_at`,
+            // NOTE (2026-06-01): removed `is_pr` from RETURNING — there is no
+            // is_pr column on `sets` in any migration, so this RETURNING 500'd
+            // every POST /sets (logging a set was completely broken). PR status
+            // is derived client-side in useWorkoutHistory.ts (prIds.has(set.id))
+            // against the exercise_prs table; it is NOT a column on sets and the
+            // client never reads it from this response. See TICKET-068 / L-017.
             [
                 body.workoutId, req.user.id, body.exerciseId, body.kind, body.setIndex,
                 body.kind === 'lift' ? body.reps : null,
