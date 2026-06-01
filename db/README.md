@@ -41,10 +41,14 @@ a supported path.
 - every table, function, and view that the server code references is present
   (see [`audits/DB_CONTRACT_2026-06-01.md`](../audits/DB_CONTRACT_2026-06-01.md)).
 
-It has **NOT** yet been executed against a live Postgres. Before it replaces the old files
-for good, **TICKET-073** must: run it on a fresh Supabase project, boot the server against
-it, exercise every route, and confirm zero `undefined column` / `function does not exist`
-errors. Only **after** that passes should the superseded files (below) be physically deleted.
+It has **NOT** yet been executed against a live Postgres. **TICKET-073** is the recommended
+smoke test: run it on a fresh Supabase project, boot the server against it, exercise every
+route, and confirm zero `undefined column` / `function does not exist` errors.
+
+**The old migration pile was nuked on 2026-06-01** (founder directive — no user base, and the
+deployed DB was non-functional for everything but sign-in). The old `.sql` files were deleted
+from the tree (recoverable from git history at commit `815fb47` and earlier). `db/schema.sql`
+is now the only schema artifact.
 
 ---
 
@@ -69,13 +73,16 @@ change runtime behavior:
 
 ---
 
-## Superseded files (kept in place until TICKET-073 validation passes)
+## Removed on 2026-06-01 (recoverable from git history)
 
-Do not edit or apply these. `db/schema.sql` is the source of truth.
+`db/schema.sql` is the source of truth. These were deleted from the tree:
 
-- `migrations/*.sql` (30 dated files) — see `migrations/SUPERSEDED.md`
+- `migrations/*.sql` (30 dated files) — old path now holds a redirect `migrations/README.md`
 - `peak-fettle-agents/server/migrations/*.sql` (12 dated files)
-- `all_migrations.sql` — old through-2026-05-15 concatenation (now incomplete + superseded)
+- `all_migrations.sql` — old through-2026-05-15 concatenation (incomplete + superseded)
 - `APPLY_ALL_pending.sql` — old hand-rolled "pending" concatenation (superseded)
+
+Kept (moved to [`db/reference/`](./reference/)):
+
 - `compute_percentile.sql`, `lift_vectors_seed.sql` — percentile **model source** (kept as
   reference for TICKET-066; pairs with `strength_curve_model.md`)
