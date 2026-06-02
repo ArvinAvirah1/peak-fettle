@@ -1,6 +1,6 @@
 ---
 slug: ios-release-route-undefined
-status: fix2-applied-pending-device-verify
+status: fix3-source+bundle-verified-clean-REBUILD-REQUIRED
 trigger: "App crashes at startup on iOS Release/TestFlight only (works in dev). BootErrorBoundary catches: TypeError: Cannot read property 'ErrorBoundary' of undefined at expo-router fromImport → getQualifiedRouteComponent → getComponent → SceneView."
 created: 2026-05-29
 updated: 2026-05-29
@@ -110,4 +110,53 @@ templates." Those screens RESOLVE fine (no route-undefined) — the SERVER is re
 data calls. Likely an undeployed DB column / migration (see CLAUDE.md L-017/L-024: an
 undeployed column = always-500 on the whole tab) or a backend deploy/config issue. Track
 separately against peak-fettle-agents/server.
-</content>
+
+---
+
+## FIX 3 (2026-06-02) — fix-2 theory was WRONG; SOURCE + PRODUCTION BUNDLE verified clean
+
+Founder reported Home + Rankings STILL show "This screen failed to load" after fix 2.
+So removing the `…WithBoundary` wrapper was NOT the cure. Re-investigated from scratch and
+**built the actual production (sync/Hermes) bundle locally** to get ground truth instead of theory:
+
+### What the WithBoundary theory missed
+- All 5 tabs are now structurally identical (`export default function XScreen()` mid-file) — the
+  wrapper is gone — yet the same two still failed. Structure was never the differentiator.
+- **The real differentiator:** a transitive-closure diff of all 5 tab import graphs shows the
+  ONLY module reachable from BOTH index & rankings but from NO working tab is
+  **`src/api/percentile.ts`** (index imports `getPercentile`, rankings imports `confirm1rm`).
+  fix 2 never noticed this. BUT — see below — that module is innocent too.
+
+### Ground-truth bundle inspection (the decisive evidence)
+Ran `expo export` + `expo export:embed --dev false` (both sync mode, same path the guard fires on):
+- Bundle **builds clean** (3.5 MB Hermes + plain JS). No bundle-time error.
+- `api/percentile.ts` module factory is well-formed: exports `getPercentile`/`confirm1rm`/
+  `getPercentileForLift` eagerly at the top, dep map `[client, asyncToGenerator]`. Innocent.
+- The expo-router require.context wires **both** routes correctly:
+  `"./(tabs)/index.tsx":{get:()=>r(d[4])}` and `"./(tabs)/rankings.tsx":{get:()=>r(d[8])}`,
+  and both module factories carry a proper `__esModule` + `default` export.
+- `@babel/parser` sweep clean; type-only imports correctly elided; no require cycle
+  (custom transitive cycle-detector + earlier madge agree).
+
+### Conclusion
+**The current source + the production JS bundle it generates are correct.** `loadRoute()` for both
+routes resolves to a real module with a real `default`. There is no source defect left to fix.
+Therefore the on-device failure is a **STALE BUILD** — the device is running a binary built
+before the route modules reached their current (correct) state. A re-require can't help: a sync
+bundle evaluates every module at startup, so a module that resolved is final.
+
+### Action required (founder — cannot be done from the sandbox)
+1. `git push origin main` (sandbox cannot push — see CLAUDE.md).
+2. Trigger a **fresh EAS build** from origin/main and install it (TestFlight).
+3. Home + Rankings will render. The expo-router guard (kept) remains a safety net that names any
+   future offending route on-screen.
+If — and only if — a freshly-built binary from current origin/main STILL shows the fallback, then
+it is a Hermes-bytecode-vs-JS discrepancy (extremely rare) and should be reopened with the exact
+build SHA; nothing in the JS source can change it.
+
+### Related fixes shipped same pass (TICKET-074 + reported bugs)
+- Stepper set-logging now persists: built the canonical `LogLiftSetPayload` (was a malformed
+  snake_case object cast `as LogSetPayload` → server Zod-rejected → silently dropped).
+- "Finish workout" button added to the Log screen (was missing).
+- Starter-split templates were always empty: `routines.tsx` filtered `discipline:'strength'`
+  but the schema CHECK only allows `general_strength`/`powerlifting`/… → 0 rows. Fixed.

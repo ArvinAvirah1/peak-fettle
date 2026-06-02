@@ -56,8 +56,22 @@ interface Template {
 // Constants
 // ---------------------------------------------------------------------------
 
-const DISCIPLINES = ['All', 'powerlifting', 'weightlifting', 'strength', 'running', 'cycling', 'swimming'];
+// NOTE: these values MUST match the server CHECK constraint on
+// workout_templates.discipline (db/schema.sql): a value not in that set (the
+// old 'strength') matches zero rows and silently shows an empty list.
+const DISCIPLINES = ['All', 'powerlifting', 'weightlifting', 'general_strength', 'running', 'cycling', 'swimming', 'other_mixed'];
 const EXPERIENCE_LEVELS = ['All', 'beginner', 'intermediate', 'advanced', 'elite'];
+
+const DISCIPLINE_LABEL: Record<string, string> = {
+  All: 'All disciplines',
+  powerlifting: 'Powerlifting',
+  weightlifting: 'Weightlifting',
+  general_strength: 'Strength',
+  running: 'Running',
+  cycling: 'Cycling',
+  swimming: 'Swimming',
+  other_mixed: 'Mixed',
+};
 
 const LEVEL_LABEL: Record<string, string> = {
   beginner: 'Beginner',
@@ -356,7 +370,7 @@ export default function TemplatesScreen(): React.ReactElement {
         {DISCIPLINES.map((d) => (
           <Chip
             key={d}
-            label={d === 'All' ? 'All disciplines' : d}
+            label={DISCIPLINE_LABEL[d] ?? d}
             active={disciplineFilter === d}
             onPress={() => setDisciplineFilter(d)}
             colors={colors}
