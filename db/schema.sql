@@ -3580,17 +3580,26 @@ CREATE INDEX IF NOT EXISTS idx_cosmetic_items_shop
     ON cosmetic_items (category, rarity, sort_order)
     WHERE is_active = TRUE;
 
--- Cosmetic items are globally readable (no RLS needed for SELECT).
--- All writes come from the service role.
--- No RLS on cosmetic_items intentionally — it is a public catalog.
---
+-- cosmetic_items is a public catalog: globally READABLE, writes only via the
+-- service role (admin tooling). RLS posture (corrected 2026-06-01):
+--   ENABLE RLS + a SELECT-only policy.
+-- Why: with Supabase's default GRANT ALL to anon/authenticated, leaving RLS
+-- *off* would let those keys read AND WRITE this table via the auto REST API —
+-- the opposite of "service-role-only writes". Enabling RLS with ONLY a SELECT
+-- policy gives public read, denies anon/authenticated writes, and the service
+-- role still writes (it bypasses RLS). This also clears the Supabase linter
+-- warning ("table without RLS").
+ALTER TABLE cosmetic_items ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS cosmetic_items_public_read ON cosmetic_items;
+CREATE POLICY cosmetic_items_public_read
+    ON cosmetic_items FOR SELECT USING (true);
+
 -- !!  WRITE-GUARD — DO NOT ADD INSERT / UPDATE / DELETE RLS POLICIES HERE  !!
--- Adding any write policy (even a restrictive one) to cosmetic_items would
--- allow authenticated users to potentially flip is_default = TRUE on paid
--- items, bypassing the credit-purchase requirement for premium cosmetics.
--- All catalog mutations must go through the service role (admin tooling only).
--- If anonymous shop preview requirements change in Phase E, open a separate
--- migration and get a security review before touching this table's RLS state.
+-- Adding any write policy would let authenticated users flip is_default = TRUE
+-- on paid items, bypassing the credit-purchase requirement. Catalog mutations
+-- stay service-role-only. The SELECT-only policy above is the complete and
+-- correct posture; do not add write policies without a security review.
 
 -- ---------------------------------------------------------------------------
 -- SECTION 2: User cosmetics (ownership ledger)
