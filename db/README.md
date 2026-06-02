@@ -11,13 +11,29 @@ both safe and far less error-prone to reason about. (Founder directive, 2026-06-
 
 ---
 
-## How to apply (fresh Supabase project)
+## How to apply
 
-1. Create a fresh Supabase project (or `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`
-   on a throwaway DB — **never** on anything with real data).
-2. Open the **SQL editor** and paste/run [`db/schema.sql`](./schema.sql) top to bottom, once.
-3. Set `SUPABASE_DB_URL` in the server `.env` to that project's Postgres connection string.
-4. Smoke-test the API against it (see the validation gate below).
+### ✅ Recommended: reset the EXISTING project in place (no setup, no env changes)
+
+Keeps the same project → same `SUPABASE_DB_URL`, API keys, and server `.env`. Nothing to
+reconfigure. In the existing project's **SQL editor**, run two files in order:
+
+1. [`db/reset_public_schema.sql`](./reset_public_schema.sql) — drops + recreates the `public`
+   schema and restores Supabase's default grants. (Destructive — wipes app tables/data, which
+   is fine: there's no data worth keeping. Does **not** touch `auth`/`storage`/`extensions`.)
+2. [`db/schema.sql`](./schema.sql) — rebuilds the entire schema + seed data.
+
+That's it. The server connects via the direct Postgres URL / service role (bypasses RLS), so
+it works against the new schema immediately — no key or `.env` changes.
+
+### Alternative: brand-new project
+
+1. Create a fresh Supabase project.
+2. Run [`db/schema.sql`](./schema.sql) top to bottom in the SQL editor (no reset needed — it's
+   already empty).
+3. Point `SUPABASE_DB_URL` (+ `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY`) in the server
+   `.env` at the new project.
+4. Smoke-test the API (TICKET-073).
 
 `db/schema.sql` is **self-contained** — it includes all seed data (exercise library + aliases,
 `lift_vectors`, cosmetics, workout templates). No separate seed step is required.
