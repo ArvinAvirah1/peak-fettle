@@ -6048,3 +6048,24 @@ BEGIN
     END IF;
 END $$;
 
+
+
+-- #############################################################################
+-- # Security hardening: SECURITY INVOKER on advisor-flagged views
+-- # (Supabase Advisor: "Security Definer View" — CRITICAL)
+-- #
+-- # These views default to SECURITY DEFINER, which ignores the querying user's
+-- # RLS and runs as the view owner. user_credit_balance in particular exposes
+-- # every user's wallet balance, so a client/PostgREST query could read another
+-- # user's data. SECURITY INVOKER makes each view respect the caller's RLS.
+-- # The Express server queries via the elevated postgres/service role (which
+-- # bypasses RLS regardless), so this is safe and changes no server behaviour.
+-- # Appended at end-of-file so it applies to the FINAL definition of each view
+-- # (several are re-defined earlier via CREATE OR REPLACE).
+-- # Requires Postgres 15+ (Supabase is 15+).
+-- #############################################################################
+
+ALTER VIEW public.user_credit_balance        SET (security_invoker = true);
+ALTER VIEW public.group_active_member_count  SET (security_invoker = true);
+ALTER VIEW public.v_user_lift_inputs         SET (security_invoker = true);
+ALTER VIEW public.v_lift_vector_summary      SET (security_invoker = true);
