@@ -10,6 +10,23 @@
 Wire the two **pro-tier** set-logging features to their (already-built) backends, behind the
 paywall. Free-tier logging is TICKET-074; this ticket adds the paid upgrades on top of it.
 
+## Billing / entitlement architecture — DECIDED 2026-06-01: RevenueCat
+Founder confirmed RevenueCat for the Pro subscription. Integration shape:
+- **Client:** `react-native-purchases` (RevenueCat SDK) + its Expo config plugin. Requires a
+  dev/EAS build (not Expo Go) — already in use. Define a single **"pro" entitlement** in the
+  RevenueCat dashboard; products configured in App Store Connect + Google Play Console.
+- **Server (source of truth stays `users.tier`):** add a RevenueCat **webhook** endpoint that
+  sets `users.tier = 'paid'` on an active entitlement and reverts to `'free'` on
+  expiration/refund/billing-lapse. `requirePaid` keeps reading `tier = 'paid'` unchanged — the
+  server never trusts a client-supplied flag.
+- **Reconcile `comp_pro` vs `tier`:** `comp_pro` is "why" metadata (manual comp, no billing).
+  Ensure BOTH paths converge on `tier = 'paid'`: the RevenueCat webhook sets it for paying
+  users; `grant-pro.js` / comp flow sets it (and `comp_pro = true`) for comps. The webhook must
+  **not** downgrade a comped user (`comp_pro = true`) when they have no RevenueCat entitlement.
+- **Do NOT use Stripe directly for the in-app subscription** (Apple/Google require their IAP).
+  RevenueCat's Web Billing (Stripe-backed) is only for a future web channel.
+- Free tier: RevenueCat is free under ~$2.5k/mo revenue (2026), then ~1% — negligible pre-launch.
+
 ## Feature A — Smart-Suggest (`variant: 'smart'`)
 Screenshot 5: after logging, show a `Suggested next` card (exercise + PB + rep target + a reason
 like `balances push volume`) and `Continue to <suggestion> →`.
@@ -53,6 +70,7 @@ When the machine/equipment for the current exercise is occupied at the gym, a pr
 
 ## Notes
 - Depends on TICKET-074 (the free-tier stepper) landing first, and TICKET-073 (working DB).
-- Entitlement source of truth: confirm whether `requirePaid` reads `users.comp_pro` / a
-  subscription flag, and that the client entitlement check matches the server's (avoid the
-  client showing a feature the server then 403s — TICKET-068 list/detail-shape lesson).
+- Entitlement: server source of truth is `users.tier = 'paid'` (via `requirePaid`); RevenueCat
+  drives it via webhook (see "Billing / entitlement architecture" above). The client entitlement
+  check (gate the `smart` variant + "Choose alternative") must match RevenueCat's entitlement so
+  the client never shows a feature the server then 402s (TICKET-068 list/detail-shape lesson).

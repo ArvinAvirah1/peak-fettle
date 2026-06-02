@@ -90,5 +90,19 @@ other than the initial sign in."
   `db/schema.sql` on a fresh project (TICKET-073). The "no pulls worked" symptom is consistent
   with the deployed DB missing schema the code needs — a fresh, complete `db/schema.sql` is the fix.
 
+## Q13 — Pro-tier billing provider `ANSWERED (2026-06-01)`
+How does `users.tier` flip to `'paid'` (the gate `requirePaid` enforces)?
+- **Recommendation:** RevenueCat — first-class Expo/EAS support, wraps StoreKit + Play Billing,
+  free under ~$2.5k/mo then ~1%, webhook → server sets `tier`. Don't use Stripe directly for
+  in-app subs (store policy); Adapty is the comparable alternative.
+- **Answer:** **RevenueCat.** Drives TICKET-077 (integration architecture recorded there): client
+  `react-native-purchases` + Expo plugin; server webhook sets `users.tier='paid'` and must not
+  downgrade comped users (`comp_pro=true`). `requirePaid` stays the single source of truth.
+
+## Q14 — Set-logging visual design: are the 5 screenshots final? `ANSWERED (2026-06-01)`
+- **Answer:** **Yes.** The 5 screenshots are the final design (dark theme + teal accent). The
+  older `set-logging-*.html` variant files (layout/theme/font options) are **superseded**.
+  Drives TICKET-074 (build to the screenshots).
+
 ---
-*Add new questions below as Q13, Q14, … — never silently assume an answer.*
+*Add new questions below as Q15, Q16, … — never silently assume an answer.*

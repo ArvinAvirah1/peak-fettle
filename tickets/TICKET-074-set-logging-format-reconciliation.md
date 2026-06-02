@@ -49,8 +49,10 @@ first; the pro-tier pieces are TICKET-077.
       payload path) onto one canonical payload shape so no field is silently dropped.
 - [ ] Off-routine prompt: add the **`Pick position…`** option (3-way placement).
 - [ ] Routines screen: starter-split duplicate flow wired to `workout_templates` seed.
-- [ ] Match the confirmed **layout / theme / typography** to the mockups (the dark theme +
-      teal accent shown). Verify visually with the app running (`/run`) — do not ship blind.
+- [ ] Match the confirmed **layout / theme / typography** to the **5 screenshots** (dark theme +
+      teal accent). **CONFIRMED FINAL 2026-06-01** — the screenshots ARE the design; the older
+      `set-logging-*.html` variant files are superseded. Verify visually with the app running
+      (`/run`) — do not ship blind.
 
 ## Acceptance criteria
 1. Logging a lift set from the stepper persists weight, reps, and (if entered) rir; the value
