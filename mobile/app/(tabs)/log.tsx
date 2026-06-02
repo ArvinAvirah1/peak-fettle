@@ -614,34 +614,48 @@ export default function LogScreen(): React.ReactElement {
   }, []);
 
   const handleStepperLogSet = useCallback(
-    async (exerciseId: string, weight: string, reps: string) => {
+    async (exerciseId: string, weight: string, reps: string, rir?: string) => {
+      // setIndex = sets already logged for this exercise THIS session (0-based).
+      const setIndex = stepperSets.get(exerciseId)?.length ?? 0;
       // Append to local chip cache first (optimistic)
       setStepperSets((prev) => {
         const next = new Map(prev);
         const existing = next.get(exerciseId) ?? [];
-        next.set(exerciseId, [...existing, { weight, reps }]);
+        next.set(exerciseId, [...existing, { weight, reps, rir }]);
         return next;
       });
       // Update routine session counters
       updateRoutineExercise(exerciseId);
-      // Persist via PowerSync if workout exists
-      if (!workout?.id || !selectedExercise) return;
+      // Persist via the canonical logSet path. Routine rows carry a real
+      // exercise UUID; fall back to the picker-selected exercise if blank.
+      const targetId = exerciseId || selectedExercise?.id || '';
+      if (!workout?.id || !targetId) return;
+      // TICKET-074 #1/#2: build the SAME canonical LogLiftSetPayload the form
+      // path uses (camelCase, discriminated by `kind`, with setIndex + rir) so
+      // no field is silently dropped UI→API. The previous shape
+      // ({workout_id, exercise_id, set_type, weight}) was cast `as LogSetPayload`
+      // and rejected by the server's Zod schema, so stepper sets never persisted.
+      const rirNum = rir != null && rir.trim() !== '' ? parseInt(rir, 10) : undefined;
       try {
         await logSet({
-          workout_id: workout.id,
-          exercise_id: exerciseId || selectedExercise.id,
-          set_type: 'lift',
-          weight: parseFloat(weight) || 0,
-          reps: parseInt(reps) || 0,
-        } as LogSetPayload);
+          kind: 'lift',
+          workoutId: workout.id,
+          exerciseId: targetId,
+          setIndex,
+          reps: parseInt(reps, 10) || 0,
+          weightKg: parseFloat(weight) || 0,
+          ...(rirNum !== undefined && !Number.isNaN(rirNum) ? { rir: rirNum } : {}),
+        });
         haptics.success();
         setTimerActive(true);
         setRestSecondsLeft(REST_DEFAULT);
-      } catch {
-        // Non-blocking — set is in local chip cache regardless
+      } catch (err) {
+        // Non-blocking — set stays in the local chip cache. Surface the cause
+        // (don't swallow): a rejected payload here is how persistence silently broke.
+        console.warn('[PF] log/handleStepperLogSet:', err instanceof Error ? err.message : String(err));
       }
     },
-    [workout, selectedExercise, logSet, updateRoutineExercise],
+    [workout, selectedExercise, logSet, updateRoutineExercise, stepperSets],
   );
 
   const handleStepperAdvance = useCallback((toIndex: number) => {
@@ -649,21 +663,33 @@ export default function LogScreen(): React.ReactElement {
   }, []);
 
   const handleStepperAddOffRoutine = useCallback(
-    (exerciseId: string, exerciseName: string, position: 'end' | 'after_current') => {
+    (
+      exerciseId: string,
+      exerciseName: string,
+      position: 'end' | 'after_current' | 'pick',
+      pickIndex?: number,
+    ) => {
       setRoutineSession((prev) => {
         if (!prev) return prev;
-        const newEx = {
-          exerciseId,
-          name: exerciseName,
-          loggedSetCount: 0,
-          done: false,
-        };
         const exercises = [...prev.exercises];
+        // If this exercise is already in the session (the off-routine row we're
+        // re-homing), pull it out first so "pick"/"end" truly move it.
+        const existingIdx = exercises.findIndex(
+          (e) => (exerciseId && e.exerciseId === exerciseId) || e.name === exerciseName,
+        );
+        if (existingIdx !== -1) exercises.splice(existingIdx, 1);
+
+        const newEx = { exerciseId, name: exerciseName, loggedSetCount: 0, done: false };
+        let insertAt: number;
         if (position === 'end') {
-          exercises.push(newEx);
+          insertAt = exercises.length;
+        } else if (position === 'pick') {
+          // Clamp the requested 0-based slot into range.
+          insertAt = Math.max(0, Math.min(pickIndex ?? exercises.length, exercises.length));
         } else {
-          exercises.splice(prev.currentIndex + 1, 0, newEx);
+          insertAt = Math.min(prev.currentIndex + 1, exercises.length);
         }
+        exercises.splice(insertAt, 0, newEx);
         return { ...prev, exercises };
       });
     },
@@ -704,6 +730,31 @@ export default function LogScreen(): React.ReactElement {
 
   const groups = useMemo(() => groupSetsByExercise(sets), [sets]);
   const totalSets = sets.length;
+
+  // ── Finish / End workout ───────────────────────────────────────────────────
+  // Workouts are day-keyed and persist server-side (there is no explicit
+  // "completed" status), so finishing is a client-side wrap-up: confirm, clear
+  // any active routine/stepper session, and return Home to surface updated
+  // stats + streak. (User-reported: the End workout button was missing.)
+  const handleFinishWorkout = useCallback(() => {
+    Alert.alert(
+      'Finish workout?',
+      `${totalSets} set${totalSets !== 1 ? 's' : ''} logged — your progress is already saved.`,
+      [
+        { text: 'Keep logging', style: 'cancel' },
+        {
+          text: 'Finish',
+          onPress: () => {
+            haptics.success();
+            setStepperVisible(false);
+            setRoutineSession(null);
+            setSelectedExercise(null);
+            router.replace('/(tabs)');
+          },
+        },
+      ],
+    );
+  }, [totalSets, router]);
 
   const handleExerciseSelect = useCallback((exercise: Exercise) => {
     setPickerVisible(false);
@@ -1125,6 +1176,22 @@ export default function LogScreen(): React.ReactElement {
             </Text>
           </Pressable>
 
+          {/* ---- Finish workout (TICKET-074 / user-reported missing button) ---- */}
+          <TouchableOpacity
+            onPress={handleFinishWorkout}
+            style={[
+              styles.finishWorkoutBtn,
+              { backgroundColor: theme.colors.accentDefault },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Finish workout"
+          >
+            <Ionicons name="checkmark-circle" size={18} color={theme.components.buttonPrimaryText} />
+            <Text style={[styles.finishWorkoutLabel, { color: theme.components.buttonPrimaryText }]}>
+              Finish workout
+            </Text>
+          </TouchableOpacity>
+
           <View style={styles.bottomPad} />
         </ScrollView>
       )}
@@ -1190,7 +1257,8 @@ export default function LogScreen(): React.ReactElement {
             variant={
               routineSession?.source === 'routine'
                 ? 'routine'
-                : 'smart'  /* TICKET-062: 'smart' for free sessions (algo suggest) */
+                : 'free'  /* TICKET-074 #1: free tier ships the 'free' variant.
+                             'smart' (algo-suggest card) is PRO-gated — TICKET-077. */
             }
             suggestion={smartSuggestion}
             onAddNextExercise={() => {
@@ -1322,6 +1390,20 @@ const styles = StyleSheet.create({
   },
   bottomPad: {
     height: 100,
+  },
+  finishWorkoutBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.s2,
+    borderRadius: radius.md,
+    paddingVertical: spacing.s4,
+    marginHorizontal: spacing.s4,
+    marginTop: spacing.s5,
+  },
+  finishWorkoutLabel: {
+    fontSize: fontSize.bodyMd,
+    fontWeight: fontWeight.bold,
   },
   // P1-001b: Rest timer banner — fixed at bottom above tab bar
   restTimerBanner: {

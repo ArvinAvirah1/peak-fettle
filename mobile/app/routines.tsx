@@ -37,7 +37,7 @@ import {
   deleteRoutine,
   Routine,
 } from '../src/api/routines';
-import { getTemplates, WorkoutTemplate } from '../src/api/templates';
+import { getTemplates, getTemplate, WorkoutTemplate } from '../src/api/templates';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -64,7 +64,12 @@ export default function RoutinesPage(): React.ReactElement {
     try {
       const [r, t] = await Promise.all([
         getRoutines(),
-        getTemplates({ discipline: 'strength' }),
+        // BUGFIX (TICKET-074 #4): the previous filter `discipline: 'strength'`
+        // matched NOTHING — the seeded disciplines are 'general_strength' /
+        // 'powerlifting' / 'running' (see db/schema.sql CHECK). A bogus filter
+        // returned zero rows, so the STARTER SPLITS row was always empty and
+        // "tapping a template did nothing". Fetch all seeded templates instead.
+        getTemplates(),
       ]);
       setRoutines(r);
       setTemplates(t.slice(0, 8)); // show up to 8 starter splits
@@ -143,18 +148,22 @@ export default function RoutinesPage(): React.ReactElement {
   const handleDuplicateTemplate = useCallback(async (tpl: WorkoutTemplate) => {
     setSaving(true);
     try {
-      // Build exercises from first template session if available
-      const exercises = (tpl.sessions?.[0]?.exercises ?? []).map((ex) => ({
+      // The starter-split list (GET /templates) returns summaries only — the
+      // sessions/exercises live on GET /templates/:id. Without this fetch the
+      // routine would be created EMPTY (the old bug: tap "did nothing" useful).
+      const full = tpl.sessions && tpl.sessions.length > 0 ? tpl : await getTemplate(tpl.id);
+      // Build exercises from the first template session.
+      const exercises = (full.sessions?.[0]?.exercises ?? []).map((ex) => ({
         exercise_id: '',           // no UUID for template exercises yet
         name: ex.exercise_name,
         target_sets: ex.sets,
         target_reps: ex.reps,
       }));
-      const r = await createRoutine({ name: tpl.name, exercises });
+      const r = await createRoutine({ name: full.name, exercises });
       setRoutines((prev) => [r, ...prev]);
-      Alert.alert('Routine added', `"${tpl.name}" has been added to your routines.`);
-    } catch {
-      Alert.alert('Error', 'Could not duplicate template');
+      Alert.alert('Routine added', `"${full.name}" has been added to your routines.`);
+    } catch (err) {
+      Alert.alert('Error', err instanceof Error ? err.message : 'Could not duplicate template');
     } finally {
       setSaving(false);
     }

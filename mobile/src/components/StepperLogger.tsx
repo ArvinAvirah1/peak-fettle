@@ -49,7 +49,12 @@ import { SuggestCandidate } from '../utils/smartSuggest';
 export interface LoggedSet {
   weight: string;
   reps: string;
+  /** Reps-in-Reserve as typed (optional). '' / undefined = not recorded. */
+  rir?: string;
 }
+
+/** Where to slot an off-routine exercise into the current routine. */
+export type OffRoutinePlacement = 'after_current' | 'end' | 'pick';
 
 interface OffRoutinePrompt {
   exerciseName: string;
@@ -58,8 +63,12 @@ interface OffRoutinePrompt {
 
 interface Props {
   routineSession: RoutineSession;
-  /** Called when user logs a set for the current exercise */
-  onLogSet: (exerciseId: string, weight: string, reps: string) => void;
+  /**
+   * Called when user logs a set for the current exercise.
+   * `rir` is the optional Reps-in-Reserve string (TICKET-074); undefined/''
+   * means "not recorded" and the parent should send rir = -1 to the server.
+   */
+  onLogSet: (exerciseId: string, weight: string, reps: string, rir?: string) => void;
   /** Called when user advances to a specific index (Continue or switcher tap) */
   onAdvance: (toIndex: number) => void;
   /** Called when user finishes the last exercise */
@@ -88,7 +97,9 @@ interface Props {
   onAddOffRoutineExercise?: (
     exerciseId: string,
     exerciseName: string,
-    position: 'end' | 'after_current',
+    position: OffRoutinePlacement,
+    /** 0-based insertion index, only meaningful when position === 'pick'. */
+    pickIndex?: number,
   ) => void;
   /** Close / dismiss the stepper (returns to normal log view) */
   onClose: () => void;
@@ -113,10 +124,17 @@ interface Props {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function SetChip({ set, index }: { set: LoggedSet; index: number }) {
+  const rirNum = set.rir != null && set.rir !== '' ? parseInt(set.rir, 10) : null;
+  const rirLabel =
+    rirNum == null || Number.isNaN(rirNum) || rirNum < 0
+      ? ''
+      : rirNum === 0
+        ? ' · to failure'
+        : ` · RIR ${rirNum}`;
   return (
     <View style={chipStyles.chip}>
       <Text style={chipStyles.label}>
-        Set {index + 1} · {set.weight}×{set.reps}
+        Set {index + 1} · {set.weight}×{set.reps}{rirLabel}
       </Text>
     </View>
   );
@@ -148,12 +166,22 @@ export default function StepperLogger({
   // ── Local form state ──────────────────────────────────────────────────────
   const [weight, setWeight] = useState('');
   const [reps, setReps] = useState('');
+  const [rir, setRir] = useState('');
   const [switcherVisible, setSwitcherVisible] = useState(false);
   const [offRoutinePrompt, setOffRoutinePrompt] = useState<OffRoutinePrompt | null>(null);
-  const [promptPlacement, setPromptPlacement] = useState<'end' | 'after_current'>('after_current');
+  const [promptPlacement, setPromptPlacement] = useState<OffRoutinePlacement>('after_current');
+  // 0-based insert index for the "Pick position…" flow (TICKET-074 gap #3).
+  const [pickIndex, setPickIndex] = useState(0);
+  // Track which off-routine exercises we've already prompted for so the sheet
+  // pops at most once per exercise per session.
+  const promptedRef = React.useRef<Set<string>>(new Set());
 
   const setNumber = currentExerciseSets.length + 1;
-  const isOffRoutine = currentEx?.exerciseId === '';
+  // An exercise is "off routine" when it carries no routine exercise id. We only
+  // surface the placement prompt for genuine routine sessions (template-derived
+  // sessions legitimately have empty ids on every row, so they must not fire it).
+  const isOffRoutine =
+    routineSession.source === 'routine' && (currentEx?.exerciseId ?? '') === '';
 
   // Progress dots (max 7 shown; ellipsis implied for longer routines)
   const dotsToShow = Math.min(exercises.length, 7);
@@ -166,10 +194,21 @@ export default function StepperLogger({
 
   const handleLogSet = useCallback(() => {
     if (!weight.trim() && !reps.trim()) return;
-    onLogSet(currentEx?.exerciseId ?? '', weight.trim(), reps.trim());
+    onLogSet(currentEx?.exerciseId ?? '', weight.trim(), reps.trim(), rir.trim() || undefined);
     setReps('');
-    // Keep weight pre-filled for the next set
-  }, [weight, reps, currentEx, onLogSet]);
+    setRir('');
+    // Keep weight pre-filled for the next set.
+
+    // TICKET-074 #3: if this exercise isn't part of the routine, offer to add it
+    // (once per exercise). The placement sheet writes it into the routine.
+    const key = currentEx?.name ?? '';
+    if (isOffRoutine && currentEx && onAddOffRoutineExercise && !promptedRef.current.has(key)) {
+      promptedRef.current.add(key);
+      setPromptPlacement('after_current');
+      setPickIndex(Math.min(currentIndex + 1, exercises.length));
+      setOffRoutinePrompt({ exerciseName: currentEx.name, exerciseId: currentEx.exerciseId });
+    }
+  }, [weight, reps, rir, currentEx, onLogSet, isOffRoutine, onAddOffRoutineExercise, currentIndex, exercises.length]);
 
   const handleContinue = useCallback(() => {
     if (isLast) {
@@ -193,9 +232,10 @@ export default function StepperLogger({
       offRoutinePrompt.exerciseId,
       offRoutinePrompt.exerciseName,
       promptPlacement,
+      promptPlacement === 'pick' ? pickIndex : undefined,
     );
     setOffRoutinePrompt(null);
-  }, [offRoutinePrompt, promptPlacement, onAddOffRoutineExercise]);
+  }, [offRoutinePrompt, promptPlacement, pickIndex, onAddOffRoutineExercise]);
 
   if (!currentEx) return <View />;
 
@@ -297,7 +337,22 @@ export default function StepperLogger({
               accessibilityLabel="Reps"
             />
           </View>
+          {/* TICKET-074 #4: RIR — optional, shown by default (not behind a disclosure). */}
+          <View style={styles.rirGroup}>
+            <Text style={styles.inputLabel}>RIR</Text>
+            <TextInput
+              style={styles.input}
+              value={rir}
+              onChangeText={setRir}
+              keyboardType="number-pad"
+              placeholder="–"
+              placeholderTextColor={stepperPalette.muted}
+              selectTextOnFocus
+              accessibilityLabel="Reps in reserve (optional)"
+            />
+          </View>
         </View>
+        <Text style={styles.rirHint}>RIR optional · 0 = to failure</Text>
 
         {/* ── Log set CTA ─────────────────────────────────────────────────── */}
         <TouchableOpacity
@@ -399,7 +454,11 @@ export default function StepperLogger({
             <Text style={styles.promptSub}>Keep it for next time — where should it go?</Text>
 
             <View style={styles.placementGrid}>
-              {(['after_current', 'end'] as const).map((pos) => (
+              {([
+                ['after_current', 'After current'],
+                ['end', 'End of routine'],
+                ['pick', 'Pick position…'],
+              ] as const).map(([pos, label]) => (
                 <TouchableOpacity
                   key={pos}
                   style={[styles.placementOpt, promptPlacement === pos && styles.placementOptOn]}
@@ -408,11 +467,40 @@ export default function StepperLogger({
                   accessibilityState={{ checked: promptPlacement === pos }}
                 >
                   <Text style={[styles.placementOptLabel, promptPlacement === pos && styles.placementOptLabelOn]}>
-                    {pos === 'after_current' ? 'After current' : 'End of routine'}
+                    {label}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
+
+            {/* TICKET-074 #3: Pick position… — a position picker over the routine list */}
+            {promptPlacement === 'pick' && (
+              <View style={styles.pickList}>
+                {Array.from({ length: exercises.length + 1 }, (_, slot) => {
+                  const label =
+                    slot === 0
+                      ? 'At start'
+                      : `After ${exercises[slot - 1]?.name ?? `exercise ${slot}`}`;
+                  const on = pickIndex === slot;
+                  return (
+                    <TouchableOpacity
+                      key={slot}
+                      style={[styles.pickRow, on && styles.pickRowOn]}
+                      onPress={() => setPickIndex(slot)}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: on }}
+                    >
+                      <Text style={[styles.pickRowLabel, on && styles.pickRowLabelOn]} numberOfLines={1}>
+                        {label}
+                      </Text>
+                      {on ? (
+                        <Ionicons name="checkmark" size={16} color={stepperPalette.accent} />
+                      ) : null}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
 
             <View style={styles.promptActions}>
               <TouchableOpacity
@@ -539,6 +627,16 @@ const styles = StyleSheet.create({
   inputGroup: {
     flex: 1,
   },
+  rirGroup: {
+    flex: 0.7,
+  },
+  rirHint: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSize.caption,
+    color: stepperPalette.muted,
+    marginTop: -spacing.s1,
+    marginBottom: spacing.s3,
+  },
   inputLabel: {
     fontFamily: fontFamily.bold,
     fontSize: fontSize.caption,
@@ -660,6 +758,35 @@ const styles = StyleSheet.create({
     color: stepperPalette.muted,
   },
   placementOptLabelOn: {
+    color: stepperPalette.accent,
+  },
+  // Pick position… list (TICKET-074 #3)
+  pickList: {
+    marginBottom: spacing.s3,
+    borderWidth: 1,
+    borderColor: stepperPalette.line,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+  },
+  pickRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.s3,
+    paddingVertical: spacing.s3,
+    borderBottomWidth: 1,
+    borderBottomColor: stepperPalette.line,
+  },
+  pickRowOn: {
+    backgroundColor: stepperPalette.accentSurface,
+  },
+  pickRowLabel: {
+    flex: 1,
+    fontFamily: fontFamily.medium,
+    fontSize: fontSize.bodySm,
+    color: stepperPalette.muted,
+  },
+  pickRowLabelOn: {
     color: stepperPalette.accent,
   },
   promptActions: {
