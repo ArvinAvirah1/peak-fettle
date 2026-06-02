@@ -5120,8 +5120,14 @@ ALTER TABLE workouts ADD COLUMN IF NOT EXISTS avg_pace_sec_per_km INTEGER;
 ALTER TABLE workouts ADD COLUMN IF NOT EXISTS source TEXT;
 
 -- Extend session_type CHECK to include 'cardio_import'
--- Drop the existing constraint (added in 20260517_rest_day_designation.sql) and recreate it
--- with the additional 'cardio_import' value.
+-- CONSOLIDATION-ORDER FIX (2026-06-01): in the original migration timeline
+-- 20260517_rest_day_designation.sql (which creates session_type) ran BEFORE
+-- this file. The consolidated bootstrap orders cardio_import first, so add the
+-- column here idempotently to avoid "column session_type does not exist". The
+-- later rest_day ADD COLUMN IF NOT EXISTS then no-ops (its inline 3-value CHECK
+-- is skipped), leaving the 4-value constraint below as the final state.
+ALTER TABLE workouts ADD COLUMN IF NOT EXISTS session_type TEXT NOT NULL DEFAULT 'workout';
+-- Drop the existing constraint (if any) and recreate it with 'cardio_import'.
 ALTER TABLE workouts DROP CONSTRAINT IF EXISTS workouts_session_type_check;
 ALTER TABLE workouts ADD CONSTRAINT workouts_session_type_check
   CHECK (session_type IN ('workout', 'rest_day', 'emergency_override', 'cardio_import'));
