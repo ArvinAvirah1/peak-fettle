@@ -33,7 +33,7 @@ import {
   Alert,
   Modal,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '../../src/components/Icon';
 import { useAuth } from '../../src/hooks/useAuth';
 import { usePowerSyncLog } from '../../src/hooks/usePowerSyncLog';
@@ -47,6 +47,7 @@ import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
 import { haptics } from '../../src/utils/haptics';
 import { logRestDay, undoRestDay } from '../../src/api/workouts';
 import { getExercises } from '../../src/api/exercises';
+import { getRoutine } from '../../src/api/routines';
 import { getPersonalBest, PersonalBest } from '../../src/api/sets';
 import { ScreenLayout } from '../../src/components/ui';
 import { RoutineStrip, RoutineSession, RoutineSessionExercise } from '../../src/components/RoutineStrip';
@@ -613,6 +614,39 @@ export default function LogScreen(): React.ReactElement {
     setStepperSets(new Map());
     setStepperVisible(true);
   }, []);
+
+  // ── TICKET-061: deep-link from the Routines page ("Start" → /log?routineId=…)
+  // Fetch the routine, build a session, and open the Focus Stepper. Without this
+  // the Routines page "Start" button navigated here but did nothing.
+  const { routineId } = useLocalSearchParams<{ routineId?: string }>();
+  const startedRoutineRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!routineId || startedRoutineRef.current === routineId) return;
+    startedRoutineRef.current = routineId;
+    let cancelled = false;
+    getRoutine(routineId)
+      .then((routine) => {
+        if (cancelled) return;
+        handleStartStepper({
+          source: 'routine',
+          routineId: routine.id,
+          name: routine.name,
+          exercises: routine.exercises.map((ex) => ({
+            exerciseId: ex.exercise_id,
+            name: ex.name,
+            targetSets: ex.target_sets,
+            targetReps: ex.target_reps,
+            loggedSetCount: 0,
+            done: false,
+          })),
+          currentIndex: 0,
+        });
+        // Clear the param so re-focusing the tab doesn't reopen the stepper.
+        router.setParams({ routineId: '' });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [routineId, handleStartStepper, router]);
 
   const handleStepperLogSet = useCallback(
     async (exerciseId: string, weight: string, reps: string, rir?: string) => {
