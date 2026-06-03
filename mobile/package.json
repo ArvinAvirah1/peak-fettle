@@ -14,6 +14,7 @@
   "dependencies": {
     "@powersync/common": "~1.18.0",
     "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-community/netinfo": "11.4.1",
     "ajv": "^8.20.0",
     "axios": "^1.7.9",
     "expo": "^54.0.34",
@@ -28,6 +29,7 @@
     "expo-notifications": "~0.32.17",
     "expo-router": "~6.0.23",
     "expo-secure-store": "~15.0.8",
+    "expo-sqlite": "~16.0.10",
     "expo-status-bar": "~3.0.9",
     "react": "19.1.0",
     "react-dom": "19.1.0",

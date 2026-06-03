@@ -1,33 +1,41 @@
 /**
- * DEV STUB: PowerSync database client.
+ * db — the app's local database handle.
  *
- * @powersync/react-native requires a native build and cannot run in Expo Go or web.
- * This stub replaces the real PowerSyncDatabase with a no-op implementation so the
- * app loads for UI development. All queries return empty results.
+ * Historically this exported a no-op PowerSync stub (every read returned []),
+ * which silently disabled the entire Log tab. It now delegates to `localDb`
+ * (src/db/localDb.ts) — a real expo-sqlite store with a reactive watch() — so
+ * the existing hooks (usePowerSyncLog, usePowerSyncWorkout) work unchanged.
  *
- * To restore the real implementation, replace this file with:
- *   import { PowerSyncDatabase } from '@powersync/react-native';
- *   import { AppSchema } from './schema';
- *   export const db = new PowerSyncDatabase({ schema: AppSchema, database: { dbFilename: 'peak_fettle.db' } });
+ * Offline sync is handled separately by `syncEngine` (src/db/syncEngine.ts),
+ * which drains the local `outbox` table to the REST API. Sync STATUS for UI is
+ * read via the useSyncStatus hook (which subscribes to syncEngine) — not from
+ * this object. The connect/disconnect/currentStatus/registerListener members
+ * below are inert compatibility shims kept only so any legacy caller importing
+ * them does not crash; they are no longer the source of truth for sync state.
  */
 
-async function* emptyWatch(): AsyncGenerator<void> {
-  // Never emits — keeps the watch loop alive without crashing.
-  await new Promise(() => {});
-  yield;
-}
+import { localDb } from './localDb';
+
+export { genId } from './localDb';
 
 export const db = {
+  // ── Real local data surface (delegates to localDb) ──────────────────────
+  init: localDb.init.bind(localDb),
+  getAll: localDb.getAll.bind(localDb),
+  getFirst: localDb.getFirst.bind(localDb),
+  execute: localDb.execute.bind(localDb),
+  watch: localDb.watch.bind(localDb),
+  subscribe: localDb.subscribe.bind(localDb),
+  notify: localDb.notify.bind(localDb),
+
+  // ── Inert PowerSync-compat shims (see file header) ──────────────────────
   currentStatus: {
     connected: true,
     downloading: false,
     uploading: false,
     lastSyncedAt: null as Date | null,
   },
-  registerListener: (_handlers: unknown) => () => {},
-  connect: async (_connector: unknown) => {},
-  disconnect: async () => {},
-  getAll: async <T>(_sql: string, _params?: unknown[]): Promise<T[]> => [],
-  execute: async (_sql: string, _params?: unknown[]) => {},
-  watch: (_sql: string, _params?: unknown[], _opts?: unknown) => emptyWatch(),
+  registerListener: (_handlers: unknown): (() => void) => () => {},
+  connect: async (_connector: unknown): Promise<void> => {},
+  disconnect: async (): Promise<void> => {},
 };

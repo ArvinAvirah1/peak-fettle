@@ -34,15 +34,15 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createWorkout } from '../api/workouts';
-import {
-  getSetsForWorkout,
-  logSet as apiLogSet,
-  deleteSet as apiDeleteSet,
-} from '../api/sets';
-import { db } from '../db/powerSyncClient';
+import { getSetsForWorkout } from '../api/sets';
+import { db, genId } from '../db/powerSyncClient';
+import { syncEngine } from '../db/syncEngine';
+import { useAuth } from './useAuth';
 import {
   Workout,
   WorkoutSet,
+  LiftSet,
+  CardioSet,
   LogSetPayload,
 } from '../types/api';
 
@@ -116,6 +116,54 @@ function rowToSet(row: SetRow): WorkoutSet {
   return cardioSet;
 }
 
+// Local SQLite mirrors Postgres: weight stored as INTEGER kg × 8.
+function encodeWeightRaw(weightKg: number): number {
+  return Math.round(weightKg * 8);
+}
+
+/**
+ * Replace the SYNCED local rows for a workout with the server's set list.
+ * Unsynced (offline-queued) rows are intentionally preserved so a pending
+ * write is never wiped by a background hydrate.
+ */
+async function hydrateLocalSets(
+  workoutId: string,
+  serverSets: WorkoutSet[]
+): Promise<void> {
+  await db.execute(
+    'DELETE FROM sets WHERE workout_id = ? AND synced = 1',
+    [workoutId],
+    { tables: ['sets'] }
+  );
+  const COLS =
+    `(id, server_id, workout_id, user_id, exercise_id, kind, set_index, ` +
+    `reps, weight_raw, rir, duration_sec, distance_m, avg_pace_sec_per_km, ` +
+    `logged_at, synced)`;
+  for (const s of serverSets) {
+    if (s.kind === 'lift') {
+      await db.execute(
+        `INSERT OR REPLACE INTO sets ${COLS}
+         VALUES (?, ?, ?, ?, ?, 'lift', ?, ?, ?, ?, NULL, NULL, NULL, ?, 1)`,
+        [
+          s.id, s.id, s.workout_id, s.user_id, s.exercise_id, s.set_index,
+          s.reps, encodeWeightRaw(s.weight_kg), s.rir, s.logged_at,
+        ],
+        { tables: ['sets'] }
+      );
+    } else {
+      await db.execute(
+        `INSERT OR REPLACE INTO sets ${COLS}
+         VALUES (?, ?, ?, ?, ?, 'cardio', ?, NULL, NULL, NULL, ?, ?, ?, ?, 1)`,
+        [
+          s.id, s.id, s.workout_id, s.user_id, s.exercise_id, s.set_index,
+          s.duration_sec, s.distance_m, s.avg_pace_sec_per_km, s.logged_at,
+        ],
+        { tables: ['sets'] }
+      );
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Hook return shape
 // ---------------------------------------------------------------------------
@@ -141,6 +189,8 @@ export interface UsePowerSyncLogResult {
 // ---------------------------------------------------------------------------
 
 export function usePowerSyncLog(): UsePowerSyncLogResult {
+  const { user } = useAuth();
+  const userId = user?.id ?? '';
 
   // Stable today key — doesn't change within a session.
   const todayKey = useMemo(() => getTodayKey(), []);
@@ -166,22 +216,69 @@ export function usePowerSyncLog(): UsePowerSyncLogResult {
     setInitLoading(true);
     setInitError(null);
     try {
+      // ── Online path: create/upsert the server workout, then hydrate local DB ─
       const w = await createWorkout(todayKey);
       // Set ref BEFORE triggering re-render so the watch effect always sees a
       // valid workoutId even on the first render triggered by setWorkout().
       workoutIdRef.current = w.id;
+
+      // Mirror the workout into local SQLite so offline reads work next time.
+      await db.execute(
+        `INSERT OR REPLACE INTO workouts
+           (id, user_id, day_key, notes, session_type, created_at, updated_at, synced)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+        [
+          w.id,
+          w.user_id,
+          w.day_key,
+          w.notes ?? null,
+          w.session_type ?? null,
+          w.created_at,
+          w.updated_at,
+        ],
+        { tables: ['workouts'] }
+      );
+
       setWorkout(w);
+
+      // Pull server sets and replace the SYNCED local rows for this workout.
+      // Unsynced (queued offline) rows are left untouched so nothing pending
+      // is lost. The reactive watch effect re-reads local SQLite after this.
       const serverSets = await getSetsForWorkout(w.id);
-      setSets(serverSets);
+      await hydrateLocalSets(w.id, serverSets);
+
       // Phase 1.5: server fires paywall_trigger=true exactly once (the session
       // that crosses the free-tier limit). Surface it so the UI can prompt.
       if (w.paywall_trigger) {
         setPaywallTriggered(true);
       }
     } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : 'Could not create workout';
-      setInitError(msg);
+      // ── Offline fallback: reuse today's locally-cached workout if present ───
+      // so the user can keep logging (sets queue in the outbox until online).
+      try {
+        const local = await db.getFirst<{ id: string }>(
+          'SELECT id FROM workouts WHERE day_key = ? ORDER BY updated_at DESC LIMIT 1',
+          [todayKey]
+        );
+        if (local?.id) {
+          workoutIdRef.current = local.id;
+          const localWorkout = await db.getFirst<Workout>(
+            'SELECT * FROM workouts WHERE id = ? LIMIT 1',
+            [local.id]
+          );
+          if (localWorkout) setWorkout(localWorkout);
+        } else {
+          const msg =
+            err instanceof Error ? err.message : 'Could not create workout';
+          setInitError(
+            `${msg}. You appear to be offline and today's workout hasn't been started yet — connect once to begin.`
+          );
+        }
+      } catch {
+        const msg =
+          err instanceof Error ? err.message : 'Could not create workout';
+        setInitError(msg);
+      }
     } finally {
       setInitLoading(false);
     }
@@ -277,23 +374,75 @@ export function usePowerSyncLog(): UsePowerSyncLogResult {
         // Workout hasn't been initialised yet (still loading or offline).
         throw new Error('Workout not ready — please wait or retry');
       }
-      // Note: `user` is NOT checked here. The server authenticates via the
-      // Bearer token (attached by the Axios interceptor). This allows logSet
-      // to work even on a cold-start where user may not yet be hydrated.
-      const serverSet = await apiLogSet({ ...payload, workoutId: wid });
-      setSets((prev) => [...prev, serverSet]);
-      return serverSet;
+      // Local-first write: insert into SQLite immediately (synced=0) so the set
+      // appears instantly and survives offline, then queue it for upload. The
+      // reactive watch effect re-reads local SQLite and re-renders the list.
+      const localId = genId();
+      const loggedAt = new Date().toISOString();
+      const COLS =
+        `(id, server_id, workout_id, user_id, exercise_id, kind, set_index, ` +
+        `reps, weight_raw, rir, duration_sec, distance_m, avg_pace_sec_per_km, ` +
+        `logged_at, synced)`;
+
+      let optimistic: WorkoutSet;
+      if (payload.kind === 'lift') {
+        await db.execute(
+          `INSERT INTO sets ${COLS}
+           VALUES (?, NULL, ?, ?, ?, 'lift', ?, ?, ?, ?, NULL, NULL, NULL, ?, 0)`,
+          [
+            localId, wid, userId, payload.exerciseId, payload.setIndex,
+            payload.reps, encodeWeightRaw(payload.weightKg),
+            payload.rir ?? null, loggedAt,
+          ],
+          { tables: ['sets'] }
+        );
+        optimistic = {
+          id: localId, workout_id: wid, user_id: userId,
+          exercise_id: payload.exerciseId, kind: 'lift',
+          set_index: payload.setIndex, reps: payload.reps,
+          weight_kg: payload.weightKg, rir: payload.rir ?? null,
+          logged_at: loggedAt,
+        };
+      } else {
+        await db.execute(
+          `INSERT INTO sets ${COLS}
+           VALUES (?, NULL, ?, ?, ?, 'cardio', ?, NULL, NULL, NULL, ?, ?, ?, ?, 0)`,
+          [
+            localId, wid, userId, payload.exerciseId, payload.setIndex,
+            payload.durationSec, payload.distanceM ?? null,
+            payload.avgPaceSecPerKm ?? null, loggedAt,
+          ],
+          { tables: ['sets'] }
+        );
+        optimistic = {
+          id: localId, workout_id: wid, user_id: userId,
+          exercise_id: payload.exerciseId, kind: 'cardio',
+          set_index: payload.setIndex, duration_sec: payload.durationSec,
+          distance_m: payload.distanceM ?? null,
+          avg_pace_sec_per_km: payload.avgPaceSecPerKm ?? null,
+          logged_at: loggedAt,
+        };
+      }
+
+      // Queue the upload; syncEngine drains the outbox to the API when online.
+      await syncEngine.enqueueInsertSet(localId, { ...payload, workoutId: wid });
+      return optimistic;
     },
-    [] // no React-state deps — relies only on workoutIdRef (a ref) and apiLogSet (stable)
+    [userId]
   );
 
   /**
-   * Delete a set from the local SQLite DB. PowerSync queues the DELETE
-   * and applies it server-side when online.
+   * Delete a set: remove it from local SQLite immediately, then queue the
+   * server delete. If the set was never synced, enqueueDeleteSet cancels its
+   * still-pending insert instead of sending a delete for a non-existent row.
    */
   const deleteSet = useCallback(async (id: string): Promise<void> => {
-    await apiDeleteSet(id);
-    setSets((prev) => prev.filter((s) => s.id !== id));
+    const row = await db.getFirst<{ server_id: string | null; synced: number }>(
+      'SELECT server_id, synced FROM sets WHERE id = ? LIMIT 1',
+      [id]
+    );
+    await db.execute('DELETE FROM sets WHERE id = ?', [id], { tables: ['sets'] });
+    await syncEngine.enqueueDeleteSet(id, row?.server_id ?? null);
   }, []);
 
   // ── Refetch (retry after offline init failure) ──────────────────────────

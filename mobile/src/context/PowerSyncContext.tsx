@@ -1,54 +1,49 @@
 /**
- * PowerSyncProvider — wraps the app tree with a live PowerSync database connection.
+ * PowerSyncProvider — boots the local offline store and the sync engine.
  *
  * Placement in the tree (see app/_layout.tsx):
- *   <AuthProvider>          ← provides the Supabase JWT
- *     <PowerSyncProvider>   ← connects PowerSync using that JWT
+ *   <AuthProvider>          ← provides the access token
+ *     <PowerSyncProvider>   ← opens local SQLite + starts outbox sync
  *       <RootNavigator />
  *     </PowerSyncProvider>
  *   </AuthProvider>
  *
  * Lifecycle:
- *   - On mount: opens the local SQLite DB and starts syncing via
- *     PeakFettleConnector (which reads the JWT from the module-level store).
- *   - On auth state change (login / logout / silent refresh): calls
- *     setAccessToken() on the connector so fetchCredentials() returns fresh
- *     credentials on the next sync heartbeat.
- *   - On unmount: disconnects from the sync service (releases the websocket).
+ *   - On mount: initialise the local SQLite database (creates tables if needed)
+ *     and start the sync engine, which subscribes to network changes and drains
+ *     the local `outbox` to the REST API whenever the device is online.
+ *   - On unmount: stop the sync engine (removes the NetInfo listener).
  *
- * The `db` instance and PowerSync React context are provided via
- * @powersync/react-native's PowerSyncContext so that usePowerSyncQuery()
- * and related hooks work anywhere in the tree.
+ * NOTE: this replaced the heavy @powersync/react-native provider. The lightweight
+ * offline queue (localDb + syncEngine) needs no React context value — hooks
+ * import the `db` / `syncEngine` singletons directly — so this provider only
+ * owns boot/teardown and renders its children straight through.
  */
 
-// DEV STUB: PowerSync requires a native build — not available in Expo Go / web.
-// The real implementation is preserved below in comments.
-// Restore when running a development build.
-import React, { ReactNode } from 'react';
+import React, { useEffect, ReactNode } from 'react';
+import { localDb } from '../db/localDb';
+import { syncEngine } from '../db/syncEngine';
 
 interface PowerSyncProviderProps {
   children: ReactNode;
 }
 
 export function PowerSyncProvider({ children }: PowerSyncProviderProps): React.ReactElement {
+  useEffect(() => {
+    let cancelled = false;
+    void localDb
+      .init()
+      .then(() => {
+        if (!cancelled) syncEngine.start();
+      })
+      .catch((err: unknown) => {
+        console.error('[PowerSyncProvider] local DB init failed:', err);
+      });
+    return () => {
+      cancelled = true;
+      syncEngine.stop();
+    };
+  }, []);
+
   return <>{children}</>;
 }
-
-// ---------------------------------------------------------------------------
-// REAL IMPLEMENTATION (restore for native dev/prod builds)
-// ---------------------------------------------------------------------------
-// import React, { useEffect, ReactNode } from 'react';
-// import { PowerSyncContext } from '@powersync/react-native';
-// import { db } from '../db/powerSyncClient';
-// import { PeakFettleConnector, setAccessToken } from '../db/connector';
-// import { useAuth } from '../hooks/useAuth';
-// const connector = new PeakFettleConnector();
-// export function PowerSyncProvider({ children }: { children: ReactNode }): React.ReactElement {
-//   const { accessToken } = useAuth();
-//   useEffect(() => { setAccessToken(accessToken); }, [accessToken]);
-//   useEffect(() => {
-//     db.connect(connector).catch((err: unknown) => console.error('[PowerSync] Failed to connect:', err));
-//     return () => { db.disconnect().catch((err: unknown) => console.error('[PowerSync] Failed to disconnect cleanly:', err)); };
-//   }, []);
-//   return <PowerSyncContext.Provider value={db}>{children}</PowerSyncContext.Provider>;
-// }

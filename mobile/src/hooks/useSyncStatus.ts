@@ -1,47 +1,48 @@
 /**
- * useSyncStatus — subscribes to PowerSync's sync status and returns a stable
- * snapshot that React components can render without polling.
+ * useSyncStatus — subscribes to the offline-queue sync engine and returns a
+ * stable snapshot that React components can render without polling.
  *
  * Status meanings:
- *   connected    — the WebSocket to the PowerSync sync service is open.
- *   syncing      — at least one upload or download pass is in flight.
+ *   connected    — the device is online and able to reach the sync backend.
+ *   syncing      — at least one queued mutation is currently being flushed.
  *   lastSyncedAt — wall-clock timestamp of the last completed sync cycle.
  *
- * PowerSync emits a "statusChanged" event whenever any of these values change,
- * so the hook stays current without any polling interval.
+ * syncEngine notifies subscribers whenever any of these values change (and
+ * fires once immediately on subscribe), so the hook stays current without any
+ * polling interval.
  *
  * Usage:
  *   const { connected, syncing, lastSyncedAt } = useSyncStatus();
  *
- * TICKET-027 — PowerSync offline sync integration.
+ * TICKET-027 — offline-queue sync integration (replaces the PowerSync
+ * websocket status source).
  */
 
 import { useEffect, useState } from 'react';
-import { db } from '../db/powerSyncClient';
+import { syncEngine, SyncStatus } from '../db/syncEngine';
 
 // ---------------------------------------------------------------------------
 // Public shape
 // ---------------------------------------------------------------------------
 
 export interface SyncStatusInfo {
-  /** True when the WebSocket sync connection is open. */
+  /** True when the device is online and reachable by the sync engine. */
   connected: boolean;
-  /** True while an upload or download pass is actively running. */
+  /** True while queued mutations are actively being flushed. */
   syncing: boolean;
   /** Timestamp of the last completed full sync, or null if never synced. */
   lastSyncedAt: Date | null;
 }
 
 // ---------------------------------------------------------------------------
-// Helper — read snapshot from db.currentStatus (may be undefined on first call)
+// Helper — map a raw syncEngine status into the public shape
 // ---------------------------------------------------------------------------
 
-function readStatus(): SyncStatusInfo {
-  const s = db.currentStatus;
+function fromStatus(s: SyncStatus): SyncStatusInfo {
   return {
-    connected: s?.connected ?? false,
-    syncing: (s?.uploading ?? false) || (s?.downloading ?? false),
-    lastSyncedAt: s?.lastSyncedAt ?? null,
+    connected: s.online,
+    syncing: s.syncing,
+    lastSyncedAt: s.lastSyncedAt,
   };
 }
 
@@ -50,25 +51,19 @@ function readStatus(): SyncStatusInfo {
 // ---------------------------------------------------------------------------
 
 export function useSyncStatus(): SyncStatusInfo {
-  const [status, setStatus] = useState<SyncStatusInfo>(readStatus);
+  const [status, setStatus] = useState<SyncStatusInfo>(() =>
+    fromStatus(syncEngine.getStatus())
+  );
 
   useEffect(() => {
-    // Re-read on subscribe in case the status changed between the useState
-    // initialiser and this effect running.
-    setStatus(readStatus());
-
-    // registerListener returns a cleanup function in @powersync/react-native
-    // ~1.4.x. We call it on unmount to avoid memory leaks.
-    const removeListener = db.registerListener({
-      statusChanged: () => {
-        setStatus(readStatus());
-      },
+    // subscribe fires immediately with the current status, then on every
+    // subsequent change. It returns an unsubscribe function for cleanup.
+    const unsubscribe = syncEngine.subscribe((s) => {
+      setStatus(fromStatus(s));
     });
 
-    return () => {
-      if (typeof removeListener === 'function') removeListener();
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    return unsubscribe;
+  }, []);
 
   return status;
 }

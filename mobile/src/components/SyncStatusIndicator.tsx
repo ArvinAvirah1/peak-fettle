@@ -1,5 +1,5 @@
 /**
- * SyncStatusIndicator — compact pill showing the PowerSync sync state.
+ * SyncStatusIndicator — compact pill showing the offline-queue sync state.
  *
  * E-001 update: migrated all hardcoded hex values to semantic tokens via useTheme().
  *
@@ -17,13 +17,7 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Animated } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
-import { useAuth } from '../hooks/useAuth';
-// DEV STUB: @powersync/react-native requires a native build — not available in Expo Go / web.
-// Replace with real import once running a development build.
-// import { usePowerSyncStatus } from '@powersync/react-native';
-function usePowerSyncStatus() {
-  return { connected: true, downloading: false, uploading: false };
-}
+import { useSyncStatus } from '../hooks/useSyncStatus';
 
 // ---------------------------------------------------------------------------
 // Derived state
@@ -49,14 +43,15 @@ function deriveSyncState(status: StatusLike): SyncState {
 
 export function SyncStatusIndicator(): React.ReactElement {
   const { theme } = useTheme();
-  const { isAuthenticated } = useAuth();
-  const status = { ...usePowerSyncStatus(), connected: isAuthenticated };
+  const status = useSyncStatus();
   const pulseAnim = useRef(new Animated.Value(1)).current;
 
+  // The offline-queue engine exposes a single in-flight signal (`syncing`);
+  // map it onto the existing downloading/uploading inputs of deriveSyncState.
   const syncState = deriveSyncState({
-    connected: status.connected ?? false,
-    downloading: status.downloading ?? false,
-    uploading: status.uploading ?? false,
+    connected: status.connected,
+    downloading: false,
+    uploading: status.syncing,
   });
 
   // Pulse the dot while syncing; snap back to full opacity otherwise.
