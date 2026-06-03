@@ -46,11 +46,12 @@ import { useTheme } from '../../src/theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
 import { haptics } from '../../src/utils/haptics';
 import { logRestDay, undoRestDay } from '../../src/api/workouts';
+import { getExercises } from '../../src/api/exercises';
 import { getPersonalBest, PersonalBest } from '../../src/api/sets';
 import { ScreenLayout } from '../../src/components/ui';
 import { RoutineStrip, RoutineSession, RoutineSessionExercise } from '../../src/components/RoutineStrip';
 import StepperLogger, { LoggedSet } from '../../src/components/StepperLogger';
-import { suggestNextExercise, SessionExercise, SuggestCandidate } from '../../src/utils/smartSuggest';
+import { suggestNextExercise, suggestNextExercises, SessionExercise, SuggestCandidate } from '../../src/utils/smartSuggest';
 
 // MOCK-002 fix (2026-05-16): the previous `MOCK_WORKOUT` constant was
 // unconditionally injected as the active workout regardless of auth state.
@@ -696,8 +697,28 @@ export default function LogScreen(): React.ReactElement {
     [],
   );
 
-  // ── TICKET-062: Non-routine stepper state ─────────────────────────────────
+  // ── TICKET-062 / TICKET-077: Non-routine + PRO smart-suggest state ─────────
   const [smartSuggestion, setSmartSuggestion] = useState<SuggestCandidate | null>(null);
+  const [smartSuggestions, setSmartSuggestions] = useState<SuggestCandidate[]>([]);
+  // Full exercise catalogue (paid only) — the candidate pool for suggestions.
+  // Without it the pool is just exercises touched this session, so nothing
+  // useful would be suggested. Fetched once when a paid user is active.
+  const [catalogue, setCatalogue] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    if (!user?.is_paid) return;
+    let cancelled = false;
+    getExercises()
+      .then((lib) => {
+        if (cancelled) return;
+        const flat = Object.values(lib.exercises ?? {})
+          .flat()
+          .map((e) => ({ id: e.id, name: e.name }));
+        setCatalogue(flat);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [user?.is_paid]);
 
   const recomputeSuggestion = useCallback(() => {
     if (!routineSession || routineSession.source === 'routine') return;
@@ -709,9 +730,34 @@ export default function LogScreen(): React.ReactElement {
       }),
     );
     const historyNames = Array.from(exerciseNames.values());
-    const allEx = Array.from(exerciseNames.entries()).map(([id, name]) => ({ id, name }));
-    setSmartSuggestion(suggestNextExercise(sessionLog, historyNames, allEx));
-  }, [routineSession, stepperSets, exerciseNames]);
+    const pool =
+      catalogue.length > 0
+        ? catalogue
+        : Array.from(exerciseNames.entries()).map(([id, name]) => ({ id, name }));
+    const list = suggestNextExercises(sessionLog, historyNames, pool, 3);
+    setSmartSuggestions(list);
+    setSmartSuggestion(list[0] ?? suggestNextExercise(sessionLog, historyNames, pool));
+  }, [routineSession, stepperSets, exerciseNames, catalogue]);
+
+  // Keep suggestions fresh for the paid smart variant as sets are logged.
+  useEffect(() => {
+    if (user?.is_paid && routineSession && routineSession.source !== 'routine') {
+      recomputeSuggestion();
+    }
+  }, [stepperSets, routineSession, user?.is_paid, recomputeSuggestion]);
+
+  // PRO smart-suggest: user accepted a suggested exercise → add it as the next
+  // step (after current) and advance to it.
+  const handleAcceptSuggestion = useCallback(
+    (candidate: SuggestCandidate) => {
+      handleStepperAddOffRoutine(candidate.exerciseId, candidate.name, 'after_current');
+      setRoutineSession((prev) => {
+        if (!prev) return prev;
+        return { ...prev, currentIndex: Math.min(prev.currentIndex + 1, prev.exercises.length) };
+      });
+    },
+    [handleStepperAddOffRoutine],
+  );
 
   const handleSaveAsRoutine = useCallback(async () => {
     if (!routineSession) return;
@@ -1257,16 +1303,23 @@ export default function LogScreen(): React.ReactElement {
             variant={
               routineSession?.source === 'routine'
                 ? 'routine'
-                : 'free'  /* TICKET-074 #1: free tier ships the 'free' variant.
-                             'smart' (algo-suggest card) is PRO-gated — TICKET-077. */
+                : user?.is_paid
+                  ? 'smart'   /* TICKET-077: PRO smart-suggest "JUST LOGGED" interstitial */
+                  : 'free'    /* free tier: add-as-you-go */
             }
             suggestion={smartSuggestion}
+            suggestions={smartSuggestions}
+            onAcceptSuggestion={handleAcceptSuggestion}
             onAddNextExercise={() => {
               recomputeSuggestion();
               setPickerVisible(true);
             }}
             onSaveAsRoutine={handleSaveAsRoutine}
-            pbLabel={exercisePB ? exercisePB.weight + ' × ' + exercisePB.reps : null}
+            pbLabel={
+              exercisePB?.all_time_best
+                ? `${formatWeight(exercisePB.all_time_best.weight_kg, unitPref)} × ${exercisePB.all_time_best.reps}`
+                : null
+            }
             repTarget={
               routineSession.exercises[routineSession.currentIndex]?.targetReps ?? null
             }

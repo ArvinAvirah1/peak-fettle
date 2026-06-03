@@ -105,10 +105,8 @@ export function suggestNextExercise(
   }
 
   // ── Step 2: find most recently worked group ───────────────────────────────
-  const lastWorked: MuscleGroup | null =
-    sessionLog.length > 0
-      ? muscleGroupForExercise(sessionLog[sessionLog.length - 1].name)
-      : null;
+  const lastEx = sessionLog[sessionLog.length - 1];
+  const lastWorked: MuscleGroup | null = lastEx ? muscleGroupForExercise(lastEx.name) : null;
 
   // ── Step 3: determine target groups ──────────────────────────────────────
   // Priority: complementary to the last worked group → then least-worked overall.
@@ -176,5 +174,76 @@ export function suggestNextExercise(
 
   scored.sort((a, b) => b.score - a.score);
   const best = scored[0];
+  if (!best) return null;
   return { exerciseId: best.ex.id, name: best.ex.name, reason: best.reason };
+}
+
+/**
+ * PRO smart-suggest (image §3c): return the top N ranked candidates, not just
+ * one. The mock shows a single placeholder card; the real build "enumerates
+ * more" — a primary suggestion plus a few ranked alternatives the user can pick.
+ *
+ * Same scoring as suggestNextExercise; this returns the ranked list so the
+ * stepper can render the primary card + "or try" rows.
+ */
+export function suggestNextExercises(
+  sessionLog: SessionExercise[],
+  historyNames: string[],
+  allExercises: { id: string; name: string }[],
+  limit = 3,
+): SuggestCandidate[] {
+  if (allExercises.length === 0) return [];
+
+  const loggedNames = new Set(sessionLog.map((e) => e.name.toLowerCase()));
+
+  const groupSets: Partial<Record<MuscleGroup, number>> = {};
+  for (const ex of sessionLog) {
+    const g = muscleGroupForExercise(ex.name);
+    groupSets[g] = (groupSets[g] ?? 0) + ex.setCount;
+  }
+
+  const lastEx = sessionLog[sessionLog.length - 1];
+  const lastWorked: MuscleGroup | null = lastEx ? muscleGroupForExercise(lastEx.name) : null;
+
+  const targetGroups: MuscleGroup[] = [];
+  if (lastWorked) {
+    const complements = COMPLEMENTARY[lastWorked] ?? [];
+    const sorted = [...complements].sort(
+      (a, b) => (groupSets[a] ?? 0) - (groupSets[b] ?? 0),
+    );
+    targetGroups.push(...sorted);
+  }
+  const allGroups: MuscleGroup[] = [
+    'chest', 'back', 'shoulders', 'biceps', 'triceps',
+    'quads', 'hamstrings', 'glutes', 'core', 'calves',
+  ];
+  for (const g of allGroups) {
+    if (!targetGroups.includes(g) && !(groupSets[g] ?? 0)) targetGroups.push(g);
+  }
+
+  const historySet = new Set(historyNames.map((n) => n.toLowerCase()));
+  type Scored = { ex: { id: string; name: string }; score: number; reason: string };
+  const scored: Scored[] = [];
+
+  for (const ex of allExercises) {
+    if (loggedNames.has(ex.name.toLowerCase())) continue;
+    const group = muscleGroupForExercise(ex.name);
+    let score = 0;
+    let reason = '';
+    const targetIdx = targetGroups.indexOf(group);
+    if (targetIdx !== -1) {
+      score += 10 - targetIdx;
+      reason = `balances ${lastWorked ? lastWorked + ' volume' : 'your session'}`;
+    }
+    if (historySet.has(ex.name.toLowerCase())) {
+      score += 3;
+      if (!reason) reason = 'you usually do this day';
+    }
+    if (score > 0) scored.push({ ex, score, reason: reason || 'complements your session' });
+  }
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored
+    .slice(0, Math.max(1, limit))
+    .map((s) => ({ exerciseId: s.ex.id, name: s.ex.name, reason: s.reason }));
 }
