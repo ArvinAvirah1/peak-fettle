@@ -1,23 +1,23 @@
 /**
- * StepperLogger — TICKET-059
+ * StepperLogger — TICKET-059…062
  * Full-screen Focus Stepper: one exercise at a time.
  *
- * Layout (matches set-logging-stepper-flow.html §1a):
- *   • Routine header: name · progress dots · "N of M"
- *   • "EXERCISE N OF M" label + exercise name
- *   • PB card (optional)
- *   • Logged set chips (scrollable row)
- *   • Weight / Reps input fields
- *   • "Log set N" primary CTA
- *   • "Continue to <next> →" (or "Finish workout" on last)
- *   • "Select different exercise" secondary button
+ * Layout is the founder's authoritative mock `set-logging-stepper-flow.html`:
+ *   §1a routine logging · §1b switcher · §1c off-routine placement
+ *   §3a free (add-as-you-go) · §3c PRO smart-suggest ("JUST LOGGED" interstitial)
  *
- * Off-routine placement prompt: when the user picks an exercise not in the
- * current routine via the switcher → Browse path, a bottom prompt appears
- * asking where to slot it into the routine.
+ * Variants:
+ *   • 'routine' — header = name · progress dots · "N / M"; bottom = "Continue to
+ *                 <next> →" + "Select different exercise".
+ *   • 'free'    — header = "Free session" · "N logged"; kicker "EXERCISE N · NO
+ *                 ROUTINE"; bottom = "＋ Add next exercise" + "Finish & save as
+ *                 routine".
+ *   • 'smart'   — (paid) like 'free' for logging, but "Done — see what's next →"
+ *                 reveals the JUST LOGGED interstitial: a summary chip + a ranked
+ *                 list of suggested next exercises (enumerated, not just one).
  *
- * TICKET-060 (ExerciseSwitcherSheet) is imported here and opened by the
- * "Select different exercise" button.
+ * RIR (TICKET-074) is preserved but tucked behind a "＋ RIR" link so the default
+ * screen matches the two-field (WEIGHT / REPS) mock.
  */
 
 import React, { useState, useCallback, useMemo } from 'react';
@@ -75,46 +75,41 @@ interface Props {
   onFinish: () => void;
   /** Opens the exercise picker (ExercisePickerModal); resolved exerciseId → name */
   onBrowseLibrary: () => void;
-  /**
-   * Personal best for the current exercise:
-   * e.g. "25 kg × 12" or null if none on record.
-   */
+  /** Personal best for the current exercise: e.g. "25 kg × 12" or null. */
   pbLabel?: string | null;
-  /**
-   * Rep range target for this exercise from the routine,
-   * e.g. "8-12" or null.
-   */
+  /** Rep range target for this exercise from the routine, e.g. "8-12" or null. */
   repTarget?: string | null;
-  /**
-   * Logged sets for the current exercise in THIS workout session.
-   * Passed in so the stepper can display chips without managing its own state.
-   */
+  /** Logged sets for the current exercise in THIS workout session. */
   currentExerciseSets: LoggedSet[];
-  /**
-   * Called when user chooses to add an off-routine exercise into the routine
-   * at the specified position.
-   */
+  /** Called when user adds an off-routine exercise into the routine. */
   onAddOffRoutineExercise?: (
     exerciseId: string,
     exerciseName: string,
     position: OffRoutinePlacement,
-    /** 0-based insertion index, only meaningful when position === 'pick'. */
     pickIndex?: number,
   ) => void;
   /** Close / dismiss the stepper (returns to normal log view) */
   onClose: () => void;
   /**
-   * Stepper variant (TICKET-062):
-   * - 'routine'  : routine session — "Continue to <next>" (default)
-   * - 'free'     : add-as-you-go — "＋ Add next exercise" / "Finish & save as routine"
-   * - 'smart'    : paid smart-suggest — shows suggestion card after each exercise
+   * Stepper variant:
+   * - 'routine' : routine session — "Continue to <next>" (default)
+   * - 'free'    : add-as-you-go — "＋ Add next exercise" / "Finish & save as routine"
+   * - 'smart'   : paid smart-suggest — "JUST LOGGED" interstitial with ranked suggestions
    */
   variant?: 'routine' | 'free' | 'smart';
   /**
-   * For variant='smart': the algorithmically-suggested next exercise.
-   * Recalculated by the parent after each set is logged.
+   * For variant='smart': the single best suggestion (back-compat). Prefer
+   * `suggestions` (the ranked list) when available.
    */
   suggestion?: SuggestCandidate | null;
+  /**
+   * For variant='smart': the ranked list of suggested next exercises. The first
+   * is shown as the primary card; the rest as "or try" rows. Recomputed by the
+   * parent after each set is logged.
+   */
+  suggestions?: SuggestCandidate[];
+  /** For variant='smart': user accepted a specific suggestion as the next exercise. */
+  onAcceptSuggestion?: (candidate: SuggestCandidate) => void;
   /** For variant='free': called when user taps "＋ Add next exercise" */
   onAddNextExercise?: () => void;
   /** For variant='free'|'smart': save current ad-hoc session as a routine */
@@ -140,6 +135,17 @@ function SetChip({ set, index }: { set: LoggedSet; index: number }) {
   );
 }
 
+/** "3 sets · top 100×6" summary for the JUST LOGGED interstitial. */
+function topSetLabel(sets: LoggedSet[]): string {
+  const first = sets[0];
+  if (!first) return '';
+  let best = first;
+  for (const s of sets) {
+    if ((parseFloat(s.weight) || 0) > (parseFloat(best.weight) || 0)) best = s;
+  }
+  return `${sets.length} set${sets.length !== 1 ? 's' : ''} · top ${best.weight}×${best.reps}`;
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function StepperLogger({
@@ -155,6 +161,8 @@ export default function StepperLogger({
   onClose,
   variant = 'routine',
   suggestion,
+  suggestions,
+  onAcceptSuggestion,
   onAddNextExercise,
   onSaveAsRoutine,
 }: Props): React.ReactElement {
@@ -162,31 +170,37 @@ export default function StepperLogger({
   const currentEx: RoutineSessionExercise | undefined = exercises[currentIndex];
   const nextEx: RoutineSessionExercise | undefined = exercises[currentIndex + 1];
   const isLast = currentIndex === exercises.length - 1;
+  const isFreeLike = variant === 'free' || variant === 'smart';
 
   // ── Local form state ──────────────────────────────────────────────────────
   const [weight, setWeight] = useState('');
   const [reps, setReps] = useState('');
   const [rir, setRir] = useState('');
+  const [showRir, setShowRir] = useState(false);
   const [switcherVisible, setSwitcherVisible] = useState(false);
   const [offRoutinePrompt, setOffRoutinePrompt] = useState<OffRoutinePrompt | null>(null);
   const [promptPlacement, setPromptPlacement] = useState<OffRoutinePlacement>('after_current');
-  // 0-based insert index for the "Pick position…" flow (TICKET-074 gap #3).
   const [pickIndex, setPickIndex] = useState(0);
-  // Track which off-routine exercises we've already prompted for so the sheet
-  // pops at most once per exercise per session.
   const promptedRef = React.useRef<Set<string>>(new Set());
 
+  // ── Smart-suggest interstitial state ──────────────────────────────────────
+  const [showSuggest, setShowSuggest] = useState(false);
+  const [selectedSug, setSelectedSug] = useState<SuggestCandidate | null>(null);
+  const sugList = useMemo<SuggestCandidate[]>(
+    () => (suggestions && suggestions.length > 0 ? suggestions : suggestion ? [suggestion] : []),
+    [suggestions, suggestion],
+  );
+  const activeSug = selectedSug ?? sugList[0] ?? null;
+
   const setNumber = currentExerciseSets.length + 1;
-  // An exercise is "off routine" when it carries no routine exercise id. We only
-  // surface the placement prompt for genuine routine sessions (template-derived
-  // sessions legitimately have empty ids on every row, so they must not fire it).
+  const totalLogged = exercises.reduce((sum, e) => sum + e.loggedSetCount, 0);
   const isOffRoutine =
     routineSession.source === 'routine' && (currentEx?.exerciseId ?? '') === '';
 
-  // Progress dots (max 7 shown; ellipsis implied for longer routines)
+  // Progress dots (max 7 shown)
   const dotsToShow = Math.min(exercises.length, 7);
-  const progressDots = useMemo(() =>
-    Array.from({ length: dotsToShow }, (_, i) => i <= currentIndex),
+  const progressDots = useMemo(
+    () => Array.from({ length: dotsToShow }, (_, i) => i <= currentIndex),
     [dotsToShow, currentIndex],
   );
 
@@ -199,8 +213,7 @@ export default function StepperLogger({
     setRir('');
     // Keep weight pre-filled for the next set.
 
-    // TICKET-074 #3: if this exercise isn't part of the routine, offer to add it
-    // (once per exercise). The placement sheet writes it into the routine.
+    // TICKET-074 #3: off-routine exercise (routine sessions only) → offer to add it.
     const key = currentEx?.name ?? '';
     if (isOffRoutine && currentEx && onAddOffRoutineExercise && !promptedRef.current.has(key)) {
       promptedRef.current.add(key);
@@ -237,7 +250,33 @@ export default function StepperLogger({
     setOffRoutinePrompt(null);
   }, [offRoutinePrompt, promptPlacement, pickIndex, onAddOffRoutineExercise]);
 
-  if (!currentEx) return <View />;
+  // Smart: reveal the "JUST LOGGED" interstitial after ≥1 set logged.
+  const handleDoneSeeNext = useCallback(() => {
+    if (currentExerciseSets.length === 0) return;
+    setShowSuggest(true);
+  }, [currentExerciseSets.length]);
+
+  const handleAcceptSug = useCallback(() => {
+    if (activeSug && onAcceptSuggestion) {
+      onAcceptSuggestion(activeSug);
+    } else {
+      onFinish();
+    }
+    setShowSuggest(false);
+    setSelectedSug(null);
+    setWeight('');
+    setReps('');
+  }, [activeSug, onAcceptSuggestion, onFinish]);
+
+  if (!currentEx) return <View style={styles.root} />;
+
+  const kicker = isFreeLike
+    ? `EXERCISE ${currentIndex + 1} · NO ROUTINE`
+    : isOffRoutine
+      ? 'NOT IN ROUTINE'
+      : `EXERCISE ${currentIndex + 1} OF ${exercises.length}`;
+
+  const showInterstitial = variant === 'smart' && showSuggest;
 
   return (
     <KeyboardAvoidingView
@@ -245,7 +284,7 @@ export default function StepperLogger({
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
     >
-      {/* ── Header: routine name + progress ──────────────────────────────── */}
+      {/* ── Header ────────────────────────────────────────────────────────── */}
       <View style={styles.header}>
         <TouchableOpacity
           onPress={onClose}
@@ -256,20 +295,26 @@ export default function StepperLogger({
           <Ionicons name="chevron-down" size={20} color={stepperPalette.muted} />
         </TouchableOpacity>
 
-        <Text style={styles.routineName} numberOfLines={1}>
-          {routineName}
-        </Text>
-
-        {/* Progress dots */}
-        <View style={styles.dotsRow}>
-          {progressDots.map((done, i) => (
-            <View key={i} style={[styles.dot, done && styles.dotDone]} />
-          ))}
-        </View>
-
-        <Text style={styles.progressLabel}>
-          {currentIndex + 1} / {exercises.length}
-        </Text>
+        {isFreeLike ? (
+          <>
+            <Text style={styles.routineName} numberOfLines={1}>Free session</Text>
+            <Text style={styles.progressLabel}>
+              {totalLogged} logged
+            </Text>
+          </>
+        ) : (
+          <>
+            <Text style={styles.routineName} numberOfLines={1}>{routineName}</Text>
+            <View style={styles.dotsRow}>
+              {progressDots.map((done, i) => (
+                <View key={i} style={[styles.dot, done && styles.dotDone]} />
+              ))}
+            </View>
+            <Text style={styles.progressLabel}>
+              {currentIndex + 1} / {exercises.length}
+            </Text>
+          </>
+        )}
       </View>
 
       <ScrollView
@@ -278,97 +323,165 @@ export default function StepperLogger({
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Exercise label + name ───────────────────────────────────────── */}
-        <Text style={styles.exLabel}>
-          {isOffRoutine ? 'NOT IN ROUTINE' : `EXERCISE ${currentIndex + 1} OF ${exercises.length}`}
-        </Text>
-        <Text style={styles.exName}>{currentEx.name}</Text>
+        {showInterstitial ? (
+          /* ── §3c · JUST LOGGED interstitial (PRO smart-suggest) ──────────── */
+          <>
+            <Text style={styles.exLabel}>JUST LOGGED</Text>
+            <Text style={styles.exName}>{currentEx.name}</Text>
 
-        {/* ── PB card ─────────────────────────────────────────────────────── */}
-        {(pbLabel || repTarget) && (
-          <View style={styles.pbCard}>
-            <Text style={styles.pbText}>
-              {pbLabel ? `PB ${pbLabel}` : ''}
-              {pbLabel && repTarget ? ' · ' : ''}
-              {repTarget ? `aim ${repTarget} reps` : ''}
-            </Text>
-          </View>
+            {currentExerciseSets.length > 0 && (
+              <View style={[chipStyles.chip, styles.summaryChip]}>
+                <Text style={chipStyles.label}>{topSetLabel(currentExerciseSets)}</Text>
+              </View>
+            )}
+
+            {activeSug ? (
+              <>
+                {/* Primary suggestion card */}
+                <View style={styles.suggestionCard}>
+                  <View style={styles.suggestionCardTop}>
+                    <View style={styles.suggestionPill}>
+                      <Text style={styles.suggestionPillLabel}>Suggested next</Text>
+                    </View>
+                    <Text style={styles.suggestionReason} numberOfLines={1}>
+                      {activeSug.reason}
+                    </Text>
+                  </View>
+                  <Text style={styles.suggestionName}>{activeSug.name}</Text>
+                </View>
+
+                {/* Ranked alternatives — "enumerate more" */}
+                {sugList.length > 1 && (
+                  <>
+                    <Text style={styles.altLabel}>OR TRY</Text>
+                    {sugList
+                      .filter((s) => s.exerciseId !== activeSug.exerciseId)
+                      .map((s) => (
+                        <TouchableOpacity
+                          key={s.exerciseId || s.name}
+                          style={styles.altRow}
+                          onPress={() => setSelectedSug(s)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Choose ${s.name} instead`}
+                        >
+                          <View style={styles.altRowText}>
+                            <Text style={styles.altName} numberOfLines={1}>{s.name}</Text>
+                            <Text style={styles.altReason} numberOfLines={1}>{s.reason}</Text>
+                          </View>
+                          <Ionicons name="chevron-forward" size={16} color={stepperPalette.muted} />
+                        </TouchableOpacity>
+                      ))}
+                  </>
+                )}
+              </>
+            ) : (
+              <Text style={styles.emptySuggest}>
+                You&apos;re all caught up — no further suggestions for this session.
+              </Text>
+            )}
+          </>
+        ) : (
+          /* ── Logging screen (routine / free / smart pre-interstitial) ────── */
+          <>
+            <Text style={styles.exLabel}>{kicker}</Text>
+            <Text style={styles.exName}>{currentEx.name}</Text>
+
+            {(pbLabel || repTarget) && (
+              <View style={styles.pbCard}>
+                <Text style={styles.pbText}>
+                  {pbLabel ? `PB ${pbLabel}` : ''}
+                  {pbLabel && repTarget ? ' · ' : ''}
+                  {repTarget ? `aim ${repTarget} reps` : ''}
+                </Text>
+              </View>
+            )}
+
+            {currentExerciseSets.length > 0 && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.chipsScroll}
+                contentContainerStyle={styles.chipsContent}
+              >
+                {currentExerciseSets.map((s, i) => (
+                  <SetChip key={i} set={s} index={i} />
+                ))}
+              </ScrollView>
+            )}
+
+            {/* Weight / Reps (+ optional RIR, tucked) */}
+            <View style={styles.inputRow}>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>WEIGHT</Text>
+                <TextInput
+                  style={styles.input}
+                  value={weight}
+                  onChangeText={setWeight}
+                  keyboardType="decimal-pad"
+                  placeholder="—"
+                  placeholderTextColor={stepperPalette.muted}
+                  selectTextOnFocus
+                  accessibilityLabel="Weight"
+                />
+              </View>
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>REPS</Text>
+                <TextInput
+                  style={styles.input}
+                  value={reps}
+                  onChangeText={setReps}
+                  keyboardType="number-pad"
+                  placeholder="—"
+                  placeholderTextColor={stepperPalette.muted}
+                  selectTextOnFocus
+                  accessibilityLabel="Reps"
+                />
+              </View>
+              {showRir && (
+                <View style={styles.rirGroup}>
+                  <Text style={styles.inputLabel}>RIR</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={rir}
+                    onChangeText={setRir}
+                    keyboardType="number-pad"
+                    placeholder="–"
+                    placeholderTextColor={stepperPalette.muted}
+                    selectTextOnFocus
+                    accessibilityLabel="Reps in reserve (optional)"
+                  />
+                </View>
+              )}
+            </View>
+
+            {showRir ? (
+              <Text style={styles.rirHint}>RIR optional · 0 = to failure</Text>
+            ) : (
+              <TouchableOpacity
+                onPress={() => setShowRir(true)}
+                style={styles.addRirLink}
+                accessibilityRole="button"
+                accessibilityLabel="Add reps in reserve"
+              >
+                <Text style={styles.addRirLabel}>＋ Add RIR (optional)</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={styles.logSetBtn}
+              onPress={handleLogSet}
+              accessibilityRole="button"
+              accessibilityLabel={`Log set ${setNumber}`}
+            >
+              <Text style={styles.logSetLabel}>Log set {setNumber}</Text>
+            </TouchableOpacity>
+          </>
         )}
-
-        {/* ── Logged set chips ────────────────────────────────────────────── */}
-        {currentExerciseSets.length > 0 && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.chipsScroll}
-            contentContainerStyle={styles.chipsContent}
-          >
-            {currentExerciseSets.map((s, i) => (
-              <SetChip key={i} set={s} index={i} />
-            ))}
-          </ScrollView>
-        )}
-
-        {/* ── Weight / Reps inputs ────────────────────────────────────────── */}
-        <View style={styles.inputRow}>
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>WEIGHT</Text>
-            <TextInput
-              style={styles.input}
-              value={weight}
-              onChangeText={setWeight}
-              keyboardType="decimal-pad"
-              placeholder="—"
-              placeholderTextColor={stepperPalette.muted}
-              selectTextOnFocus
-              accessibilityLabel="Weight"
-            />
-          </View>
-          <View style={styles.inputGroup}>
-            <Text style={styles.inputLabel}>REPS</Text>
-            <TextInput
-              style={styles.input}
-              value={reps}
-              onChangeText={setReps}
-              keyboardType="number-pad"
-              placeholder="—"
-              placeholderTextColor={stepperPalette.muted}
-              selectTextOnFocus
-              accessibilityLabel="Reps"
-            />
-          </View>
-          {/* TICKET-074 #4: RIR — optional, shown by default (not behind a disclosure). */}
-          <View style={styles.rirGroup}>
-            <Text style={styles.inputLabel}>RIR</Text>
-            <TextInput
-              style={styles.input}
-              value={rir}
-              onChangeText={setRir}
-              keyboardType="number-pad"
-              placeholder="–"
-              placeholderTextColor={stepperPalette.muted}
-              selectTextOnFocus
-              accessibilityLabel="Reps in reserve (optional)"
-            />
-          </View>
-        </View>
-        <Text style={styles.rirHint}>RIR optional · 0 = to failure</Text>
-
-        {/* ── Log set CTA ─────────────────────────────────────────────────── */}
-        <TouchableOpacity
-          style={styles.logSetBtn}
-          onPress={handleLogSet}
-          accessibilityRole="button"
-          accessibilityLabel={`Log set ${setNumber}`}
-        >
-          <Text style={styles.logSetLabel}>Log set {setNumber}</Text>
-        </TouchableOpacity>
       </ScrollView>
 
-      {/* ── Bottom action bar — varies by variant ──────────────────────────── */}
+      {/* ── Bottom action bar — varies by variant / sub-state ──────────────── */}
       <View style={styles.actionBar}>
         {variant === 'free' ? (
-          /* Variant 1: add-as-you-go */
           <>
             <TouchableOpacity
               style={styles.continueBtn}
@@ -388,40 +501,52 @@ export default function StepperLogger({
             </TouchableOpacity>
           </>
         ) : variant === 'smart' ? (
-          /* Variant 3: smart-suggest — show suggestion card if available */
-          <>
-            {suggestion ? (
-              <View style={styles.suggestionCard}>
-                <View style={styles.suggestionCardTop}>
-                  <View style={styles.suggestionPill}>
-                    <Text style={styles.suggestionPillLabel}>Suggested next</Text>
-                  </View>
-                  <Text style={styles.suggestionReason}>{suggestion.reason}</Text>
-                </View>
-                <Text style={styles.suggestionName}>{suggestion.name}</Text>
-              </View>
-            ) : null}
-            <TouchableOpacity
-              style={styles.continueBtn}
-              onPress={suggestion ? () => onAddNextExercise?.() : onFinish}
-              accessibilityRole="button"
-              accessibilityLabel={suggestion ? `Continue to ${suggestion.name}` : 'Finish workout'}
-            >
-              <Text style={styles.continueBtnLabel}>
-                {suggestion ? `Continue to ${suggestion.name} →` : 'Finish workout'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.switchBtn}
-              onPress={() => setSwitcherVisible(true)}
-              accessibilityRole="button"
-              accessibilityLabel="Select different exercise"
-            >
-              <Text style={styles.switchBtnLabel}>Select different exercise</Text>
-            </TouchableOpacity>
-          </>
+          showInterstitial ? (
+            <>
+              <TouchableOpacity
+                style={styles.continueBtn}
+                onPress={handleAcceptSug}
+                accessibilityRole="button"
+                accessibilityLabel={activeSug ? `Continue to ${activeSug.name}` : 'Finish workout'}
+              >
+                <Text style={styles.continueBtnLabel}>
+                  {activeSug ? `Continue to ${activeSug.name} →` : 'Finish workout'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.switchBtn}
+                onPress={() => setSwitcherVisible(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Select different exercise"
+              >
+                <Text style={styles.switchBtnLabel}>Select different exercise</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <TouchableOpacity
+                style={[styles.continueBtn, currentExerciseSets.length === 0 && styles.btnDisabled]}
+                onPress={handleDoneSeeNext}
+                disabled={currentExerciseSets.length === 0}
+                accessibilityRole="button"
+                accessibilityLabel="Done, see what's next"
+              >
+                <Text style={styles.continueBtnLabel}>
+                  {currentExerciseSets.length === 0 ? 'Log a set to continue' : "Done — see what's next →"}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.switchBtn}
+                onPress={() => setSwitcherVisible(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Select different exercise"
+              >
+                <Text style={styles.switchBtnLabel}>Select different exercise</Text>
+              </TouchableOpacity>
+            </>
+          )
         ) : (
-          /* Variant default: routine mode */
+          /* routine */
           <>
             <TouchableOpacity
               style={styles.continueBtn}
@@ -445,7 +570,7 @@ export default function StepperLogger({
         )}
       </View>
 
-      {/* ── Off-routine placement prompt ──────────────────────────────────── */}
+      {/* ── Off-routine placement prompt (§1c) ─────────────────────────────── */}
       {offRoutinePrompt && (
         <Pressable style={styles.promptBackdrop} onPress={() => setOffRoutinePrompt(null)}>
           <Pressable style={styles.prompt} onPress={() => {}}>
@@ -473,7 +598,6 @@ export default function StepperLogger({
               ))}
             </View>
 
-            {/* TICKET-074 #3: Pick position… — a position picker over the routine list */}
             {promptPlacement === 'pick' && (
               <View style={styles.pickList}>
                 {Array.from({ length: exercises.length + 1 }, (_, slot) => {
@@ -493,9 +617,7 @@ export default function StepperLogger({
                       <Text style={[styles.pickRowLabel, on && styles.pickRowLabelOn]} numberOfLines={1}>
                         {label}
                       </Text>
-                      {on ? (
-                        <Ionicons name="checkmark" size={16} color={stepperPalette.accent} />
-                      ) : null}
+                      {on ? <Ionicons name="checkmark" size={16} color={stepperPalette.accent} /> : null}
                     </TouchableOpacity>
                   );
                 })}
@@ -520,14 +642,18 @@ export default function StepperLogger({
         </Pressable>
       )}
 
-      {/* ── Exercise Switcher Sheet (TICKET-060) ───────────────────────────── */}
+      {/* ── Exercise Switcher Sheet (§1b) ──────────────────────────────────── */}
       <ExerciseSwitcherSheet
         visible={switcherVisible}
         onClose={() => setSwitcherVisible(false)}
         routineSession={routineSession}
-        onSelectIndex={handleSelectIndex}
+        onSelectIndex={(idx) => {
+          setShowSuggest(false);
+          handleSelectIndex(idx);
+        }}
         onBrowseLibrary={() => {
           setSwitcherVisible(false);
+          setShowSuggest(false);
           onBrowseLibrary();
         }}
       />
@@ -619,10 +745,14 @@ const styles = StyleSheet.create({
     gap: spacing.s2,
     paddingVertical: spacing.s1,
   },
+  summaryChip: {
+    alignSelf: 'flex-start',
+    marginBottom: spacing.s4,
+  },
   inputRow: {
     flexDirection: 'row',
     gap: spacing.s3,
-    marginBottom: spacing.s3,
+    marginBottom: spacing.s2,
   },
   inputGroup: {
     flex: 1,
@@ -634,8 +764,17 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.regular,
     fontSize: fontSize.caption,
     color: stepperPalette.muted,
-    marginTop: -spacing.s1,
     marginBottom: spacing.s3,
+  },
+  addRirLink: {
+    alignSelf: 'flex-start',
+    paddingVertical: spacing.s1,
+    marginBottom: spacing.s2,
+  },
+  addRirLabel: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: fontSize.caption,
+    color: stepperPalette.accent,
   },
   inputLabel: {
     fontFamily: fontFamily.bold,
@@ -681,6 +820,9 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.s3 + 2,
     alignItems: 'center',
   },
+  btnDisabled: {
+    opacity: 0.4,
+  },
   continueBtnLabel: {
     fontFamily: fontFamily.bold,
     fontSize: fontSize.bodySm,
@@ -698,6 +840,86 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.bold,
     fontSize: fontSize.bodySm,
     color: stepperPalette.accent,
+  },
+  // Smart-suggest card + alternatives
+  suggestionCard: {
+    backgroundColor: stepperPalette.accentSurface,
+    borderWidth: 1,
+    borderColor: stepperPalette.accentLine,
+    borderRadius: radius.md,
+    padding: spacing.s4,
+    marginBottom: spacing.s3,
+  },
+  suggestionCardTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.s2,
+  },
+  suggestionPill: {
+    backgroundColor: stepperPalette.accent,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.s2,
+    paddingVertical: 2,
+  },
+  suggestionPillLabel: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSize.caption,
+    color: stepperPalette.accentInk,
+  },
+  suggestionReason: {
+    flex: 1,
+    textAlign: 'right',
+    marginLeft: spacing.s2,
+    fontFamily: fontFamily.regular,
+    fontSize: fontSize.caption,
+    color: stepperPalette.muted,
+  },
+  suggestionName: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSize.bodyLg,
+    color: stepperPalette.text,
+  },
+  altLabel: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSize.caption,
+    color: stepperPalette.muted,
+    letterSpacing: 1,
+    marginBottom: spacing.s2,
+    marginTop: spacing.s1,
+  },
+  altRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: stepperPalette.card,
+    borderWidth: 1,
+    borderColor: stepperPalette.line,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.s3,
+    paddingVertical: spacing.s3,
+    marginBottom: spacing.s2,
+    gap: spacing.s2,
+  },
+  altRowText: {
+    flex: 1,
+  },
+  altName: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: fontSize.bodySm,
+    color: stepperPalette.text,
+  },
+  altReason: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSize.caption,
+    color: stepperPalette.muted,
+    marginTop: 1,
+  },
+  emptySuggest: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSize.bodySm,
+    color: stepperPalette.muted,
+    marginTop: spacing.s3,
   },
   // Off-routine prompt
   promptBackdrop: {
@@ -760,7 +982,6 @@ const styles = StyleSheet.create({
   placementOptLabelOn: {
     color: stepperPalette.accent,
   },
-  // Pick position… list (TICKET-074 #3)
   pickList: {
     marginBottom: spacing.s3,
     borderWidth: 1,
@@ -817,47 +1038,6 @@ const styles = StyleSheet.create({
     color: stepperPalette.accentInk,
   },
 });
-
-const styles_extra = StyleSheet.create({
-  suggestionCard: {
-    backgroundColor: stepperPalette.accentSurface,
-    borderWidth: 1,
-    borderColor: stepperPalette.accentLine,
-    borderRadius: radius.md,
-    padding: spacing.s3,
-    marginBottom: spacing.s2,
-  },
-  suggestionCardTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.s1,
-  },
-  suggestionPill: {
-    backgroundColor: stepperPalette.accent,
-    borderRadius: radius.full,
-    paddingHorizontal: spacing.s2,
-    paddingVertical: 2,
-  },
-  suggestionPillLabel: {
-    fontFamily: fontFamily.bold,
-    fontSize: fontSize.caption,
-    color: stepperPalette.accentInk,
-  },
-  suggestionReason: {
-    fontFamily: fontFamily.regular,
-    fontSize: fontSize.caption,
-    color: stepperPalette.muted,
-  },
-  suggestionName: {
-    fontFamily: fontFamily.bold,
-    fontSize: fontSize.bodyLg,
-    color: stepperPalette.text,
-  },
-});
-
-// Merge extra styles into main styles object at runtime
-Object.assign(styles, styles_extra);
 
 const chipStyles = StyleSheet.create({
   chip: {
