@@ -158,8 +158,7 @@ function RootNavigator(): React.ReactElement {
         <Stack.Screen name="intro" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="templates" options={{ title: 'Workout Templates', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="csv-import" options={{ title: 'Import Activity Data', headerShown: true, gestureEnabled: true }} />
-        <Stack.Screen name="routines" options={{ title: 'Routines', headerShown: false, gestureEnabled: true }} />
-        <Stack.Screen name="exercise-library" options={{ title: 'Exercise Library', headerShown: true, gestureEnabled: true }} />
+<Stack.Screen name="exercise-library" options={{ title: 'Exercise Library', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="progress" options={{ title: 'Progress', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="workout-day" options={{ title: '', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="workout-history" options={{ title: 'Workout History', headerShown: true, gestureEnabled: true }} />

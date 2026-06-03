@@ -51,6 +51,39 @@ export interface LoggedSet {
   reps: string;
   /** Reps-in-Reserve as typed (optional). '' / undefined = not recorded. */
   rir?: string;
+  /** Cardio fields — populated instead of weight/reps when category=cardio */
+  durationSec?: number;
+  distanceM?: number;
+  avgPaceSecPerKm?: number;
+}
+
+// Cardio log payload shape (mirrors api.ts LogCardioSetPayload)
+export interface LoggedCardioSet {
+  kind: 'cardio';
+  durationMm: string;
+  durationSs: string;
+  distanceDisplay: string;
+}
+
+// ── Cardio helpers (mirrors SetEntryForm.tsx exactly) ────────────────────────
+
+function parseDurationSec(mm: string, ss: string): number | null {
+  const minutes = parseInt(mm, 10);
+  const seconds = parseInt(ss, 10);
+  if (isNaN(minutes) || isNaN(seconds)) return null;
+  if (seconds < 0 || seconds > 59) return null;
+  return minutes * 60 + seconds;
+}
+
+function distanceToMetres(display: string, unitPref: 'kg' | 'lbs'): number | null {
+  const val = parseFloat(display);
+  if (isNaN(val) || val <= 0) return null;
+  return unitPref === 'lbs' ? val * 1609.344 : val * 1000;
+}
+
+function paceFromDurationAndDistance(durationSec: number, distanceM: number): number {
+  const distanceKm = distanceM / 1000;
+  return distanceKm > 0 ? durationSec / distanceKm : 0;
 }
 
 /** Where to slot an off-routine exercise into the current routine. */
@@ -64,11 +97,21 @@ interface OffRoutinePrompt {
 interface Props {
   routineSession: RoutineSession;
   /**
-   * Called when user logs a set for the current exercise.
+   * Called when user logs a LIFT set for the current exercise.
    * `rir` is the optional Reps-in-Reserve string (TICKET-074); undefined/''
    * means "not recorded" and the parent should send rir = -1 to the server.
    */
   onLogSet: (exerciseId: string, weight: string, reps: string, rir?: string) => void;
+  /**
+   * Called when user logs a CARDIO set. The parent should build the LogCardioSetPayload.
+   * Separated from onLogSet to keep the lift path unchanged (TICKET-080 §2).
+   */
+  onLogCardioSet?: (
+    exerciseId: string,
+    durationSec: number,
+    distanceM?: number,
+    avgPaceSecPerKm?: number,
+  ) => void;
   /** Called when user advances to a specific index (Continue or switcher tap) */
   onAdvance: (toIndex: number) => void;
   /** Called when user finishes the last exercise */
@@ -114,23 +157,57 @@ interface Props {
   onAddNextExercise?: () => void;
   /** For variant='free'|'smart': save current ad-hoc session as a routine */
   onSaveAsRoutine?: () => void;
+  /**
+   * User's unit preference — needed for cardio distance label + chip display.
+   * Defaults to 'kg'.
+   */
+  unitPref?: 'kg' | 'lbs';
+  /**
+   * TICKET-082 Part B: "Choose alternative exercise" (pro-only, machine-busy swap).
+   * Called when the user taps the "Choose alternative exercise" affordance.
+   * The parent is responsible for: calling getAlternatives, showing a sheet, and
+   * substituting the exercise in the session. Undefined = hide the button.
+   */
+  onChooseAlternative?: () => void;
+  /**
+   * TICKET-081 §1a / §3a: ISO week number for the session header `· wk N`.
+   * Passed from the parent as RoutineSession.weekNumber (optional). Rendered
+   * as "· wk N" when present and > 0; omitted cleanly when undefined/NaN.
+   */
+  weekNumber?: number | null;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function SetChip({ set, index }: { set: LoggedSet; index: number }) {
-  const rirNum = set.rir != null && set.rir !== '' ? parseInt(set.rir, 10) : null;
-  const rirLabel =
-    rirNum == null || Number.isNaN(rirNum) || rirNum < 0
-      ? ''
-      : rirNum === 0
-        ? ' · to failure'
-        : ` · RIR ${rirNum}`;
+function SetChip({ set, index, unitPref }: { set: LoggedSet; index: number; unitPref?: 'kg' | 'lbs' }) {
+  let label: string;
+  if (set.durationSec != null) {
+    // Cardio chip: "Set 1 · 22:30 · 5.0 km"
+    const mm = Math.floor(set.durationSec / 60);
+    const ss = set.durationSec % 60;
+    const durStr = `${mm}:${String(ss).padStart(2, '0')}`;
+    let distStr = '';
+    if (set.distanceM != null) {
+      if (unitPref === 'lbs') {
+        distStr = ` · ${(set.distanceM / 1609.344).toFixed(2)} mi`;
+      } else {
+        distStr = ` · ${(set.distanceM / 1000).toFixed(2)} km`;
+      }
+    }
+    label = `Set ${index + 1} · ${durStr}${distStr}`;
+  } else {
+    const rirNum = set.rir != null && set.rir !== '' ? parseInt(set.rir, 10) : null;
+    const rirLabel =
+      rirNum == null || Number.isNaN(rirNum) || rirNum < 0
+        ? ''
+        : rirNum === 0
+          ? ' · to failure'
+          : ` · RIR ${rirNum}`;
+    label = `Set ${index + 1} · ${set.weight}×${set.reps}${rirLabel}`;
+  }
   return (
     <View style={chipStyles.chip}>
-      <Text style={chipStyles.label}>
-        Set {index + 1} · {set.weight}×{set.reps}{rirLabel}
-      </Text>
+      <Text style={chipStyles.label}>{label}</Text>
     </View>
   );
 }
@@ -151,6 +228,7 @@ function topSetLabel(sets: LoggedSet[]): string {
 export default function StepperLogger({
   routineSession,
   onLogSet,
+  onLogCardioSet,
   onAdvance,
   onFinish,
   onBrowseLibrary,
@@ -165,6 +243,9 @@ export default function StepperLogger({
   onAcceptSuggestion,
   onAddNextExercise,
   onSaveAsRoutine,
+  unitPref = 'kg',
+  onChooseAlternative,
+  weekNumber,
 }: Props): React.ReactElement {
   const { exercises, currentIndex, name: routineName } = routineSession;
   const currentEx: RoutineSessionExercise | undefined = exercises[currentIndex];
@@ -172,11 +253,21 @@ export default function StepperLogger({
   const isLast = currentIndex === exercises.length - 1;
   const isFreeLike = variant === 'free' || variant === 'smart';
 
-  // ── Local form state ──────────────────────────────────────────────────────
+  // ── Current exercise category ──────────────────────────────────────────────
+  const isCardio = (currentEx?.category ?? 'lift') === 'cardio';
+  const distanceLabel = unitPref === 'lbs' ? 'miles' : 'km';
+
+  // ── Local form state — LIFT ──────────────────────────────────────────────
   const [weight, setWeight] = useState('');
   const [reps, setReps] = useState('');
   const [rir, setRir] = useState('');
   const [showRir, setShowRir] = useState(false);
+
+  // ── Local form state — CARDIO ────────────────────────────────────────────
+  const [cardioDurationMm, setCardioDurationMm] = useState('');
+  const [cardioDurationSs, setCardioDurationSs] = useState('');
+  const [cardioDistance, setCardioDistance] = useState('');
+
   const [switcherVisible, setSwitcherVisible] = useState(false);
   const [offRoutinePrompt, setOffRoutinePrompt] = useState<OffRoutinePrompt | null>(null);
   const [promptPlacement, setPromptPlacement] = useState<OffRoutinePlacement>('after_current');
@@ -206,14 +297,8 @@ export default function StepperLogger({
 
   // ── Handlers ─────────────────────────────────────────────────────────────
 
-  const handleLogSet = useCallback(() => {
-    if (!weight.trim() && !reps.trim()) return;
-    onLogSet(currentEx?.exerciseId ?? '', weight.trim(), reps.trim(), rir.trim() || undefined);
-    setReps('');
-    setRir('');
-    // Keep weight pre-filled for the next set.
-
-    // TICKET-074 #3: off-routine exercise (routine sessions only) → offer to add it.
+  // Post-log common logic (off-routine prompt trigger)
+  const afterLogSet = useCallback(() => {
     const key = currentEx?.name ?? '';
     if (isOffRoutine && currentEx && onAddOffRoutineExercise && !promptedRef.current.has(key)) {
       promptedRef.current.add(key);
@@ -221,7 +306,34 @@ export default function StepperLogger({
       setPickIndex(Math.min(currentIndex + 1, exercises.length));
       setOffRoutinePrompt({ exerciseName: currentEx.name, exerciseId: currentEx.exerciseId });
     }
-  }, [weight, reps, rir, currentEx, onLogSet, isOffRoutine, onAddOffRoutineExercise, currentIndex, exercises.length]);
+  }, [currentEx, isOffRoutine, onAddOffRoutineExercise, currentIndex, exercises.length]);
+
+  const handleLogSet = useCallback(() => {
+    if (isCardio) {
+      // Cardio path
+      const durationSec = parseDurationSec(cardioDurationMm, cardioDurationSs);
+      if (durationSec === null) return; // require a valid duration
+      const distanceM = cardioDistance.trim() ? distanceToMetres(cardioDistance, unitPref) ?? undefined : undefined;
+      const avgPace = durationSec > 0 && distanceM ? paceFromDurationAndDistance(durationSec, distanceM) : undefined;
+      if (onLogCardioSet) {
+        onLogCardioSet(currentEx?.exerciseId ?? '', durationSec, distanceM, avgPace);
+      }
+      setCardioDurationMm('');
+      setCardioDurationSs('');
+      setCardioDistance('');
+    } else {
+      // Lift path (unchanged)
+      if (!weight.trim() && !reps.trim()) return;
+      onLogSet(currentEx?.exerciseId ?? '', weight.trim(), reps.trim(), rir.trim() || undefined);
+      setReps('');
+      setRir('');
+      // Keep weight pre-filled for the next set.
+    }
+    afterLogSet();
+  }, [
+    isCardio, cardioDurationMm, cardioDurationSs, cardioDistance, unitPref,
+    onLogCardioSet, currentEx, weight, reps, rir, onLogSet, afterLogSet,
+  ]);
 
   const handleContinue = useCallback(() => {
     if (isLast) {
@@ -297,14 +409,18 @@ export default function StepperLogger({
 
         {isFreeLike ? (
           <>
-            <Text style={styles.routineName} numberOfLines={1}>Free session</Text>
+            <Text style={styles.routineName} numberOfLines={1}>
+              Free session{weekNumber != null && !isNaN(weekNumber) && weekNumber > 0 ? ` · wk ${weekNumber}` : ''}
+            </Text>
             <Text style={styles.progressLabel}>
               {totalLogged} logged
             </Text>
           </>
         ) : (
           <>
-            <Text style={styles.routineName} numberOfLines={1}>{routineName}</Text>
+            <Text style={styles.routineName} numberOfLines={1}>
+              {routineName}{weekNumber != null && !isNaN(weekNumber) && weekNumber > 0 ? ` · wk ${weekNumber}` : ''}
+            </Text>
             <View style={styles.dotsRow}>
               {progressDots.map((done, i) => (
                 <View key={i} style={[styles.dot, done && styles.dotDone]} />
@@ -348,6 +464,15 @@ export default function StepperLogger({
                     </Text>
                   </View>
                   <Text style={styles.suggestionName}>{activeSug.name}</Text>
+                  {(activeSug.pbLabel || (activeSug as SuggestCandidate & { repTarget?: string | null }).repTarget) ? (
+                    <Text style={styles.suggestionPb}>
+                      {activeSug.pbLabel ? `PB ${activeSug.pbLabel}` : ''}
+                      {activeSug.pbLabel && (activeSug as SuggestCandidate & { repTarget?: string | null }).repTarget ? ' · ' : ''}
+                      {(activeSug as SuggestCandidate & { repTarget?: string | null }).repTarget
+                        ? `aim ${(activeSug as SuggestCandidate & { repTarget?: string | null }).repTarget}`
+                        : ''}
+                    </Text>
+                  ) : null}
                 </View>
 
                 {/* Ranked alternatives — "enumerate more" */}
@@ -404,68 +529,133 @@ export default function StepperLogger({
                 contentContainerStyle={styles.chipsContent}
               >
                 {currentExerciseSets.map((s, i) => (
-                  <SetChip key={i} set={s} index={i} />
+                  <SetChip key={i} set={s} index={i} unitPref={unitPref} />
                 ))}
               </ScrollView>
             )}
 
-            {/* Weight / Reps (+ optional RIR, tucked) */}
-            <View style={styles.inputRow}>
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>WEIGHT</Text>
-                <TextInput
-                  style={styles.input}
-                  value={weight}
-                  onChangeText={setWeight}
-                  keyboardType="decimal-pad"
-                  placeholder="—"
-                  placeholderTextColor={stepperPalette.muted}
-                  selectTextOnFocus
-                  accessibilityLabel="Weight"
-                />
-              </View>
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>REPS</Text>
-                <TextInput
-                  style={styles.input}
-                  value={reps}
-                  onChangeText={setReps}
-                  keyboardType="number-pad"
-                  placeholder="—"
-                  placeholderTextColor={stepperPalette.muted}
-                  selectTextOnFocus
-                  accessibilityLabel="Reps"
-                />
-              </View>
-              {showRir && (
-                <View style={styles.rirGroup}>
-                  <Text style={styles.inputLabel}>RIR</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={rir}
-                    onChangeText={setRir}
-                    keyboardType="number-pad"
-                    placeholder="–"
-                    placeholderTextColor={stepperPalette.muted}
-                    selectTextOnFocus
-                    accessibilityLabel="Reps in reserve (optional)"
-                  />
+            {isCardio ? (
+              /* ── Cardio inputs: Duration (mm:ss) + optional Distance ──────── */
+              <>
+                <View style={styles.inputRow}>
+                  <View style={[styles.inputGroup, { flex: 1.5 }]}>
+                    <Text style={styles.inputLabel}>DURATION (MM : SS)</Text>
+                    <View style={styles.durationRow}>
+                      <TextInput
+                        style={[styles.input, styles.durationInput]}
+                        value={cardioDurationMm}
+                        onChangeText={setCardioDurationMm}
+                        keyboardType="number-pad"
+                        placeholder="00"
+                        placeholderTextColor={stepperPalette.muted}
+                        maxLength={3}
+                        selectTextOnFocus
+                        accessibilityLabel="Duration minutes"
+                      />
+                      <Text style={styles.durationSep}>:</Text>
+                      <TextInput
+                        style={[styles.input, styles.durationInput]}
+                        value={cardioDurationSs}
+                        onChangeText={setCardioDurationSs}
+                        keyboardType="number-pad"
+                        placeholder="00"
+                        placeholderTextColor={stepperPalette.muted}
+                        maxLength={2}
+                        selectTextOnFocus
+                        accessibilityLabel="Duration seconds"
+                      />
+                    </View>
+                  </View>
                 </View>
-              )}
-            </View>
-
-            {showRir ? (
-              <Text style={styles.rirHint}>RIR optional · 0 = to failure</Text>
+                <View style={styles.inputRow}>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>DISTANCE ({distanceLabel.toUpperCase()}) — OPTIONAL</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={cardioDistance}
+                      onChangeText={setCardioDistance}
+                      keyboardType="decimal-pad"
+                      placeholder={`e.g. 5.0`}
+                      placeholderTextColor={stepperPalette.muted}
+                      selectTextOnFocus
+                      accessibilityLabel={`Distance in ${distanceLabel} (optional)`}
+                    />
+                  </View>
+                </View>
+              </>
             ) : (
-              <TouchableOpacity
-                onPress={() => setShowRir(true)}
-                style={styles.addRirLink}
-                accessibilityRole="button"
-                accessibilityLabel="Add reps in reserve"
-              >
-                <Text style={styles.addRirLabel}>＋ Add RIR (optional)</Text>
-              </TouchableOpacity>
+              /* ── Lift inputs: Weight / Reps (+ optional RIR, tucked) ─────── */
+              <>
+                <View style={styles.inputRow}>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>WEIGHT</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={weight}
+                      onChangeText={setWeight}
+                      keyboardType="decimal-pad"
+                      placeholder="—"
+                      placeholderTextColor={stepperPalette.muted}
+                      selectTextOnFocus
+                      accessibilityLabel="Weight"
+                    />
+                  </View>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>REPS</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={reps}
+                      onChangeText={setReps}
+                      keyboardType="number-pad"
+                      placeholder="—"
+                      placeholderTextColor={stepperPalette.muted}
+                      selectTextOnFocus
+                      accessibilityLabel="Reps"
+                    />
+                  </View>
+                  {showRir && (
+                    <View style={styles.rirGroup}>
+                      <Text style={styles.inputLabel}>RIR</Text>
+                      <TextInput
+                        style={styles.input}
+                        value={rir}
+                        onChangeText={setRir}
+                        keyboardType="number-pad"
+                        placeholder="–"
+                        placeholderTextColor={stepperPalette.muted}
+                        selectTextOnFocus
+                        accessibilityLabel="Reps in reserve (optional)"
+                      />
+                    </View>
+                  )}
+                </View>
+
+                {showRir ? (
+                  <Text style={styles.rirHint}>RIR optional · 0 = to failure</Text>
+                ) : (
+                  <TouchableOpacity
+                    onPress={() => setShowRir(true)}
+                    style={styles.addRirLink}
+                    accessibilityRole="button"
+                    accessibilityLabel="Add reps in reserve"
+                  >
+                    <Text style={styles.addRirLabel}>＋ Add RIR (optional)</Text>
+                  </TouchableOpacity>
+                )}
+              </>
             )}
+
+            {/* TICKET-082 Part B: "Choose alternative exercise" — pro only */}
+            {onChooseAlternative ? (
+              <TouchableOpacity
+                onPress={onChooseAlternative}
+                style={styles.altExerciseLink}
+                accessibilityRole="button"
+                accessibilityLabel="Choose alternative exercise"
+              >
+                <Text style={styles.altExerciseLinkLabel}>Choose alternative exercise</Text>
+              </TouchableOpacity>
+            ) : null}
 
             <TouchableOpacity
               style={styles.logSetBtn}
@@ -578,11 +768,11 @@ export default function StepperLogger({
             <Text style={styles.promptTitle}>Add {offRoutinePrompt.exerciseName} to "{routineName}"?</Text>
             <Text style={styles.promptSub}>Keep it for next time — where should it go?</Text>
 
+            {/* TICKET-081 §1c: row 1 = End of routine | After current; row 2 (full-width) = Pick position… */}
             <View style={styles.placementGrid}>
               {([
-                ['after_current', 'After current'],
                 ['end', 'End of routine'],
-                ['pick', 'Pick position…'],
+                ['after_current', 'After current'],
               ] as const).map(([pos, label]) => (
                 <TouchableOpacity
                   key={pos}
@@ -597,6 +787,16 @@ export default function StepperLogger({
                 </TouchableOpacity>
               ))}
             </View>
+            <TouchableOpacity
+              style={[styles.placementOptFullWidth, promptPlacement === 'pick' && styles.placementOptOn]}
+              onPress={() => setPromptPlacement('pick')}
+              accessibilityRole="radio"
+              accessibilityState={{ checked: promptPlacement === 'pick' }}
+            >
+              <Text style={[styles.placementOptLabel, promptPlacement === 'pick' && styles.placementOptLabelOn]}>
+                Pick position…
+              </Text>
+            </TouchableOpacity>
 
             {promptPlacement === 'pick' && (
               <View style={styles.pickList}>
@@ -880,6 +1080,12 @@ const styles = StyleSheet.create({
     fontSize: fontSize.bodyLg,
     color: stepperPalette.text,
   },
+  suggestionPb: {
+    fontFamily: fontFamily.medium,
+    fontSize: fontSize.bodySm,
+    color: stepperPalette.accent,
+    marginTop: 3,
+  },
   altLabel: {
     fontFamily: fontFamily.bold,
     fontSize: fontSize.caption,
@@ -959,7 +1165,7 @@ const styles = StyleSheet.create({
   placementGrid: {
     flexDirection: 'row',
     gap: spacing.s2,
-    marginBottom: spacing.s3,
+    marginBottom: spacing.s2,
   },
   placementOpt: {
     flex: 1,
@@ -969,6 +1175,19 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.s3,
     alignItems: 'center',
     backgroundColor: stepperPalette.bg,
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  placementOptFullWidth: {
+    borderWidth: 1,
+    borderColor: stepperPalette.line,
+    borderRadius: radius.md,
+    paddingVertical: spacing.s3,
+    alignItems: 'center',
+    backgroundColor: stepperPalette.bg,
+    marginBottom: spacing.s3,
+    minHeight: 44,
+    justifyContent: 'center',
   },
   placementOptOn: {
     borderColor: stepperPalette.accentLine,
@@ -1036,6 +1255,38 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.bold,
     fontSize: fontSize.bodySm,
     color: stepperPalette.accentInk,
+  },
+
+  /* ── Cardio duration row ──────────────────────────────────────────────── */
+  durationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s2,
+  },
+  durationInput: {
+    flex: 1,
+  },
+  durationSep: {
+    fontFamily: fontFamily.bold,
+    fontSize: 20,
+    color: stepperPalette.muted,
+    textAlign: 'center',
+    width: 14,
+  },
+
+  /* ── TICKET-082 Part B: "Choose alternative exercise" link ──────────── */
+  altExerciseLink: {
+    alignSelf: 'flex-start',
+    paddingVertical: spacing.s1,
+    marginBottom: spacing.s2,
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  altExerciseLinkLabel: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: fontSize.caption,
+    color: stepperPalette.muted,
+    textDecorationLine: 'underline',
   },
 });
 

@@ -1,16 +1,17 @@
 /**
- * Routines page — TICKET-061, Option A
- * Dedicated push screen for managing user-saved workout routines.
+ * Routines page — TICKET-061/083
+ * Dedicated bottom-tab screen for managing user-saved workout routines.
  *
  * Sections:
- *   • Header: "Routines" + "＋ New" button
+ *   • Header: "Routines" + "＋ New" button (no back button — this is a tab)
  *   • YOURS: list of user routines with Start / Edit / Delete actions
  *   • STARTER SPLITS: template chips — tap to duplicate into user routines
  *
- * "▶ Start" → navigates back to log tab with ?routineId=xxx so the Log tab
+ * "▶ Start" → navigates to log tab with ?routineId=xxx so the Log tab
  * auto-opens the Focus Stepper for that routine.
  *
  * UI follows set-logging-stepper-flow.html §2, Option A.
+ * Moved from mobile/app/routines.tsx → mobile/app/(tabs)/routines.tsx (TICKET-083).
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
@@ -27,17 +28,17 @@ import {
   Pressable,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Ionicons } from '../src/components/Icon';
-import { useTheme } from '../src/theme/ThemeContext';
-import { fontFamily, fontSize, spacing, radius, stepperPalette } from '../src/theme/tokens';
+import { Ionicons } from '../../src/components/Icon';
+import { useTheme } from '../../src/theme/ThemeContext';
+import { fontFamily, fontSize, spacing, radius, stepperPalette } from '../../src/theme/tokens';
 import {
   getRoutines,
   createRoutine,
   patchRoutine,
   deleteRoutine,
   Routine,
-} from '../src/api/routines';
-import { getTemplates, getTemplate, WorkoutTemplate } from '../src/api/templates';
+} from '../../src/api/routines';
+import { getTemplates, getTemplate, WorkoutTemplate } from '../../src/api/templates';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -179,16 +180,8 @@ export default function RoutinesPage(): React.ReactElement {
 
   return (
     <View style={[styles.root, { backgroundColor: c.bgPrimary }]}>
-      {/* ── Page header ───────────────────────────────────────────────────── */}
+      {/* ── Page header (no back button — this is a tab screen) ───────────── */}
       <View style={[styles.pageHeader, { borderBottomColor: c.borderDefault }]}>
-        <TouchableOpacity
-          onPress={() => router.back()}
-          style={styles.backBtn}
-          accessibilityRole="button"
-          accessibilityLabel="Go back"
-        >
-          <Ionicons name="chevron-back" size={24} color={c.textPrimary} />
-        </TouchableOpacity>
         <Text style={[styles.pageTitle, { color: c.textPrimary }]}>Routines</Text>
         <TouchableOpacity
           style={[styles.newPill, { backgroundColor: c.accentDefault }]}
@@ -345,7 +338,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     gap: spacing.s3,
   },
-  backBtn: { padding: spacing.s1 },
   pageTitle: {
     flex: 1,
     fontFamily: fontFamily.bold,

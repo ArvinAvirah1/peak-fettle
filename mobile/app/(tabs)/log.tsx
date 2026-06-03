@@ -38,21 +38,33 @@ import { Ionicons } from '../../src/components/Icon';
 import { useAuth } from '../../src/hooks/useAuth';
 import { usePowerSyncLog } from '../../src/hooks/usePowerSyncLog';
 import { ExercisePicker } from '../../src/components/ExercisePicker';
-import { SetEntryForm } from '../../src/components/SetEntryForm';
+// SetEntryForm is kept on disk but no longer rendered as the primary path (TICKET-080 §3)
+// import { SetEntryForm } from '../../src/components/SetEntryForm';
 import { SyncStatusIndicator } from '../../src/components/SyncStatusIndicator';
 import { formatWeight } from '../../src/constants/units';
-import { Exercise, WorkoutSet, LiftSet, CardioSet, LogSetPayload } from '../../src/types/api';
+import { Exercise, WorkoutSet, LiftSet, CardioSet } from '../../src/types/api';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
 import { haptics } from '../../src/utils/haptics';
 import { logRestDay, undoRestDay } from '../../src/api/workouts';
 import { getExercises } from '../../src/api/exercises';
 import { getRoutine } from '../../src/api/routines';
-import { getPersonalBest, PersonalBest } from '../../src/api/sets';
+import { getPersonalBest, getPersonalBests, PersonalBest } from '../../src/api/sets';
 import { ScreenLayout } from '../../src/components/ui';
 import { RoutineStrip, RoutineSession, RoutineSessionExercise } from '../../src/components/RoutineStrip';
 import StepperLogger, { LoggedSet } from '../../src/components/StepperLogger';
 import { suggestNextExercise, suggestNextExercises, SessionExercise, SuggestCandidate } from '../../src/utils/smartSuggest';
+// TICKET-082 Part B: alternatives API (created by Agent 3; import against frozen contract)
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+let getAlternativesApi: ((exerciseId: string, opts?: { avoid?: string; limit?: number }) => Promise<import('../../src/api/alternatives').AlternativesResult>) | null = null;
+try {
+  // Dynamic require so the file compiles even if Agent 3 hasn't created it yet
+  // at parse time. At runtime it will be present.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  getAlternativesApi = require('../../src/api/alternatives').getAlternatives;
+} catch {
+  getAlternativesApi = null;
+}
 
 // MOCK-002 fix (2026-05-16): the previous `MOCK_WORKOUT` constant was
 // unconditionally injected as the active workout regardless of auth state.
@@ -361,11 +373,11 @@ function PaywallUpgradeModal({
           paywallStyles.sheet,
           {
             backgroundColor: theme.colors.bgPrimary,
-            borderTopLeftRadius: radius.xl,
-            borderTopRightRadius: radius.xl,
+            borderTopLeftRadius: radius.lg,
+            borderTopRightRadius: radius.lg,
             paddingHorizontal: spacing.s5,
             paddingTop: spacing.s5,
-            paddingBottom: spacing.s7 ?? spacing.s6,
+            paddingBottom: spacing.s6,
           },
         ]}
       >
@@ -615,6 +627,23 @@ export default function LogScreen(): React.ReactElement {
     setStepperVisible(true);
   }, []);
 
+  // ── TICKET-080 §1: free-session picker mode ───────────────────────────────
+  // When the user taps "Start workout" on the resting Log tab with no routine,
+  // we open the ExercisePicker; on select we build a 'free' RoutineSession and
+  // open the stepper. This flag distinguishes "start workout" picker from the
+  // "add next exercise" picker so handleExerciseSelect knows what to do.
+  const [freeSessionPickerMode, setFreeSessionPickerMode] = useState(false);
+
+  const handleStartWorkout = useCallback(() => {
+    setFreeSessionPickerMode(true);
+    setPickerVisible(true);
+  }, []);
+
+  // ── TICKET-082 Part B: alternatives sheet state ───────────────────────────
+  const [alternativesSheetExerciseId, setAlternativesSheetExerciseId] = useState<string | null>(null);
+  const [alternativesList, setAlternativesList] = useState<Array<{ id: string; name: string; equipment: string | null; }>>([]);
+  const [alternativesLoading, setAlternativesLoading] = useState(false);
+
   // ── TICKET-061: deep-link from the Routines page ("Start" → /log?routineId=…)
   // Fetch the routine, build a session, and open the Focus Stepper. Without this
   // the Routines page "Start" button navigated here but did nothing.
@@ -627,10 +656,19 @@ export default function LogScreen(): React.ReactElement {
     getRoutine(routineId)
       .then((routine) => {
         if (cancelled) return;
+        // Compute weekNumber for the routine (ISO weeks since created_at, +1)
+        let wkNum: number | undefined;
+        if ((routine as { created_at?: string }).created_at) {
+          const created = new Date((routine as { created_at: string }).created_at);
+          const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+          const weeks = Math.floor((Date.now() - created.getTime()) / msPerWeek) + 1;
+          wkNum = Math.max(1, weeks);
+        }
         handleStartStepper({
           source: 'routine',
           routineId: routine.id,
           name: routine.name,
+          weekNumber: wkNum,
           exercises: routine.exercises.map((ex) => ({
             exerciseId: ex.exercise_id,
             name: ex.name,
@@ -638,6 +676,7 @@ export default function LogScreen(): React.ReactElement {
             targetReps: ex.target_reps,
             loggedSetCount: 0,
             done: false,
+            category: (ex as { category?: string }).category as RoutineSessionExercise['category'] | undefined,
           })),
           currentIndex: 0,
         });
@@ -693,6 +732,43 @@ export default function LogScreen(): React.ReactElement {
     [workout, selectedExercise, logSet, updateRoutineExercise, stepperSets],
   );
 
+  // TICKET-080 §2: cardio set logging through the stepper
+  const handleStepperLogCardioSet = useCallback(
+    async (exerciseId: string, durationSec: number, distanceM?: number, avgPaceSecPerKm?: number) => {
+      const setIndex = stepperSets.get(exerciseId)?.length ?? 0;
+      // Append to local chip cache (optimistic) — store cardio metadata on the LoggedSet
+      setStepperSets((prev) => {
+        const next = new Map(prev);
+        const existing = next.get(exerciseId) ?? [];
+        next.set(exerciseId, [
+          ...existing,
+          { weight: '', reps: '', durationSec, distanceM, avgPaceSecPerKm },
+        ]);
+        return next;
+      });
+      updateRoutineExercise(exerciseId);
+      const targetId = exerciseId || selectedExercise?.id || '';
+      if (!workout?.id || !targetId) return;
+      try {
+        await logSet({
+          kind: 'cardio',
+          workoutId: workout.id,
+          exerciseId: targetId,
+          setIndex,
+          durationSec,
+          ...(distanceM !== undefined ? { distanceM } : {}),
+          ...(avgPaceSecPerKm !== undefined ? { avgPaceSecPerKm } : {}),
+        });
+        haptics.success();
+        setTimerActive(true);
+        setRestSecondsLeft(REST_DEFAULT);
+      } catch (err) {
+        console.warn('[PF] log/handleStepperLogCardioSet:', err instanceof Error ? err.message : String(err));
+      }
+    },
+    [workout, selectedExercise, logSet, updateRoutineExercise, stepperSets],
+  );
+
   const handleStepperAdvance = useCallback((toIndex: number) => {
     setRoutineSession((prev) => prev ? { ...prev, currentIndex: toIndex } : prev);
   }, []);
@@ -734,6 +810,9 @@ export default function LogScreen(): React.ReactElement {
   // ── TICKET-062 / TICKET-077: Non-routine + PRO smart-suggest state ─────────
   const [smartSuggestion, setSmartSuggestion] = useState<SuggestCandidate | null>(null);
   const [smartSuggestions, setSmartSuggestions] = useState<SuggestCandidate[]>([]);
+  // TICKET-077: formatted PB per suggested exerciseId (e.g. "45.0 kg × 8") for the
+  // PRO "JUST LOGGED" suggestion cards. Fetched in batch when suggestions change.
+  const [sugPbMap, setSugPbMap] = useState<Record<string, string>>({});
   // Full exercise catalogue (paid only) — the candidate pool for suggestions.
   // Without it the pool is just exercises touched this session, so nothing
   // useful would be suggested. Fetched once when a paid user is active.
@@ -768,9 +847,17 @@ export default function LogScreen(): React.ReactElement {
       catalogue.length > 0
         ? catalogue
         : Array.from(exerciseNames.entries()).map(([id, name]) => ({ id, name }));
-    const list = suggestNextExercises(sessionLog, historyNames, pool, 3);
-    setSmartSuggestions(list);
-    setSmartSuggestion(list[0] ?? suggestNextExercise(sessionLog, historyNames, pool));
+    const list = suggestNextExercises(sessionLog, historyNames, pool, 5);
+    // Enrich with repTarget from routine exercises where known (TICKET-082 Part B)
+    const enriched = list.map((s) => {
+      const routineEx = routineSession?.exercises.find((e) => e.exerciseId === s.exerciseId);
+      return {
+        ...s,
+        repTarget: (s as SuggestCandidate & { repTarget?: string | null }).repTarget ?? (routineEx?.targetReps ?? null),
+      };
+    });
+    setSmartSuggestions(enriched);
+    setSmartSuggestion(enriched[0] ?? suggestNextExercise(sessionLog, historyNames, pool));
   }, [routineSession, stepperSets, exerciseNames, catalogue]);
 
   // Keep suggestions fresh for the paid smart variant as sets are logged.
@@ -779,6 +866,27 @@ export default function LogScreen(): React.ReactElement {
       recomputeSuggestion();
     }
   }, [stepperSets, routineSession, user?.is_paid, recomputeSuggestion]);
+
+  // TICKET-077: batch-fetch personal bests for the current suggestion pool and
+  // build display strings keyed by exerciseId. Re-runs when the suggestion set
+  // changes; cancels stale responses.
+  useEffect(() => {
+    const ids = smartSuggestions.map((s) => s.exerciseId).filter(Boolean);
+    if (ids.length === 0) { setSugPbMap({}); return; }
+    let cancelled = false;
+    getPersonalBests(ids)
+      .then((map) => {
+        if (cancelled) return;
+        const next: Record<string, string> = {};
+        for (const [id, pb] of Object.entries(map)) {
+          if (pb) next[id] = `${formatWeight(pb.weight_kg, unitPref)} × ${pb.reps}`;
+        }
+        setSugPbMap(next);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [smartSuggestions]);
 
   // PRO smart-suggest: user accepted a suggested exercise → add it as the next
   // step (after current) and advance to it.
@@ -807,6 +915,49 @@ export default function LogScreen(): React.ReactElement {
       setRoutineSession(null);
     } catch { Alert.alert('Error', 'Could not save routine'); }
   }, [routineSession]);
+
+  // TICKET-082 Part B: "Choose alternative exercise" handler
+  const handleChooseAlternative = useCallback(async () => {
+    if (!user?.is_paid) {
+      setShowPaywall(true);
+      return;
+    }
+    const currentExId = routineSession?.exercises[routineSession.currentIndex]?.exerciseId;
+    if (!currentExId || !getAlternativesApi) return;
+    setAlternativesLoading(true);
+    try {
+      const result = await getAlternativesApi(currentExId, { avoid: 'machine' });
+      setAlternativesList(result.alternatives.map((a) => ({ id: a.id, name: a.name, equipment: a.equipment })));
+      setAlternativesSheetExerciseId(currentExId);
+    } catch (err: unknown) {
+      const isPaywall = err != null && typeof err === 'object' && (err as { isPaywall?: boolean }).isPaywall;
+      if (isPaywall) {
+        setShowPaywall(true);
+      } else {
+        Alert.alert('Error', 'Could not load alternative exercises');
+      }
+    } finally {
+      setAlternativesLoading(false);
+    }
+  }, [user?.is_paid, routineSession]);
+
+  // Substitute the current session exercise with an alternative
+  const handleSelectAlternative = useCallback(
+    (alt: { id: string; name: string; equipment: string | null }) => {
+      setRoutineSession((prev) => {
+        if (!prev) return prev;
+        const exercises = prev.exercises.map((ex, idx) =>
+          idx === prev.currentIndex
+            ? { ...ex, exerciseId: alt.id, name: alt.name }
+            : ex,
+        );
+        return { ...prev, exercises };
+      });
+      setAlternativesSheetExerciseId(null);
+      setAlternativesList([]);
+    },
+    [],
+  );
 
   const groups = useMemo(() => groupSetsByExercise(sets), [sets]);
   const totalSets = sets.length;
@@ -853,6 +1004,38 @@ export default function LogScreen(): React.ReactElement {
     } else {
       setExercisePB(null);
     }
+
+    // TICKET-080 §1: free-session picker mode — build a new free RoutineSession
+    // and open the stepper directly instead of the legacy SetEntryForm flow.
+    if (freeSessionPickerMode) {
+      setFreeSessionPickerMode(false);
+      const isExistingSession = routineSession && routineSession.source === 'free';
+      if (isExistingSession) {
+        // "Add next exercise" to an existing free session: append + advance
+        handleStepperAddOffRoutine(exercise.id, exercise.name, 'end');
+        setRoutineSession((prev) => {
+          if (!prev) return prev;
+          // after append, new exercise is at end; advance to it
+          return { ...prev, currentIndex: prev.exercises.length };
+        });
+      } else {
+        // First exercise — build a brand-new free session
+        handleStartStepper({
+          source: 'free' as RoutineSession['source'],
+          name: 'Free session',
+          exercises: [{
+            exerciseId: exercise.id,
+            name: exercise.name,
+            loggedSetCount: 0,
+            done: false,
+            category: exercise.category as RoutineSessionExercise['category'],
+          }],
+          currentIndex: 0,
+        });
+      }
+      return;
+    }
+
     // TICKET-056: advance routine currentIndex to this exercise if it's in the routine
     setRoutineSession((prev) => {
       if (!prev) return prev;
@@ -860,30 +1043,9 @@ export default function LogScreen(): React.ReactElement {
       if (idx === -1) return prev; // off-routine exercise — leave session as-is
       return { ...prev, currentIndex: idx };
     });
-  }, []);
+  }, [freeSessionPickerMode, routineSession, handleStartStepper, handleStepperAddOffRoutine]);
 
-  const handleSetLogged = useCallback((_set: WorkoutSet) => {}, []);
-
-  // Wire the form's submit to the PowerSync-backed logSet().
-  // The hook returns an optimistic WorkoutSet; the reactive watch then
-  // re-renders the list once SQLite emits the new row.
-  // E-006: fire success haptic when a set lands (spec §7 — set logged pattern).
-  // P1-001a: start elapsed timer on first set.
-  // P1-001b: start rest timer after each set.
-  const handleSubmitSet = useCallback(
-    async (payload: LogSetPayload): Promise<WorkoutSet> => {
-      const result = await logSet(payload);
-      haptics.success();
-      // P1-001a: start elapsed timer on first set logged
-      setTimerActive(true);
-      // P1-001b: reset rest countdown
-      setRestSecondsLeft(REST_DEFAULT);
-      // TICKET-056: mark exercise done in routine session
-      if (selectedExercise) updateRoutineExercise(selectedExercise.id);
-      return result;
-    },
-    [logSet, selectedExercise, updateRoutineExercise]
-  );
+  // handleSetLogged / handleSubmitSet removed — SetEntryForm is no longer the primary path (TICKET-080 §3)
 
   const handleDeleteSet = useCallback(
     async (id: string): Promise<void> => {
@@ -931,9 +1093,7 @@ export default function LogScreen(): React.ReactElement {
     }
   }, [restDayLogged, restDayLoading, router]);
 
-  const nextSetIndex = selectedExercise
-    ? countSetsForExercise(sets, selectedExercise.id)
-    : 0;
+  // nextSetIndex removed — no longer needed (SetEntryForm not rendered)
 
   // ---------------------------------------------------------------------------
   // Render
@@ -963,19 +1123,6 @@ export default function LogScreen(): React.ReactElement {
         </View>
         {/* Sync status pill — shows synced / syncing / offline at a glance */}
         <SyncStatusIndicator />
-        <TouchableOpacity
-          style={[
-            styles.addButton,
-            { backgroundColor: theme.colors.accentDefault },
-            !workout && styles.addButtonDisabled,
-          ]}
-          onPress={() => setPickerVisible(true)}
-          disabled={!workout || isLoading}
-          accessibilityRole="button"
-          accessibilityLabel="Add exercise"
-        >
-          <Text style={[styles.addButtonText, { color: theme.components.buttonPrimaryText }]}>+</Text>
-        </TouchableOpacity>
       </View>
 
       {/* ---- TICKET-055: Routine + Splits strips (collapse after first set) ---- */}
@@ -1016,9 +1163,8 @@ export default function LogScreen(): React.ReactElement {
                     id: ex.exerciseId || `routine-ex-${idx}`,
                     name: ex.name,
                     category: 'lift' as const,
-                    muscles: [],
-                    equipment: [],
-                    contraindications: [],
+                    muscle_groups: [],
+                    is_compound: false,
                   };
                   handleExerciseSelect(syntheticExercise);
                   setRoutineSession((prev) =>
@@ -1138,62 +1284,11 @@ export default function LogScreen(): React.ReactElement {
         </View>
       ) : null}
 
-      {/* ---- C. Set list ---- */}
+      {/* ---- C. Launcher resting state (TICKET-080 §3) ---- */}
       {isLoading ? (
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={theme.colors.accentDefault} />
           <Text style={[styles.loadingText, { color: theme.colors.textTertiary }]}>Loading workout…</Text>
-        </View>
-      ) : groups.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Text style={[styles.emptyStateTitle, { color: theme.colors.textPrimary }]}>No sets yet</Text>
-          <Text style={[styles.emptyStateSubtitle, { color: theme.colors.textTertiary }]}>
-            Tap + to log your first set
-          </Text>
-          {/* P1-001c: Add Exercise dashed card in empty state */}
-          <TouchableOpacity
-            onPress={() => setPickerVisible(true)}
-            style={{
-              borderWidth: 1.5,
-              borderStyle: 'dashed',
-              borderColor: theme.colors.borderDefault,
-              borderRadius: radius.md,
-              padding: spacing.s4,
-              alignItems: 'center',
-              marginTop: spacing.s3,
-              marginHorizontal: spacing.s4,
-              width: '100%',
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Add exercise"
-          >
-            <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodyMd }}>+ Add Exercise</Text>
-          </TouchableOpacity>
-          {/* P2-002: Browse Exercise Library shortcut */}
-          <Pressable
-            onPress={() => router.push('/exercise-library')}
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              paddingVertical: spacing.s2,
-              paddingHorizontal: spacing.s1,
-              alignSelf: 'flex-start',
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Browse exercise library"
-          >
-            <Ionicons name="library-outline" size={15} color={theme.colors.accentDefault} />
-            <Text
-              style={{
-                fontSize: fontSize.bodySm,
-                color: theme.colors.accentDefault,
-                marginLeft: spacing.s1,
-                fontWeight: fontWeight.medium,
-              }}
-            >
-              Browse Library
-            </Text>
-          </Pressable>
         </View>
       ) : (
         <ScrollView
@@ -1201,74 +1296,51 @@ export default function LogScreen(): React.ReactElement {
           contentContainerStyle={styles.setListContent}
           showsVerticalScrollIndicator={false}
         >
-          {groups.map((group) => (
-            <ExerciseGroupCard
-              key={group.exerciseId}
-              group={group}
-              exerciseNames={exerciseNames}
-              unitPref={unitPref}
-              onDelete={handleDeleteSet}
-            />
-          ))}
-
-          {/* P1-001c: Add Exercise dashed card at bottom of set list */}
-          <TouchableOpacity
-            onPress={() => setPickerVisible(true)}
-            style={{
-              borderWidth: 1.5,
-              borderStyle: 'dashed',
-              borderColor: theme.colors.borderDefault,
-              borderRadius: radius.md,
-              padding: spacing.s4,
-              alignItems: 'center',
-              marginTop: spacing.s3,
-              marginHorizontal: spacing.s4,
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Add exercise"
-          >
-            <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodyMd }}>+ Add Exercise</Text>
-          </TouchableOpacity>
-          {/* P2-002: Browse Exercise Library shortcut */}
-          <Pressable
-            onPress={() => router.push('/exercise-library')}
-            style={{
-              flexDirection: 'row',
-              alignItems: 'center',
-              paddingVertical: spacing.s2,
-              paddingHorizontal: spacing.s1,
-              alignSelf: 'flex-start',
-              marginHorizontal: spacing.s4,
-            }}
-            accessibilityRole="button"
-            accessibilityLabel="Browse exercise library"
-          >
-            <Ionicons name="library-outline" size={15} color={theme.colors.accentDefault} />
-            <Text
-              style={{
-                fontSize: fontSize.bodySm,
-                color: theme.colors.accentDefault,
-                marginLeft: spacing.s1,
-                fontWeight: fontWeight.medium,
-              }}
+          {/* 1. Primary CTA: Start workout */}
+          {!restDayLogged && (
+            <TouchableOpacity
+              onPress={handleStartWorkout}
+              disabled={!workout || isLoading}
+              style={[
+                styles.startWorkoutBtn,
+                { backgroundColor: theme.colors.accentDefault },
+                (!workout || isLoading) && { opacity: 0.4 },
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel="Start workout"
             >
-              Browse Library
-            </Text>
-          </Pressable>
+              <Text style={[styles.startWorkoutLabel, { color: theme.components.buttonPrimaryText }]}>
+                Start workout
+              </Text>
+            </TouchableOpacity>
+          )}
 
-          {/* ---- Finish workout (TICKET-074 / user-reported missing button) ---- */}
+          {/* 2. Compact set count + Resume / Review today */}
+          {totalSets > 0 && (
+            <TouchableOpacity
+              onPress={() => router.push('/(tabs)')}
+              style={[styles.resumeRow, { borderColor: theme.colors.borderDefault }]}
+              accessibilityRole="button"
+              accessibilityLabel="Resume or review today's workout"
+            >
+              <Text style={[styles.resumeLabel, { color: theme.colors.textPrimary }]}>
+                Resume / review today →
+              </Text>
+              <Text style={[styles.resumeSub, { color: theme.colors.textTertiary, fontVariant: ['tabular-nums'] }]}>
+                {totalSets} set{totalSets !== 1 ? 's' : ''} logged
+              </Text>
+            </TouchableOpacity>
+          )}
+
+          {/* 3. Manage routines link */}
           <TouchableOpacity
-            onPress={handleFinishWorkout}
-            style={[
-              styles.finishWorkoutBtn,
-              { backgroundColor: theme.colors.accentDefault },
-            ]}
+            onPress={() => router.push('/routines')}
+            style={styles.manageRoutinesLink}
             accessibilityRole="button"
-            accessibilityLabel="Finish workout"
+            accessibilityLabel="Manage routines"
           >
-            <Ionicons name="checkmark-circle" size={18} color={theme.components.buttonPrimaryText} />
-            <Text style={[styles.finishWorkoutLabel, { color: theme.components.buttonPrimaryText }]}>
-              Finish workout
+            <Text style={[styles.manageRoutinesText, { color: theme.colors.accentDefault }]}>
+              Manage routines →
             </Text>
           </TouchableOpacity>
 
@@ -1276,26 +1348,19 @@ export default function LogScreen(): React.ReactElement {
         </ScrollView>
       )}
 
-      {/* ---- D. Exercise picker modal ---- */}
+      {/* ---- D. Exercise picker modal (used for free-session + stepper add-next) ---- */}
       <ExercisePicker
         visible={pickerVisible}
         onSelect={handleExerciseSelect}
-        onClose={() => setPickerVisible(false)}
+        onClose={() => {
+          setPickerVisible(false);
+          setFreeSessionPickerMode(false);
+        }}
       />
 
-      {/* ---- E. Set entry form modal ---- */}
-      {selectedExercise && workout ? (
-        <SetEntryForm
-          exercise={selectedExercise}
-          workoutId={workout.id}
-          nextSetIndex={nextSetIndex}
-          unitPref={unitPref}
-          onLogged={handleSetLogged}
-          onClose={() => setSelectedExercise(null)}
-          onSubmit={handleSubmitSet}
-          personalBest={exercisePB}
-        />
-      ) : null}
+      {/* ---- E. SetEntryForm is NOT rendered as the primary path (TICKET-080 §3) ---- */}
+      {/* The stepper is now the sole set-entry UI. SetEntryForm.tsx stays on disk
+          but is no longer routed to from the Log tab's primary flow. */}
 
       {/* ---- F. Rest timer banner (P1-001b) ---- */}
       {restSecondsLeft !== null && (
@@ -1314,6 +1379,69 @@ export default function LogScreen(): React.ReactElement {
           </TouchableOpacity>
         </View>
       )}
+      {/* ── TICKET-082 Part B: Alternatives sheet ─────────────────────────── */}
+      {alternativesSheetExerciseId && (
+        <Modal
+          visible
+          transparent
+          animationType="slide"
+          onRequestClose={() => setAlternativesSheetExerciseId(null)}
+        >
+          <Pressable
+            style={[styles.altSheetBackdrop, { backgroundColor: 'rgba(0,0,0,0.55)' }]}
+            onPress={() => setAlternativesSheetExerciseId(null)}
+          />
+          <View style={[styles.altSheet, { backgroundColor: theme.colors.bgElevated }]}>
+            <View style={[styles.altSheetHandle, { backgroundColor: theme.colors.borderDefault }]} />
+            <Text style={[styles.altSheetTitle, { color: theme.colors.textPrimary }]}>
+              Alternative exercises
+            </Text>
+            <Text style={[styles.altSheetSub, { color: theme.colors.textTertiary }]}>
+              Same muscles, different equipment
+            </Text>
+            {alternativesLoading ? (
+              <ActivityIndicator color={theme.colors.accentDefault} style={{ marginTop: spacing.s4 }} />
+            ) : alternativesList.length === 0 ? (
+              <Text style={[{ color: theme.colors.textTertiary, fontSize: fontSize.bodySm, marginTop: spacing.s3 }]}>
+                No alternatives found for this exercise.
+              </Text>
+            ) : (
+              <ScrollView style={{ maxHeight: 320 }}>
+                {alternativesList.map((alt) => (
+                  <TouchableOpacity
+                    key={alt.id}
+                    style={[styles.altSheetRow, { borderBottomColor: theme.colors.borderDefault }]}
+                    onPress={() => handleSelectAlternative(alt)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Choose ${alt.name}`}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={[{ color: theme.colors.textPrimary, fontSize: fontSize.bodyMd, fontWeight: fontWeight.medium }]}>
+                        {alt.name}
+                      </Text>
+                      {alt.equipment ? (
+                        <Text style={[{ color: theme.colors.textTertiary, fontSize: fontSize.bodySm }]}>
+                          {alt.equipment}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <Ionicons name="chevron-forward" size={16} color={theme.colors.textTertiary} />
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+            <TouchableOpacity
+              style={[styles.altSheetCancel, { borderColor: theme.colors.borderDefault }]}
+              onPress={() => setAlternativesSheetExerciseId(null)}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel"
+            >
+              <Text style={[{ color: theme.colors.textTertiary, fontSize: fontSize.bodyMd }]}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </Modal>
+      )}
+
       {/* ── TICKET-059/060: Focus Stepper modal ───────────────────────────── */}
       <Modal
         visible={stepperVisible}
@@ -1325,6 +1453,7 @@ export default function LogScreen(): React.ReactElement {
           <StepperLogger
             routineSession={routineSession}
             onLogSet={handleStepperLogSet}
+            onLogCardioSet={handleStepperLogCardioSet}
             onAdvance={handleStepperAdvance}
             onFinish={() => {
               setStepperVisible(false);
@@ -1337,15 +1466,23 @@ export default function LogScreen(): React.ReactElement {
             variant={
               routineSession?.source === 'routine'
                 ? 'routine'
-                : user?.is_paid
+                : routineSession?.source === 'free' && user?.is_paid
                   ? 'smart'   /* TICKET-077: PRO smart-suggest "JUST LOGGED" interstitial */
-                  : 'free'    /* free tier: add-as-you-go */
+                  : routineSession?.source === 'free'
+                    ? 'free'  /* free tier: add-as-you-go */
+                    : user?.is_paid
+                      ? 'smart'
+                      : 'free'
             }
             suggestion={smartSuggestion}
-            suggestions={smartSuggestions}
+            suggestions={smartSuggestions.map((s) => ({
+              ...s,
+              pbLabel: sugPbMap[s.exerciseId] ?? (s as SuggestCandidate & { pbLabel?: string | null }).pbLabel ?? null,
+            }))}
             onAcceptSuggestion={handleAcceptSuggestion}
             onAddNextExercise={() => {
               recomputeSuggestion();
+              setFreeSessionPickerMode(true);
               setPickerVisible(true);
             }}
             onSaveAsRoutine={handleSaveAsRoutine}
@@ -1364,6 +1501,9 @@ export default function LogScreen(): React.ReactElement {
             }
             onAddOffRoutineExercise={handleStepperAddOffRoutine}
             onClose={() => setStepperVisible(false)}
+            unitPref={unitPref}
+            weekNumber={routineSession.weekNumber ?? null}
+            onChooseAlternative={user?.is_paid ? handleChooseAlternative : (() => setShowPaywall(true))}
           />
         )}
       </Modal>
@@ -1539,7 +1679,7 @@ const styles = StyleSheet.create({
   },
   checklistTitle: {
     fontSize: fontSize.bodySm,
-    fontWeight: fontWeight.semiBold,
+    fontWeight: fontWeight.semibold,
     letterSpacing: 0.5,
     textTransform: 'uppercase',
   },
@@ -1568,8 +1708,96 @@ const styles = StyleSheet.create({
   },
   checklistSetCount: {
     fontSize: fontSize.bodySm,
-    fontWeight: fontWeight.semiBold,
+    fontWeight: fontWeight.semibold,
     minWidth: 24,
     textAlign: 'right',
+  },
+
+  /* ── TICKET-080 §3: launcher resting state ─────────────────────────────── */
+  startWorkoutBtn: {
+    marginHorizontal: spacing.s4,
+    marginTop: spacing.s4,
+    borderRadius: radius.md,
+    paddingVertical: spacing.s4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 52,
+  },
+  startWorkoutLabel: {
+    fontSize: fontSize.bodyLg,
+    fontWeight: fontWeight.bold,
+  },
+  resumeRow: {
+    marginHorizontal: spacing.s4,
+    marginTop: spacing.s3,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.s4,
+    paddingVertical: spacing.s3,
+  },
+  resumeLabel: {
+    fontSize: fontSize.bodyMd,
+    fontWeight: fontWeight.medium,
+  },
+  resumeSub: {
+    fontSize: fontSize.bodySm,
+    marginTop: 2,
+  },
+  manageRoutinesLink: {
+    marginHorizontal: spacing.s4,
+    marginTop: spacing.s3,
+    paddingVertical: spacing.s2,
+  },
+  manageRoutinesText: {
+    fontSize: fontSize.bodySm,
+    fontWeight: fontWeight.medium,
+  },
+
+  /* ── TICKET-082 Part B: alternatives sheet ──────────────────────────────── */
+  altSheetBackdrop: {
+    flex: 1,
+  },
+  altSheet: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    paddingHorizontal: spacing.s5,
+    paddingTop: spacing.s4,
+    paddingBottom: spacing.s6,
+  },
+  altSheetHandle: {
+    alignSelf: 'center',
+    width: 36,
+    height: 4,
+    borderRadius: radius.full,
+    marginBottom: spacing.s4,
+  },
+  altSheetTitle: {
+    fontSize: fontSize.bodyLg,
+    fontWeight: fontWeight.bold,
+    marginBottom: spacing.s1,
+  },
+  altSheetSub: {
+    fontSize: fontSize.bodySm,
+    marginBottom: spacing.s3,
+  },
+  altSheetRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.s3,
+    borderBottomWidth: 1,
+    minHeight: 52,
+  },
+  altSheetCancel: {
+    marginTop: spacing.s4,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingVertical: spacing.s3,
+    alignItems: 'center',
+    minHeight: 48,
+    justifyContent: 'center',
   },
 });

@@ -127,6 +127,21 @@ export default function TabsLayout(): React.ReactElement {
         }}
       />
       <Tabs.Screen
+        name="routines"
+        options={{
+          title: 'Routines',
+          tabBarLabel: 'Routines',
+          tabBarIcon: ({ color, size, focused }) => (
+            <AnimatedTabIcon
+              name={focused ? 'barbell' : 'barbell-outline'}
+              size={size}
+              color={color}
+              focused={focused}
+            />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="log"
         options={{
           title: 'Log Workout',

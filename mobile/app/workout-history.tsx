@@ -124,7 +124,11 @@ function groupIntoWeeks(workouts: ApiWorkout[]): WorkoutSection[] {
 
 /** 6 skeleton placeholder rows while the first page loads. */
 function SkeletonRows(): React.ReactElement {
-  const { theme: { colors, spacing, radius } } = useTheme();
+  // NOTE: spacing/radius/fontSize/fontWeight live at the TOP LEVEL of the
+  // useTheme() return — NOT under `theme` (which is only {name,displayName,
+  // primitives,colors,components}). Destructuring them from `theme` yields
+  // undefined and crashes with "cannot read property 's5' of undefined".
+  const { theme: { colors }, spacing, radius } = useTheme();
   return (
     <View style={{ paddingHorizontal: spacing.s5, marginTop: spacing.s3, gap: spacing.s3 }}>
       {Array.from({ length: 6 }).map((_, i) => (
@@ -144,7 +148,7 @@ function SkeletonRows(): React.ReactElement {
 
 /** Footer spinner shown while loading the next page. */
 function FooterSpinner(): React.ReactElement {
-  const { theme: { colors, spacing } } = useTheme();
+  const { theme: { colors }, spacing } = useTheme();
   return (
     <View style={{ paddingVertical: spacing.s5, alignItems: 'center' }}>
       <ActivityIndicator color={colors.textTertiary} />
@@ -158,7 +162,8 @@ function FooterSpinner(): React.ReactElement {
 
 export default function WorkoutHistoryScreen(): React.ReactElement {
   const router = useRouter();
-  const { theme: { colors, spacing, fontSize, fontWeight, radius }, theme } = useTheme();
+  const { theme, spacing, fontSize, fontWeight, radius } = useTheme();
+  const { colors } = theme;
 
   // ── State ─────────────────────────────────────────────────────────────────
   const [allWorkouts, setAllWorkouts] = useState<ApiWorkout[]>([]);

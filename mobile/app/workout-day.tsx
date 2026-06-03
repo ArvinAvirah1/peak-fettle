@@ -234,7 +234,10 @@ interface SkeletonProps {
 }
 
 function SkeletonBlock({ lines = 4 }: SkeletonProps): React.ReactElement {
-  const { theme: { colors, spacing, radius } } = useTheme();
+  // spacing/radius/fontSize/fontWeight are top-level on useTheme(), not on
+  // `theme` — pulling them from `theme` yields undefined → "cannot read
+  // property 's5' of undefined" crash on the RECENT ACTIVITY drill-down.
+  const { theme: { colors }, spacing, radius } = useTheme();
   return (
     <View style={{ gap: spacing.s3, paddingHorizontal: spacing.s5, marginTop: spacing.s4 }}>
       {Array.from({ length: lines }).map((_, i) => (
@@ -260,7 +263,7 @@ interface SetRowProps {
 }
 
 function SetRow({ set, setNumber, isBest, unitPref }: SetRowProps): React.ReactElement {
-  const { theme: { colors, spacing, fontSize, fontWeight } } = useTheme();
+  const { theme: { colors }, spacing, fontSize, fontWeight } = useTheme();
 
   const accentColor = isBest ? colors.accentDefault : colors.textPrimary;
   const subColor = isBest ? colors.accentDefault : colors.textSecondary;
@@ -332,7 +335,7 @@ interface ExerciseHeaderProps {
 }
 
 function ExerciseHeader({ name, volumeKg, unitPref }: ExerciseHeaderProps): React.ReactElement {
-  const { theme: { colors, spacing, fontSize, fontWeight } } = useTheme();
+  const { theme: { colors }, spacing, fontSize, fontWeight } = useTheme();
   const volDisplay = formatWeight(volumeKg, unitPref, 0);
   return (
     <View
@@ -376,7 +379,7 @@ function ExerciseHeader({ name, volumeKg, unitPref }: ExerciseHeaderProps): Reac
 export default function WorkoutDayScreen(): React.ReactElement {
   const { date } = useLocalSearchParams<{ date: string }>();
   const router = useRouter();
-  const { theme: { colors, spacing, fontSize, fontWeight, radius } } = useTheme();
+  const { theme: { colors }, spacing, fontSize, fontWeight, radius } = useTheme();
   const { user } = useAuth();
   const unitPref: UnitSystem = (user?.unit_pref as UnitSystem) ?? 'kg';
 
