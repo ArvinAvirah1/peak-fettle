@@ -26,7 +26,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { getGlossaryTerm } from '../utils/glossaryTerms';
 import { useTheme } from '../theme/ThemeContext';
-import { fontSize, fontWeight } from '../theme/tokens';
+import { fontSize, fontWeight, radius } from '../theme/tokens';
 
 // ---------------------------------------------------------------------------
 // First-encounter persistence

@@ -42,6 +42,11 @@ import { formatWeight } from '../../src/constants/units';
 import { formatDayLabel, toDateKey } from '../../src/utils/dateHelpers';
 import { LiftSet, PlanWithStructure } from '../../src/types/api';
 import { useTheme } from '../../src/theme/ThemeContext';
+// Module-level StyleSheet.create below references `spacing` directly (component
+// scope gets it via useTheme()), so the token must be imported here too —
+// otherwise the styles object throws ReferenceError at import and the Home
+// route renders blank.
+import { spacing } from '../../src/theme/tokens';
 import { PFCard, PFButton, ScreenLayout } from '../../src/components/ui';
 import { getPlans, getPlan } from '../../src/api/plans';
 import { getPercentile } from '../../src/api/percentile';
