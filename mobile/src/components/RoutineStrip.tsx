@@ -33,13 +33,14 @@ import { TemplateDetailSheet, SheetExercise } from './TemplateDetailSheet';
 // ---------------------------------------------------------------------------
 
 export interface RoutineSession {
-  /** 'routine' = user-saved; 'template' = starter split */
-  source: 'routine' | 'template';
+  /** 'routine' = user-saved; 'template' = starter split; 'free' = ad-hoc session */
+  source: 'routine' | 'template' | 'free';
   routineId?: string;
   templateId?: string;
   name: string;
   exercises: RoutineSessionExercise[];
   currentIndex: number;
+  weekNumber?: number;
 }
 
 export interface RoutineSessionExercise {
@@ -49,6 +50,7 @@ export interface RoutineSessionExercise {
   targetReps?: string;
   loggedSetCount: number;
   done: boolean;
+  category?: 'lift' | 'cardio' | 'sport' | 'mobility';
 }
 
 interface RoutineStripProps {
@@ -199,6 +201,9 @@ export function RoutineStrip({
   onStartTemplate,
 }: RoutineStripProps): React.ReactElement {
   const { theme } = useTheme();
+  // 'Manage →' / routines-tab navigation. (Previously referenced an undefined
+  // `router` in this scope — useRouter() only existed inside StripHeader.)
+  const router = useRouter();
 
   // Auto-collapse once the user has logged sets, but allow manual re-expand.
   const [routinesExpanded, setRoutinesExpanded] = useState(true);

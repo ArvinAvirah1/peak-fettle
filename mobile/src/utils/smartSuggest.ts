@@ -77,6 +77,10 @@ export interface SuggestCandidate {
   name: string;
   /** Human-readable one-line reason shown in the suggestion card */
   reason: string;
+  /** Ready-formatted PB for this suggested exercise, e.g. "45kg × 8". No "PB" prefix. Null if none. */
+  pbLabel?: string | null;
+  /** Recommended rep range for this exercise, e.g. "6–10". Populated by the caller (log.tsx). */
+  repTarget?: string | null;
 }
 
 /**
@@ -178,13 +182,32 @@ export function suggestNextExercise(
   return { exerciseId: best.ex.id, name: best.ex.name, reason: best.reason };
 }
 
+// ── Day-of-week name helper ───────────────────────────────────────────────────
+
+const WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
+
+function todayWeekdayName(): string {
+  return WEEKDAY_NAMES[new Date().getDay()] ?? 'today';
+}
+
 /**
  * PRO smart-suggest (image §3c): return the top N ranked candidates, not just
  * one. The mock shows a single placeholder card; the real build "enumerates
  * more" — a primary suggestion plus a few ranked alternatives the user can pick.
  *
- * Same scoring as suggestNextExercise; this returns the ranked list so the
- * stepper can render the primary card + "or try" rows.
+ * Improved ranking vs suggestNextExercise:
+ *   • Each candidate gets a DISTINCT, human-readable reason derived from the
+ *     strongest signal that scored it:
+ *       - "balances push volume"   (muscle-balance complement)
+ *       - "you usually do this on <weekday>"  (same-weekday history)
+ *       - "undertrained this week"  (zero sets on this muscle group)
+ *       - "complements <last exercise>"  (secondary complement fallback)
+ *   • De-duplicated by exerciseId.
+ *   • Already-logged exercises are excluded.
+ *   • Returns up to `limit` (default 3; callers may request up to 5).
+ *
+ * Note: pbLabel and repTarget are left undefined here — the caller (log.tsx)
+ * populates them after fetching PB and routine data.
  */
 export function suggestNextExercises(
   sessionLog: SessionExercise[],
@@ -194,17 +217,22 @@ export function suggestNextExercises(
 ): SuggestCandidate[] {
   if (allExercises.length === 0) return [];
 
+  const loggedIds = new Set(sessionLog.map((e) => e.exerciseId));
   const loggedNames = new Set(sessionLog.map((e) => e.name.toLowerCase()));
 
+  // ── Tally sets per muscle group in the current session ──────────────────
   const groupSets: Partial<Record<MuscleGroup, number>> = {};
   for (const ex of sessionLog) {
     const g = muscleGroupForExercise(ex.name);
     groupSets[g] = (groupSets[g] ?? 0) + ex.setCount;
   }
 
+  // ── Identify last-worked group + total session volume ────────────────────
   const lastEx = sessionLog[sessionLog.length - 1];
   const lastWorked: MuscleGroup | null = lastEx ? muscleGroupForExercise(lastEx.name) : null;
+  const totalSets = sessionLog.reduce((sum, e) => sum + e.setCount, 0);
 
+  // ── Target groups: complements of last → then totally un-worked groups ───
   const targetGroups: MuscleGroup[] = [];
   if (lastWorked) {
     const complements = COMPLEMENTARY[lastWorked] ?? [];
@@ -222,28 +250,117 @@ export function suggestNextExercises(
   }
 
   const historySet = new Set(historyNames.map((n) => n.toLowerCase()));
-  type Scored = { ex: { id: string; name: string }; score: number; reason: string };
+  const todayName = todayWeekdayName();
+
+  // ── Score & assign a distinct primary reason per candidate ───────────────
+  //
+  // Signal priority (higher = wins reason string):
+  //   30  same-weekday history + muscle-balance complement (both signals)
+  //   20  same-weekday history only
+  //   10  muscle-balance complement (no history match)
+  //    5  zero sets on this muscle group this session ("undertrained")
+  //    3  partial complement (lower priority group)
+
+  type Scored = {
+    ex: { id: string; name: string };
+    score: number;
+    reason: string;
+    /** primary signal used for this candidate */
+    signal: 'balance' | 'history' | 'undertrained' | 'complement';
+  };
   const scored: Scored[] = [];
 
   for (const ex of allExercises) {
     if (loggedNames.has(ex.name.toLowerCase())) continue;
+    if (loggedIds.has(ex.id)) continue;
+
     const group = muscleGroupForExercise(ex.name);
+    const isHistory = historySet.has(ex.name.toLowerCase());
+    const targetIdx = targetGroups.indexOf(group);
+    const inTargetGroups = targetIdx !== -1;
+    const isUntrained = (groupSets[group] ?? 0) === 0;
+
     let score = 0;
     let reason = '';
-    const targetIdx = targetGroups.indexOf(group);
-    if (targetIdx !== -1) {
-      score += 10 - targetIdx;
-      reason = `balances ${lastWorked ? lastWorked + ' volume' : 'your session'}`;
+    let signal: Scored['signal'] = 'complement';
+
+    if (isHistory && inTargetGroups) {
+      // Strongest signal: combines history + balance
+      score = 30 + (10 - Math.min(targetIdx, 9));
+      reason = `you usually do this on ${todayName}`;
+      signal = 'history';
+    } else if (isHistory) {
+      score = 20;
+      reason = `you usually do this on ${todayName}`;
+      signal = 'history';
+    } else if (inTargetGroups && lastWorked) {
+      // Muscle-balance complement of last exercise
+      score = 10 + (10 - Math.min(targetIdx, 9));
+      if (targetIdx === 0) {
+        // Highest-priority complement → "balances push/pull/leg volume"
+        reason = `balances ${lastWorked} volume`;
+        signal = 'balance';
+      } else if (isUntrained && totalSets > 0) {
+        reason = `undertrained this week`;
+        signal = 'undertrained';
+      } else {
+        reason = `complements ${lastEx?.name ?? 'your last exercise'}`;
+        signal = 'complement';
+      }
+    } else if (inTargetGroups) {
+      // No last exercise (first suggestion); just balance the session
+      score = 5 + (10 - Math.min(targetIdx, 9));
+      reason = isUntrained ? `undertrained this week` : `balances your session`;
+      signal = isUntrained ? 'undertrained' : 'balance';
+    } else if (isUntrained) {
+      score = 3;
+      reason = `undertrained this week`;
+      signal = 'undertrained';
     }
-    if (historySet.has(ex.name.toLowerCase())) {
-      score += 3;
-      if (!reason) reason = 'you usually do this day';
-    }
-    if (score > 0) scored.push({ ex, score, reason: reason || 'complements your session' });
+
+    if (score > 0) scored.push({ ex, score, reason, signal });
   }
 
   scored.sort((a, b) => b.score - a.score);
-  return scored
-    .slice(0, Math.max(1, limit))
-    .map((s) => ({ exerciseId: s.ex.id, name: s.ex.name, reason: s.reason }));
+
+  // De-duplicate by exerciseId (guard, though allExercises should be unique)
+  const seenIds = new Set<string>();
+  const deduped: Scored[] = [];
+  for (const s of scored) {
+    if (!seenIds.has(s.ex.id)) {
+      seenIds.add(s.ex.id);
+      deduped.push(s);
+    }
+  }
+
+  // Ensure the top N results have varied reason strings when possible.
+  // If the first `limit` all share the same reason text, prefer surfacing one
+  // from each distinct signal type before filling remaining slots.
+  const capped = Math.max(1, Math.min(limit, 5));
+  const result: Scored[] = [];
+  const usedSignals = new Set<string>();
+
+  // First pass: one representative per signal type
+  for (const s of deduped) {
+    if (result.length >= capped) break;
+    if (!usedSignals.has(s.signal)) {
+      usedSignals.add(s.signal);
+      result.push(s);
+    }
+  }
+  // Second pass: fill remaining slots in score order
+  for (const s of deduped) {
+    if (result.length >= capped) break;
+    if (!result.includes(s)) result.push(s);
+  }
+
+  return result.map((s) => ({
+    exerciseId: s.ex.id,
+    name: s.ex.name,
+    reason: s.reason,
+    // pbLabel and repTarget intentionally left undefined — caller populates them
+  }));
 }
+
+// Fallback path used by suggestNextExercise (single-pick) when scored list is empty
+// — exposed only internally; not part of public API.

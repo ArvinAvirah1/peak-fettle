@@ -116,9 +116,9 @@ export default function ExerciseSwitcherSheet({
           })}
         </ScrollView>
 
-        {/* Browse library shortcut */}
+        {/* Browse library shortcut — dashed accent box (§1b mock) */}
         <TouchableOpacity
-          style={styles.browseRow}
+          style={styles.browseBox}
           onPress={() => {
             onClose();
             onBrowseLibrary();
@@ -163,7 +163,7 @@ const styles = StyleSheet.create({
   sectionLabel: {
     fontFamily: fontFamily.bold,
     fontSize: fontSize.caption,
-    color: '#5f6f7d',
+    color: stepperPalette.muted,
     letterSpacing: 0.5,
     marginBottom: spacing.s3,
   },
@@ -217,12 +217,20 @@ const styles = StyleSheet.create({
     fontSize: fontSize.caption,
     color: stepperPalette.muted,
   },
-  browseRow: {
+  /* TICKET-081 §1b: dashed accent-bordered box matching `.browse` in mock */
+  browseBox: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: spacing.s2,
-    paddingTop: spacing.s3,
-    marginTop: spacing.s1,
+    marginTop: spacing.s3,
+    paddingVertical: spacing.s3,
+    paddingHorizontal: spacing.s3,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: stepperPalette.accentLine,
+    borderRadius: radius.md,
+    minHeight: 44,
   },
   browseText: {
     fontFamily: fontFamily.semiBold,

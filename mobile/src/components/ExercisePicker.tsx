@@ -78,6 +78,7 @@ export function ExercisePicker({
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listRef = useRef<FlatList>(null);
 
   // Load full library when modal opens.
   // PowerSync does not cache exercises (global read-only library) — direct API call is correct.
@@ -97,6 +98,12 @@ export function ExercisePicker({
       })
       .finally(() => setIsLoading(false));
   }, [visible]);
+
+  // Scroll to top whenever the result set changes (search results ↔ full library).
+  // This ensures the top-ranked match is visible without manual scrolling.
+  useEffect(() => {
+    listRef.current?.scrollToOffset({ offset: 0, animated: false });
+  }, [searchResults]);
 
   // Debounced search.
   // PowerSync does not cache exercises (global read-only library) — direct API call is correct.
@@ -314,6 +321,7 @@ export function ExercisePicker({
             </View>
           ) : (
             <FlatList
+              ref={listRef}
               data={listItems}
               keyExtractor={(item, index) =>
                 item.type === 'header' ? `header-${item.category}` : `ex-${item.exercise.id}-${index}`
@@ -321,11 +329,6 @@ export function ExercisePicker({
               renderItem={renderItem}
               contentContainerStyle={styles.listContent}
               keyboardShouldPersistTaps="handled"
-              getItemLayout={(_data, index) => ({
-                length: 64,
-                offset: 64 * index,
-                index,
-              })}
               // When searching, show "Add as custom" below results so users can
               // log anything not in the library without clearing their query.
               ListFooterComponent={renderCustomButton()}
