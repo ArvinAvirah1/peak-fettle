@@ -170,10 +170,9 @@ export default function RoutinesPage(): React.ReactElement {
     }
   }, []);
 
-  /** Start a routine → navigate to log tab with routineId param */
+  /** Start a routine → navigate to Home with routineId param (TICKET-084) */
   const handleStart = useCallback((routine: Routine) => {
-    // expo-router: navigate to log tab with search param
-    router.push(`/(tabs)/log?routineId=${routine.id}&routineName=${encodeURIComponent(routine.name)}`);
+    router.push(`/(tabs)?routineId=${routine.id}&routineName=${encodeURIComponent(routine.name)}`);
   }, [router]);
 
   // ── Render ─────────────────────────────────────────────────────────────────

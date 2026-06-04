@@ -869,6 +869,20 @@ export default function ProfileScreen(): React.ReactElement {
             </View>
           ))}
 
+          {/* Progress & Trends entry (TICKET-087) */}
+          <Pressable
+            onPress={() => router.push('/trends')}
+            style={[styles.settingRow, { borderTopWidth: 1, borderColor: theme.colors.borderDefault }]}
+            accessibilityRole="button"
+            accessibilityLabel="View progress and trends"
+          >
+            <Ionicons name="trending-up-outline" size={20} color={theme.colors.textSecondary} />
+            <Text style={[styles.settingLabel, { color: theme.colors.textPrimary, marginLeft: spacing.s3, flex: 1 }]}>
+              Progress &amp; Trends
+            </Text>
+            <Ionicons name="chevron-forward-outline" size={16} color={theme.colors.textTertiary} />
+          </Pressable>
+
           {/* P2-002: Exercise Library nav entry */}
           <Pressable
             onPress={() => router.push('/exercise-library')}

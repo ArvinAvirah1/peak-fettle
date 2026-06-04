@@ -1,0 +1,855 @@
+/**
+ * WorkoutLoggerHost — TICKET-084
+ *
+ * Self-contained overlay host for the entire workout logging state machine,
+ * extracted from (tabs)/log.tsx so it can be mounted on Home (index.tsx).
+ *
+ * Renders nothing visible until opened. Surfaces:
+ *   • StepperLogger full-screen Modal
+ *   • ExercisePicker Modal
+ *   • ExerciseSwitcherSheet (alternatives)
+ *   • PaywallUpgradeModal
+ *
+ * Opening is driven by a ref-based imperative API exposed via WorkoutLoggerRef:
+ *   hostRef.current?.startWorkout()         — free-session picker
+ *   hostRef.current?.startRoutine(id, name) — load & open routine stepper
+ *   hostRef.current?.startWithExercise(id, name) — seed free session with one exercise
+ *   hostRef.current?.startSession(session)  — start from a pre-built RoutineSession
+ *   hostRef.current?.reopenToday()          — re-open today's stepper
+ *
+ * All set persistence goes through usePowerSyncLog().logSet(...) — no new write path.
+ */
+
+import React, {
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+  useImperativeHandle,
+  forwardRef,
+  useMemo,
+} from 'react';
+import {
+  View,
+  Text,
+  Modal,
+  Pressable,
+  TouchableOpacity,
+  ScrollView,
+  ActivityIndicator,
+  Alert,
+  StyleSheet,
+} from 'react-native';
+import { useRouter } from 'expo-router';
+import { Ionicons } from './Icon';
+import { useAuth } from '../hooks/useAuth';
+import { usePowerSyncLog } from '../hooks/usePowerSyncLog';
+import { ExercisePicker } from './ExercisePicker';
+import StepperLogger, { LoggedSet } from './StepperLogger';
+import { useTheme } from '../theme/ThemeContext';
+import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
+import { haptics } from '../utils/haptics';
+import { formatWeight } from '../constants/units';
+import { getRoutine } from '../api/routines';
+import { getExercises } from '../api/exercises';
+import { getPersonalBest, getPersonalBests, PersonalBest } from '../api/sets';
+import { Exercise } from '../types/api';
+import { RoutineSession, RoutineSessionExercise } from './RoutineStrip';
+import { suggestNextExercise, suggestNextExercises, SessionExercise, SuggestCandidate } from '../utils/smartSuggest';
+
+// Dynamic require for alternatives API (Agent 3's file — optional at parse time)
+let getAlternativesApi: ((exerciseId: string, opts?: { avoid?: string; limit?: number }) => Promise<import('../api/alternatives').AlternativesResult>) | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  getAlternativesApi = require('../api/alternatives').getAlternatives;
+} catch {
+  getAlternativesApi = null;
+}
+
+const REST_DEFAULT = 90;
+
+// ---------------------------------------------------------------------------
+// PaywallUpgradeModal
+// ---------------------------------------------------------------------------
+
+interface PaywallUpgradeModalProps {
+  visible: boolean;
+  onDismiss: () => void;
+  onUpgrade: () => void;
+}
+
+function PaywallUpgradeModal({ visible, onDismiss, onUpgrade }: PaywallUpgradeModalProps): React.ReactElement {
+  const { theme, fontSize: fs, fontWeight: fw, spacing: sp, radius: r } = useTheme();
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onDismiss} statusBarTranslucent>
+      <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} onPress={onDismiss} accessibilityLabel="Dismiss upgrade prompt" />
+      <View style={[pwStyles.sheet, { backgroundColor: theme.colors.bgPrimary, borderTopLeftRadius: r.lg, borderTopRightRadius: r.lg, paddingHorizontal: sp.s5, paddingTop: sp.s5, paddingBottom: sp.s6 }]}>
+        <View style={[pwStyles.pill, { backgroundColor: theme.colors.borderDefault, borderRadius: r.full ?? 999, marginBottom: sp.s5 }]} />
+        <View style={{ alignItems: 'center', marginBottom: sp.s3 }}>
+          <View style={[{ backgroundColor: theme.colors.accentSecondary, borderRadius: r.full ?? 999, width: 60, height: 60, alignItems: 'center', justifyContent: 'center' }]}>
+            <Ionicons name="flash" size={28} color={theme.colors.accentDefault} />
+          </View>
+        </View>
+        <Text style={{ fontSize: fs.display, fontWeight: fw.bold, color: theme.colors.textPrimary, textAlign: 'center', marginBottom: sp.s2 }}>You're on a roll!</Text>
+        <Text style={{ fontSize: fs.bodyMd, color: theme.colors.textSecondary, textAlign: 'center', lineHeight: 22, marginBottom: sp.s5 }}>
+          You've hit your 5 free sessions. Upgrade to Peak Fettle Pro for{' '}
+          <Text style={{ fontWeight: fw.bold, color: theme.colors.textPrimary }}>personalised AI training plans</Text> that adapt to your progress.
+        </Text>
+        <TouchableOpacity style={[{ backgroundColor: theme.colors.accentDefault, borderRadius: r.md, paddingVertical: sp.s4, marginBottom: sp.s3, alignItems: 'center' }]} onPress={onUpgrade} accessibilityRole="button" accessibilityLabel="Upgrade to Pro">
+          <Text style={{ fontSize: fs.bodyLg, fontWeight: fw.bold, color: theme.components.buttonPrimaryText, textAlign: 'center' }}>See Plans</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={{ paddingVertical: sp.s3, alignItems: 'center' }} onPress={onDismiss} accessibilityRole="button" accessibilityLabel="Maybe later">
+          <Text style={{ fontSize: fs.bodyMd, color: theme.colors.textTertiary, textAlign: 'center' }}>Maybe later</Text>
+        </TouchableOpacity>
+      </View>
+    </Modal>
+  );
+}
+
+const pwStyles = StyleSheet.create({
+  sheet: { position: 'absolute', bottom: 0, left: 0, right: 0 },
+  pill: { alignSelf: 'center', width: 36, height: 4 },
+});
+
+// ---------------------------------------------------------------------------
+// Public ref API
+// ---------------------------------------------------------------------------
+
+export interface WorkoutLoggerRef {
+  startWorkout: () => void;
+  startRoutine: (routineId: string, routineName: string) => void;
+  startWithExercise: (exerciseId: string, exerciseName: string) => void;
+  startSession: (session: RoutineSession) => void;
+  reopenToday: () => void;
+}
+
+// ---------------------------------------------------------------------------
+// WorkoutLoggerHost
+// ---------------------------------------------------------------------------
+
+interface WorkoutLoggerHostProps {
+  /** Called after the user presses "Finish workout" — optional, defaults to router.replace('/(tabs)') */
+  onFinish?: () => void;
+}
+
+export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostProps>(
+  function WorkoutLoggerHost({ onFinish }, ref) {
+    const { user } = useAuth();
+    const router = useRouter();
+    const { theme } = useTheme();
+    const unitPref = user?.unit_pref ?? 'kg';
+
+    const {
+      workout,
+      sets,
+      isLoading,
+      logSet,
+      deleteSet,
+      paywallTriggered,
+    } = usePowerSyncLog();
+
+    // Paywall
+    const [showPaywall, setShowPaywall] = useState(false);
+    useEffect(() => {
+      if (paywallTriggered) {
+        const t = setTimeout(() => setShowPaywall(true), 800);
+        return () => clearTimeout(t);
+      }
+    }, [paywallTriggered]);
+
+    // Picker / stepper visibility
+    const [pickerVisible, setPickerVisible] = useState(false);
+    const [freeSessionPickerMode, setFreeSessionPickerMode] = useState(false);
+    const [stepperVisible, setStepperVisible] = useState(false);
+
+    // Exercise state
+    const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
+    const [exerciseNames, setExerciseNames] = useState<Map<string, string>>(new Map());
+    const [exercisePB, setExercisePB] = useState<PersonalBest | null>(null);
+
+    // Routine session
+    const [routineSession, setRoutineSession] = useState<RoutineSession | null>(null);
+    const [stepperSets, setStepperSets] = useState<Map<string, LoggedSet[]>>(new Map());
+
+    // Timer
+    const [timerActive, setTimerActive] = useState(false);
+    const [elapsedSeconds, setElapsedSeconds] = useState(0);
+    const [restSecondsLeft, setRestSecondsLeft] = useState<number | null>(null);
+
+    useEffect(() => {
+      if (!timerActive) return;
+      const interval = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
+      return () => clearInterval(interval);
+    }, [timerActive]);
+
+    useEffect(() => {
+      if (restSecondsLeft === null || restSecondsLeft <= 0) {
+        if (restSecondsLeft === 0) haptics.light();
+        setRestSecondsLeft(null);
+        return;
+      }
+      const t = setTimeout(() => setRestSecondsLeft((s) => (s ?? 1) - 1), 1000);
+      return () => clearTimeout(t);
+    }, [restSecondsLeft]);
+
+    // Alternatives sheet
+    const [alternativesSheetExerciseId, setAlternativesSheetExerciseId] = useState<string | null>(null);
+    const [alternativesList, setAlternativesList] = useState<Array<{ id: string; name: string; equipment: string | null }>>([]);
+    const [alternativesLoading, setAlternativesLoading] = useState(false);
+
+    // Smart suggest
+    const [smartSuggestion, setSmartSuggestion] = useState<SuggestCandidate | null>(null);
+    const [smartSuggestions, setSmartSuggestions] = useState<SuggestCandidate[]>([]);
+    const [sugPbMap, setSugPbMap] = useState<Record<string, string>>({});
+    const [catalogue, setCatalogue] = useState<{ id: string; name: string }[]>([]);
+
+    useEffect(() => {
+      if (!user?.is_paid) return;
+      let cancelled = false;
+      getExercises()
+        .then((lib) => {
+          if (cancelled) return;
+          const flat = Object.values(lib.exercises ?? {})
+            .flat()
+            .map((e) => ({ id: e.id, name: e.name }));
+          setCatalogue(flat);
+        })
+        .catch(() => {});
+      return () => { cancelled = true; };
+    }, [user?.is_paid]);
+
+    const updateRoutineExercise = useCallback((exerciseId: string) => {
+      setRoutineSession((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          exercises: prev.exercises.map((ex) =>
+            ex.exerciseId === exerciseId
+              ? { ...ex, loggedSetCount: ex.loggedSetCount + 1, done: true }
+              : ex,
+          ),
+        };
+      });
+    }, []);
+
+    const handleStartStepper = useCallback((session: RoutineSession) => {
+      setRoutineSession(session);
+      setStepperSets(new Map());
+      setStepperVisible(true);
+    }, []);
+
+    const recomputeSuggestion = useCallback(() => {
+      if (!routineSession || routineSession.source === 'routine') return;
+      const sessionLog: SessionExercise[] = Array.from(stepperSets.entries()).map(([exerciseId, s]) => ({
+        exerciseId,
+        name: routineSession.exercises.find((e) => e.exerciseId === exerciseId)?.name ?? exerciseId,
+        setCount: s.length,
+      }));
+      const historyNames = Array.from(exerciseNames.values());
+      const pool = catalogue.length > 0
+        ? catalogue
+        : Array.from(exerciseNames.entries()).map(([id, name]) => ({ id, name }));
+      const list = suggestNextExercises(sessionLog, historyNames, pool, 5);
+      const enriched = list.map((s) => {
+        const routineEx = routineSession?.exercises.find((e) => e.exerciseId === s.exerciseId);
+        return {
+          ...s,
+          repTarget: (s as SuggestCandidate & { repTarget?: string | null }).repTarget ?? (routineEx?.targetReps ?? null),
+        };
+      });
+      setSmartSuggestions(enriched);
+      setSmartSuggestion(enriched[0] ?? suggestNextExercise(sessionLog, historyNames, pool));
+    }, [routineSession, stepperSets, exerciseNames, catalogue]);
+
+    useEffect(() => {
+      if (user?.is_paid && routineSession && routineSession.source !== 'routine') {
+        recomputeSuggestion();
+      }
+    }, [stepperSets, routineSession, user?.is_paid, recomputeSuggestion]);
+
+    useEffect(() => {
+      const ids = smartSuggestions.map((s) => s.exerciseId).filter(Boolean);
+      if (ids.length === 0) { setSugPbMap({}); return; }
+      let cancelled = false;
+      getPersonalBests(ids)
+        .then((map) => {
+          if (cancelled) return;
+          const next: Record<string, string> = {};
+          for (const [id, pb] of Object.entries(map)) {
+            if (pb) next[id] = `${formatWeight(pb.weight_kg, unitPref)} × ${pb.reps}`;
+          }
+          setSugPbMap(next);
+        })
+        .catch(() => {});
+      return () => { cancelled = true; };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [smartSuggestions]);
+
+    // ── Imperative API ────────────────────────────────────────────────────────
+
+    useImperativeHandle(ref, () => ({
+      startWorkout() {
+        setFreeSessionPickerMode(true);
+        setPickerVisible(true);
+      },
+
+      startRoutine(routineId: string, routineName: string) {
+        let cancelled = false;
+        getRoutine(routineId)
+          .then((routine) => {
+            if (cancelled) return;
+            let wkNum: number | undefined;
+            if ((routine as { created_at?: string }).created_at) {
+              const created = new Date((routine as { created_at: string }).created_at);
+              const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+              wkNum = Math.max(1, Math.floor((Date.now() - created.getTime()) / msPerWeek) + 1);
+            }
+            handleStartStepper({
+              source: 'routine',
+              routineId: routine.id,
+              name: routine.name,
+              weekNumber: wkNum,
+              exercises: routine.exercises.map((ex) => ({
+                exerciseId: ex.exercise_id,
+                name: ex.name,
+                targetSets: ex.target_sets,
+                targetReps: ex.target_reps,
+                loggedSetCount: 0,
+                done: false,
+                category: (ex as { category?: string }).category as RoutineSessionExercise['category'] | undefined,
+              })),
+              currentIndex: 0,
+            });
+          })
+          .catch(() => {
+            Alert.alert('Could not load routine', 'Please try again.');
+          });
+        return () => { cancelled = true; };
+      },
+
+      startWithExercise(exerciseId: string, exerciseName: string) {
+        const session: RoutineSession = {
+          source: 'free',
+          name: 'Free session',
+          exercises: [{ exerciseId, name: exerciseName, loggedSetCount: 0, done: false }],
+          currentIndex: 0,
+        };
+        handleStartStepper(session);
+        setExerciseNames((prev) => {
+          if (prev.has(exerciseId)) return prev;
+          const next = new Map(prev);
+          next.set(exerciseId, exerciseName);
+          return next;
+        });
+      },
+
+      startSession(session: RoutineSession) {
+        handleStartStepper(session);
+      },
+
+      reopenToday() {
+        // Re-open the stepper on today's session; if a session is in memory use it,
+        // otherwise build a minimal free session from already-logged sets.
+        if (routineSession) {
+          setStepperVisible(true);
+          return;
+        }
+        // Build from today's sets
+        const seenIds: string[] = [];
+        for (const s of sets) {
+          if (!seenIds.includes(s.exercise_id)) seenIds.push(s.exercise_id);
+        }
+        const exercises: RoutineSessionExercise[] = seenIds.map((id) => ({
+          exerciseId: id,
+          name: exerciseNames.get(id) ?? id,
+          loggedSetCount: sets.filter((s) => s.exercise_id === id).length,
+          done: true,
+        }));
+        if (exercises.length === 0) {
+          // No sets yet — open free-session picker
+          setFreeSessionPickerMode(true);
+          setPickerVisible(true);
+          return;
+        }
+        handleStartStepper({
+          source: 'free',
+          name: "Today's session",
+          exercises,
+          currentIndex: exercises.length - 1,
+        });
+      },
+    }));
+
+    // ── Handlers ──────────────────────────────────────────────────────────────
+
+    const handleStepperAddOffRoutine = useCallback(
+      (exerciseId: string, exerciseName: string, position: 'end' | 'after_current' | 'pick', pickIndex?: number) => {
+        setRoutineSession((prev) => {
+          if (!prev) return prev;
+          const exercises = [...prev.exercises];
+          const existingIdx = exercises.findIndex(
+            (e) => (exerciseId && e.exerciseId === exerciseId) || e.name === exerciseName,
+          );
+          if (existingIdx !== -1) exercises.splice(existingIdx, 1);
+          const newEx: RoutineSessionExercise = { exerciseId, name: exerciseName, loggedSetCount: 0, done: false };
+          let insertAt: number;
+          if (position === 'end') {
+            insertAt = exercises.length;
+          } else if (position === 'pick') {
+            insertAt = Math.max(0, Math.min(pickIndex ?? exercises.length, exercises.length));
+          } else {
+            insertAt = Math.min(prev.currentIndex + 1, exercises.length);
+          }
+          exercises.splice(insertAt, 0, newEx);
+          return { ...prev, exercises };
+        });
+      },
+      [],
+    );
+
+    const handleExerciseSelect = useCallback(
+      (exercise: Exercise) => {
+        setPickerVisible(false);
+        setSelectedExercise(exercise);
+        setExerciseNames((prev) => {
+          if (prev.has(exercise.id)) return prev;
+          const next = new Map(prev);
+          next.set(exercise.id, exercise.name);
+          return next;
+        });
+        if (exercise.category === 'lift') {
+          setExercisePB(null);
+          getPersonalBest(exercise.id).then(setExercisePB).catch(() => {});
+        } else {
+          setExercisePB(null);
+        }
+
+        if (freeSessionPickerMode) {
+          setFreeSessionPickerMode(false);
+          const isExistingSession = routineSession && routineSession.source === 'free';
+          if (isExistingSession) {
+            handleStepperAddOffRoutine(exercise.id, exercise.name, 'end');
+            setRoutineSession((prev) => {
+              if (!prev) return prev;
+              return { ...prev, currentIndex: prev.exercises.length };
+            });
+          } else {
+            handleStartStepper({
+              source: 'free',
+              name: 'Free session',
+              exercises: [{
+                exerciseId: exercise.id,
+                name: exercise.name,
+                loggedSetCount: 0,
+                done: false,
+                category: exercise.category as RoutineSessionExercise['category'],
+              }],
+              currentIndex: 0,
+            });
+          }
+          return;
+        }
+
+        setRoutineSession((prev) => {
+          if (!prev) return prev;
+          const idx = prev.exercises.findIndex((ex) => ex.exerciseId === exercise.id);
+          if (idx === -1) return prev;
+          return { ...prev, currentIndex: idx };
+        });
+      },
+      [freeSessionPickerMode, routineSession, handleStartStepper, handleStepperAddOffRoutine],
+    );
+
+    const handleStepperLogSet = useCallback(
+      async (exerciseId: string, weight: string, reps: string, rir?: string) => {
+        const setIndex = stepperSets.get(exerciseId)?.length ?? 0;
+        setStepperSets((prev) => {
+          const next = new Map(prev);
+          const existing = next.get(exerciseId) ?? [];
+          next.set(exerciseId, [...existing, { weight, reps, rir }]);
+          return next;
+        });
+        updateRoutineExercise(exerciseId);
+        const targetId = exerciseId || selectedExercise?.id || '';
+        if (!workout?.id || !targetId) return;
+        const rirNum = rir != null && rir.trim() !== '' ? parseInt(rir, 10) : undefined;
+        try {
+          await logSet({
+            kind: 'lift',
+            workoutId: workout.id,
+            exerciseId: targetId,
+            setIndex,
+            reps: parseInt(reps, 10) || 0,
+            weightKg: parseFloat(weight) || 0,
+            ...(rirNum !== undefined && !Number.isNaN(rirNum) ? { rir: rirNum } : {}),
+          });
+          haptics.success();
+          setTimerActive(true);
+          setRestSecondsLeft(REST_DEFAULT);
+        } catch (err) {
+          console.warn('[PF] WorkoutLoggerHost/handleStepperLogSet:', err instanceof Error ? err.message : String(err));
+        }
+      },
+      [workout, selectedExercise, logSet, updateRoutineExercise, stepperSets],
+    );
+
+    const handleStepperLogCardioSet = useCallback(
+      async (exerciseId: string, durationSec: number, distanceM?: number, avgPaceSecPerKm?: number) => {
+        const setIndex = stepperSets.get(exerciseId)?.length ?? 0;
+        setStepperSets((prev) => {
+          const next = new Map(prev);
+          const existing = next.get(exerciseId) ?? [];
+          next.set(exerciseId, [...existing, { weight: '', reps: '', durationSec, distanceM, avgPaceSecPerKm }]);
+          return next;
+        });
+        updateRoutineExercise(exerciseId);
+        const targetId = exerciseId || selectedExercise?.id || '';
+        if (!workout?.id || !targetId) return;
+        try {
+          await logSet({
+            kind: 'cardio',
+            workoutId: workout.id,
+            exerciseId: targetId,
+            setIndex,
+            durationSec,
+            ...(distanceM !== undefined ? { distanceM } : {}),
+            ...(avgPaceSecPerKm !== undefined ? { avgPaceSecPerKm } : {}),
+          });
+          haptics.success();
+          setTimerActive(true);
+          setRestSecondsLeft(REST_DEFAULT);
+        } catch (err) {
+          console.warn('[PF] WorkoutLoggerHost/handleStepperLogCardioSet:', err instanceof Error ? err.message : String(err));
+        }
+      },
+      [workout, selectedExercise, logSet, updateRoutineExercise, stepperSets],
+    );
+
+    const handleStepperAdvance = useCallback((toIndex: number) => {
+      setRoutineSession((prev) => (prev ? { ...prev, currentIndex: toIndex } : prev));
+    }, []);
+
+    const handleAcceptSuggestion = useCallback(
+      (candidate: SuggestCandidate) => {
+        handleStepperAddOffRoutine(candidate.exerciseId, candidate.name, 'after_current');
+        setRoutineSession((prev) => {
+          if (!prev) return prev;
+          return { ...prev, currentIndex: Math.min(prev.currentIndex + 1, prev.exercises.length) };
+        });
+      },
+      [handleStepperAddOffRoutine],
+    );
+
+    const handleSaveAsRoutine = useCallback(async () => {
+      if (!routineSession) return;
+      const { createRoutine } = await import('../api/routines');
+      const exercises = routineSession.exercises
+        .filter((ex) => ex.loggedSetCount > 0)
+        .map((ex) => ({ exercise_id: ex.exerciseId, name: ex.name, target_sets: ex.loggedSetCount }));
+      if (exercises.length === 0) return;
+      try {
+        await createRoutine({ name: `Session ${new Date().toLocaleDateString()}`, exercises });
+        Alert.alert('Routine saved', 'Your session has been saved as a new routine.');
+        setStepperVisible(false);
+        setRoutineSession(null);
+      } catch {
+        Alert.alert('Error', 'Could not save routine');
+      }
+    }, [routineSession]);
+
+    const handleChooseAlternative = useCallback(async () => {
+      if (!user?.is_paid) {
+        setShowPaywall(true);
+        return;
+      }
+      const currentExId = routineSession?.exercises[routineSession.currentIndex]?.exerciseId;
+      if (!currentExId || !getAlternativesApi) return;
+      setAlternativesLoading(true);
+      try {
+        const result = await getAlternativesApi(currentExId, { avoid: 'machine' });
+        setAlternativesList(result.alternatives.map((a) => ({ id: a.id, name: a.name, equipment: a.equipment })));
+        setAlternativesSheetExerciseId(currentExId);
+      } catch (err: unknown) {
+        const isPaywall = err != null && typeof err === 'object' && (err as { isPaywall?: boolean }).isPaywall;
+        if (isPaywall) {
+          setShowPaywall(true);
+        } else {
+          Alert.alert('Error', 'Could not load alternative exercises');
+        }
+      } finally {
+        setAlternativesLoading(false);
+      }
+    }, [user?.is_paid, routineSession]);
+
+    const handleSelectAlternative = useCallback(
+      (alt: { id: string; name: string; equipment: string | null }) => {
+        setRoutineSession((prev) => {
+          if (!prev) return prev;
+          const exercises = prev.exercises.map((ex, idx) =>
+            idx === prev.currentIndex ? { ...ex, exerciseId: alt.id, name: alt.name } : ex,
+          );
+          return { ...prev, exercises };
+        });
+        setAlternativesSheetExerciseId(null);
+        setAlternativesList([]);
+      },
+      [],
+    );
+
+    const totalSets = sets.length;
+
+    const handleFinishWorkout = useCallback(() => {
+      Alert.alert(
+        'Finish workout?',
+        `${totalSets} set${totalSets !== 1 ? 's' : ''} logged — your progress is already saved.`,
+        [
+          { text: 'Keep logging', style: 'cancel' },
+          {
+            text: 'Finish',
+            onPress: () => {
+              haptics.success();
+              setStepperVisible(false);
+              setRoutineSession(null);
+              setSelectedExercise(null);
+              if (onFinish) {
+                onFinish();
+              } else {
+                router.replace('/(tabs)');
+              }
+            },
+          },
+        ],
+      );
+    }, [totalSets, router, onFinish]);
+
+    // ── Render ────────────────────────────────────────────────────────────────
+
+    return (
+      <>
+        {/* Exercise picker modal */}
+        <ExercisePicker
+          visible={pickerVisible}
+          onSelect={handleExerciseSelect}
+          onClose={() => {
+            setPickerVisible(false);
+            setFreeSessionPickerMode(false);
+          }}
+        />
+
+        {/* Alternatives sheet */}
+        {alternativesSheetExerciseId && (
+          <Modal
+            visible
+            transparent
+            animationType="slide"
+            onRequestClose={() => setAlternativesSheetExerciseId(null)}
+          >
+            <Pressable
+              style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)' }}
+              onPress={() => setAlternativesSheetExerciseId(null)}
+            />
+            <View style={[altStyles.sheet, { backgroundColor: theme.colors.bgElevated }]}>
+              <View style={[altStyles.handle, { backgroundColor: theme.colors.borderDefault }]} />
+              <Text style={[altStyles.title, { color: theme.colors.textPrimary }]}>Alternative exercises</Text>
+              <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodySm, marginBottom: spacing.s3 }}>
+                Same muscles, different equipment
+              </Text>
+              {alternativesLoading ? (
+                <ActivityIndicator color={theme.colors.accentDefault} style={{ marginTop: spacing.s4 }} />
+              ) : alternativesList.length === 0 ? (
+                <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodySm, marginTop: spacing.s3 }}>
+                  No alternatives found for this exercise.
+                </Text>
+              ) : (
+                <ScrollView style={{ maxHeight: 320 }}>
+                  {alternativesList.map((alt) => (
+                    <TouchableOpacity
+                      key={alt.id}
+                      style={[altStyles.row, { borderBottomColor: theme.colors.borderDefault }]}
+                      onPress={() => handleSelectAlternative(alt)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Choose ${alt.name}`}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: theme.colors.textPrimary, fontSize: fontSize.bodyMd, fontWeight: fontWeight.medium }}>
+                          {alt.name}
+                        </Text>
+                        {alt.equipment ? (
+                          <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodySm }}>{alt.equipment}</Text>
+                        ) : null}
+                      </View>
+                      <Ionicons name="chevron-forward" size={16} color={theme.colors.textTertiary} />
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
+              <TouchableOpacity
+                style={[altStyles.cancelBtn, { borderColor: theme.colors.borderDefault }]}
+                onPress={() => setAlternativesSheetExerciseId(null)}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel"
+              >
+                <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodyMd }}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </Modal>
+        )}
+
+        {/* Rest timer banner */}
+        {restSecondsLeft !== null && (
+          <View style={[restStyles.banner, { backgroundColor: theme.colors.bgElevated }]}>
+            <Text style={{ color: theme.colors.accentDefault, fontSize: fontSize.bodyMd, fontWeight: fontWeight.bold, fontVariant: ['tabular-nums'] }}>
+              Rest: {Math.floor(restSecondsLeft / 60).toString().padStart(2, '0')}:{(restSecondsLeft % 60).toString().padStart(2, '0')}
+            </Text>
+            <TouchableOpacity
+              onPress={() => setRestSecondsLeft(null)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss rest timer"
+            >
+              <Text style={{ color: theme.colors.textTertiary, fontSize: 20, lineHeight: 24 }}>×</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Paywall */}
+        <PaywallUpgradeModal
+          visible={showPaywall}
+          onDismiss={() => setShowPaywall(false)}
+          onUpgrade={() => {
+            setShowPaywall(false);
+            router.push('/(tabs)/plans');
+          }}
+        />
+
+        {/* Focus Stepper modal */}
+        <Modal
+          visible={stepperVisible}
+          animationType="slide"
+          presentationStyle="fullScreen"
+          onRequestClose={() => setStepperVisible(false)}
+        >
+          {routineSession && (
+            <StepperLogger
+              routineSession={routineSession}
+              onLogSet={handleStepperLogSet}
+              onLogCardioSet={handleStepperLogCardioSet}
+              onAdvance={handleStepperAdvance}
+              onFinish={() => {
+                setStepperVisible(false);
+                setRoutineSession(null);
+              }}
+              onBrowseLibrary={() => {
+                setStepperVisible(false);
+                setPickerVisible(true);
+              }}
+              variant={
+                routineSession?.source === 'routine'
+                  ? 'routine'
+                  : routineSession?.source === 'free' && user?.is_paid
+                    ? 'smart'
+                    : routineSession?.source === 'free'
+                      ? 'free'
+                      : user?.is_paid
+                        ? 'smart'
+                        : 'free'
+              }
+              suggestion={smartSuggestion}
+              suggestions={smartSuggestions.map((s) => ({
+                ...s,
+                pbLabel: sugPbMap[s.exerciseId] ?? (s as SuggestCandidate & { pbLabel?: string | null }).pbLabel ?? null,
+              }))}
+              onAcceptSuggestion={handleAcceptSuggestion}
+              onAddNextExercise={() => {
+                recomputeSuggestion();
+                setFreeSessionPickerMode(true);
+                setPickerVisible(true);
+              }}
+              onSaveAsRoutine={handleSaveAsRoutine}
+              pbLabel={
+                exercisePB?.all_time_best
+                  ? `${formatWeight(exercisePB.all_time_best.weight_kg, unitPref)} × ${exercisePB.all_time_best.reps}`
+                  : null
+              }
+              repTarget={routineSession.exercises[routineSession.currentIndex]?.targetReps ?? null}
+              currentExerciseSets={
+                stepperSets.get(routineSession.exercises[routineSession.currentIndex]?.exerciseId ?? '') ?? []
+              }
+              onAddOffRoutineExercise={handleStepperAddOffRoutine}
+              onClose={() => setStepperVisible(false)}
+              unitPref={unitPref}
+              weekNumber={routineSession.weekNumber ?? null}
+              onChooseAlternative={user?.is_paid ? handleChooseAlternative : (() => setShowPaywall(true))}
+            />
+          )}
+        </Modal>
+      </>
+    );
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------------
+
+const altStyles = StyleSheet.create({
+  sheet: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    paddingHorizontal: spacing.s5,
+    paddingTop: spacing.s4,
+    paddingBottom: spacing.s6,
+  },
+  handle: {
+    alignSelf: 'center',
+    width: 36,
+    height: 4,
+    borderRadius: radius.full,
+    marginBottom: spacing.s4,
+  },
+  title: {
+    fontSize: fontSize.bodyLg,
+    fontWeight: fontWeight.bold,
+    marginBottom: spacing.s1,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.s3,
+    borderBottomWidth: 1,
+    minHeight: 52,
+  },
+  cancelBtn: {
+    marginTop: spacing.s4,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingVertical: spacing.s3,
+    alignItems: 'center',
+    minHeight: 48,
+    justifyContent: 'center',
+  },
+});
+
+const restStyles = StyleSheet.create({
+  banner: {
+    position: 'absolute',
+    bottom: 90,
+    left: spacing.s4,
+    right: spacing.s4,
+    borderRadius: radius.md,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.s4,
+    paddingVertical: spacing.s3,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 6,
+  },
+});

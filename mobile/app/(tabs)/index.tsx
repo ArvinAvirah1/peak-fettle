@@ -16,9 +16,14 @@
  * PL-3: Rest day button — POST /workouts/rest-day, disables same day.
  * P1-006: Streak banner — gradient bg, "day streak", tappable → detail sheet.
  * P2-003: PR badge spring animation via Reanimated ZoomIn.
+ *
+ * TICKET-084: Home is now the logging hub. WorkoutLoggerHost is always-mounted.
+ *   Route params: ?startWorkout=1, ?routineId=<id>&routineName=<name>,
+ *   ?logExercise=<id>&logExerciseName=<name>
+ * TICKET-085: "PRs this week" replaces weekly volume everywhere on Home.
  */
 
-import React, { useMemo, useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -31,7 +36,7 @@ import {
   Modal,
   Alert,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import Animated, { ZoomIn, FadeInDown, useReducedMotion } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../src/hooks/useAuth';
@@ -52,6 +57,8 @@ import { getPlans, getPlan } from '../../src/api/plans';
 import { getPercentile } from '../../src/api/percentile';
 import { logRestDay, undoRestDay } from '../../src/api/workouts';
 import { BrandLogo } from '../../src/components/BrandLogo'; // TICKET-063
+import { WorkoutLoggerHost, WorkoutLoggerRef } from '../../src/components/WorkoutLoggerHost';
+import { RoutineStrip } from '../../src/components/RoutineStrip';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -181,23 +188,21 @@ function StreakBadge({ streak, onPress }: StreakBadgeProps): React.ReactElement 
   );
 }
 
+// TICKET-085: TodayCard now shows prsThisWeek instead of volume
 interface TodayCardProps {
   setCount: number;
-  volumeDisplay: string;
+  prsThisWeek: number;
   isLoading: boolean;
+  onLogPress: () => void;
 }
 
 function TodayCard({
   setCount,
-  volumeDisplay,
+  prsThisWeek,
   isLoading,
+  onLogPress,
 }: TodayCardProps): React.ReactElement {
-  const router = useRouter();
   const { theme, fontSize, fontWeight, radius } = useTheme();
-
-  const handleLogPress = (): void => {
-    router.push('/(tabs)/log');
-  };
 
   return (
     <View style={[styles.todayCard, {
@@ -217,7 +222,7 @@ function TodayCard({
               backgroundColor: theme.colors.accentDefault,
               borderRadius: radius.md,
             }]}
-            onPress={handleLogPress}
+            onPress={onLogPress}
             activeOpacity={0.75}
             accessibilityRole="button"
             accessibilityLabel="Log workout"
@@ -232,7 +237,6 @@ function TodayCard({
           <View style={styles.todayStats}>
             <View style={styles.todayStat}>
               <Text style={{ fontSize: fontSize.heading1, fontWeight: fontWeight.bold, color: theme.colors.textPrimary, fontVariant: ['tabular-nums'] }}>
-                {/* E-003: was 28/'700'; heading1=32 is closest large heading token */}
                 {setCount}
               </Text>
               <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.textTertiary }}>
@@ -242,11 +246,10 @@ function TodayCard({
             <View style={[styles.todayDivider, { backgroundColor: theme.colors.borderDefault }]} />
             <View style={styles.todayStat}>
               <Text style={{ fontSize: fontSize.heading1, fontWeight: fontWeight.bold, color: theme.colors.textPrimary, fontVariant: ['tabular-nums'] }}>
-                {/* E-003: was 28/'700' */}
-                {volumeDisplay}
+                {prsThisWeek}
               </Text>
               <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.textTertiary }}>
-                total volume
+                PRs this week
               </Text>
             </View>
           </View>
@@ -255,7 +258,7 @@ function TodayCard({
               backgroundColor: theme.colors.accentDefault,
               borderRadius: radius.md,
             }]}
-            onPress={handleLogPress}
+            onPress={onLogPress}
             activeOpacity={0.75}
             accessibilityRole="button"
             accessibilityLabel="Log a set"
@@ -276,13 +279,13 @@ function TodayCard({
 
 /** Small inline metric chip used inside the AI Plan card. */
 function MetricChip({ label, value }: { label: string; value: string | number }): React.ReactElement {
-  const { theme, fontSize, fontWeight, spacing, radius } = useTheme();
+  const { theme, fontSize, fontWeight, spacing: sp, radius } = useTheme();
   return (
     <View style={{
       backgroundColor: theme.colors.bgPrimary,
       borderRadius: radius.sm,
-      paddingHorizontal: spacing.s2,
-      paddingVertical: spacing.s1,
+      paddingHorizontal: sp.s2,
+      paddingVertical: sp.s1,
       alignItems: 'center',
     }}>
       <Text style={{ fontSize: fontSize.bodySm, fontWeight: fontWeight.bold, color: theme.colors.textPrimary }}>
@@ -319,28 +322,30 @@ export default function HomeScreen(): React.ReactElement {
   const { user } = useAuth();
   const { sets: todaySets, isLoading: todayLoading } = useWorkout();
   const { history, streak, isLoading: historyLoading, refetch } = useWorkoutHistory();
-  const { theme, fontSize, fontWeight, radius, spacing } = useTheme();
+  const { theme, fontSize, fontWeight, radius, spacing: sp } = useTheme();
+  const loggerRef = useRef<WorkoutLoggerRef>(null);
 
   const unitPref = user?.unit_pref ?? 'kg';
 
   // Today's stats
   const todayKey = toDateKey(new Date());
 
-  const todayVolume = useMemo(() => {
-    let vol = 0;
-    for (const s of todaySets) {
-      if (s.kind === 'lift') {
-        const ls = s as LiftSet;
-        vol += ls.weight_kg * ls.reps;
+  // TICKET-085: prsThisWeek — count of is_pr lift sets in the last 7 days
+  const prsThisWeek = useMemo(() => {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 6);
+    const cutoffKey = toDateKey(cutoff);
+    let count = 0;
+    for (const entry of history) {
+      if (entry.workout.day_key < cutoffKey) continue;
+      for (const s of entry.sets) {
+        if (s.kind === 'lift' && (s as LiftSet & { is_pr?: boolean }).is_pr) {
+          count++;
+        }
       }
     }
-    return vol;
-  }, [todaySets]);
-
-  const todayVolumeDisplay = useMemo(
-    () => formatWeight(todayVolume, unitPref, 0),
-    [todayVolume, unitPref]
-  );
+    return count;
+  }, [history]);
 
   // Last 7 calendar days (only entries with workouts)
   const recentDays = useMemo(() => {
@@ -361,12 +366,10 @@ export default function HomeScreen(): React.ReactElement {
     try {
       const plans = await getPlans();
       if (plans.length > 0) {
-        // Most recent plan first (server returns in created_at desc order)
         const detail = await getPlan(plans[0].id);
         setPlan(detail);
       }
     } catch (err) {
-      // Silently ignore — plan card is non-critical
       console.warn('[PF] index/loadPlan:', err instanceof Error ? err.message : String(err));
     } finally {
       setPlanLoading(false);
@@ -389,36 +392,11 @@ export default function HomeScreen(): React.ReactElement {
         if (values.length > 0) setBestPercentile(Math.max(...values));
       })
       .catch((err: unknown) => {
-        // Non-critical — leave as null
         console.warn('[PF] index/getPercentile:', err instanceof Error ? err.message : String(err));
       });
   }, []);
 
   // ── P0-005: Computed dashboard stats ─────────────────────────────────────
-
-  /** Weekly volume: sum of weight_kg * reps for sets this calendar week (Mon–Sun). */
-  const weeklyVolume = useMemo(() => {
-    const now = new Date();
-    // Start of current ISO week (Monday)
-    const dayOfWeek = now.getDay(); // 0=Sun
-    const diffToMon = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-    const weekStart = new Date(now);
-    weekStart.setDate(now.getDate() - diffToMon);
-    weekStart.setHours(0, 0, 0, 0);
-    const weekStartKey = toDateKey(weekStart);
-
-    let vol = 0;
-    for (const entry of history) {
-      if (entry.workout.day_key < weekStartKey) continue;
-      for (const s of entry.sets) {
-        if (s.kind === 'lift') {
-          const ls = s as LiftSet;
-          vol += ls.weight_kg * ls.reps;
-        }
-      }
-    }
-    return Math.round(vol);
-  }, [history]);
 
   /** Sessions this calendar month: count of distinct workout days. */
   const sessionsThisMonth = useMemo(() => {
@@ -435,10 +413,8 @@ export default function HomeScreen(): React.ReactElement {
       for (const s of entry.sets) {
         if (s.kind === 'lift' && (s as LiftSet & { is_pr?: boolean }).is_pr) {
           const ls = s as LiftSet & { is_pr: boolean };
-          // Deduplicate by exercise to avoid showing same exercise multiple times
           if (!seen.has(ls.exercise_id)) {
             seen.add(ls.exercise_id);
-            // liftNames from the same entry maps exercise_id position to name
             const nameIdx = entry.sets
               .filter((x) => x.kind === 'lift')
               .findIndex((x) => x.id === ls.id);
@@ -448,7 +424,7 @@ export default function HomeScreen(): React.ReactElement {
         }
       }
     }
-    return chips.slice(0, 10); // cap at 10 chips
+    return chips.slice(0, 10);
   }, [history]);
 
   // ── Computed plan metrics ─────────────────────────────────────────────────
@@ -457,9 +433,6 @@ export default function HomeScreen(): React.ReactElement {
   const planReasoning = plan?.structure?.reasoning ?? null;
 
   // ── PL-3: Rest day state ─────────────────────────────────────────────────
-  // TICKET-054: hydrate from history — no extra fetch needed.
-  // history is already loaded by useWorkoutHistory(); once session_type is
-  // returned by GET /workouts the memo below reflects the real server state.
   const restDayLoggedToday = useMemo(
     () => history.some(
       (e) => e.workout.day_key === todayKey && e.workout.session_type === 'rest_day'
@@ -473,7 +446,6 @@ export default function HomeScreen(): React.ReactElement {
     setRestDayLoading(true);
     try {
       await logRestDay();
-      // Refetch history so the memo picks up the new rest_day row.
       await refetch();
     } catch {
       Alert.alert('Could not log rest day', 'Please try again.');
@@ -498,7 +470,6 @@ export default function HomeScreen(): React.ReactElement {
   // ── P1-006: Streak detail sheet ──────────────────────────────────────────
   const [streakDetailVisible, setStreakDetailVisible] = useState(false);
 
-  // Build last 7 day dots for streak detail sheet
   const last7DayDots = useMemo(() => {
     const dots: Array<{ key: string; filled: boolean }> = [];
     for (let i = 6; i >= 0; i--) {
@@ -511,7 +482,6 @@ export default function HomeScreen(): React.ReactElement {
     return dots;
   }, [history]);
 
-  // Longest streak derived from history
   const longestStreak = useMemo(() => {
     if (history.length === 0) return 0;
     const sortedKeys = history
@@ -547,11 +517,78 @@ export default function HomeScreen(): React.ReactElement {
     setRefreshing(false);
   };
 
+  // ── TICKET-084: Route params → open logger ────────────────────────────────
+  const params = useLocalSearchParams<{
+    startWorkout?: string;
+    routineId?: string;
+    routineName?: string;
+    logExercise?: string;
+    logExerciseName?: string;
+  }>();
+
+  // Track which param combos we've already handled to avoid re-triggering on re-renders
+  const handledParamRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const { startWorkout, routineId, routineName, logExercise, logExerciseName } = params;
+
+    if (routineId && routineId !== '' && handledParamRef.current !== `routine:${routineId}`) {
+      handledParamRef.current = `routine:${routineId}`;
+      loggerRef.current?.startRoutine(routineId, routineName ?? '');
+      router.setParams({ routineId: '', routineName: '' });
+      return;
+    }
+
+    if (logExercise && logExercise !== '' && handledParamRef.current !== `exercise:${logExercise}`) {
+      handledParamRef.current = `exercise:${logExercise}`;
+      loggerRef.current?.startWithExercise(logExercise, logExerciseName ?? '');
+      router.setParams({ logExercise: '', logExerciseName: '' });
+      return;
+    }
+
+    if (startWorkout === '1' && handledParamRef.current !== 'startWorkout') {
+      handledParamRef.current = 'startWorkout';
+      loggerRef.current?.startWorkout();
+      router.setParams({ startWorkout: '' });
+      return;
+    }
+  }, [params, router]);
+
+  // ── TICKET-084: Forgot something prompt ──────────────────────────────────
+  const [forgotPromptVisible, setForgotPromptVisible] = useState(false);
+  const [todayLiftsVisible, setTodayLiftsVisible] = useState(false);
+
+  const handleForgotSomething = useCallback(() => {
+    setForgotPromptVisible(false);
+    loggerRef.current?.reopenToday();
+  }, []);
+
+  const handleSeeTodayLifts = useCallback(() => {
+    setForgotPromptVisible(false);
+    setTodayLiftsVisible(true);
+  }, []);
+
+  // Today's sets grouped for display
+  const todaySetsByExercise = useMemo(() => {
+    const map = new Map<string, { name: string; count: number }>();
+    for (const s of todaySets) {
+      const existing = map.get(s.exercise_id);
+      if (existing) {
+        existing.count++;
+      } else {
+        map.set(s.exercise_id, { name: s.exercise_id, count: 1 });
+      }
+    }
+    return Array.from(map.entries()).map(([id, v]) => ({ id, ...v }));
+  }, [todaySets]);
+
+  const hasTodaySets = todaySets.length > 0;
+
   return (
     <ScreenLayout horizontalPadding={false}>
     <ScrollView
       style={styles.container}
-      contentContainerStyle={[styles.content, { padding: spacing.s5, paddingBottom: spacing.s8 }]}
+      contentContainerStyle={[styles.content, { padding: sp.s5, paddingBottom: sp.s8 }]}
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
@@ -572,10 +609,10 @@ export default function HomeScreen(): React.ReactElement {
             backgroundColor: theme.colors.bgSecondary,
             borderRadius: radius.lg,
           }]}>
-            <Text style={{ fontSize: fontSize.heading2, fontWeight: fontWeight.bold, color: theme.colors.textPrimary, marginBottom: spacing.s4 }}>
+            <Text style={{ fontSize: fontSize.heading2, fontWeight: fontWeight.bold, color: theme.colors.textPrimary, marginBottom: sp.s4 }}>
               Streak Details
             </Text>
-            <View style={{ flexDirection: 'row', gap: spacing.s4, marginBottom: spacing.s4 }}>
+            <View style={{ flexDirection: 'row', gap: sp.s4, marginBottom: sp.s4 }}>
               <View style={{ alignItems: 'center', flex: 1 }}>
                 <Text style={{ fontSize: fontSize.heading1, fontWeight: fontWeight.bold, color: theme.colors.accentDefault, fontVariant: ['tabular-nums'] }}>
                   {streak}
@@ -589,10 +626,10 @@ export default function HomeScreen(): React.ReactElement {
                 <Text style={{ fontSize: fontSize.caption, color: theme.colors.textSecondary }}>Longest streak</Text>
               </View>
             </View>
-            <Text style={{ fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold, color: theme.colors.textTertiary, letterSpacing: 1, marginBottom: spacing.s2 }}>
+            <Text style={{ fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold, color: theme.colors.textTertiary, letterSpacing: 1, marginBottom: sp.s2 }}>
               LAST 7 DAYS
             </Text>
-            <View style={{ flexDirection: 'row', gap: spacing.s2, marginBottom: spacing.s5 }}>
+            <View style={{ flexDirection: 'row', gap: sp.s2, marginBottom: sp.s5 }}>
               {last7DayDots.map((dot) => (
                 <View
                   key={dot.key}
@@ -628,13 +665,105 @@ export default function HomeScreen(): React.ReactElement {
         </View>
       </Modal>
 
+      {/* ── TICKET-084: "Forgot something?" prompt modal ── */}
+      <Modal
+        visible={forgotPromptVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setForgotPromptVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalSheet, { backgroundColor: theme.colors.bgSecondary, borderRadius: radius.lg }]}>
+            <Text style={{ fontSize: fontSize.bodyLg, fontWeight: fontWeight.bold, color: theme.colors.textPrimary, marginBottom: sp.s2 }}>
+              What do you need?
+            </Text>
+            <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.textTertiary, marginBottom: sp.s4 }}>
+              Your sets are already saved.
+            </Text>
+            <TouchableOpacity
+              style={[{ backgroundColor: theme.colors.accentDefault, borderRadius: radius.md, paddingVertical: sp.s4, alignItems: 'center', marginBottom: sp.s2 }]}
+              onPress={handleForgotSomething}
+              accessibilityRole="button"
+              accessibilityLabel="Reopen stepper to add more sets"
+            >
+              <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold }}>
+                I forgot something
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[{ backgroundColor: theme.colors.bgElevated, borderRadius: radius.md, paddingVertical: sp.s4, alignItems: 'center', marginBottom: sp.s2, borderWidth: 1, borderColor: theme.colors.borderDefault }]}
+              onPress={handleSeeTodayLifts}
+              accessibilityRole="button"
+              accessibilityLabel="See all my lifts today"
+            >
+              <Text style={{ color: theme.colors.textPrimary, fontSize: fontSize.bodyMd, fontWeight: fontWeight.medium }}>
+                See all my lifts
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={{ paddingVertical: sp.s3, alignItems: 'center' }}
+              onPress={() => setForgotPromptVisible(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel"
+            >
+              <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodySm }}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── TICKET-084: Today's lifts list modal ── */}
+      <Modal
+        visible={todayLiftsVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setTodayLiftsVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalSheet, { backgroundColor: theme.colors.bgSecondary, borderRadius: radius.lg, maxHeight: '80%' }]}>
+            <Text style={{ fontSize: fontSize.bodyLg, fontWeight: fontWeight.bold, color: theme.colors.textPrimary, marginBottom: sp.s4 }}>
+              Today's lifts
+            </Text>
+            <ScrollView style={{ maxHeight: 320 }}>
+              {todaySetsByExercise.length === 0 ? (
+                <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodySm, textAlign: 'center' }}>
+                  No sets logged yet today.
+                </Text>
+              ) : (
+                todaySetsByExercise.map((item) => (
+                  <View
+                    key={item.id}
+                    style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: sp.s2, borderBottomWidth: 1, borderBottomColor: theme.colors.borderDefault }}
+                  >
+                    <Text style={{ color: theme.colors.textPrimary, fontSize: fontSize.bodyMd, flex: 1 }} numberOfLines={1}>
+                      {item.name}
+                    </Text>
+                    <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodySm, fontVariant: ['tabular-nums'] }}>
+                      {item.count} set{item.count !== 1 ? 's' : ''}
+                    </Text>
+                  </View>
+                ))
+              )}
+            </ScrollView>
+            <TouchableOpacity
+              style={[{ backgroundColor: theme.colors.accentDefault, borderRadius: radius.md, paddingVertical: sp.s4, alignItems: 'center', marginTop: sp.s4 }]}
+              onPress={() => setTodayLiftsVisible(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Done"
+            >
+              <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold }}>Done</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* ── TICKET-063: Brand logo bar (horizontal, above greeting) ── */}
       <View style={styles.logoBannerRow}>
         <BrandLogo height={36} dark horizontal />
       </View>
 
       {/* ── A. Greeting header ── */}
-      <View style={[styles.headerSection, { marginBottom: spacing.s5 }]}>
+      <View style={[styles.headerSection, { marginBottom: sp.s5 }]}>
         <View style={styles.headerRow}>
           <Text style={{ fontSize: fontSize.heading2, fontWeight: fontWeight.bold, color: theme.colors.textPrimary, letterSpacing: -0.3 }}>
           {/* E-003: was fontWeight '700' */}
@@ -646,6 +775,44 @@ export default function HomeScreen(): React.ReactElement {
           {getFullDateLabel()}
         </Text>
       </View>
+
+      {/* ── TICKET-084: Start workout CTA ── */}
+      {!restDayLoggedToday && (
+        <TouchableOpacity
+          style={[styles.startWorkoutBtn, { backgroundColor: theme.colors.accentDefault, borderRadius: radius.md }]}
+          onPress={() => loggerRef.current?.startWorkout()}
+          accessibilityRole="button"
+          accessibilityLabel="Start workout"
+          activeOpacity={0.85}
+        >
+          <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fontSize.bodyLg, fontWeight: fontWeight.bold }}>
+            Start workout
+          </Text>
+        </TouchableOpacity>
+      )}
+
+      {/* ── TICKET-084: Quick-start routines strip ── */}
+      {!restDayLoggedToday && (
+        <RoutineStrip
+          hasLoggedSets={todaySets.length > 0}
+          onStartRoutine={(session) => loggerRef.current?.startSession(session)}
+          onStartTemplate={(session) => loggerRef.current?.startSession(session)}
+        />
+      )}
+
+      {/* ── TICKET-084: "Forgot to log something?" ── */}
+      {hasTodaySets && !restDayLoggedToday && (
+        <TouchableOpacity
+          style={[styles.forgotBtn, { borderColor: theme.colors.borderDefault, borderRadius: radius.md }]}
+          onPress={() => setForgotPromptVisible(true)}
+          accessibilityRole="button"
+          accessibilityLabel="Forgot to log something?"
+        >
+          <Text style={{ color: theme.colors.textSecondary, fontSize: fontSize.bodySm }}>
+            Forgot to log something?
+          </Text>
+        </TouchableOpacity>
+      )}
 
       {/* ── B. Streak badge ── */}
       <SectionHeader label="STREAK" />
@@ -670,7 +837,7 @@ export default function HomeScreen(): React.ReactElement {
               <Text style={{ fontSize: fontSize.bodyLg, fontWeight: fontWeight.semibold, color: theme.colors.textPrimary }}>
                 {plan.name ?? "Today's Plan"}
               </Text>
-              <View style={{ flexDirection: 'row', gap: spacing.s3, marginTop: spacing.s2 }}>
+              <View style={{ flexDirection: 'row', gap: sp.s3, marginTop: sp.s2 }}>
                 <MetricChip label="Exercises" value={planExercises.length} />
                 <MetricChip label="Sets" value={planTotalSets} />
               </View>
@@ -678,7 +845,7 @@ export default function HomeScreen(): React.ReactElement {
                 <>
                   <TouchableOpacity
                     onPress={() => setReasonExpanded(!reasonExpanded)}
-                    style={{ marginTop: spacing.s3 }}
+                    style={{ marginTop: sp.s3 }}
                     accessibilityRole="button"
                     accessibilityLabel="Toggle workout reasoning"
                   >
@@ -687,7 +854,7 @@ export default function HomeScreen(): React.ReactElement {
                     </Text>
                   </TouchableOpacity>
                   {reasonExpanded && (
-                    <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.textSecondary, marginTop: spacing.s2 }}>
+                    <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.textSecondary, marginTop: sp.s2 }}>
                       {planReasoning}
                     </Text>
                   )}
@@ -696,8 +863,8 @@ export default function HomeScreen(): React.ReactElement {
               <PFButton
                 variant="primary"
                 label="Start Workout"
-                onPress={() => router.push('/(tabs)/log')}
-                style={{ marginTop: spacing.s3 }}
+                onPress={() => { loggerRef.current?.startWorkout(); }}
+                style={{ marginTop: sp.s3 }}
               />
             </PFCard>
           ) : null}
@@ -707,17 +874,17 @@ export default function HomeScreen(): React.ReactElement {
       {/* ── D. Recent PRs horizontal scroll ── */}
       {!historyLoading && prChips.length > 0 ? (
         <>
-          <SectionHeader label="RECENT PRs" onViewAll={() => router.push('/(tabs)/log')} />
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.s2 }}>
+          <SectionHeader label="RECENT PRs" onViewAll={() => router.push('/workout-history')} />
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: sp.s2 }}>
             {prChips.map((pr) => (
               <View
                 key={pr.id}
                 style={{
                   backgroundColor: theme.colors.statusSuccess + '26',
                   borderRadius: radius.sm,
-                  paddingHorizontal: spacing.s2,
-                  paddingVertical: spacing.s1,
-                  marginRight: spacing.s2,
+                  paddingHorizontal: sp.s2,
+                  paddingVertical: sp.s1,
+                  marginRight: sp.s2,
                   alignItems: 'center',
                 }}
               >
@@ -733,10 +900,10 @@ export default function HomeScreen(): React.ReactElement {
         </>
       ) : null}
 
-      {/* ── E. Quick Stats row ── */}
+      {/* ── E. Quick Stats row — TICKET-085: "PRs this week" replaces "Weekly Volume" ── */}
       {!historyLoading ? (
         <>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.s2 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: sp.s2 }}>
             <SectionHeader label="QUICK STATS" />
             <Pressable
               onPress={() => router.push('/progress')}
@@ -758,8 +925,8 @@ export default function HomeScreen(): React.ReactElement {
               <Text style={{ fontSize: fontSize.caption, color: theme.colors.accentDefault }}>›</Text>
             </Pressable>
           </View>
-          <View style={{ flexDirection: 'row', gap: spacing.s3, marginBottom: spacing.s2 }}>
-            <StatCard label="Weekly Volume" value={`${weeklyVolume} kg`} />
+          <View style={{ flexDirection: 'row', gap: sp.s3, marginBottom: sp.s2 }}>
+            <StatCard label="PRs this week" value={String(prsThisWeek)} />
             <StatCard label="Sessions" value={`${sessionsThisMonth}`} />
             <StatCard label="Best Rank" value={bestPercentile !== null ? `${bestPercentile}th` : '—'} />
           </View>
@@ -770,8 +937,9 @@ export default function HomeScreen(): React.ReactElement {
       <SectionHeader label="TODAY" />
       <TodayCard
         setCount={todaySets.length}
-        volumeDisplay={todayVolumeDisplay}
+        prsThisWeek={prsThisWeek}
         isLoading={todayLoading}
+        onLogPress={() => loggerRef.current?.startWorkout()}
       />
       {/* PL-3: Rest day button — TICKET-054: hydrated from history; undo affordance added */}
       <TouchableOpacity
@@ -862,8 +1030,8 @@ export default function HomeScreen(): React.ReactElement {
                   backgroundColor: theme.colors.bgSecondary,
                   borderColor: theme.colors.borderDefault,
                   borderRadius: radius.md,
-                  paddingHorizontal: spacing.s4,
-                  paddingVertical: spacing.s4,
+                  paddingHorizontal: sp.s4,
+                  paddingVertical: sp.s4,
                 }]}
                 activeOpacity={0.7}
                 accessibilityRole="button"
@@ -921,6 +1089,10 @@ export default function HomeScreen(): React.ReactElement {
         </View>
       )}
     </ScrollView>
+
+    {/* ── TICKET-084: WorkoutLoggerHost — always-mounted overlay ── */}
+    <WorkoutLoggerHost ref={loggerRef} />
+
     </ScreenLayout>
   );
 }
@@ -947,6 +1119,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+
+  // TICKET-084: start workout CTA
+  startWorkoutBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    marginBottom: 12,
+    minHeight: 52,
+  },
+
+  // TICKET-084: "Forgot something?" affordance
+  forgotBtn: {
+    borderWidth: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    marginTop: 4,
+    marginBottom: 4,
   },
 
   // Streak badge
@@ -986,6 +1177,7 @@ const styles = StyleSheet.create({
   ctaButton: {
     width: '100%',
     alignItems: 'center',
+    paddingVertical: 12,
   },
 
   // Groups nav row — kept for possible re-use elsewhere, removed from render

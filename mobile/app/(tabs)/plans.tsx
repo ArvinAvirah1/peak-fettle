@@ -452,7 +452,7 @@ function PlanDetailModal({ planId, onClose, onRegenerate }: PlanDetailProps): Re
               label="Start This Workout"
               onPress={() => {
                 onClose();
-                router.push('/(tabs)/log');
+                router.push('/(tabs)?startWorkout=1');
               }}
             />
             <PFButton
