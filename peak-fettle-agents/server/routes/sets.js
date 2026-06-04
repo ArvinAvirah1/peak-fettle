@@ -269,6 +269,53 @@ router.get('/personal-best/:exerciseId', async (req, res, next) => {
     } catch (err) { next(err); }
 });
 
+// ---------------------------------------------------------------------------
+// POST /sets/personal-best/batch  body: { exerciseIds: string[] }
+//   → { [exerciseId]: { weight_kg: number, reps: number } | null }
+//
+// Batch version of GET /sets/personal-best/:exerciseId used by the PRO
+// smart-suggest "JUST LOGGED" stepper card to show each suggested exercise's
+// all-time best (highest Epley e1rm) in a single round-trip. Inherits
+// requireAuth from this router (same as every other /sets route).
+// ---------------------------------------------------------------------------
+router.post('/personal-best/batch', async (req, res, next) => {
+    try {
+        const raw = req.body?.exerciseIds;
+        if (!Array.isArray(raw) || raw.length === 0) {
+            return res.json({});
+        }
+        // Keep only strings, de-dupe, cap at 50.
+        const exerciseIds = [...new Set(raw.filter((id) => typeof id === 'string'))].slice(0, 50);
+        if (exerciseIds.length === 0) {
+            return res.json({});
+        }
+
+        // ONE query: all-time best (highest Epley e1rm) lift set per exercise.
+        const { rows } = await pool.query(
+            `SELECT DISTINCT ON (s.exercise_id)
+                s.exercise_id,
+                s.weight_raw / 8.0 AS weight_kg,
+                s.reps
+             FROM sets s
+             JOIN workouts w ON w.id = s.workout_id
+             WHERE w.user_id = $1
+               AND s.exercise_id = ANY($2::uuid[])
+               AND s.kind = 'lift' AND s.weight_raw > 0 AND s.reps >= 1
+             ORDER BY s.exercise_id,
+               (CASE WHEN s.reps = 1 THEN s.weight_raw/8.0 ELSE (s.weight_raw/8.0)*(1.0 + s.reps::float/30.0) END) DESC`,
+            [req.user.id, exerciseIds]
+        );
+
+        // Start every requested id at null, then fill from rows.
+        const result = {};
+        for (const id of exerciseIds) result[id] = null;
+        for (const row of rows) {
+            result[row.exercise_id] = { weight_kg: Number(row.weight_kg), reps: row.reps };
+        }
+        res.json(result);
+    } catch (err) { next(err); }
+});
+
 // DELETE /sets/:id
 // N-13 (2026-05-03): delete endpoint with ownership check.
 router.delete('/:id', async (req, res, next) => {
