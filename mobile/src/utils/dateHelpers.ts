@@ -47,8 +47,14 @@ const SHORT_MONTHS = [
  * Comparison is done in local time against the current date at call time.
  */
 export function formatDayLabel(dateStr: string): string {
+  // Guard: a missing/malformed key must never render as "undefined NaN undefined".
+  if (!dateStr || typeof dateStr !== 'string') return 'Workout';
   const [year, month, day] = dateStr.split('-').map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return 'Workout';
+  }
   const target = new Date(year, month - 1, day);
+  if (Number.isNaN(target.getTime())) return 'Workout';
 
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -61,6 +67,37 @@ export function formatDayLabel(dateStr: string): string {
   const dayName = SHORT_DAYS[target.getDay()];
   const monthName = SHORT_MONTHS[target.getMonth()];
   return `${dayName} ${target.getDate()} ${monthName}`;
+}
+
+/**
+ * Compact M/D/YY label for a YYYY-MM-DD string, e.g. "2026-06-04" → "6/4/26".
+ * Used to suffix a routine-session title ("Leg Day 6/4/26"). Returns '' for a
+ * missing/malformed key so callers can fall back cleanly.
+ */
+export function formatShortDate(dateStr: string): string {
+  if (!dateStr || typeof dateStr !== 'string') return '';
+  const [year, month, day] = dateStr.split('-').map(Number);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+    return '';
+  }
+  return `${month}/${day}/${String(year).slice(-2)}`;
+}
+
+/**
+ * Title for a workout row in history/activity lists.
+ * - Routine/template session → "<Routine name> M/D/YY" (e.g. "Leg Day 6/4/26")
+ * - Ad-hoc session           → the friendly day label (Today / Yesterday / Mon 4 Jun)
+ */
+export function formatWorkoutLabel(
+  dateStr: string,
+  routineName?: string | null
+): string {
+  const name = routineName?.trim();
+  if (name) {
+    const short = formatShortDate(dateStr);
+    return short ? `${name} ${short}` : name;
+  }
+  return formatDayLabel(dateStr);
 }
 
 // ---------------------------------------------------------------------------

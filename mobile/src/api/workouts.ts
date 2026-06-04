@@ -41,8 +41,17 @@ export async function getWorkout(id: string): Promise<Workout> {
  * Server returns 201 on create, 200 on existing-day upsert.
  * @param dayKey - YYYY-MM-DD e.g. "2026-05-04"
  */
-export async function createWorkout(dayKey: string, notes?: string): Promise<Workout> {
-  const payload: CreateWorkoutPayload = { dayKey, ...(notes && { notes }) };
+export async function createWorkout(
+  dayKey: string,
+  notes?: string,
+  opts?: { routineId?: string; routineName?: string }
+): Promise<Workout> {
+  const payload: CreateWorkoutPayload = {
+    dayKey,
+    ...(notes && { notes }),
+    ...(opts?.routineId && { routineId: opts.routineId }),
+    ...(opts?.routineName && { routineName: opts.routineName }),
+  };
   const response = await apiClient.post<Workout>('/workouts', payload);
   return response.data;
 }

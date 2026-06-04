@@ -51,6 +51,8 @@ import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
 import { haptics } from '../utils/haptics';
 import { formatWeight } from '../constants/units';
 import { getRoutine } from '../api/routines';
+import { createWorkout } from '../api/workouts';
+import { toDateKey } from '../utils/dateHelpers';
 import { getExercises } from '../api/exercises';
 import { getPersonalBest, getPersonalBests, PersonalBest } from '../api/sets';
 import { Exercise } from '../types/api';
@@ -236,7 +238,22 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
       setRoutineSession(session);
       setStepperSets(new Map());
       setStepperVisible(true);
-    }, []);
+
+      // Persist the routine link onto today's workout so Recent Activity can
+      // label the session (e.g. "Leg Day 6/4/26"). Only named sessions
+      // (routine/template) get a label; ad-hoc "free" sessions stay date-only.
+      // Fire-and-forget: the upsert never blocks the stepper from opening, and a
+      // failure just leaves the date label as before.
+      if (session.source !== 'free' && session.name) {
+        const dayKey = workout?.day_key ?? toDateKey(new Date());
+        createWorkout(dayKey, undefined, {
+          routineId: session.routineId,
+          routineName: session.name,
+        }).catch((err) => {
+          console.warn('[PF] WorkoutLoggerHost/routine-link:', err instanceof Error ? err.message : String(err));
+        });
+      }
+    }, [workout?.day_key]);
 
     const recomputeSuggestion = useCallback(() => {
       if (!routineSession || routineSession.source === 'routine') return;

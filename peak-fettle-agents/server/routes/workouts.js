@@ -11,6 +11,11 @@ const router = express.Router();
 const CreateSchema = z.object({
     dayKey: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     notes: z.string().max(500).optional(),
+    // Routine link (2026-06-04): set when the session is started from a routine
+    // or template so Recent Activity can label it "Leg Day 6/4/26". routineName
+    // is a denormalised snapshot used for display; both NULL for ad-hoc sessions.
+    routineId: z.string().uuid().optional(),
+    routineName: z.string().max(120).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -46,16 +51,21 @@ async function countRealSessions(userId) {
 // xmax != 0 means the row existed and was updated.
 router.post('/', async (req, res, next) => {
     try {
-        const { dayKey, notes } = CreateSchema.parse(req.body);
+        const { dayKey, notes, routineId, routineName } = CreateSchema.parse(req.body);
         const { rows } = await pool.query(
-            `INSERT INTO workouts (user_id, day_key, notes)
-             VALUES ($1, $2, $3)
+            `INSERT INTO workouts (user_id, day_key, notes, routine_id, routine_name)
+             VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT (user_id, day_key) DO UPDATE
                 SET notes = COALESCE(EXCLUDED.notes, workouts.notes),
+                    -- Latest routine started that day wins; a free re-open
+                    -- (routine_* NULL) leaves an existing routine label intact.
+                    routine_id   = COALESCE(EXCLUDED.routine_id, workouts.routine_id),
+                    routine_name = COALESCE(EXCLUDED.routine_name, workouts.routine_name),
                     updated_at = NOW()
-             RETURNING id, user_id, day_key, notes, session_type, created_at, updated_at,
+             RETURNING id, user_id, day_key, notes, routine_id, routine_name,
+                       session_type, created_at, updated_at,
                        (xmax = 0) AS inserted`,
-            [req.user.id, dayKey, notes || null]
+            [req.user.id, dayKey, notes || null, routineId || null, routineName || null]
         );
         const row = rows[0];
         const wasInserted = row.inserted;
@@ -185,6 +195,8 @@ router.get('/', async (req, res, next) => {
                 w.user_id,
                 w.day_key,
                 w.notes,
+                w.routine_id,
+                w.routine_name,
                 w.session_type,
                 w.created_at,
                 w.updated_at,
@@ -199,7 +211,7 @@ router.get('/', async (req, res, next) => {
              FROM workouts w
              LEFT JOIN sets s ON s.workout_id = w.id
              WHERE ${conditions.join(' AND ')}
-             GROUP BY w.id, w.user_id, w.day_key, w.notes, w.session_type, w.created_at, w.updated_at
+             GROUP BY w.id, w.user_id, w.day_key, w.notes, w.routine_id, w.routine_name, w.session_type, w.created_at, w.updated_at
              ORDER BY w.day_key DESC
              LIMIT 90`,
             params
@@ -342,7 +354,7 @@ router.get('/pace-trend', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
     try {
         const { rows } = await pool.query(
-            `SELECT id, user_id, day_key, notes, session_type, created_at, updated_at
+            `SELECT id, user_id, day_key, notes, routine_id, routine_name, session_type, created_at, updated_at
              FROM workouts
              WHERE id = $1 AND user_id = $2`,
             [req.params.id, req.user.id]

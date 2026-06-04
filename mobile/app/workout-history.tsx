@@ -38,6 +38,7 @@ import { apiClient } from '../src/api/client';
 interface ApiWorkout {
   id: string;
   day_key: string;         // YYYY-MM-DD
+  routine_name?: string | null; // routine link (migration 20260604) — labels the row
   total_sets: number;
   total_volume_kg: number;
   exercise_count: number;
@@ -350,7 +351,7 @@ export default function WorkoutHistoryScreen(): React.ReactElement {
                     color: colors.textPrimary,
                   }}
                 >
-                  {formatRowDate(item.day_key)}
+                  {item.routine_name?.trim() || formatRowDate(item.day_key)}
                 </Text>
                 <Text
                   style={{
@@ -358,7 +359,9 @@ export default function WorkoutHistoryScreen(): React.ReactElement {
                     color: colors.textSecondary,
                   }}
                 >
-                  {item.exercise_count === 1 ? '1 exercise' : `${item.exercise_count} exercises`}
+                  {/* When a routine titles the row, show the date alongside the count. */}
+                  {(item.routine_name?.trim() ? `${formatRowDate(item.day_key)} · ` : '') +
+                    (item.exercise_count === 1 ? '1 exercise' : `${item.exercise_count} exercises`)}
                 </Text>
               </View>
 

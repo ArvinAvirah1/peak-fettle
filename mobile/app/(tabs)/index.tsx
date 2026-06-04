@@ -44,7 +44,7 @@ import { useWorkout } from '../../src/hooks/useWorkout';
 import { useWorkoutHistory } from '../../src/hooks/useWorkoutHistory';
 import { SyncStatusIndicator } from '../../src/components/SyncStatusIndicator';
 import { formatWeight } from '../../src/constants/units';
-import { formatDayLabel, toDateKey } from '../../src/utils/dateHelpers';
+import { formatWorkoutLabel, toDateKey } from '../../src/utils/dateHelpers';
 import { LiftSet, PlanWithStructure } from '../../src/types/api';
 import { useTheme } from '../../src/theme/ThemeContext';
 // Module-level StyleSheet.create below references `spacing` directly (component
@@ -1044,7 +1044,7 @@ export default function HomeScreen(): React.ReactElement {
                       fontWeight: fontWeight.semibold,
                       color: isToday ? theme.colors.accentDefault : theme.colors.textPrimary,
                     }}>
-                      {formatDayLabel(workout.day_key)}
+                      {formatWorkoutLabel(workout.day_key, workout.routine_name)}
                     </Text>
                     {hasPR && (
                       reduceMotion ? (
