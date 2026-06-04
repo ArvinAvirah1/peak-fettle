@@ -87,3 +87,25 @@ export async function getPersonalBest(exerciseId: string): Promise<PersonalBest>
     return { all_time_best: null, last_session: null };
   }
 }
+
+/**
+ * Batch all-time best lookup for a list of exercises (PRO smart-suggest).
+ * Calls POST /sets/personal-best/batch (auth required).
+ * Returns a map of exerciseId → best {weight_kg, reps} or null. Returns {} on
+ * network failure so the caller can treat missing PBs as "no history yet".
+ */
+export async function getPersonalBests(
+  exerciseIds: string[],
+): Promise<Record<string, { weight_kg: number; reps: number } | null>> {
+  if (exerciseIds.length === 0) return {};
+  try {
+    const response = await apiClient.post<Record<string, { weight_kg: number; reps: number } | null>>(
+      '/sets/personal-best/batch',
+      { exerciseIds },
+    );
+    return response.data;
+  } catch (err) {
+    console.warn('[PF] sets/getPersonalBests:', err instanceof Error ? err.message : String(err));
+    return {};
+  }
+}

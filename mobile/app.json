@@ -52,7 +52,8 @@
             "buildReactNativeFromSource": true
           }
         }
-      ]
+      ],
+      "expo-sqlite"
     ],
     "scheme": "peak-fettle",
     "experiments": {
