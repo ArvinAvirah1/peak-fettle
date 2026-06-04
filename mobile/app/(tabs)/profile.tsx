@@ -851,7 +851,10 @@ export default function ProfileScreen(): React.ReactElement {
         </View>
 
         {/* Your Data — data category table */}
-        <View style={[styles.card, { backgroundColor: theme.colors.bgSecondary, marginBottom: spacing.s4 }]}>
+        <View style={[
+          styles.settingsCard,
+          { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault, marginBottom: spacing.s4 },
+        ]}>
           <Text style={[styles.sectionLabel, { color: theme.colors.textTertiary }]}>YOUR DATA</Text>
 
           {/* Data category rows */}
@@ -862,7 +865,7 @@ export default function ProfileScreen(): React.ReactElement {
             { label: 'Profile', description: 'Account info and preferences' },
           ].map((category, i) => (
             <View key={category.label} style={[styles.settingRow, i > 0 && { borderTopWidth: 1, borderTopColor: theme.colors.borderDefault }]}>
-              <View>
+              <View style={styles.settingLabelGroup}>
                 <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>{category.label}</Text>
                 <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.caption }}>{category.description}</Text>
               </View>

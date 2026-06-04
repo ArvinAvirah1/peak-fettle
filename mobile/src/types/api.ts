@@ -75,6 +75,13 @@ export interface Workout {
    */
   // DB CHECK (migrations 20260517): 'workout' is the default training day; 'lift' was never a valid value.
   session_type?: 'workout' | 'rest_day' | 'emergency_override' | 'cardio_import' | null;
+  /**
+   * Routine link (migration 20260604). Set when the session was started from a
+   * routine/template. routine_name is a display snapshot used by Recent Activity
+   * to label the session (e.g. "Leg Day 6/4/26"); both null for ad-hoc sessions.
+   */
+  routine_id?: string | null;
+  routine_name?: string | null;
   created_at: string;
   updated_at: string;
   /**
@@ -88,6 +95,8 @@ export interface Workout {
 export interface CreateWorkoutPayload {
   dayKey: string; // YYYY-MM-DD
   notes?: string;
+  routineId?: string;
+  routineName?: string;
 }
 
 // ---------------------------------------------------------------------------
