@@ -155,7 +155,10 @@ export default function RoutinesPage(): React.ReactElement {
       const full = tpl.sessions && tpl.sessions.length > 0 ? tpl : await getTemplate(tpl.id);
       // Build exercises from the first template session.
       const exercises = (full.sessions?.[0]?.exercises ?? []).map((ex) => ({
-        exercise_id: '',           // no UUID for template exercises yet
+        // TICKET-088: omit exercise_id — template exercises have no library UUID
+        // yet. Sending '' failed the server's uuid() check (400). The schema now
+        // treats exercise_id as optional/nullable; `name` is the source of truth.
+        exercise_id: undefined,
         name: ex.exercise_name,
         target_sets: ex.sets,
         target_reps: ex.reps,

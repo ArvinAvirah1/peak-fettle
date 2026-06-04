@@ -189,13 +189,16 @@ export default function WorkoutHistoryScreen(): React.ReactElement {
       const sorted = [...raw].sort((a, b) => b.day_key.localeCompare(a.day_key));
       setAllWorkouts(sorted);
       setSections(groupIntoWeeks(sorted));
-      setHasMore(false); // server caps at 90; no further pages
+      // TICKET-092: removed setHasMore(false) / setLoadingMore(false) — neither
+      // setter existed (no `hasMore` state; `loadingMore` is a const with no
+      // setter), so both threw a ReferenceError on every load and the history
+      // fetch never completed. The server returns all history in one call, so
+      // there is no pagination state to update here.
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load workout history');
     } finally {
       fetchingRef.current = false;
       setLoading(false);
-      setLoadingMore(false);
     }
   }, []);
 

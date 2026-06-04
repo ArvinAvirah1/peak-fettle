@@ -43,7 +43,10 @@ interface RawSet {
   kind: string; // 'lift' | 'cardio'
   weight_kg: number;
   reps: number;
-  created_at: string; // ISO timestamp
+  // TICKET-090: the `sets` table column is `logged_at`, not `created_at`.
+  // The server returns `logged_at`; `created_at` was always undefined here.
+  logged_at?: string; // ISO timestamp
+  created_at?: string; // legacy/fallback — not a real column
 }
 
 interface SetsResponse {
@@ -84,16 +87,17 @@ export async function getExerciseProgress(
     >();
 
     for (const s of liftSets) {
+      const ts = s.logged_at ?? s.created_at ?? '';
       const entry = sessionMap.get(s.workout_id);
       if (entry) {
         entry.sets.push(s);
-        if (s.created_at < entry.earliestAt) {
-          entry.earliestAt = s.created_at;
+        if (ts < entry.earliestAt) {
+          entry.earliestAt = ts;
         }
       } else {
         sessionMap.set(s.workout_id, {
           sets: [s],
-          earliestAt: s.created_at,
+          earliestAt: ts,
         });
       }
     }

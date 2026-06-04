@@ -7,7 +7,8 @@
 import { apiClient } from './client';
 
 export interface RoutineExercise {
-  exercise_id: string;
+  // TICKET-088: optional — template/free-typed exercises have no library UUID.
+  exercise_id?: string | null;
   name: string;
   target_sets?: number;
   target_reps?: string; // e.g. "8-12" or "5"

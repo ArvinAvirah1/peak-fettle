@@ -130,7 +130,33 @@ router.post('/', async (req, res, next) => {
 router.get('/', async (req, res, next) => {
     try {
         const { workoutId, cursor } = req.query;
+        const exerciseId = req.query.exercise_id || req.query.exerciseId;
         const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
+
+        // TICKET-090: per-exercise history. The old handler ignored exercise_id
+        // entirely and fell through to the cursor scan, returning the user's most
+        // recent sets across ALL exercises — so every exercise's "history" showed
+        // whatever was logged most (e.g. hack squat). Filter to the one exercise.
+        if (exerciseId) {
+            const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            if (!UUID_RE.test(String(exerciseId))) {
+                return res.json({ sets: [], nextCursor: null });
+            }
+            const params = [req.user.id, exerciseId, limit];
+            const cursorClause = cursor
+                ? `AND s.logged_at < $${params.push(cursor) && params.length}`
+                : '';
+            const { rows } = await pool.query(
+                `SELECT s.*
+                 FROM sets s
+                 WHERE s.user_id = $1 AND s.exercise_id = $2
+                   ${cursorClause}
+                 ORDER BY s.logged_at DESC
+                 LIMIT $3`,
+                params
+            );
+            return res.json({ sets: rows.map(normalizeSet), nextCursor: null });
+        }
 
         if (workoutId) {
             // Direct workout lookup — no pagination needed.

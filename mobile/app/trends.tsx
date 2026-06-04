@@ -108,7 +108,7 @@ export default function TrendsScreen(): React.ReactElement {
   // Deep-link params
   const params = useLocalSearchParams<{ exerciseId?: string; exerciseName?: string }>();
 
-  const { history, isLoading, error } = useWorkoutHistory();
+  const { history, exerciseNames, isLoading, error } = useWorkoutHistory();
 
   // Derive distinct exercises from lift sets in history
   const liftEntries = useMemo<LiftEntry[]>(() => {
@@ -121,20 +121,17 @@ export default function TrendsScreen(): React.ReactElement {
           const id = ls.exercise_id;
           if (!id || seen.has(id)) continue;
           seen.add(id);
-          // Find the name from liftNames (index in liftNames corresponds to order)
-          const name = entry.liftNames.find((_, i) => {
-            // liftNames are built in order from sets; match by scanning
-            const setForId = entry.sets.find(
-              (ss) => ss.kind === 'lift' && (ss as { exercise_id?: string }).exercise_id === id
-            );
-            return setForId !== undefined;
-          }) ?? id;
+          // TICKET-091: resolve the name from the exercise_id → name map. The
+          // previous `liftNames.find` predicate ignored its arguments and always
+          // returned liftNames[0], so every distinct lift was labelled as the
+          // first lift of the day (everything showed as "Hack Squat").
+          const name = exerciseNames.get(id) ?? id;
           entries.push({ exerciseId: id, name });
         }
       }
     }
     return entries;
-  }, [history]);
+  }, [history, exerciseNames]);
 
   // Build a stable name map from liftEntries for lookup
   const nameById = useMemo<Map<string, string>>(() => {
