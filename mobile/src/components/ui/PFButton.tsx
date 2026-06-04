@@ -52,6 +52,8 @@ export interface PFButtonProps {
   icon?: React.ReactNode;
   /** Optional extra container style (margins, width, etc.). */
   style?: import('react-native').StyleProp<import('react-native').ViewStyle>;
+  /** Stretch the button to fill its container width. */
+  fullWidth?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -83,6 +85,7 @@ export function PFButton({
   accessibilityLabel,
   icon,
   style,
+  fullWidth = false,
 }: PFButtonProps): React.ReactElement {
   const { theme, fontSize, fontWeight, radius } = useTheme();
   const sizeConf = SIZE_CONFIG[size];
@@ -172,7 +175,7 @@ export function PFButton({
 
   return (
     <TouchableOpacity
-      style={[containerStyle, isDisabled && styles.disabled, style]}
+      style={[containerStyle, isDisabled && styles.disabled, fullWidth && { width: '100%' }, style]}
       onPress={handlePress}
       disabled={isDisabled}
       activeOpacity={0.75}
