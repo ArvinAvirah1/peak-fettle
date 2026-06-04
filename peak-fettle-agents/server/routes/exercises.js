@@ -30,7 +30,14 @@ router.get('/search', async (req, res, next) => {
         });
         const { q, limit, kind } = schema.parse(req.query);
 
-        const params = [`%${q}%`, q, `${q}%`, limit];
+        // NOTE: `limit` is intentionally NOT a bind parameter. It is applied in
+        // JS via rows.slice(0, limit) below. Pushing it here made it $4 while
+        // neither SQL references $4, so Postgres rejected every no-`kind` call
+        // with "bind message supplies 4 parameters, but prepared statement
+        // requires 3" — breaking search for every caller (ExercisePicker never
+        // sends `kind`). The catch only wrapped the alias query, so the
+        // name-only fallback's identical failure 500'd. (search-still-broken fix)
+        const params = [`%${q}%`, q, `${q}%`];
         let kindClause = '';
         if (kind) {
             params.push(kind);
