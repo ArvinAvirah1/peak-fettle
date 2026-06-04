@@ -26,6 +26,8 @@ import {
   StyleSheet,
   Modal,
   Pressable,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '../../src/components/Icon';
@@ -34,15 +36,17 @@ import { fontFamily, fontSize, spacing, radius, stepperPalette } from '../../src
 import {
   getRoutines,
   createRoutine,
-  patchRoutine,
   deleteRoutine,
   Routine,
 } from '../../src/api/routines';
 import { getTemplates, getTemplate, WorkoutTemplate } from '../../src/api/templates';
+import RoutineEditorSheet from '../../src/components/RoutineEditorSheet';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-type SheetMode = 'new' | 'edit' | null;
+// The name sheet is now only used for creating a new routine; editing exercises
+// (and renaming) happens in the full-screen RoutineEditorSheet.
+type SheetMode = 'new' | null;
 
 // ── Component ────────────────────────────────────────────────────────────────
 
@@ -56,9 +60,10 @@ export default function RoutinesPage(): React.ReactElement {
   const [templates, setTemplates] = useState<WorkoutTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [sheetMode, setSheetMode] = useState<SheetMode>(null);
-  const [editTarget, setEditTarget] = useState<Routine | null>(null);
   const [nameInput, setNameInput] = useState('');
   const [saving, setSaving] = useState(false);
+  // Full-screen exercise editor (rename + add/remove/reorder exercises).
+  const [editorRoutine, setEditorRoutine] = useState<Routine | null>(null);
 
   // ── Data fetching ──────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -86,42 +91,47 @@ export default function RoutinesPage(): React.ReactElement {
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   const openNewSheet = useCallback(() => {
-    setEditTarget(null);
     setNameInput('');
     setSheetMode('new');
   }, []);
 
-  const openEditSheet = useCallback((routine: Routine) => {
-    setEditTarget(routine);
-    setNameInput(routine.name);
-    setSheetMode('edit');
+  /** Edit now opens the full editor (rename + add/remove/reorder exercises). */
+  const openEditor = useCallback((routine: Routine) => {
+    setEditorRoutine(routine);
+  }, []);
+
+  const closeEditor = useCallback(() => {
+    setEditorRoutine(null);
+  }, []);
+
+  const handleEditorSaved = useCallback((updated: Routine) => {
+    setRoutines((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+    setEditorRoutine(null);
   }, []);
 
   const closeSheet = useCallback(() => {
     setSheetMode(null);
-    setEditTarget(null);
     setNameInput('');
   }, []);
 
+  // Create a new (empty) named routine, then immediately open the editor so the
+  // user can enumerate its exercises — a routine can't be started until it has
+  // at least one (see handleStart).
   const handleSave = useCallback(async () => {
     const name = nameInput.trim();
     if (!name) return;
     setSaving(true);
     try {
-      if (sheetMode === 'new') {
-        const r = await createRoutine({ name, exercises: [] });
-        setRoutines((prev) => [r, ...prev]);
-      } else if (sheetMode === 'edit' && editTarget) {
-        const r = await patchRoutine(editTarget.id, { name });
-        setRoutines((prev) => prev.map((x) => (x.id === r.id ? r : x)));
-      }
+      const r = await createRoutine({ name, exercises: [] });
+      setRoutines((prev) => [r, ...prev]);
       closeSheet();
+      setEditorRoutine(r);
     } catch (err) {
       Alert.alert('Error', err instanceof Error ? err.message : 'Could not save routine');
     } finally {
       setSaving(false);
     }
-  }, [nameInput, sheetMode, editTarget, closeSheet]);
+  }, [nameInput, closeSheet]);
 
   const handleDelete = useCallback((routine: Routine) => {
     Alert.alert(
@@ -173,8 +183,21 @@ export default function RoutinesPage(): React.ReactElement {
     }
   }, []);
 
-  /** Start a routine → navigate to Home with routineId param (TICKET-084) */
+  /** Start a routine → navigate to Home with routineId param (TICKET-084).
+   *  Blocked until the routine has at least one exercise — there's nothing to
+   *  log otherwise. We prompt the user to add exercises instead. */
   const handleStart = useCallback((routine: Routine) => {
+    if (routine.exercises.length === 0) {
+      Alert.alert(
+        'Add an exercise first',
+        `"${routine.name}" has no exercises yet. Add at least one before starting.`,
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Edit routine', onPress: () => setEditorRoutine(routine) },
+        ],
+      );
+      return;
+    }
     router.push(`/(tabs)?routineId=${routine.id}&routineName=${encodeURIComponent(routine.name)}`);
   }, [router]);
 
@@ -229,18 +252,33 @@ export default function RoutinesPage(): React.ReactElement {
                   </Text>
                 </View>
                 <View style={styles.routineCardActions}>
-                  <TouchableOpacity
-                    style={[styles.actionBtnPrimary, { borderColor: c.accentDefault }]}
-                    onPress={() => handleStart(routine)}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Start ${routine.name}`}
-                  >
-                    <Ionicons name="play" size={13} color={c.accentDefault} />
-                    <Text style={[styles.actionBtnPrimaryLabel, { color: c.accentDefault }]}>Start</Text>
-                  </TouchableOpacity>
+                  {(() => {
+                    const startable = routine.exercises.length > 0;
+                    const startColor = startable ? c.accentDefault : c.textTertiary;
+                    return (
+                      <TouchableOpacity
+                        style={[
+                          styles.actionBtnPrimary,
+                          { borderColor: startColor },
+                          !startable && styles.actionBtnDisabled,
+                        ]}
+                        onPress={() => handleStart(routine)}
+                        accessibilityRole="button"
+                        accessibilityState={{ disabled: !startable }}
+                        accessibilityLabel={
+                          startable
+                            ? `Start ${routine.name}`
+                            : `Start ${routine.name} (add an exercise first)`
+                        }
+                      >
+                        <Ionicons name="play" size={13} color={startColor} />
+                        <Text style={[styles.actionBtnPrimaryLabel, { color: startColor }]}>Start</Text>
+                      </TouchableOpacity>
+                    );
+                  })()}
                   <TouchableOpacity
                     style={[styles.actionBtnGhost, { borderColor: c.borderDefault }]}
-                    onPress={() => openEditSheet(routine)}
+                    onPress={() => openEditor(routine)}
                     accessibilityRole="button"
                     accessibilityLabel={`Edit ${routine.name}`}
                   >
@@ -283,47 +321,61 @@ export default function RoutinesPage(): React.ReactElement {
         </ScrollView>
       )}
 
-      {/* ── New / Edit name sheet ──────────────────────────────────────────── */}
+      {/* ── New routine name sheet ─────────────────────────────────────────── */}
       <Modal
         visible={sheetMode !== null}
         transparent
         animationType="slide"
         onRequestClose={closeSheet}
       >
-        <Pressable style={styles.sheetBackdrop} onPress={closeSheet} />
-        <View style={[styles.sheet, { backgroundColor: stepperPalette.card, borderColor: stepperPalette.accentLine }]}>
-          <View style={styles.sheetHandle} />
-          <Text style={styles.sheetTitle}>
-            {sheetMode === 'new' ? 'New routine' : 'Rename routine'}
-          </Text>
-          <TextInput
-            style={styles.sheetInput}
-            value={nameInput}
-            onChangeText={setNameInput}
-            placeholder="e.g. Push A"
-            placeholderTextColor={stepperPalette.muted}
-            autoFocus
-            maxLength={100}
-            returnKeyType="done"
-            onSubmitEditing={handleSave}
-          />
-          <View style={styles.sheetActions}>
-            <TouchableOpacity style={styles.sheetCancelBtn} onPress={closeSheet}>
-              <Text style={styles.sheetCancelLabel}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.sheetSaveBtn, !nameInput.trim() && styles.sheetSaveBtnDisabled]}
-              onPress={handleSave}
-              disabled={saving || !nameInput.trim()}
-            >
-              {saving
-                ? <ActivityIndicator size="small" color={stepperPalette.accentInk} />
-                : <Text style={styles.sheetSaveLabel}>{sheetMode === 'new' ? 'Create' : 'Save'}</Text>
-              }
-            </TouchableOpacity>
+        {/* KeyboardAvoidingView lifts the bottom sheet above the keyboard so the
+            name field is visible while typing (previously it sat behind the
+            keyboard — the user was typing blind). */}
+        <KeyboardAvoidingView
+          style={styles.sheetKav}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <Pressable style={styles.sheetBackdrop} onPress={closeSheet} />
+          <View style={[styles.sheet, { backgroundColor: stepperPalette.card, borderColor: stepperPalette.accentLine }]}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>New routine</Text>
+            <TextInput
+              style={styles.sheetInput}
+              value={nameInput}
+              onChangeText={setNameInput}
+              placeholder="e.g. Push A"
+              placeholderTextColor={stepperPalette.muted}
+              autoFocus
+              maxLength={100}
+              returnKeyType="done"
+              onSubmitEditing={handleSave}
+            />
+            <View style={styles.sheetActions}>
+              <TouchableOpacity style={styles.sheetCancelBtn} onPress={closeSheet}>
+                <Text style={styles.sheetCancelLabel}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.sheetSaveBtn, !nameInput.trim() && styles.sheetSaveBtnDisabled]}
+                onPress={handleSave}
+                disabled={saving || !nameInput.trim()}
+              >
+                {saving
+                  ? <ActivityIndicator size="small" color={stepperPalette.accentInk} />
+                  : <Text style={styles.sheetSaveLabel}>Create</Text>
+                }
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
+
+      {/* ── Full-screen routine editor (rename + add/remove/reorder exercises) ─ */}
+      <RoutineEditorSheet
+        visible={editorRoutine !== null}
+        routine={editorRoutine}
+        onClose={closeEditor}
+        onSaved={handleEditorSaved}
+      />
     </View>
   );
 }
@@ -440,8 +492,10 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.semiBold,
     fontSize: fontSize.bodySm,
   },
+  actionBtnDisabled: { opacity: 0.5 },
   // Sheet
-  sheetBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.55)' },
+  sheetKav: { flex: 1, justifyContent: 'flex-end' },
+  sheetBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.55)' },
   sheet: {
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,
