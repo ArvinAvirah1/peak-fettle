@@ -74,6 +74,10 @@ export function ExercisePicker({
   const [query, setQuery] = useState('');
   const [library, setLibrary] = useState<ExerciseLibrary | null>(null);
   const [searchResults, setSearchResults] = useState<Exercise[] | null>(null);
+  // TICKET-089: distinguish "search request failed" from "0 genuine matches" so
+  // we don't show the misleading "add as custom" empty state when the backend is
+  // actually erroring (which would let users create duplicates of real exercises).
+  const [searchFailed, setSearchFailed] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -86,6 +90,7 @@ export function ExercisePicker({
     if (!visible) return;
     setQuery('');
     setSearchResults(null);
+    setSearchFailed(false);
     setError(null);
     setIsLoading(true);
 
@@ -113,6 +118,7 @@ export function ExercisePicker({
 
     if (text.trim().length === 0) {
       setSearchResults(null);
+      setSearchFailed(false);
       return;
     }
 
@@ -120,10 +126,13 @@ export function ExercisePicker({
       try {
         const result = await searchExercises(text.trim());
         setSearchResults(result.results);
+        setSearchFailed(false);
       } catch (err) {
-        // Swallow search errors silently — the library is still visible
+        // TICKET-089: a real failure is NOT "0 matches" — flag it so the UI shows
+        // a retryable error instead of the misleading "add as custom" empty state.
         console.warn('[PF] ExercisePicker/handleQueryChange:', err instanceof Error ? err.message : String(err));
         setSearchResults([]);
+        setSearchFailed(true);
       }
     }, DEBOUNCE_MS);
   }, []);
@@ -307,6 +316,23 @@ export function ExercisePicker({
                     )
                     .finally(() => setIsLoading(false));
                 }}
+              >
+                <Text style={[styles.retryButtonText, { color: theme.colors.accentDefault }]}>Try Again</Text>
+              </TouchableOpacity>
+            </View>
+          ) : searchFailed && query.trim().length > 0 ? (
+            // TICKET-089: search request failed (network/5xx) — show a retryable
+            // error, NOT the "add as custom" empty state (which would let users
+            // create duplicates of exercises that actually exist).
+            <View style={styles.centered}>
+              <Text style={[styles.errorText, { color: theme.colors.statusError }]}>
+                Couldn't search exercises. Check your connection and try again.
+              </Text>
+              <TouchableOpacity
+                style={[styles.retryButton, { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault }]}
+                accessibilityRole="button"
+                accessibilityLabel="Retry search"
+                onPress={() => handleQueryChange(query)}
               >
                 <Text style={[styles.retryButtonText, { color: theme.colors.accentDefault }]}>Try Again</Text>
               </TouchableOpacity>

@@ -139,10 +139,25 @@ function normalizeExercise(raw: RawExercise): Exercise {
 
 interface SetRecord {
   id: string;
+  // NOTE: the server returns weight_kg (decoded), not weight_raw. See below.
   weight_raw: number; // SMALLINT — divide by 8 to get kg
+  weight_kg?: number; // server-decoded kg (normalizeSet)
   reps: number;
-  created_at: string;
+  // TICKET-090: the `sets` column is `logged_at`, not `created_at`.
+  logged_at?: string;
+  created_at?: string; // legacy/fallback
   workout_id: string;
+}
+
+/** Resolve a set's timestamp regardless of which field the API used. */
+function setTimestamp(s: SetRecord): string {
+  return s.logged_at ?? s.created_at ?? '';
+}
+
+/** Resolve a set's weight in kg from either decoded weight_kg or weight_raw. */
+function setKg(s: SetRecord): number {
+  if (typeof s.weight_kg === 'number') return s.weight_kg;
+  return decodeKg(s.weight_raw);
 }
 
 /** Aggregated volume for a single workout session, used in the chart. */
@@ -184,7 +199,7 @@ function computePersonalBest(sets: SetRecord[]): {
   let bestSet: SetRecord | null = null;
 
   for (const s of sets) {
-    const kg = decodeKg(s.weight_raw);
+    const kg = setKg(s);
     const e1rm = epleyE1RM(kg, s.reps);
     if (e1rm > bestE1RM) {
       bestE1RM = e1rm;
@@ -194,8 +209,8 @@ function computePersonalBest(sets: SetRecord[]): {
 
   if (!bestSet) return null;
 
-  const kg = decodeKg(bestSet.weight_raw);
-  const date = new Date(bestSet.created_at);
+  const kg = setKg(bestSet);
+  const date = new Date(setTimestamp(bestSet));
   const dateStr = date.toLocaleDateString('en-GB', {
     day: '2-digit',
     month: 'short',
@@ -219,17 +234,18 @@ function computeSessionVolumes(sets: SetRecord[]): SessionVolume[] {
   const map = new Map<string, { volume: number; timestamp: string }>();
 
   for (const s of sets) {
-    const kg = decodeKg(s.weight_raw);
+    const kg = setKg(s);
     const vol = kg * s.reps;
+    const ts = setTimestamp(s);
     const existing = map.get(s.workout_id);
     if (existing) {
       existing.volume += vol;
       // Keep the earliest set timestamp as the session anchor
-      if (s.created_at < existing.timestamp) {
-        existing.timestamp = s.created_at;
+      if (ts < existing.timestamp) {
+        existing.timestamp = ts;
       }
     } else {
-      map.set(s.workout_id, { volume: vol, timestamp: s.created_at });
+      map.set(s.workout_id, { volume: vol, timestamp: ts });
     }
   }
 

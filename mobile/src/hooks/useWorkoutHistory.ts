@@ -47,6 +47,8 @@ export interface WorkoutHistoryEntry {
 export interface UseWorkoutHistoryResult {
   history: WorkoutHistoryEntry[];
   streak: number;
+  /** TICKET-091: exercise_id → display name, for callers that list lifts. */
+  exerciseNames: Map<string, string>;
   isLoading: boolean;
   error: string | null;
   refetch: () => Promise<void>;
@@ -91,6 +93,7 @@ function computePRIds(allLiftSets: LiftSet[]): Set<string> {
 
 export function useWorkoutHistory(): UseWorkoutHistoryResult {
   const [history, setHistory] = useState<WorkoutHistoryEntry[]>([]);
+  const [exerciseNames, setExerciseNames] = useState<Map<string, string>>(new Map());
   const [streak, setStreak] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -118,6 +121,9 @@ export function useWorkoutHistory(): UseWorkoutHistoryResult {
           exerciseMap.set(ex.id, ex.name);
         }
       }
+      // TICKET-091: publish the id→name map so callers (Trends) can label lifts
+      // by exercise_id instead of guessing from per-day liftNames ordering.
+      setExerciseNames(exerciseMap);
 
       // Fetch sets for all workouts in parallel.
       // TODO(TICKET-027): swap for PowerSync hook
@@ -181,5 +187,5 @@ export function useWorkoutHistory(): UseWorkoutHistoryResult {
     load();
   }, [load]);
 
-  return { history, streak, isLoading, error, refetch: load };
+  return { history, streak, exerciseNames, isLoading, error, refetch: load };
 }

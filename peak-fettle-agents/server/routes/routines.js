@@ -15,21 +15,29 @@ const { pool } = require('../db');
 
 const router = express.Router();
 
+// TICKET-088: exercise_id is OPTIONAL. Template/starter-split exercises and
+// free-typed entries have no library UUID yet — `name` is the display source of
+// truth and exercise_id links to the library only when known. Requiring a UUID
+// here 400'd every "duplicate a starter split" attempt (it sent exercise_id:'').
 const ExerciseEntrySchema = z.object({
-    exercise_id: z.string().uuid(),
+    exercise_id: z.string().uuid().nullable().optional(),
     name:        z.string().min(1).max(100),
     target_sets: z.number().int().min(1).max(20).optional(),
     target_reps: z.string().max(20).optional(), // e.g. "8-12" or "5"
 });
 
+// TICKET-088: an empty exercises array is valid. The "+ New" flow creates a
+// named, empty routine first and the user adds exercises afterward via the
+// editor. The old `.min(1)` rejected `exercises: []` with a 400, breaking every
+// new-routine creation.
 const CreateSchema = z.object({
     name:      z.string().min(1).max(100),
-    exercises: z.array(ExerciseEntrySchema).min(1).max(30),
+    exercises: z.array(ExerciseEntrySchema).max(30).optional().default([]),
 });
 
 const UpdateSchema = z.object({
     name:      z.string().min(1).max(100).optional(),
-    exercises: z.array(ExerciseEntrySchema).min(1).max(30).optional(),
+    exercises: z.array(ExerciseEntrySchema).max(30).optional(),
 });
 
 // GET /routines — list all routines for the authenticated user

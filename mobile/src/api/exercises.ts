@@ -64,22 +64,19 @@ export async function searchExercises(
   limit = 50,
   kind?: ExerciseCategory
 ): Promise<ExerciseSearchResult> {
-  try {
-    const response = await apiClient.get<ExerciseSearchResult>('/exercises/search', {
-      params: { q: query, limit, ...(kind && { kind }) },
-    });
-    return response.data;
-  } catch {
-    // IMPORTANT: do NOT fall back to mock exercises on search failure.
-    // Mock IDs (00000000-...) are valid UUIDs but are NOT rows in the
-    // exercises table on the production DB. Using them as exercise_id on
-    // POST /sets causes a FK violation (500). The same exercise names
-    // (Deadlift, Squat, etc.) exist in both mock and DB under *different*
-    // UUIDs, so a mock search result silently breaks set logging for those
-    // exercises — the user sees the right name but the UUID is wrong.
-    // Return empty results so the "Add as custom" prompt is shown instead.
-    return { results: [], total: 0 };
-  }
+  // TICKET-089: do NOT swallow errors here. Previously any failure returned an
+  // empty result set, which is indistinguishable from "0 genuine matches" — a
+  // backend 500 then presented as "No exercises found / add as custom", letting
+  // users create duplicates of exercises that actually exist. Let the error
+  // propagate so callers can show a distinct, retryable error state.
+  //
+  // IMPORTANT: do NOT fall back to mock exercises on failure. Mock IDs
+  // (00000000-...) are valid UUIDs but are NOT rows in the production exercises
+  // table, so logging a set against one causes a FK violation (500). (TICKET-067)
+  const response = await apiClient.get<ExerciseSearchResult>('/exercises/search', {
+    params: { q: query, limit, ...(kind && { kind }) },
+  });
+  return response.data;
 }
 
 /**

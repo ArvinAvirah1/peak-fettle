@@ -37,7 +37,13 @@ router.get('/search', async (req, res, next) => {
             kindClause = `AND e.category = $${params.length}`;
         }
 
-        const { rows } = await pool.query(
+        // TICKET-089: the alias-aware query joins exercise_aliases. If that table
+        // is missing/unmigrated on the live DB the whole query 500s, and the
+        // client swallows the error → search looks completely dead while browse
+        // still works (browse doesn't touch aliases). Run the alias-aware query
+        // first; on ANY DB error fall back to a name-only search so search always
+        // returns matches rather than failing.
+        const aliasAwareSql =
             `WITH scored AS (
                 SELECT
                     e.id,
@@ -70,9 +76,28 @@ router.get('/search', async (req, res, next) => {
             )
             SELECT DISTINCT ON (id) id, name, category, muscle_groups, is_compound, score
             FROM scored
-            ORDER BY id, score DESC`,
-            params
-        );
+            ORDER BY id, score DESC`;
+
+        const nameOnlySql =
+            `SELECT
+                e.id, e.name, e.category, e.muscle_groups, e.is_compound,
+                CASE
+                    WHEN LOWER(e.name) = LOWER($2) THEN 3
+                    WHEN LOWER(e.name) LIKE LOWER($3) THEN 2
+                    ELSE 1
+                END AS score
+             FROM exercises e
+             WHERE e.name ILIKE $1
+             ${kindClause}`;
+
+        let rows;
+        try {
+            ({ rows } = await pool.query(aliasAwareSql, params));
+        } catch (aliasErr) {
+            console.warn('[PF] /exercises/search alias query failed, falling back to name-only:',
+                aliasErr && aliasErr.message);
+            ({ rows } = await pool.query(nameOnlySql, params));
+        }
 
         rows.sort((a, b) =>
             b.score !== a.score
