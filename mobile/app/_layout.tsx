@@ -145,7 +145,19 @@ function RootNavigator(): React.ReactElement {
   return (
     <>
       <StatusBar style="auto" />
-      <Stack screenOptions={{ headerShown: false }}>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          // Theme the native stack header so screens like Trends / Workout
+          // Templates ("Browse plans") don't show a bare white bar that clashes
+          // with the app theme. Applies to every screen that sets headerShown.
+          headerStyle: { backgroundColor: theme.colors.bgPrimary },
+          headerTintColor: theme.colors.textPrimary,
+          headerTitleStyle: { color: theme.colors.textPrimary },
+          headerShadowVisible: false,
+          contentStyle: { backgroundColor: theme.colors.bgPrimary },
+        }}
+      >
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
