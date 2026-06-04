@@ -330,15 +330,20 @@ function SetRow({ set, setNumber, isBest, unitPref }: SetRowProps): React.ReactE
 
 interface ExerciseHeaderProps {
   name: string;
+  exerciseId: string;
   volumeKg: number;
   unitPref: UnitSystem;
+  onPress: (exerciseId: string, name: string) => void;
 }
 
-function ExerciseHeader({ name, volumeKg, unitPref }: ExerciseHeaderProps): React.ReactElement {
+function ExerciseHeader({ name, exerciseId, volumeKg, unitPref, onPress }: ExerciseHeaderProps): React.ReactElement {
   const { theme: { colors }, spacing, fontSize, fontWeight } = useTheme();
   const volDisplay = formatWeight(volumeKg, unitPref, 0);
   return (
-    <View
+    <TouchableOpacity
+      onPress={() => onPress(exerciseId, name)}
+      accessibilityRole="button"
+      accessibilityLabel={`View progress for ${name}`}
       style={[
         styles.exerciseHeader,
         {
@@ -349,15 +354,21 @@ function ExerciseHeader({ name, volumeKg, unitPref }: ExerciseHeaderProps): Reac
         },
       ]}
     >
-      <Text
-        style={{
-          fontSize: fontSize.bodyLg,
-          fontWeight: fontWeight.bold,
-          color: colors.textPrimary,
-        }}
-      >
-        {name}
-      </Text>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+        <Text
+          style={{
+            fontSize: fontSize.bodyLg,
+            fontWeight: fontWeight.bold,
+            color: colors.textPrimary,
+            flex: 1,
+          }}
+        >
+          {name}
+        </Text>
+        <Text style={{ fontSize: fontSize.caption, color: colors.accentDefault, marginLeft: 8 }}>
+          Trends ›
+        </Text>
+      </View>
       <Text
         style={{
           fontSize: fontSize.caption,
@@ -368,7 +379,7 @@ function ExerciseHeader({ name, volumeKg, unitPref }: ExerciseHeaderProps): Reac
       >
         {`Total: ${volDisplay} volume`}
       </Text>
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -464,6 +475,17 @@ export default function WorkoutDayScreen(): React.ReactElement {
       data: g.sets,
     }));
   }, [dayData]);
+
+  // ── Handlers ─────────────────────────────────────────────────────────────
+
+  const handleExerciseHeaderPress = useCallback(
+    (exerciseId: string, exerciseName: string) => {
+      router.push(
+        ('/trends?exerciseId=' + exerciseId + '&exerciseName=' + encodeURIComponent(exerciseName)) as any
+      );
+    },
+    [router]
+  );
 
   // ── Render ────────────────────────────────────────────────────────────────
 
@@ -618,8 +640,10 @@ export default function WorkoutDayScreen(): React.ReactElement {
           renderSectionHeader={({ section }) => (
             <ExerciseHeader
               name={section.title}
+              exerciseId={section.exerciseId}
               volumeKg={volumeByExercise.get(section.exerciseId) ?? 0}
               unitPref={unitPref}
+              onPress={handleExerciseHeaderPress}
             />
           )}
           renderItem={({ item, index }) => (

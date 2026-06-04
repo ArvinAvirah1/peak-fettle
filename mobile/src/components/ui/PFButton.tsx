@@ -50,6 +50,8 @@ export interface PFButtonProps {
   accessibilityLabel?: string;
   /** Render an icon element before the label. Not used for `icon` variant. */
   icon?: React.ReactNode;
+  /** Optional extra container style (margins, width, etc.). */
+  style?: import('react-native').StyleProp<import('react-native').ViewStyle>;
 }
 
 // ---------------------------------------------------------------------------
@@ -80,6 +82,7 @@ export function PFButton({
   loading = false,
   accessibilityLabel,
   icon,
+  style,
 }: PFButtonProps): React.ReactElement {
   const { theme, fontSize, fontWeight, radius } = useTheme();
   const sizeConf = SIZE_CONFIG[size];
@@ -169,7 +172,7 @@ export function PFButton({
 
   return (
     <TouchableOpacity
-      style={[containerStyle, isDisabled && styles.disabled]}
+      style={[containerStyle, isDisabled && styles.disabled, style]}
       onPress={handlePress}
       disabled={isDisabled}
       activeOpacity={0.75}

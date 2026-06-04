@@ -50,6 +50,8 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '../src/components/Icon';
+import LiftProgressChart from '../src/components/LiftProgressChart';
+import { useAuth } from '../src/hooks/useAuth';
 
 import { useTheme } from '../src/theme/ThemeContext';
 import { PFButton } from '../src/components/ui/PFButton';
@@ -512,11 +514,19 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
   const { theme, fontSize, fontWeight, spacing, radius } = useTheme();
   const colors = theme.colors;
   const router = useRouter();
+  const { user } = useAuth();
+  const unitPref = (user?.unit_pref as 'kg' | 'lbs') ?? 'kg';
+  const [showProgressChart, setShowProgressChart] = React.useState(false);
 
   // Set history state
   const [sets, setSets] = useState<SetRecord[]>([]);
   const [setsLoading, setSetsLoading] = useState(false);
   const [setsError, setSetsError] = useState<string | null>(null);
+
+  // Reset progress chart visibility when exercise changes
+  useEffect(() => {
+    setShowProgressChart(false);
+  }, [exercise?.id]);
 
   // Fetch set history whenever a new exercise is selected
   useEffect(() => {
@@ -551,8 +561,17 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
 
   function handleLogPress(): void {
     onClose();
-    // Small delay so modal dismisses before navigation
-    setTimeout(() => router.push('/(tabs)/log'), 250);
+    // TICKET-084 Home logging contract: navigate to Home tab with logExercise params
+    // so the stepper opens for this exercise directly.
+    setTimeout(() => {
+      if (exercise) {
+        router.push(
+          ('/(tabs)?logExercise=' + exercise.id + '&logExerciseName=' + encodeURIComponent(exercise.name)) as any
+        );
+      } else {
+        router.push('/(tabs)');
+      }
+    }, 250);
   }
 
   if (!exercise) return <></>;
@@ -752,6 +771,33 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
               <VolumeChart sessions={sessionVolumes} />
             )}
           </View>
+
+          {/* View progress section */}
+          <PFButton
+            label={showProgressChart ? 'Hide Progress Chart' : 'View Progress'}
+            onPress={() => setShowProgressChart((v) => !v)}
+            variant="ghost"
+            size="lg"
+            accessibilityLabel={`${showProgressChart ? 'Hide' : 'View'} progress chart for ${exercise.name}`}
+            style={{ marginBottom: spacing.s3 }}
+          />
+          {showProgressChart ? (
+            <View
+              style={{
+                borderRadius: radius.md,
+                overflow: 'hidden',
+                borderWidth: 1,
+                borderColor: colors.borderDefault,
+                marginBottom: spacing.s4,
+              }}
+            >
+              <LiftProgressChart
+                exerciseId={exercise.id}
+                exerciseName={exercise.name}
+                unitPref={unitPref}
+              />
+            </View>
+          ) : null}
 
           {/* Log This Exercise CTA */}
           <PFButton

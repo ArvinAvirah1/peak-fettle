@@ -21,7 +21,7 @@
  */
 
 import React from 'react';
-import { View, TouchableOpacity } from 'react-native';
+import { TouchableOpacity } from 'react-native';
 import { Redirect, Tabs, useRouter } from 'expo-router';
 import { Ionicons } from '../../src/components/Icon';
 import Animated, {
@@ -144,42 +144,7 @@ export default function TabsLayout(): React.ReactElement {
       <Tabs.Screen
         name="log"
         options={{
-          title: 'Log Workout',
-          tabBarLabel: () => null,
-          tabBarIcon: () => null,
-          tabBarButton: (props) => (
-            <TouchableOpacity
-              {...props}
-              style={{
-                top: -18,
-                justifyContent: 'center',
-                alignItems: 'center',
-              }}
-              activeOpacity={0.85}
-            >
-              <View
-                style={{
-                  width: 56,
-                  height: 56,
-                  borderRadius: 28,
-                  backgroundColor: colors.accentDefault,
-                  justifyContent: 'center',
-                  alignItems: 'center',
-                  shadowColor: colors.accentDefault,
-                  shadowOffset: { width: 0, height: 4 },
-                  shadowOpacity: 0.4,
-                  shadowRadius: 8,
-                  elevation: 8,
-                }}
-              >
-                <Ionicons
-                  name="flash"
-                  size={28}
-                  color={theme.components.buttonPrimaryText}
-                />
-              </View>
-            </TouchableOpacity>
-          ),
+          href: null, // hidden from tab bar — redirects to Home
         }}
       />
       <Tabs.Screen

@@ -162,6 +162,7 @@ function RootNavigator(): React.ReactElement {
         <Stack.Screen name="progress" options={{ title: 'Progress', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="workout-day" options={{ title: '', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="workout-history" options={{ title: 'Workout History', headerShown: true, gestureEnabled: true }} />
+        <Stack.Screen name="trends" options={{ title: 'Trends', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="cosmetics" options={{ title: 'Achievements & Shop', headerShown: true, gestureEnabled: true }} />
       </Stack>
     </>
