@@ -136,6 +136,8 @@ export interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>;
   /** Register a new account. Navigates to tabs on success. */
   register: (email: string, password: string, displayName?: string) => Promise<void>;
+  /** Sign in with Apple / Google (TICKET-099). Verified server-side, then a session is established. */
+  loginWithOAuth: (provider: 'google' | 'apple', idToken: string) => Promise<void>;
   /** Sign out. Revokes refresh token, clears all local state, navigates to login. */
   logout: () => Promise<void>;
   /**
@@ -431,6 +433,31 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
   );
 
   // ---------------------------------------------------------------------------
+  // loginWithOAuth() — TICKET-099 (Apple / Google)
+  // ---------------------------------------------------------------------------
+
+  const loginWithOAuth = useCallback(
+    async (provider: 'google' | 'apple', idToken: string): Promise<void> => {
+      if (USE_MOCK_AUTH) {
+        setUser({ ...MOCK_USER });
+        setAccessToken('mock-access-token');
+        router.replace('/(tabs)/');
+        return;
+      }
+      const response = await AuthApi.oauthLogin(provider, idToken);
+      setUser(response.user);
+      setAccessToken(response.accessToken);
+      setPowerSyncToken(response.accessToken);
+      await persistRefreshToken(response.refreshToken);
+      persistUser(response.user);
+      _registerPushToken();
+      // New accounts route through splash -> intro -> onboarding; returning users to tabs.
+      router.replace(response.isNew ? '/splash' : '/(tabs)/');
+    },
+    [persistRefreshToken, persistUser, _registerPushToken]
+  );
+
+  // ---------------------------------------------------------------------------
   // logout()
   // ---------------------------------------------------------------------------
 
@@ -464,6 +491,7 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
     isLoading,
     login,
     register,
+    loginWithOAuth,
     logout,
     updateUser,
   };

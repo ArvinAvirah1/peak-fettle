@@ -43,7 +43,8 @@ import { getTemplates, getTemplate, WorkoutTemplate } from '../../src/api/templa
 import RoutineEditorSheet from '../../src/components/RoutineEditorSheet';
 import { useTourAnchor } from '../../src/components/tour/WelcomeTour'; // TICKET-095
 import ScheduleEditorSheet from '../../src/components/ScheduleEditorSheet'; // TICKET-097
-import { loadSchedule, resolveNextUp, advanceSavedCycle, Schedule, NextUp } from '../../src/data/schedule';
+import { loadSchedule, resolveNextUp, Schedule, NextUp } from '../../src/data/schedule';
+import { localDb } from '../../src/db/localDb'; // TICKET-097: react to schedule changes
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -102,6 +103,14 @@ export default function RoutinesPage(): React.ReactElement {
     setSchedule(await loadSchedule());
   }, []);
   useEffect(() => { reloadSchedule(); }, [reloadSchedule]);
+  // TICKET-097: refresh next-up when the schedule changes — e.g. a workout finished
+  // and advanced the cycle from WorkoutLoggerHost.
+  useEffect(() => {
+    const unsub = localDb.subscribe((tables) => {
+      if (tables.has('schedule')) reloadSchedule();
+    });
+    return unsub;
+  }, [reloadSchedule]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -229,11 +238,9 @@ export default function RoutinesPage(): React.ReactElement {
     }
     const name = routines.find((r) => r.id === nu.slot.routineId)?.name ?? nu.slot.routineName ?? '';
     router.push(`/(tabs)?routineId=${nu.slot.routineId}&routineName=${encodeURIComponent(name)}`);
-    // Cycle advances on START of a slot (Phase 1 semantics — see src/data/schedule.ts).
-    if (schedule?.mode === 'cycle') {
-      advanceSavedCycle().then(reloadSchedule).catch(() => {});
-    }
-  }, [router, routines, schedule, reloadSchedule]);
+    // TICKET-097: advancement is completion-driven (handled in WorkoutLoggerHost on
+    // finish), not on start — starting here does not move the cycle pointer.
+  }, [router, routines]);
 
   const hasSchedule =
     !!schedule && (schedule.cycle.length > 0 || schedule.weekly.some((x) => !!x));

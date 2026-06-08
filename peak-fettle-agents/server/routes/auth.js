@@ -244,6 +244,7 @@ router.post('/oauth', async (req, res, next) => {
             [email]
         );
         let user = rows[0];
+        let isNew = false;
 
         if (!user) {
             // OAuth accounts have no usable password: store a random hash so the
@@ -257,10 +258,11 @@ router.post('/oauth', async (req, res, next) => {
                 [email, randomHash, displayName]
             );
             user = created.rows[0];
+            isNew = true;
         }
 
         const tokens = await issueTokens(user);
-        res.json({ user, ...tokens });
+        res.json({ user, isNew, ...tokens });
     } catch (err) { next(err); }
 });
 

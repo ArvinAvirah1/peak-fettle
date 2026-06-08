@@ -24,6 +24,7 @@ import { useTheme } from '../../src/theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
 import { ScreenLayout, PFButton, PFInput } from '../../src/components/ui';
 import { BrandLogo } from '../../src/components/BrandLogo';
+import { OAuthButtons } from '../../src/components/auth/OAuthButtons'; // TICKET-099
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -184,6 +185,9 @@ export default function RegisterScreen(): React.ReactElement {
       />
 
       {/* Login link */}
+      {/* TICKET-099: Sign in with Apple / Google */}
+      <OAuthButtons />
+
       <View style={styles.footer}>
         <Text style={[styles.footerText, { color: theme.colors.textSecondary }]}>
           Already have an account?
