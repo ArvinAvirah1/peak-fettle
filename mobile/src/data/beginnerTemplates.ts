@@ -80,7 +80,7 @@ export const BEGINNER_EXERCISE_CATALOG: Record<string, BundledExerciseMeta> = {
   'overhead-triceps-extension':{ libraryName: 'Overhead Triceps Extension',   category: 'lift' },
   // Pull
   'lat-pulldown':              { libraryName: 'Lat Pulldown',                 category: 'lift' },
-  'close-grip-lat-pulldown':   { libraryName: 'Lat Pulldown',                 category: 'lift', display: 'Close-Grip Lat Pulldown' },
+  'close-grip-lat-pulldown':   { libraryName: 'Close-Grip Lat Pulldown',      category: 'lift' },
   'seated-cable-row':          { libraryName: 'Seated Cable Row',             category: 'lift' },
   'chest-supported-row':       { libraryName: 'Chest-Supported Dumbbell Row', category: 'lift', display: 'Chest-Supported Row' },
   'face-pull':                 { libraryName: 'Face Pull',                     category: 'lift' },

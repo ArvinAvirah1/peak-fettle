@@ -51,6 +51,7 @@ import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
 import { haptics } from '../utils/haptics';
 import { formatWeight } from '../constants/units';
 import { getRoutine } from '../api/routines';
+import { markRoutineCompleted } from '../data/schedule'; // TICKET-097
 import { createWorkout } from '../api/workouts';
 import { toDateKey } from '../utils/dateHelpers';
 import { getExercises } from '../api/exercises';
@@ -669,9 +670,13 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
             text: 'Finish',
             onPress: () => {
               haptics.success();
+              // TICKET-097: completion-based cycle advance (in-loop routines only).
+              const finishedRoutineId =
+                routineSession?.source === 'routine' ? routineSession.routineId : undefined;
               setStepperVisible(false);
               setRoutineSession(null);
               setSelectedExercise(null);
+              if (finishedRoutineId) markRoutineCompleted(finishedRoutineId).catch(() => {});
               if (onFinish) {
                 onFinish();
               } else {
@@ -681,7 +686,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           },
         ],
       );
-    }, [totalSets, router, onFinish]);
+    }, [totalSets, router, onFinish, routineSession]);
 
     // ── Render ────────────────────────────────────────────────────────────────
 
@@ -798,8 +803,12 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
               onLogCardioSet={handleStepperLogCardioSet}
               onAdvance={handleStepperAdvance}
               onFinish={() => {
+                // TICKET-097: completion-based cycle advance (in-loop routines only).
+                const finishedRoutineId =
+                  routineSession?.source === 'routine' ? routineSession.routineId : undefined;
                 setStepperVisible(false);
                 setRoutineSession(null);
+                if (finishedRoutineId) markRoutineCompleted(finishedRoutineId).catch(() => {});
               }}
               onBrowseLibrary={() => {
                 setStepperVisible(false);

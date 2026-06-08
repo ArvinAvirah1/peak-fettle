@@ -63,11 +63,11 @@ export async function register(
 export async function oauthLogin(
   provider: 'google' | 'apple',
   idToken: string
-): Promise<AuthResponse> {
-  const response = await axios.post<AuthResponse>(`${BASE_URL}/auth/oauth`, {
-    provider,
-    idToken,
-  });
+): Promise<AuthResponse & { isNew?: boolean }> {
+  const response = await axios.post<AuthResponse & { isNew?: boolean }>(
+    `${BASE_URL}/auth/oauth`,
+    { provider, idToken }
+  );
   return response.data;
 }
 

@@ -84,3 +84,32 @@ Full parametric, layered SVG avatar in the Peak Pals style — config is seriali
 - 094: decide object-storage provider + schedule the crypto/transport build with a `security-review`; the export format is ready underneath it.
 - 099: add the two native deps + provider credentials (`GOOGLE_OAUTH_AUDIENCE`/`APPLE_OAUTH_AUDIENCE` + Apple Services ID/key), wire the buttons, dev/EAS build to verify.
 - `npm ci` in the server before running it; review + commit + push as before.
+
+---
+
+# Session 3 addendum — founder decisions implemented (093/094/096/097/098/099)
+
+All verified: parse-sweep clean (144 files), server `node --check` clean, 4 unit suites pass (v3 model, backup engine, tier policy, OAuth verify). New modules are type-clean; the only new tsc errors are the 3 not-yet-installed 099 native modules (resolve on `npx expo install`).
+
+## TICKET-093 — percentile v3 model BUILT + proven (on-device TS)
+- **New** `mobile/src/lib/strengthModelV3.ts` — DOTS (memo §4), the bodyweight-normalized ranked lens (2a), the calibrated DOTS-composite tier (2b), 50/50 undisclosed mixture (D5), provisional partial-total (D4), and the World Class tier ladder (§9). Calibration is fit in-code from the published standards (not hardcoded seeds).
+- **New test** `mobile/__tests__/strength-model-v3.test.js` — 27 assertions, all pass: DOTS reproduces all 5 memo vectors exactly; the in-code lognormal fit reproduces the memo's male SBD params (μ=4.53/σ=0.377, 4.08/0.374, 4.73/0.324); ranked ranks lighter lifters higher; the composite is uniform-calibrated to ±0.1pp.
+- **Remaining:** Lens 1 (experience-adjusted) revisions (heteroscedastic σ, McCulloch/Foster age, per-lift α fit), and wiring the module into the rankings UI (rides with the 094 on-device port).
+
+## TICKET-094 — Supabase + tier policy (founder decisions encoded)
+- **New** `mobile/src/data/backup/tierPolicy.ts` (+ test) — single source of truth: **Pro = server-stored sets / live multi-device sync; free = local-first + E2E blob backup; provider = Supabase; key model unchanged.**
+- **Remaining (supervised build):** AES-256-GCM crypto + keychain/recovery-code handling, the Supabase opaque-blob transport, auto-backup triggers, and the data-layer move — now de-risked since the provider + key model are locked. Route a `security-review`.
+
+## TICKET-097 — advancement reworked to your spec
+- Weekly advances by **calendar day** (resolver). Cycle advances off the **last completed in-loop routine** — `markRoutineCompleted()` is hooked into both stepper finish paths (`WorkoutLoggerHost`), out-of-loop routines are ignored, and starting no longer advances. The Routines next-up strip refreshes reactively via a `localDb` subscription.
+
+## TICKET-098 — library expanded + 1:1 mapping
+- **New migration** `peak-fettle-agents/server/migrations/20260607_expand_exercise_library.sql` — 34 exercises (idempotent `ON CONFLICT (name)`), incl. **Close-Grip Lat Pulldown** (the one bundled gap, now mapped 1:1) plus a deeper common set across every muscle group + 2 cardio.
+- **ACTION:** run this migration against Supabase.
+
+## TICKET-096 — cosmetics confirmed intact
+- The Achievements & Shop entry + `cosmetics.tsx` are unchanged; the avatar coexists.
+
+## TICKET-099 — client sign-in BUILT
+- **New** `mobile/src/components/auth/OAuthButtons.tsx` (Apple + Google) wired into **login + register**; **new** `AuthContext.loginWithOAuth`; client `oauthLogin` + server `/auth/oauth` now return `isNew` (new accounts route through onboarding). Deps added to `package.json`.
+- **ACTION:** `npx expo install expo-apple-authentication expo-auth-session expo-web-browser` (corrects the placeholder versions), set Google client-ID env vars (`EXPO_PUBLIC_GOOGLE_*`) + `GOOGLE_OAUTH_AUDIENCE`/`APPLE_OAUTH_AUDIENCE`, obtain Apple/Google credentials, then a dev/EAS build (Apple auth doesn't run in Expo Go).

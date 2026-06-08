@@ -159,17 +159,19 @@ export function resolveNextUp(schedule: Schedule | null, now: Date = new Date())
 }
 
 /**
- * Advance the cycle pointer by one (wrapping). No-op for weekly schedules
- * (those advance by the calendar). Phase 1 calls this when a slot is STARTED.
+ * Cycle advancement is COMPLETION-driven (founder decision 2026-06-06): the next
+ * slot is the one AFTER the last completed in-loop routine. Weekly schedules
+ * advance by the calendar, so the resolver handles them and this is a no-op.
+ *
+ * Call when a routine workout finishes. Only advances when the completed
+ * routineId is one of the cycle's slots — out-of-loop routines done in the
+ * interim are deliberately ignored.
  */
-export function advanceCycle(schedule: Schedule): Schedule {
-  if (schedule.mode !== 'cycle' || schedule.cycle.length === 0) return schedule;
-  return { ...schedule, position: (schedule.position + 1) % schedule.cycle.length };
-}
-
-/** Persisted convenience: advance the saved cycle and write it back. */
-export async function advanceSavedCycle(): Promise<void> {
+export async function markRoutineCompleted(routineId: string): Promise<void> {
+  if (!routineId) return;
   const s = await loadSchedule();
   if (!s || s.mode !== 'cycle' || s.cycle.length === 0) return;
-  await saveSchedule(advanceCycle(s));
+  const idx = s.cycle.findIndex((slot) => slot.routineId === routineId);
+  if (idx < 0) return; // out-of-loop routine — ignore
+  await saveSchedule({ ...s, position: (idx + 1) % s.cycle.length });
 }
