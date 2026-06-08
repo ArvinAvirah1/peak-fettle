@@ -3,11 +3,12 @@ name: strength_curve_model
 description: Math doc + dev-team handoff for the Peak Fettle percentile ranking calculator. Encodes the multivariate strength-curve model (sex × bodyweight × age × training-years × lift) and the simple gender + bodyweight population comparison. Pairs with compute_percentile.sql and lift_vectors_seed.sql.
 type: technical_doc
 owner: Data Analyst Subteam
-last_reviewed: 2026-05-10
+last_reviewed: 2026-05-27
 model_version: 2
+model_layer: 2.1 (sex-only univariate added; see §4.5)
 ---
 
-# Peak Fettle Strength Curve Model — v2
+# Peak Fettle Strength Curve Model — v2 (+ v2.1 sex-only layer)
 
 This document specifies the equations behind Peak Fettle's percentile ranking system. It is the single source of truth for `compute_percentile.sql`. The dev team consumes (a) this doc, (b) the SQL functions, and (c) the `lift_vectors` seed table — nothing else.
 
@@ -21,7 +22,9 @@ A Peak Fettle user logs a 1RM (or top set converted to 1RM-equivalent) for a giv
 
 **Q2 (population-level):** "Where does this lift place me among ALL strength trainees of my sex at my bodyweight, regardless of how long I have been training?"
 
-Both are answered by the same log-normal framework with different parameter sets from `lift_vectors`.
+**Q3 (sex-only, v2.1):** "How strong is this lift for someone of my sex — full stop, ignoring my bodyweight, age, and experience?" This is the casual-user intuition ("how strong am I for a guy/girl?") and is the score the **overall strength tier** (TICKET-053) sits on top of.
+
+Q1 and Q2 are answered by the same log-normal framework with different parameter sets from `lift_vectors`. Q3 is answered by a third, deliberately simpler equation added in the **v2.1 additive layer** (§4.5) — same log-normal machinery, but with the bodyweight covariate *marginalised out* rather than conditioned on.
 
 ---
 
@@ -175,6 +178,118 @@ This spans the 5th percentile (beginner) to 95th percentile (elite) of the full 
 
 ---
 
+## 4.5 Equation C — Sex-only univariate model (v2.1)
+
+> **Added 2026-05-27 (TICKET-052).** This is an **additive layer**: it does not touch the v2 columns, equations, or the two-score card (TICKET-033). It introduces a *third* lens used by the overall strength tier (TICKET-053).
+
+### 4.5.1 What it answers
+
+Each lift is ranked **only against trainees of the same biological sex** — *no* bodyweight normalisation, *no* age, *no* experience adjustment. It is the unconditional distribution of the **absolute load lifted (kg)** within a sex. A user's **overall strength percentile = the arithmetic mean of their per-lift sex-only percentiles** (§4.5.4).
+
+The equation has the same log-normal form as Equations A and B:
+
+```
+percentile_sex_only = 100 · Φ( (ln(L) − μ_sex) / σ_sex )
+```
+
+where `L` is the lifted load in kg (1RM-equivalent), and `(μ_sex, σ_sex)` is a **sex-keyed** parameter pair per lift (`mu_sex_m / sigma_sex_m`, `mu_sex_f / sigma_sex_f` in `lift_vectors`). Note there is **no bodyweight term** — that is the whole point of this lens.
+
+### 4.5.2 Derivation — marginalising bodyweight out of Equation B
+
+We do **not** need a new dataset. Equation B (§4) already gives the distribution of absolute load *conditional on bodyweight* for a sex:
+
+```
+ln(L) | BW  ~  Normal( pop_mu + α·ln(BW / BW₀),  pop_sigma² )
+```
+
+The sex-only lens wants the **unconditional** distribution of `ln(L)` — i.e. the same load distribution after integrating over the population's bodyweight spread for that sex. Model the population's log-bodyweight as `ln(BW) ~ Normal(ln G, s²)`, where `G` is the **geometric-mean bodyweight** of same-sex trainees and `s` is the SD of `ln(BW)`. Then, since the conditional mean is linear in `ln(BW)` and the conditional noise `ε ~ Normal(0, pop_sigma²)` is independent of `BW`:
+
+```
+ln(L) = pop_mu − α·ln(BW₀) + α·ln(BW) + ε
+```
+
+A normal (the noise) mixed over a normal location (`α·ln BW`) is itself normal, so the marginal is **closed-form log-normal**:
+
+```
+μ_sex   = pop_mu + α·ln(G / BW₀)
+σ_sex   = sqrt( α²·s²  +  pop_sigma² )
+```
+
+Two intuitions fall out cleanly:
+- **The marginal median `exp(μ_sex)` equals the conditional median of a lifter at the geometric-mean bodyweight `G`.** "The typical lift for a typical-sized member of that sex."
+- **`σ_sex` is strictly wider than `pop_sigma`** — it absorbs the extra spread from people being different sizes (`α²·s²`). This is correct: ignoring bodyweight *should* make the population look more spread out.
+
+This keeps the v2.1 layer fully analytical from the already-fitted v2 model + one population BW prior per sex — no re-fit, no external data, consistent with M3 (allometric) and M9 (vector + single function).
+
+### 4.5.3 Population bodyweight priors (analyst decision)
+
+Per M11, these are decisions made by the analyst, not estimated from Peak Fettle data (which is not yet large enough). They are grounded in the trained-adult bodyweight distributions behind the v2 source datasets (OpenPowerlifting weight-class spread, Strength Level self-reported demographics, NHANES adult anthropometry as an outer bound), chosen to be moderate and to be re-fit on first-party data later:
+
+| Sex | Geometric-mean BW `G` | SD of ln(BW) `s` | Reference `BW₀` |
+|-----|----------------------|------------------|-----------------|
+| M   | 85.0 kg              | 0.17             | 75 kg           |
+| F   | 68.0 kg              | 0.18             | 65 kg           |
+
+`s = 0.17–0.18` corresponds to a bodyweight coefficient-of-variation of ≈17–18% — i.e. the middle ~68% of same-sex trainees fall within roughly ±18% of the geometric mean (M: ~72–101 kg; F: ~57–81 kg). The tails of the sex-only percentile are **sensitive to `s`** (it enters `σ_sex` quadratically); this is flagged in §7.
+
+### 4.5.4 Resulting parameters (direct-fit base lifts)
+
+Computed from the v2 `pop_mu / pop_sigma` (see `lift_vectors_seed.sql`) via §4.5.2, `α = 0.667`:
+
+| Lift | Sex | μ_sex | exp(μ_sex) = median (kg) | σ_sex |
+|------|-----|-------|--------------------------|-------|
+| back_squat | M | 4.8063 | 122.3 | 0.3832 |
+| back_squat | F | 4.2045 | 67.0 | 0.3822 |
+| bench_press | M | 4.4010 | 81.5 | 0.3527 |
+| bench_press | F | 3.8483 | 46.9 | 0.4128 |
+| deadlift | M | 4.9606 | 142.7 | 0.3277 |
+| deadlift | F | 4.4276 | 83.7 | 0.3549 |
+| overhead_press | M | 3.9702 | 53.0 | 0.3145 |
+| overhead_press | F | 3.4060 | 30.1 | 0.4194 |
+| barbell_row | M | 4.2957 | 73.4 | 0.3527 |
+| barbell_row | F | 3.7425 | 42.2 | 0.4128 |
+
+**Accessory / inherited lifts** carry `NULL` sex-only params and resolve at query time exactly like `mu` / `pop_mu`: `μ_sex_child = μ_sex_parent + ln(inheritance_ratio)`, `σ_sex` inherited unchanged (a multiplicative ratio shifts the log-median but not the log-spread).
+
+**Undisclosed sex** mirrors the existing `μ_mid / σ_mid` convention: average the two sex curves, `μ_mid = (μ_sex_m + μ_sex_f)/2`, `σ_mid = (σ_sex_m + σ_sex_f)/2`.
+
+### 4.5.5 Worked example — one per sex
+
+**Male, 100 kg bench press:**
+```
+z = (ln(100) − 4.4010) / 0.3527 = (4.6052 − 4.4010) / 0.3527 = 0.579
+percentile_sex_only = 100·Φ(0.579) = 71.9
+```
+A 100 kg (≈225 lb) bench places a man in the **~72nd percentile of all male trainees**, regardless of his bodyweight.
+
+**Female, 60 kg bench press:**
+```
+z = (ln(60) − 3.8483) / 0.4128 = (4.0943 − 3.8483) / 0.4128 = 0.596
+percentile_sex_only = 100·Φ(0.596) = 72.4
+```
+A 60 kg (≈132 lb) bench places a woman in the **~72nd percentile of all female trainees**.
+
+### 4.5.6 Overall strength percentile (aggregation)
+
+```
+overall_strength_percentile(user) = mean over the user's logged lifts of
+                                     percentile_sex_only(lift, sex, best_e1RM_lift)
+```
+
+Input = the same **best e1RM per lift** the weekly batch already derives (`v_user_lift_inputs`). The mean is **unweighted** (founder said "mean"; squat/bench/deadlift weighting is a possible future refinement, not in scope).
+
+**Minimum-lifts rule (stability).** A single PR on one lift should not crown someone — the mean of one number is volatile and easily gamed. The SQL function returns a value for **≥1 lift**, but the **tier (TICKET-053) should only be *shown* once the user has ≥ N distinct logged lifts**. Recommended **N = 3** (squat/bench/deadlift is the natural floor). This is a founder-tunable open decision (see §4.5.7); `overall_strength_percentile_detail()` returns `n_lifts` and a `min_lifts_met` boolean so TICKET-053 can gate the UI without re-deriving the threshold.
+
+Worked overall example — a man logging squat 140 / bench 100 / deadlift 180 kg: per-lift sex-only percentiles 63.8 / 71.9 / 76.1 → **overall 70.6** (→ "Gold" on the proposed TICKET-053 ladder).
+
+### 4.5.7 Open decisions for the founder (flagged, not blocking the math)
+
+- **Min distinct lifts before a tier shows:** defaulting to **3**. Lower (1–2) makes early tiers noisy; higher (4–5) delays the reward.
+- **Per-lift weighting:** unweighted mean as specified. A squat/bench/deadlift-weighted variant is a clean future extension.
+- **Population BW priors (`G`, `s`):** the §4.5.3 values are analyst defaults; re-fit once Peak Fettle has a representative same-sex bodyweight sample.
+
+---
+
 ## 5. Calibration anchors
 
 ### Strength standards table (calibration source)
@@ -240,6 +355,23 @@ The piecewise-linear approximation is a deliberate simplification. Maximum devia
 
 ---
 
+### Sex-only (v2.1) calibration sanity table
+
+Load (kg) at each sex-only percentile, from the §4.5.4 parameters (`z₅₀=0`, `z₉₀=1.282`, `z₉₉=2.326`, `z₉₉․₉=3.090`). Smell-tested against known absolute-load standards (these are *not* bodyweight-normalised, so the upper tail includes heavyweights):
+
+| Lift | Sex | P50 | P90 | P99 | P99.9 | Smell test |
+|------|-----|-----|-----|-----|-------|-----------|
+| back_squat | M | 122 | 200 | 298 | 400 | P50≈intermediate at mean BW; P99.9 ≈ elite raw squat (heavyweight) ✓ |
+| back_squat | F | 67 | 109 | 163 | 218 | P90 ≈ strong female raw squat ✓ |
+| bench_press | M | 82 | 128 | 185 | 243 | P50 ≈ 180 lb median trained male bench ✓; P99 ≈ 408 lb (elite) ✓ |
+| bench_press | F | 47 | 80 | 123 | 168 | P99 ≈ 270 lb — near female raw records, top 1% ✓ |
+| deadlift | M | 143 | 217 | 306 | 393 | P99.9 ≈ 866 lb — elite raw pull ✓ |
+| deadlift | F | 84 | 132 | 191 | 251 | P90 ≈ 291 lb strong female pull ✓ |
+| overhead_press | M | 53 | 79 | 110 | 140 | P50 ≈ 117 lb; P99 ≈ 243 lb strict press (elite) ✓ |
+| overhead_press | F | 30 | 52 | 80 | 110 | P90 ≈ 114 lb strict press ✓ |
+
+The medians land at roughly the v2 *intermediate* standard scaled to the population geometric-mean bodyweight (e.g. male squat 122 kg ≈ 1.5×BW evaluated allometrically at 85 kg) — which is exactly what an unconditional same-sex median should be. The 99.9th-percentile loads are deliberately extreme (top 1-in-1000 of *all* same-sex trainees, weight-class-blind) and are the basis for the "Grand Champ ≥ 99.9" tier band; they remain sensitive to the assumed BW spread `s` (§7).
+
 ## 6. Boundary cases and clamping
 
 - **BW out of range:** clamp to [40, 210] for M and [40, 150] for F; return result with `extrapolated: true` flag.
@@ -267,6 +399,10 @@ The piecewise-linear approximation is a deliberate simplification. Maximum devia
 7. **Accessory inheritance accuracy.** Lifts marked `inheritance_mode = TRUE` carry ≈10–15% accuracy hit vs. direct fits. Acceptable until Peak Fettle has ≥5,000 logged sets per accessory lift.
 
 8. **1RM input assumption.** This model expects a true 1RM. For multi-rep entries, convert via Epley (`1RM ≈ w × (1 + reps/30)`) at the client layer; accuracy degrades above 5 reps (±5% noise).
+
+9. **Sex-only layer (v2.1) tail sensitivity.** `σ_sex` depends on the assumed population bodyweight spread `s` (§4.5.3), which enters as `α²·s²`. The median and lower-middle percentiles are robust, but the 99th/99.9th loads — and therefore where the Diamond/Champ/Grand-Champ tier cutoffs land — shift if `s` is mis-specified. The §4.5.3 priors (`s = 0.17` M, `0.18` F) are deliberately moderate analyst defaults; re-fit on a representative same-sex bodyweight sample once Peak Fettle's dataset supports it. The marginal-normal assumption is exact only if `ln(BW)` is normal within sex; real bodyweight is mildly right-skewed, so the very top tail is approximate.
+
+10. **Sex-only layer ignores bodyweight by design — not a bug.** A 60 kg woman and a 90 kg woman lifting the same absolute load score identically on the sex-only lens. This is intended (it is the "how strong for a girl/guy, full stop" question, Q3), but it means a light lifter who is elite *for their size* can score mid-pack on the sex-only lens. The experience-adjusted (Equation A) and BW-normalised population (Equation B) lenses remain available and should stay surfaced for that reason.
 
 ---
 

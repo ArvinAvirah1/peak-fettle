@@ -39,6 +39,7 @@ import { useAuth } from '../src/hooks/useAuth';
 import { ThemeProvider, useTheme, ThemeName } from '../src/theme/ThemeContext';
 import { patchProfile } from '../src/api/user';
 import { registerForPushNotificationsAsync } from '../src/services/pushNotifications';
+import { TourProvider } from '../src/components/tour/WelcomeTour'; // TICKET-095
 
 // ---------------------------------------------------------------------------
 // Root-level Error Boundary (2026-05-28)
@@ -145,6 +146,9 @@ function RootNavigator(): React.ReactElement {
   return (
     <>
       <StatusBar style="auto" />
+      {/* TICKET-095: TourProvider wraps the Stack so the coach-mark overlay can
+          render above the tabs and drive navigation as the user steps through. */}
+      <TourProvider>
       <Stack
         screenOptions={{
           headerShown: false,
@@ -177,6 +181,7 @@ function RootNavigator(): React.ReactElement {
         <Stack.Screen name="trends" options={{ title: 'Trends', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="cosmetics" options={{ title: 'Achievements & Shop', headerShown: true, gestureEnabled: true }} />
       </Stack>
+      </TourProvider>
     </>
   );
 }

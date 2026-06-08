@@ -1,0 +1,748 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Peak Fettle Lesson · Relational Modeling & the Postgres Schema</title>
+<!--
+  ============================================================================
+  PEAK FETTLE CODEBASE CURRICULUM — INTERACTIVE LESSON SHELL (reusable engine)
+  L04 — generated from lesson_app_template.html. Engine UNCHANGED.
+  Only LESSON_META / SECTIONS / QUIZ / custom-widget were filled.
+  Grounded in migrations/20260430_initial_schema.sql (read fresh 2026-05-24).
+  ============================================================================
+-->
+<style>
+  :root{
+    --bg:#0f1419; --panel:#1a2129; --panel-2:#222b35; --ink:#e8edf2; --muted:#94a3b8;
+    --line:#2c3947; --accent:#3ba776; --accent-ink:#0f1419; --warn:#e0a458; --bad:#d96a6a;
+    --good:#5fbf8f; --radius:14px; --maxw:820px;
+  }
+  @media (prefers-color-scheme: light){
+    :root{ --bg:#f4f6f8; --panel:#ffffff; --panel-2:#eef2f6; --ink:#1a2129; --muted:#5a6b7b;
+           --line:#dbe3ea; --accent:#2f8c61; --accent-ink:#ffffff; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:24px 18px 96px;}
+  header.lh{display:flex;align-items:center;gap:12px;margin-bottom:6px;}
+  .logo{width:30px;height:30px;flex:0 0 auto}
+  .eyebrow{color:var(--accent);font-weight:700;letter-spacing:.04em;text-transform:uppercase;font-size:12px;}
+  h1{font-size:25px;margin:.1em 0 .2em;line-height:1.2}
+  .sub{color:var(--muted);font-size:14px;margin-bottom:18px}
+  .progress{height:6px;background:var(--panel-2);border-radius:99px;overflow:hidden;margin:14px 0 22px}
+  .progress > i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s ease}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:22px 22px 18px;margin:0 0 18px;box-shadow:0 1px 0 rgba(0,0,0,.04)}
+  .card h2{margin:.1em 0 .5em;font-size:19px}
+  .card h3{font-size:15px;margin:1.1em 0 .3em;color:var(--accent)}
+  .badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:99px;
+    background:var(--panel-2);color:var(--muted);border:1px solid var(--line);vertical-align:middle}
+  .badge.b5{background:rgba(59,167,118,.16);color:var(--good);border-color:transparent}
+  pre{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:13px 14px;
+    overflow:auto;font:13px/1.5 "SF Mono",ui-monospace,Menlo,Consolas,monospace;color:var(--ink)}
+  code{font:13px/1.4 "SF Mono",ui-monospace,Menlo,Consolas,monospace;background:var(--panel-2);
+    padding:1px 5px;border-radius:5px}
+  pre code{background:none;padding:0}
+  .diagram{display:block;margin:14px auto;max-width:100%}
+  .note{border-left:3px solid var(--accent);padding:6px 0 6px 14px;color:var(--muted);margin:12px 0}
+  .check{background:var(--panel-2);border:1px dashed var(--line);border-radius:10px;padding:14px;margin-top:16px}
+  .check .q{font-weight:600;margin-bottom:10px}
+  textarea,input[type=text]{width:100%;background:var(--bg);color:var(--ink);border:1px solid var(--line);
+    border-radius:9px;padding:10px 12px;font:14px/1.5 inherit;resize:vertical}
+  textarea{min-height:84px}
+  .opts label{display:block;background:var(--bg);border:1px solid var(--line);border-radius:9px;
+    padding:9px 12px;margin:6px 0;cursor:pointer}
+  .opts input{margin-right:9px}
+  button{font:inherit;font-weight:600;border:none;border-radius:10px;padding:10px 16px;cursor:pointer;
+    background:var(--accent);color:var(--accent-ink)}
+  button.ghost{background:var(--panel-2);color:var(--ink);border:1px solid var(--line)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .nav{display:flex;justify-content:space-between;gap:10px;margin-top:6px}
+  .feedback{margin-top:10px;font-size:14px}
+  .feedback.ok{color:var(--good)} .feedback.no{color:var(--warn)}
+  .quiz-item{border-top:1px solid var(--line);padding-top:16px;margin-top:16px}
+  .quiz-item:first-child{border-top:none;margin-top:0;padding-top:0}
+  .qprompt{font-weight:600;margin:6px 0 10px}
+  #grade-status{margin-top:14px;font-size:14px;color:var(--muted);white-space:pre-wrap}
+  .grade-box{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:14px;margin-top:14px;display:none}
+  .hidden{display:none}
+  .pill{font-size:11px;color:var(--muted)}
+  details{margin-top:10px} summary{cursor:pointer;color:var(--accent);font-weight:600}
+  .rubric{font-size:13px;color:var(--muted)}
+  .erow{display:flex;align-items:center;gap:10px;background:var(--bg);border:1px solid var(--line);
+    border-radius:9px;padding:8px 12px;margin:6px 0;transition:opacity .35s ease}
+  .erow b{font-size:12px;letter-spacing:.03em}
+  .erow .tag{font-size:11px;color:var(--muted)}
+  footer{color:var(--muted);font-size:12px;text-align:center;margin-top:30px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="lh">
+    <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M2 26 L11 9 L17 19 L21 12 L30 26 Z" fill="none" stroke="var(--accent)" stroke-width="2.4" stroke-linejoin="round"/>
+    </svg>
+    <div>
+      <div class="eyebrow">Peak Fettle · Codebase Curriculum</div>
+    </div>
+  </header>
+  <h1 id="lesson-title">Relational Modeling &amp; the Postgres Schema</h1>
+  <div class="sub" id="lesson-sub"></div>
+  <div class="progress"><i id="bar"></i></div>
+
+  <main id="stage"><!-- sections render here --></main>
+
+  <div class="nav">
+    <button class="ghost" id="prev" onclick="PF.prev()">← Back</button>
+    <button id="next" onclick="PF.next()">Next →</button>
+  </div>
+
+  <footer>Self-paced · your answers stay in this page until you choose to grade them.</footer>
+</div>
+
+<!-- ========================================================================
+     >>> FILL <<<  (1 of 3)  LESSON_META
+     ===================================================================== -->
+<script id="lesson-meta">
+const LESSON_META = {
+  id: "L04",
+  title: "Relational Modeling & the Postgres Schema",
+  subtitle: "Track 1 — the data layer · ~60 min · prereqs: L01–L03",
+};
+</script>
+
+<!-- ========================================================================
+     >>> FILL <<<  (2 of 3)  SECTIONS  (segmenting — one concept per card)
+     ===================================================================== -->
+<script id="lesson-sections">
+const SECTIONS = [
+  {
+    title: "From object to table — the same noun, re-expressed",
+    html: `
+      <p>You already know the <code>Set</code> from L01: an in-memory C++ object with
+      <code>weight</code>, <code>reps</code>, <code>rir</code>, a <code>kind</code> tag.
+      Postgres stores that <em>same noun</em> a different way. Think of a <b>table</b> as a
+      class <em>definition</em> (the columns are the fields) and each <b>row</b> as one
+      instance (one logged set). The database is a filing cabinet of these instances that
+      survives after the app closes.</p>
+      <h3>The real <code>sets</code> table (initial_schema.sql)</h3>
+      <pre><code>CREATE TABLE sets (
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    workout_id          UUID NOT NULL REFERENCES workouts(id) ON DELETE CASCADE,
+    user_id             UUID NOT NULL REFERENCES users(id)   ON DELETE CASCADE,
+    exercise_id         UUID NOT NULL REFERENCES exercises(id),
+    kind                TEXT NOT NULL CHECK (kind IN ('lift','cardio')),
+    set_index           SMALLINT NOT NULL,
+    -- LIFT fields (NULL for cardio)
+    reps                SMALLINT,
+    weight_kg           NUMERIC(6,2),
+    rir                 SMALLINT,   -- -1 = not recorded, 0 = to failure
+    rpe                 SMALLINT,   -- legacy, read-only
+    -- CARDIO fields (NULL for lift)
+    duration_sec        INTEGER,
+    distance_m          NUMERIC(8,2),
+    avg_pace_sec_per_km NUMERIC(6,2),
+    logged_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    ...
+);</code></pre>
+      <p class="note">Notice the same design decisions from L01 surviving into the DB:
+      RIR is the live effort field; <code>rpe</code> is kept but marked legacy/read-only.
+      The schema is the C++ model wearing a relational costume.</p>
+    `,
+    check: {
+      prompt: "In one line: what is the row-vs-table relationship, in terms of the C++ Set you learned in L01?",
+      type: "free"
+    }
+  },
+  {
+    title: "Primary keys — the identity of a row",
+    html: `
+      <p>Every row needs a way to be named uniquely. That is the <b>primary key</b>.
+      In Peak Fettle it is almost always a <code>UUID</code> generated by the database:</p>
+      <pre><code>id UUID PRIMARY KEY DEFAULT gen_random_uuid()</code></pre>
+      <p>Three things this buys you: (1) no two rows can share an <code>id</code>;
+      (2) lookups by <code>WHERE id = ?</code> are automatically indexed and fast;
+      (3) the value is generated <em>without coordination</em> — a phone logging offline
+      can mint a UUID locally and it will not collide with the server's. That last point is
+      exactly why a 128-bit UUID is chosen over a simple auto-incrementing integer: an
+      offline-first app (L16) cannot ask a central counter "what's the next number?".</p>
+      <svg class="diagram" viewBox="0 0 360 70">
+        <rect x="6" y="14" width="348" height="42" rx="8" fill="none" stroke="var(--line)" stroke-width="1.5"/>
+        <rect x="6" y="14" width="150" height="42" rx="8" fill="rgba(59,167,118,.16)" stroke="var(--accent)" stroke-width="1.8"/>
+        <text x="81" y="33" fill="var(--ink)" font-size="11" text-anchor="middle">id (PK, UUID)</text>
+        <text x="81" y="48" fill="var(--muted)" font-size="10" text-anchor="middle">550e8400-...0001</text>
+        <text x="255" y="33" fill="var(--ink)" font-size="11" text-anchor="middle">reps / weight_kg / ...</text>
+        <text x="255" y="48" fill="var(--muted)" font-size="10" text-anchor="middle">the rest of the row</text>
+      </svg>
+    `,
+    check: {
+      prompt: "Why does Peak Fettle prefer a UUID over an auto-increment integer primary key?",
+      type: "mc",
+      options: [
+        "UUIDs are shorter and save storage",
+        "A client can generate a unique id offline with no central counter, avoiding collisions on sync",
+        "Auto-increment integers cannot be primary keys in Postgres"
+      ],
+      answerIndex: 1,
+      why: "Offline-first (L16) means a phone must mint ids locally; a 128-bit random UUID won't collide with the server's. UUIDs are actually larger, not smaller — the trade is space for coordination-free uniqueness."
+    }
+  },
+  {
+    title: "Foreign keys & ON DELETE CASCADE — how rows relate",
+    html: `
+      <p>A <b>foreign key</b> is a column that points at another table's primary key. It turns
+      a pile of separate tables into a connected graph. Peak Fettle's core shape is a
+      <em>one-to-many hierarchy</em>: one user has many workouts; one workout has many sets;
+      one exercise (from the global library) is referenced by many sets across all users.</p>
+      <svg class="diagram" viewBox="0 0 380 150">
+        <rect x="150" y="6" width="80" height="30" rx="7" fill="none" stroke="var(--accent)" stroke-width="1.8"/>
+        <text x="190" y="25" fill="var(--ink)" font-size="12" text-anchor="middle">users</text>
+        <line x1="190" y1="36" x2="190" y2="58" stroke="var(--line)" stroke-width="1.5"/>
+        <text x="205" y="52" fill="var(--muted)" font-size="9">1‑to‑many</text>
+        <rect x="150" y="58" width="80" height="30" rx="7" fill="none" stroke="var(--accent)" stroke-width="1.8"/>
+        <text x="190" y="77" fill="var(--ink)" font-size="12" text-anchor="middle">workouts</text>
+        <line x1="190" y1="88" x2="190" y2="110" stroke="var(--line)" stroke-width="1.5"/>
+        <rect x="150" y="110" width="80" height="30" rx="7" fill="none" stroke="var(--accent)" stroke-width="1.8"/>
+        <text x="190" y="129" fill="var(--ink)" font-size="12" text-anchor="middle">sets</text>
+        <rect x="285" y="110" width="86" height="30" rx="7" fill="none" stroke="var(--warn)" stroke-width="1.8"/>
+        <text x="328" y="129" fill="var(--ink)" font-size="12" text-anchor="middle">exercises</text>
+        <line x1="285" y1="125" x2="230" y2="125" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="3 3"/>
+      </svg>
+      <pre><code>workout_id  UUID NOT NULL REFERENCES workouts(id) ON DELETE CASCADE,
+user_id     UUID NOT NULL REFERENCES users(id)    ON DELETE CASCADE,
+exercise_id UUID NOT NULL REFERENCES exercises(id),</code></pre>
+      <p><b>ON DELETE CASCADE</b> means: delete a parent row and the database automatically
+      deletes the children that reference it. Delete a user and their workouts and sets go
+      with them — no orphaned rows pointing at a user that no longer exists, and no manual
+      delete-in-the-right-order dance. (Notice <code>exercise_id</code> has NO cascade: the
+      global exercise library must survive even when a user is deleted.)</p>
+      <h3>Try it: a cascade delete</h3>
+      <p>Below is one user and the rows that reference them. Press the button and watch the
+      cascade.</p>
+      <div id="cascade-mount">
+        <div class="erow" data-cascade="root"><b>users</b><span class="tag">id = user_42 · "Marcus"</span></div>
+        <div class="erow" data-cascade="child" style="margin-left:22px"><b>workouts</b><span class="tag">workout_9 → user_42</span></div>
+        <div class="erow" data-cascade="child" style="margin-left:44px"><b>sets</b><span class="tag">set_a → workout_9 (squat 100×5)</span></div>
+        <div class="erow" data-cascade="child" style="margin-left:44px"><b>sets</b><span class="tag">set_b → workout_9 (squat 100×5)</span></div>
+        <div class="erow" data-cascade="child" style="margin-left:44px"><b>sets</b><span class="tag">set_c → workout_9 (bench 80×5)</span></div>
+        <div class="erow" data-cascade="keep"><b>exercises</b><span class="tag">squat / bench — global, NOT cascaded</span></div>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:8px">
+        <button id="cascade-btn">DELETE FROM users WHERE id = 'user_42'</button>
+        <button class="ghost" id="cascade-reset">Reset</button>
+      </div>
+      <div class="feedback ok" id="cascade-note" style="min-height:18px"></div>
+    `,
+    check: {
+      prompt: "When the user is deleted, why do the squat/bench rows in 'exercises' survive while the sets do not?",
+      type: "mc",
+      options: [
+        "exercises has no foreign key to users and its references use no cascade — it's a shared global library",
+        "exercises rows are protected because they are older",
+        "All child rows are always deleted; the demo is wrong"
+      ],
+      answerIndex: 0,
+      why: "Sets reference workouts/users with ON DELETE CASCADE, so they fall when the user falls. exercise_id deliberately omits cascade because the library is shared across all users and must persist."
+    }
+  },
+  {
+    title: "CHECK constraints — the discriminated union, in SQL",
+    html: `
+      <p>In L01/L02 a <code>Set</code> was a tagged union: a <code>kind</code> field decided
+      whether the lift fields or the cardio fields were the valid ones. Postgres has no native
+      union type, so the schema reconstructs the same guarantee with two CHECK constraints —
+      business rules the database refuses to violate, no matter what the app sends.</p>
+      <pre><code>kind TEXT NOT NULL CHECK (kind IN ('lift','cardio')),
+...
+CHECK (
+    (kind = 'lift'   AND reps IS NOT NULL AND weight_kg IS NOT NULL)
+    OR
+    (kind = 'cardio' AND duration_sec IS NOT NULL)
+)</code></pre>
+      <p>The first CHECK makes <code>kind</code> behave like an enum. The second is the
+      <em>discriminator rule</em>: a lift row must carry reps and weight; a cardio row must
+      carry a duration. A bug in the client that tries to insert <code>kind='lift'</code> with
+      no weight is rejected at the source — the bad state is impossible to store, not merely
+      discouraged.</p>
+      <p class="note">This is the database as a second line of defense. Validation in the API
+      (L08, with <code>zod</code>) can be bypassed by a bad deploy; the CHECK cannot.</p>
+    `,
+    check: {
+      prompt: "What guarantee does the second CHECK enforce that a plain 'kind' enum column alone would not?",
+      type: "free"
+    }
+  },
+  {
+    title: "Normalization — and the one place Peak Fettle deliberately breaks it",
+    html: `
+      <p><b>Normalization</b> is the discipline of storing each fact exactly once.
+      <em>1NF</em>: every column holds a single atomic value (one exercise per set row, not an
+      array of exercise names). <em>3NF</em>: a non-key column must depend on the key and
+      nothing but the key — so you do <u>not</u> copy <code>exercises.name</code> into
+      <code>sets</code>; you store <code>exercise_id</code> and JOIN to fetch the name. One
+      source of truth means a rename happens in one place.</p>
+      <pre><code>-- normalized: store the reference, join for the name
+SELECT s.*, e.name
+FROM sets s
+JOIN exercises e ON s.exercise_id = e.id;</code></pre>
+      <h3>The deliberate denormalization</h3>
+      <p><code>sets.user_id</code> is technically redundant — you could reach the user via
+      <code>workout_id → workouts.user_id</code>. But the schema stores it directly anyway:</p>
+      <pre><code>user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,</code></pre>
+      <p>Why break the rule here? Because <em>every</em> query on sets needs the user — the
+      Row-Level Security policy (L06) filters with <code>auth.uid() = user_id</code>, and the
+      hottest index is keyed on <code>user_id</code>. Joining to workouts on every read just to
+      recover a value you always need is a tax you pay forever. The redundancy is a documented,
+      intentional trade: a little duplication to remove a join from the hot path.</p>
+    `,
+    check: {
+      prompt: "Storing exercise_name in sets would violate 3NF, but storing user_id (also derivable) is accepted. What makes one a mistake and the other a sound choice?",
+      type: "mc",
+      options: [
+        "user_id is on the read-and-RLS hot path so the join cost is paid constantly; exercise_name changes rarely and is cheaply joined when needed",
+        "exercise_name is longer so it wastes more space",
+        "There is no real difference; both are equally fine"
+      ],
+      answerIndex: 0,
+      why: "Denormalization is justified by access pattern, not by gut feel. user_id is needed on every set query (RLS + index), so duplicating it removes a perpetual join. exercise_name isn't on that hot path, so copying it just creates an update-anomaly risk for no payoff."
+    }
+  },
+  {
+    title: "Indexes — why some queries are instant and some crawl",
+    html: `
+      <p>An <b>index</b> is a sorted side-structure (usually a B-tree) that lets Postgres jump
+      to matching rows in <em>logarithmic</em> time instead of scanning every row. Without the
+      right index, "all of user X's sets, newest first" reads the entire table. With it, the
+      database walks down a tree to user X and reads rows already in date order.</p>
+      <pre><code>CREATE INDEX idx_sets_user_logged ON sets(user_id, logged_at DESC);
+CREATE INDEX idx_sets_workout     ON sets(workout_id, set_index);
+CREATE INDEX idx_sets_exercise    ON sets(exercise_id);</code></pre>
+      <svg class="diagram" viewBox="0 0 360 120">
+        <rect x="140" y="6" width="80" height="26" rx="6" fill="none" stroke="var(--accent)" stroke-width="1.6"/>
+        <text x="180" y="23" fill="var(--ink)" font-size="10" text-anchor="middle">user_id ranges</text>
+        <line x1="180" y1="32" x2="80" y2="52" stroke="var(--line)"/><line x1="180" y1="32" x2="180" y2="52" stroke="var(--line)"/><line x1="180" y1="32" x2="280" y2="52" stroke="var(--line)"/>
+        <rect x="40" y="52" width="80" height="24" rx="6" fill="none" stroke="var(--line)" stroke-width="1.4"/><text x="80" y="68" fill="var(--muted)" font-size="10" text-anchor="middle">u1</text>
+        <rect x="140" y="52" width="80" height="24" rx="6" fill="rgba(59,167,118,.16)" stroke="var(--accent)" stroke-width="1.6"/><text x="180" y="68" fill="var(--ink)" font-size="10" text-anchor="middle">u2 ← here</text>
+        <rect x="240" y="52" width="80" height="24" rx="6" fill="none" stroke="var(--line)" stroke-width="1.4"/><text x="280" y="68" fill="var(--muted)" font-size="10" text-anchor="middle">u3</text>
+        <rect x="140" y="90" width="80" height="22" rx="6" fill="none" stroke="var(--accent)" stroke-width="1.3"/><text x="180" y="105" fill="var(--muted)" font-size="9" text-anchor="middle">logged_at DESC</text>
+      </svg>
+      <p>The leftmost column rules a <b>composite</b> index. <code>(user_id, logged_at DESC)</code>
+      is sorted by user first, then by date within each user — so it powers
+      <code>WHERE user_id = ? ORDER BY logged_at DESC</code> beautifully. But a query that
+      filters only on <code>logged_at</code> (no <code>user_id</code>) <em>cannot</em> use it —
+      there is no way to jump to a date without first choosing a user. This "leading column"
+      rule is the single most common index gotcha.</p>
+      <p class="note">Indexes are not free: every INSERT/UPDATE must also update the index, and
+      it costs disk. Peak Fettle keeps ~12 indexes total — conservative, because data volume is
+      small and queries are simple. You index the hot paths, not everything.</p>
+    `,
+    check: {
+      prompt: "Why can't 'WHERE logged_at > now() - 7 days' (no user_id) use idx_sets_user_logged?",
+      type: "free"
+    }
+  },
+  {
+    title: "Partial & specialized indexes — and a real silent-failure story",
+    html: `
+      <p>Not every index covers the whole table. A <b>partial index</b> indexes only the rows
+      matching a condition — smaller, faster, and a statement of intent:</p>
+      <pre><code>CREATE INDEX idx_users_email ON users(email) WHERE deleted_at IS NULL;
+CREATE INDEX idx_plans_user   ON plans(user_id)  WHERE user_id IS NOT NULL;
+CREATE INDEX idx_plans_template ON plans(is_template) WHERE is_template = TRUE;</code></pre>
+      <p>The email index ignores soft-deleted users entirely — you only ever look up <em>live</em>
+      accounts by email, so why index the dead ones? The plan indexes skip global templates
+      (NULL user) and skip non-templates respectively. Each index is shaped to a specific query.</p>
+      <h3>A different index kind: trigram fuzzy search</h3>
+      <pre><code>CREATE EXTENSION IF NOT EXISTS pg_trgm;
+CREATE INDEX idx_exercises_name_trgm
+    ON exercises USING gin (name gin_trgm_ops);</code></pre>
+      <p>This GIN index breaks each exercise name into 3-character chunks so a search for
+      <code>"sqat"</code> still matches <code>"back_squat"</code> (it backs TICKET-007 search,
+      alongside the <code>exercise_aliases</code> table).</p>
+      <p class="note"><b>Real incident (schema comment N-10):</b> <code>pg_trgm</code> must be
+      created <em>before</em> this index. If the extension is missing, the index is silently
+      absent and fuzzy search degrades to exact matching <u>with no error</u>. A correctness bug
+      that hides as "search feels a bit worse." Ordering of migration statements is load-bearing.</p>
+    `,
+    check: {
+      prompt: "What does 'WHERE deleted_at IS NULL' on the email index buy you over a plain index on email?",
+      type: "mc",
+      options: [
+        "Nothing — it's the same index",
+        "A smaller index that only covers live accounts (the only rows ever looked up by email), so it's faster and cheaper to maintain",
+        "It makes deleted users' emails impossible to store"
+      ],
+      answerIndex: 1,
+      why: "Partial indexes exclude rows you never query through that path. Soft-deleted users are never looked up by email, so indexing them wastes space and slows writes for no benefit."
+    }
+  },
+  {
+    title: "Migrations — versioned history, and why you never define a table twice",
+    html: `
+      <p>The schema is not one frozen file; it is a <b>sequence of migrations</b> with dated
+      names (<code>20260430_initial_schema.sql</code>, <code>20260502_percentile_engine.sql</code>,
+      …). Each is applied in order, so the migration folder is the full, replayable history of
+      how the data model evolved. Reading them top to bottom is how you understand the
+      "why now" behind every column.</p>
+      <svg class="diagram" viewBox="0 0 380 56">
+        <line x1="14" y1="28" x2="366" y2="28" stroke="var(--line)" stroke-width="2"/>
+        <circle cx="40" cy="28" r="6" fill="var(--accent)"/><text x="40" y="48" fill="var(--muted)" font-size="9" text-anchor="middle">0430 init</text>
+        <circle cx="140" cy="28" r="6" fill="var(--accent)"/><text x="140" y="48" fill="var(--muted)" font-size="9" text-anchor="middle">0502 pct</text>
+        <circle cx="240" cy="28" r="6" fill="var(--accent)"/><text x="240" y="48" fill="var(--muted)" font-size="9" text-anchor="middle">0510 v2</text>
+        <circle cx="340" cy="28" r="6" fill="var(--accent)"/><text x="340" y="48" fill="var(--muted)" font-size="9" text-anchor="middle">0519 activity</text>
+      </svg>
+      <p class="note"><b>Real incident (schema comment N-09):</b> the
+      <code>daily_health_log</code> and <code>habits</code> tables were once defined BOTH in the
+      initial schema AND in their own dedicated migration files. Result: the
+      <code>updated_at</code> trigger got registered twice and fired twice on every UPDATE.
+      The fix was to remove them from the initial schema and keep a single source of truth per
+      table. The lesson: a migration is append-only history — defining the same object in two
+      places is how you get duplicate triggers, double writes, and confusing bugs.</p>
+    `,
+    check: {
+      prompt: "Why is defining the same table in two migration files dangerous? Name one concrete symptom.",
+      type: "free"
+    }
+  }
+];
+</script>
+
+<!-- ========================================================================
+     >>> FILL <<<  (3 of 3)  QUIZ  (Bloom L1-L5; >=1 L2, >=2 of {L3,L4}, >=2 L5)
+     ===================================================================== -->
+<script id="lesson-quiz">
+const QUIZ = [
+  { id:"q1", bloom:1, type:"mc", points:5,
+    prompt:"(Remember) In the sets table, what does it mean that 'id' is a PRIMARY KEY?",
+    options:[
+      "The column is just there for faster lookups",
+      "Every set has a unique id; no two rows can share it (and it is automatically indexed)",
+      "The column can hold duplicate values as long as they are non-NULL",
+      "It is only used to join to other tables"
+    ],
+    answerIndex:1,
+    rubric:["Identifies uniqueness as the core meaning","Bonus: notes it is auto-indexed / not-null"],
+    model_answer:"B. A primary key uniquely identifies each row (unique + NOT NULL) and Postgres indexes it automatically for fast WHERE id = ? lookups." },
+
+  { id:"q2", bloom:2, type:"free", points:10,
+    prompt:"(Understand) In your own words, why is a workout keyed by day_key DATE (one workout per user per calendar day, enforced by UNIQUE(user_id, day_key)) instead of by a precise timestamp?",
+    rubric:[
+      "Explains that a workout is a day-level grouping, not an instant",
+      "Connects to grouping/rendering (e.g. all of Monday's sets belong together; UI shows 'Monday')",
+      "Mentions the UNIQUE constraint prevents two workout rows for the same user-day"
+    ],
+    model_answer:"A workout is conceptually 'a day of training,' so it is grouped by calendar day. day_key as a DATE makes WHERE day_key = ? grouping trivial and lets the UI render 'Monday' without timezone math, while UNIQUE(user_id, day_key) guarantees exactly one workout row per user per day so sets logged across the day attach to the same workout." },
+
+  { id:"q3", bloom:3, type:"mc", points:8,
+    prompt:"(Apply) Given idx_sets_user_logged (user_id, logged_at DESC), which query benefits MOST from it?",
+    options:[
+      "SELECT * FROM sets WHERE logged_at > NOW() - INTERVAL '30 days';",
+      "SELECT * FROM sets WHERE user_id = '123' ORDER BY logged_at DESC LIMIT 10;",
+      "SELECT COUNT(*) FROM sets WHERE kind = 'lift';",
+      "SELECT * FROM sets WHERE exercise_id = '456';"
+    ],
+    answerIndex:1,
+    rubric:["Picks the query that uses the leading column (user_id) AND the sort (logged_at DESC)","Reasoning shows understanding of the leading-column rule"],
+    model_answer:"B. It filters on the leading column user_id and sorts by logged_at DESC, both covered by the composite index. A and C never touch user_id (so they cannot use the leading column); D uses a different column entirely." },
+
+  { id:"q4", bloom:4, type:"free", points:12,
+    prompt:"(Analyze) The schema comment N-10 says: if the pg_trgm extension is not created before idx_exercises_name_trgm, the index is silently absent and fuzzy search degrades to exact matching with NO error. Deconstruct why this class of bug is especially dangerous, and contrast it with a bug that throws an exception. What does it reveal about ordering dependencies between migration statements?",
+    rubric:[
+      "Identifies that the failure is SILENT — no crash, no log, so it escapes tests that only check for errors",
+      "Contrasts with a thrown exception, which is loud and caught immediately",
+      "Connects to ordering: a CREATE INDEX depends on a CREATE EXTENSION earlier in the sequence; the dependency is implicit, not enforced",
+      "Reasoning is structured (names the detection gap, not just 'it's bad')"
+    ],
+    model_answer:"A silent degradation produces wrong-but-plausible behavior (search 'feels worse') with no error to trip an alarm, so it survives CI and manual review that only watch for exceptions; a thrown error fails loudly at deploy and gets fixed immediately. It reveals that migration statements carry implicit ordering dependencies — CREATE INDEX ... gin_trgm_ops presupposes the extension already exists — and nothing enforces that order automatically, so the author must sequence and verify it. Best answers note you'd catch it only with a positive test (assert fuzzy match works), not a negative one (assert no error)." },
+
+  { id:"q5", bloom:5, type:"free", points:15,
+    prompt:"(Evaluate) New feature: 'show my max squat for each weight class I've trained at' (classes: 52/59/66/74/83/93/105/120 kg). Option A: add a weight_class SMALLINT column to sets, populated on log. Option B: compute the class on the fly from weight_kg each query. Option C: a materialized view grouping sets by class, refreshed weekly like the percentile job. Defend a choice for Peak Fettle's current scale, engaging the trade-offs of all three and naming the condition under which you'd switch.",
+    rubric:[
+      "Evaluates all three on correctness, storage, performance, and maintainability",
+      "Takes a clear position appropriate to current (small) scale",
+      "Names a concrete switch-over trigger (e.g. query becomes hot / shows up in many places)",
+      "Engages the counter-case — full marks require acknowledging why the rejected options could win later"
+    ],
+    model_answer:"At months-1-12 scale, Option B (compute on the fly) is the right default: no redundant column, no backfill, and the weight-class definition can change without a migration; the only cost is repeating a cheap bucketing each query, which is negligible at low volume. Option A invites an update anomaly (must recompute if class boundaries change) and adds storage for a derived value. Option C is the eventual answer if the query becomes hot or appears across many screens — it mirrors the existing weekly percentile batch and trades freshness for fast reads. Switch from B to C when profiling shows the on-the-fly computation is a measurable cost or the logic is duplicated widely. A strong answer ties this to Peak Fettle's established 'batch when read-heavy, compute when cheap' pattern." },
+
+  { id:"q6", bloom:5, type:"free", points:15,
+    prompt:"(Evaluate) The sets table keeps a legacy 'rpe SMALLINT' column marked read-only even though RIR is the live effort field (the L01 RIR-over-RPE decision). Defend OR refute keeping this dead column in the production schema. Name a concrete cost of keeping it and a concrete risk of dropping it.",
+    rubric:[
+      "Takes a clear position (keep or drop)",
+      "Names a concrete cost of keeping it (e.g. confusion, every INSERT carries an unused column, invites accidental writes)",
+      "Names a concrete risk of dropping it (e.g. irreversible loss of historical RPE data; a destructive migration on a live table; breaking anything still reading it)",
+      "Engages the counter-case for full marks rather than one-sidedly asserting"
+    ],
+    model_answer:"Defensible either way; quality is in the trade-off. Keep-it argument: dropping a column is a destructive, irreversible migration on a live table — historical RPE values would be lost forever, and a column marked read-only costs almost nothing while preserving the option to analyze old data; the real risk is an accidental write, mitigated by the read-only convention and API/validation layer. Drop-it argument: a dead column is a standing source of confusion (new devs ask 'do I set rpe?'), bloats every row, and the read-only rule is only convention, not enforced — a future bug could write to it and create two competing effort signals. A full-marks answer picks a side, names a concrete cost (confusion / accidental dual-source-of-truth) AND a concrete risk (irreversible data loss / destructive live migration), and ideally proposes a middle path such as archiving the column's data before dropping, or adding a CHECK/trigger to enforce the read-only rule." }
+];
+</script>
+
+<!-- ========================================================================
+     >>> OPTIONAL <<<  custom interactive widget for THIS lesson (cascade demo)
+     ===================================================================== -->
+<script id="custom-widget">
+window.__registerWidgets = function(PF){
+  PF.mountWidget(2, function(stage){
+    var btn = document.getElementById('cascade-btn');
+    var reset = document.getElementById('cascade-reset');
+    var note = document.getElementById('cascade-note');
+    if (!btn) return;
+    function rows(sel){ return Array.prototype.slice.call(stage.querySelectorAll('[data-cascade='+sel+']')); }
+    btn.addEventListener('click', function(){
+      rows('root').concat(rows('child')).forEach(function(r){
+        r.style.opacity = '0.2'; r.style.textDecoration = 'line-through';
+      });
+      if (note) note.textContent = 'Cascade: deleting user_42 removed 1 workout and 3 sets. The 2 exercise rows are untouched — the library is shared and exercise_id has no ON DELETE CASCADE.';
+    });
+    if (reset) reset.addEventListener('click', function(){
+      rows('root').concat(rows('child')).forEach(function(r){
+        r.style.opacity = '1'; r.style.textDecoration = 'none';
+      });
+      if (note) note.textContent = '';
+    });
+  });
+};
+</script>
+
+<!-- ========================================================================
+     >>> ENGINE — DO NOT EDIT BELOW THIS LINE <<<
+     ===================================================================== -->
+<script>
+const PF = (function(){
+  let i = 0;                       // current section index
+  const answers = {};              // section check answers (for gating only)
+  const committed = {};            // which section checks have been committed
+  const quizAnswers = {};
+  const LS_KEY = 'pf_lesson_' + (LESSON_META.id || 'x');          // quiz responses
+  const stage = document.getElementById('stage');
+  const bar = document.getElementById('bar');
+  const nextBtn = document.getElementById('next');
+  const prevBtn = document.getElementById('prev');
+  const TOTAL = SECTIONS.length + 1; // +1 for the quiz screen
+
+  document.getElementById('lesson-title').textContent = LESSON_META.title || document.getElementById('lesson-title').textContent;
+  document.getElementById('lesson-sub').textContent = LESSON_META.subtitle || '';
+  document.title = "Peak Fettle Lesson · " + (LESSON_META.title||"");
+
+  function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+  function renderSection(idx){
+    const s = SECTIONS[idx];
+    let html = `<div class="card"><span class="pill">Section ${idx+1} of ${SECTIONS.length}</span>
+      <h2>${esc(s.title)}</h2><div class="body">${s.html}</div>`;
+    if (s.check){
+      const c = s.check;
+      html += `<div class="check"><div class="q">🧠 ${esc(c.prompt)}</div>`;
+      if (c.type === 'mc'){
+        html += `<div class="opts" id="opts">`;
+        c.options.forEach((o,k)=>{ html += `<label><input type="radio" name="chk" value="${k}"> ${esc(o)}</label>`; });
+        html += `</div><button class="ghost" onclick="PF.commit(${idx})">Check & continue</button>`;
+      } else {
+        html += `<textarea id="chkfree" placeholder="Type your answer — then commit to continue"></textarea>
+                 <button class="ghost" onclick="PF.commit(${idx})" style="margin-top:8px">Commit answer</button>`;
+      }
+      html += `<div class="feedback" id="chkfb"></div></div>`;
+    }
+    html += `</div>`;
+    stage.innerHTML = html;
+    runCustomWidgetFor(idx);
+    updateNav();
+  }
+
+  function commit(idx){
+    const c = SECTIONS[idx].check;
+    const fb = document.getElementById('chkfb');
+    if (c.type === 'mc'){
+      const sel = document.querySelector('input[name=chk]:checked');
+      if (!sel){ fb.className='feedback no'; fb.textContent='Pick an option first.'; return; }
+      const ok = (+sel.value === c.answerIndex);
+      answers[idx]=+sel.value; committed[idx]=true;
+      fb.className = 'feedback ' + (ok?'ok':'no');
+      fb.textContent = (ok?'✓ Correct. ':'✗ Not quite. ') + (c.why||'');
+    } else {
+      const v = (document.getElementById('chkfree').value||'').trim();
+      if (v.length < 2){ fb.className='feedback no'; fb.textContent='Write a little more, then commit.'; return; }
+      answers[idx]=v; committed[idx]=true;
+      fb.className='feedback ok'; fb.textContent='✓ Committed. Retrieval beats re-reading — onward.';
+    }
+    updateNav();
+  }
+
+  function renderQuiz(){
+    let html = `<div class="card"><span class="pill">Graded quiz · Bloom L1–L5</span>
+      <h2>Show what you know</h2>
+      <p class="sub" style="margin-top:-2px">Answer all items, then grade with Claude. L4/L5 are scored on the quality of your reasoning, not keywords.</p>`;
+    QUIZ.forEach(q=>{
+      html += `<div class="quiz-item"><div class="qprompt">
+        <span class="badge ${q.bloom>=5?'b5':''}">Bloom L${q.bloom}</span>
+        <span class="pill"> · ${q.points} pts</span><br>${esc(q.prompt)}</div>`;
+      if (q.type==='mc'){
+        html += `<div class="opts">`;
+        q.options.forEach((o,k)=>{ html += `<label><input type="radio" name="${q.id}" value="${k}"> ${esc(o)}</label>`; });
+        html += `</div>`;
+      } else {
+        html += `<textarea data-q="${q.id}" placeholder="Your answer..."></textarea>`;
+      }
+      html += `</div>`;
+    });
+    html += `<div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
+        <button onclick="PF.grade()">⚡ Grade with Claude</button>
+        <button class="ghost" onclick="PF.copyPrompt()">Copy grading prompt</button>
+        <button class="ghost" onclick="PF.toggleRubric()">Show rubric & model answers</button>
+      </div>
+      <div id="grade-status"></div>
+      <div class="grade-box" id="grade-box"></div>
+      <div class="grade-box" id="rubric-box"></div>
+      </div>`;
+    stage.innerHTML = html;
+    hydrateQuiz();
+    updateNav();
+  }
+
+  function hydrateQuiz(){
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch(e){}
+    QUIZ.forEach(function(q){
+      const v = saved[q.id];
+      if (v != null){
+        if (q.type === 'mc'){
+          const idx = q.options.indexOf(v);
+          if (idx >= 0){ const r = document.querySelector('input[name='+q.id+'][value="'+idx+'"]'); if (r) r.checked = true; }
+        } else {
+          const ta = document.querySelector('textarea[data-q='+q.id+']');
+          if (ta) ta.value = v;
+        }
+      }
+      if (q.type === 'mc'){
+        const els = document.querySelectorAll('input[name='+q.id+']');
+        els && els.forEach && els.forEach(function(el){ el.addEventListener('change', persistQuiz); });
+      } else {
+        const ta = document.querySelector('textarea[data-q='+q.id+']');
+        if (ta) ta.addEventListener('input', persistQuiz);
+      }
+    });
+  }
+
+  function persistQuiz(){
+    collectQuiz();
+    try { localStorage.setItem(LS_KEY, JSON.stringify(quizAnswers)); } catch(e){}
+  }
+
+  function collectQuiz(){
+    QUIZ.forEach(q=>{
+      if (q.type==='mc'){
+        const sel = document.querySelector(`input[name=${q.id}]:checked`);
+        quizAnswers[q.id] = sel ? q.options[+sel.value] : "(no answer)";
+      } else {
+        const ta = document.querySelector(`textarea[data-q=${q.id}]`);
+        quizAnswers[q.id] = (ta && ta.value.trim()) || "(no answer)";
+      }
+    });
+  }
+
+  function buildGradingPrompt(){
+    collectQuiz();
+    let p = `You are grading a learner (Arvin) on the Peak Fettle codebase curriculum lesson "${LESSON_META.title}" (${LESSON_META.id}).\n`;
+    p += `Grade each item against its rubric. Award PARTIAL credit. For Bloom L4/L5/L6 items, grade the QUALITY OF REASONING — a clear, evidence-backed, counter-case-aware argument scores full marks even if it differs from the model answer; do NOT keyword-match. Give specific, kind, actionable feedback per item. End with: total score /${QUIZ.reduce((a,q)=>a+q.points,0)}, the Bloom levels that look strong vs. weak, and one misconception to revisit. Then remind me to update the LEARNER PROFILE in teacher_skill.md.\n\n`;
+    QUIZ.forEach((q,n)=>{
+      p += `--- Item ${n+1} (${q.id}, Bloom L${q.bloom}, ${q.points} pts) ---\n`;
+      p += `Question: ${q.prompt}\n`;
+      p += `Rubric: ${(q.rubric||[]).map((r,k)=>`(${k+1}) ${r}`).join(' ')}\n`;
+      p += `Reference/model answer: ${q.model_answer||'(none)'}\n`;
+      p += `Arvin's answer: ${quizAnswers[q.id]}\n\n`;
+    });
+    return p;
+  }
+
+  async function grade(){
+    const status = document.getElementById('grade-status');
+    const box = document.getElementById('grade-box');
+    const prompt = buildGradingPrompt();
+    // Channel (a): Cowork bridge
+    if (window.cowork && typeof window.cowork.askClaude === 'function'){
+      status.textContent = 'Grading with Claude…';
+      try{
+        const res = await window.cowork.askClaude(prompt, []);
+        const text = (typeof res === 'string') ? res : (res && (res.text||res.content||JSON.stringify(res)));
+        box.style.display='block';
+        box.innerHTML = `<strong>Claude's grade</strong><div style="white-space:pre-wrap;margin-top:8px">${esc(text)}</div>`;
+        status.textContent = '';
+        return;
+      }catch(e){
+        status.textContent = 'Bridge grading failed ('+e.message+'). Falling back to clipboard.';
+      }
+    }
+    // Channel (b): clipboard fallback
+    copyPrompt(true);
+  }
+
+  function copyPrompt(fromGrade){
+    const status = document.getElementById('grade-status');
+    const prompt = buildGradingPrompt();
+    try { localStorage.setItem(LS_KEY, JSON.stringify(quizAnswers)); } catch(e){}
+    showPrompt(prompt);   // ALWAYS render the prompt+answers so nothing is ever lost
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(prompt).then(function(){
+        status.textContent = 'Copied to clipboard AND shown below — paste it into your Claude chat to be graded.';
+      }).catch(function(){
+        status.textContent = 'Your answers are saved and shown below — copy the box and paste it into your Claude chat to be graded.';
+      });
+    } else {
+      status.textContent = 'Your answers are saved and shown below — copy the box and paste it into your Claude chat to be graded.';
+    }
+  }
+  function showPrompt(prompt){
+    const box = document.getElementById('grade-box');
+    box.style.display='block';
+    box.innerHTML = `<strong>Copy this grading prompt into Claude:</strong>
+      <textarea style="margin-top:8px" rows="10">${esc(prompt)}</textarea>`;
+  }
+
+  function toggleRubric(){
+    const box = document.getElementById('rubric-box');
+    if (box.style.display==='block'){ box.style.display='none'; return; }
+    let h = `<strong>Rubric & model answers (self-assess)</strong>`;
+    QUIZ.forEach((q,n)=>{
+      h += `<div style="margin-top:12px"><div class="pill">Item ${n+1} · Bloom L${q.bloom}</div>
+        <div class="rubric"><em>Rubric:</em> ${(q.rubric||[]).map(esc).join(' · ')}</div>
+        <div class="rubric"><em>Model:</em> ${esc(q.model_answer||'')}</div></div>`;
+    });
+    box.style.display='block'; box.innerHTML = h;
+  }
+
+  function updateNav(){
+    bar.style.width = Math.round((i/(TOTAL-1))*100) + '%';
+    prevBtn.disabled = (i===0);
+    if (i >= SECTIONS.length){ nextBtn.classList.add('hidden'); }
+    else {
+      nextBtn.classList.remove('hidden');
+      nextBtn.textContent = (i === SECTIONS.length-1) ? 'Go to quiz →' : 'Next →';
+      // Gate: if this section has an uncommitted check, block advancing.
+      const needsCheck = SECTIONS[i] && SECTIONS[i].check && !committed[i];
+      nextBtn.disabled = !!needsCheck;
+      nextBtn.title = needsCheck ? 'Answer the check to continue' : '';
+    }
+  }
+
+  function render(){ if (i < SECTIONS.length) renderSection(i); else renderQuiz(); }
+  function next(){ if (i < SECTIONS.length){ i++; render(); window.scrollTo(0,0); } }
+  function prev(){ if (i>0){ i--; render(); window.scrollTo(0,0); } }
+
+  // Custom widget hook: lessons may register per-section mount fns.
+  const widgetMounts = {};
+  function mountWidget(idx, fn){ widgetMounts[idx]=fn; }
+  function runCustomWidgetFor(idx){ if (widgetMounts[idx]) try{ widgetMounts[idx](stage); }catch(e){console.warn(e);} }
+
+  return { next, prev, commit, grade, copyPrompt, toggleRubric, mountWidget,
+           _boot:function(){ render(); } };
+})();
+</script>
+<script>
+/* register custom widgets (if any), then boot — so mounts exist before render. */
+if (window.__registerWidgets) window.__registerWidgets(PF);
+PF._boot();
+</script>
+</body>
+</html>

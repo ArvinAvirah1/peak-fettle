@@ -1,0 +1,561 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Peak Fettle Lesson · {{LESSON_TITLE}}</title>
+<!--
+  ============================================================================
+  PEAK FETTLE CODEBASE CURRICULUM — INTERACTIVE LESSON SHELL (reusable engine)
+  ============================================================================
+  HOW TO MAKE A LESSON FROM THIS FILE:
+    1. Copy to lessons/Lxx_<slug>.html
+    2. Edit ONLY the three data blocks marked  >>> FILL <<<  below:
+         LESSON_META, SECTIONS, QUIZ
+       and (optionally) the ONE custom-widget hook: <script id="custom-widget">.
+    3. DO NOT touch the engine (everything after the >>> ENGINE — DO NOT EDIT <<<
+       marker). It provides navigation, retrieval gates, and the
+       "Grade with Claude" flow (Cowork bridge -> clipboard fallback -> reveal).
+  Pedagogy contract lives in 00_TEACHING_METHODOLOGY.md (Parts 3 & 4).
+  ============================================================================
+-->
+<style>
+  :root{
+    --bg:#0f1419; --panel:#1a2129; --panel-2:#222b35; --ink:#e8edf2; --muted:#94a3b8;
+    --line:#2c3947; --accent:#3ba776; --accent-ink:#0f1419; --warn:#e0a458; --bad:#d96a6a;
+    --good:#5fbf8f; --radius:14px; --maxw:820px;
+  }
+  @media (prefers-color-scheme: light){
+    :root{ --bg:#f4f6f8; --panel:#ffffff; --panel-2:#eef2f6; --ink:#1a2129; --muted:#5a6b7b;
+           --line:#dbe3ea; --accent:#2f8c61; --accent-ink:#ffffff; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:24px 18px 96px;}
+  header.lh{display:flex;align-items:center;gap:12px;margin-bottom:6px;}
+  .logo{width:30px;height:30px;flex:0 0 auto}
+  .eyebrow{color:var(--accent);font-weight:700;letter-spacing:.04em;text-transform:uppercase;font-size:12px;}
+  h1{font-size:25px;margin:.1em 0 .2em;line-height:1.2}
+  .sub{color:var(--muted);font-size:14px;margin-bottom:18px}
+  .progress{height:6px;background:var(--panel-2);border-radius:99px;overflow:hidden;margin:14px 0 22px}
+  .progress > i{display:block;height:100%;background:var(--accent);width:0;transition:width .3s ease}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:22px 22px 18px;margin:0 0 18px;box-shadow:0 1px 0 rgba(0,0,0,.04)}
+  .card h2{margin:.1em 0 .5em;font-size:19px}
+  .card h3{font-size:15px;margin:1.1em 0 .3em;color:var(--accent)}
+  .badge{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:99px;
+    background:var(--panel-2);color:var(--muted);border:1px solid var(--line);vertical-align:middle}
+  .badge.b5{background:rgba(59,167,118,.16);color:var(--good);border-color:transparent}
+  pre{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:13px 14px;
+    overflow:auto;font:13px/1.5 "SF Mono",ui-monospace,Menlo,Consolas,monospace;color:var(--ink)}
+  code{font:13px/1.4 "SF Mono",ui-monospace,Menlo,Consolas,monospace;background:var(--panel-2);
+    padding:1px 5px;border-radius:5px}
+  pre code{background:none;padding:0}
+  .diagram{display:block;margin:14px auto;max-width:100%}
+  .note{border-left:3px solid var(--accent);padding:6px 0 6px 14px;color:var(--muted);margin:12px 0}
+  .check{background:var(--panel-2);border:1px dashed var(--line);border-radius:10px;padding:14px;margin-top:16px}
+  .check .q{font-weight:600;margin-bottom:10px}
+  textarea,input[type=text]{width:100%;background:var(--bg);color:var(--ink);border:1px solid var(--line);
+    border-radius:9px;padding:10px 12px;font:14px/1.5 inherit;resize:vertical}
+  textarea{min-height:84px}
+  .opts label{display:block;background:var(--bg);border:1px solid var(--line);border-radius:9px;
+    padding:9px 12px;margin:6px 0;cursor:pointer}
+  .opts input{margin-right:9px}
+  button{font:inherit;font-weight:600;border:none;border-radius:10px;padding:10px 16px;cursor:pointer;
+    background:var(--accent);color:var(--accent-ink)}
+  button.ghost{background:var(--panel-2);color:var(--ink);border:1px solid var(--line)}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .nav{display:flex;justify-content:space-between;gap:10px;margin-top:6px}
+  .feedback{margin-top:10px;font-size:14px}
+  .feedback.ok{color:var(--good)} .feedback.no{color:var(--warn)}
+  .quiz-item{border-top:1px solid var(--line);padding-top:16px;margin-top:16px}
+  .quiz-item:first-child{border-top:none;margin-top:0;padding-top:0}
+  .qprompt{font-weight:600;margin:6px 0 10px}
+  #grade-status{margin-top:14px;font-size:14px;color:var(--muted);white-space:pre-wrap}
+  .grade-box{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:14px;margin-top:14px;display:none}
+  .hidden{display:none}
+  .pill{font-size:11px;color:var(--muted)}
+  details{margin-top:10px} summary{cursor:pointer;color:var(--accent);font-weight:600}
+  .rubric{font-size:13px;color:var(--muted)}
+  footer{color:var(--muted);font-size:12px;text-align:center;margin-top:30px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="lh">
+    <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M2 26 L11 9 L17 19 L21 12 L30 26 Z" fill="none" stroke="var(--accent)" stroke-width="2.4" stroke-linejoin="round"/>
+    </svg>
+    <div>
+      <div class="eyebrow">Peak Fettle · Codebase Curriculum</div>
+    </div>
+  </header>
+  <h1 id="lesson-title">{{LESSON_TITLE}}</h1>
+  <div class="sub" id="lesson-sub">{{LESSON_SUBTITLE}}</div>
+  <div class="progress"><i id="bar"></i></div>
+
+  <main id="stage"><!-- sections render here --></main>
+
+  <div class="nav">
+    <button class="ghost" id="prev" onclick="PF.prev()">← Back</button>
+    <button id="next" onclick="PF.next()">Next →</button>
+  </div>
+
+  <footer>Self-paced · your answers stay in this page until you choose to grade them.</footer>
+</div>
+
+<script id="lesson-meta">
+const LESSON_META = {
+  id: "L03",
+  title: "Domain Math — Strength Curves & Percentiles",
+  subtitle: "Track 0 — Foundations · ~50 min · prereqs: L01, L02",
+};
+</script>
+
+<script id="lesson-sections">
+const SECTIONS = [
+  {
+    title: "Epley: from reps to a 1RM estimate",
+    html: `
+      <p>We rarely know a user's true one-rep max — they log working sets, not maxes. The <strong>Epley formula</strong> estimates it: <code>1RM ≈ weight × (1 + reps/30)</code>. So 100&nbsp;kg × 3 → 100 × 1.1 = 110&nbsp;kg.</p>
+      <h3>The real code</h3>
+      <pre><code>// src/exercise.cpp — estimatedOneRepMax()
+const double e1rm = (s->reps() == 1)
+    ? s->weightKg()                              // true 1RM — no multiplier
+    : s->weightKg() * (1.0 + s->reps() / 30.0);  // Epley for 2+ reps</code></pre>
+      <p class="note">The <code>reps == 1</code> branch matters: a true 200&nbsp;kg single must read 200, not 200×(1+1/30)=206.7 (a 3.3% lie). That value feeds percentiles, so inflation would dishonestly raise cohort rank.</p>
+    `,
+    check: {
+      prompt: "Bench 80 kg × 6 reps. What is the Epley E1RM (show the arithmetic)?",
+      type: "free"
+    }
+  },
+  {
+    title: "Why log-normal, and z-score → percentile",
+    html: `
+      <p>Strength has a hard floor (0) and a long right tail — it's right-skewed, not a bell curve. But its <em>logarithm</em> is roughly normal. So the model works in log-space: <code>ln(L) ~ Normal(μ, σ²)</code>, then converts a z-score to a percentile with the standard-normal CDF Φ.</p>
+      <pre><code>// src/StrengthCurve.cpp
+double z = (std::log(liftKg) - std::log(l50)) / sigma;
+z = std::clamp(z, -4.0, 4.0);
+const double pct = 100.0 * phi(z);   // phi = standard-normal CDF</code></pre>
+      <p>Anchors: Φ(0)=50th, Φ(1)≈84th, Φ(2)≈98th, Φ(−1)≈16th. So if your lift equals the model's median <code>L₅₀</code>, z=0 → 50th percentile.</p>
+    `,
+    check: {
+      prompt: "Your lift exactly equals L₅₀ and σ = 0.25. What percentile, and why?",
+      type: "mc",
+      options: ["84th — one σ above", "50th — z=0, Φ(0)=0.5", "It depends on σ"],
+      answerIndex: 1,
+      why: "z = (ln L − ln L₅₀)/σ = 0/σ = 0 regardless of σ. Φ(0)=0.5 → 50th percentile."
+    }
+  },
+  {
+    title: "The four multiplicative factors (live calculator)",
+    html: `
+      <p>The expected median lift is a product of four factors:
+      <code>L₅₀ = exp(μ) × B(BW) × A(age) × T(years)</code>.</p>
+      <ul>
+        <li><strong>B(BW)</strong> = (BW/BW₀)<sup>α</sup>, α≈0.667 — the biological "2/3 law" (strength ∝ cross-sectional area).</li>
+        <li><strong>A(age)</strong> — piecewise: youth deficit below 23, flat peak 23–35, decline after (floored at 0.40).</li>
+        <li><strong>T(years)</strong> = f₀ + (1−f₀)(1−e<sup>−years/τ</sup>), τ=3 — experience saturates toward 1.</li>
+        <li><strong>μ, σ</strong> — per-lift, from the fitted lift vector.</li>
+      </ul>
+      <p>Drag the inputs; the calculator runs the real <code>StrengthCurve</code> math (C++ port constants: global training floor 0.55) and shows each factor, the z-score, the percentile, and the 0–1000 strength score.</p>
+      <div id="pct-widget"></div>
+    `,
+    check: {
+      prompt: "In one line: why is α the same (~0.667) for every lift, while bench and squat still differ?",
+      type: "free"
+    }
+  },
+  {
+    title: "Lift inheritance — scale, don't refit",
+    html: `
+      <p>Fitting a unique (μ,σ,α) for all ~40 lifts needs huge data. Instead most lifts <strong>inherit</strong> from one of five direct-fit parents and carry only a <code>ratio</code>. In log-space a ratio is just an additive shift on μ:</p>
+      <pre><code>// src/StrengthCurve.cpp — resolveRow()
+// Child mu = parent mu + log(ratio); sigma/alpha/bwRef inherited.
+mu    = parent->mu + std::log(row->ratio);
+sigma = parent->sigma;</code></pre>
+      <p>Front squat (ratio 0.85) → μ = 4.7228 + ln(0.85) ≈ 4.56, i.e. expected ~85% of the back squat for the same lifter. The code refuses chained inheritance (a child's parent must be a direct fit).</p>
+    `,
+    check: {
+      prompt: "Inherited rows copy σ, α, bwRef from the parent but shift μ. What's the one operation applied to μ?",
+      type: "mc",
+      options: ["Multiply μ by the ratio", "Add ln(ratio) to μ", "Replace μ with the ratio"],
+      answerIndex: 1,
+      why: "A multiplicative ratio in linear space is an additive ln(ratio) in log space, which is where μ lives."
+    }
+  },
+  {
+    title: "Calibration: the v1 bug and the v2 fix",
+    html: `
+      <p>The parameters are calibrated against published strength standards (bodyweight multiples for beginner→elite). <strong>v1</strong> set μ to the intermediate standard — but since T(years)→1, that made the <em>asymptote</em> (infinite training) only intermediate-level. A 4-year lifter came out looking weak.</p>
+      <p><strong>v2</strong> sets μ to a high genetic-ceiling asymptote and solves the floor f₀ from two anchors (beginner at t=0, intermediate at t=2yr), so the whole curve lands on the empirical standards.</p>
+      <p class="note">The takeaway isn't the algebra — it's that a model can be internally consistent yet systematically biased until you pin it to ground truth at more than one point.</p>
+    `,
+    check: {
+      prompt: "In v1, why did a 10-year lifter still get rated only 'intermediate'?",
+      type: "free"
+    }
+  },
+  {
+    title: "The 0–1000 strength score",
+    html: `
+      <p>Raw kg is hard to read, so Peak Fettle maps E1RM to a 0–1000 score with a <strong>saturating exponential</strong> tuned so 100&nbsp;kg ≈ 600:</p>
+      <pre><code>// src/WorkoutTracker.cpp — computeStrengthScore()
+if (e1rmKg <= 0.0) return 0.0;
+constexpr double k = 0.00916;            // -ln(0.4)/100
+const double score = 1000.0 * (1.0 - std::exp(-k * e1rmKg));</code></pre>
+      <p>Equal 15&nbsp;kg jumps give shrinking point gains (e.g. 60→75→90 kg ≈ 423→497→562: +74, +65). Fast early wins, a ceiling nobody reaches. Note it uses <em>only</em> E1RM — it's a personal-progress meter, not the peer-comparison percentile.</p>
+    `,
+    check: {
+      prompt: "Roughly what score does a 50 kg E1RM give? (score = 1000·(1−e^(−0.00916·50)))",
+      type: "mc",
+      options: ["0", "~370", "~600"],
+      answerIndex: 1,
+      why: "1000 × (1 − e^(−0.458)) = 1000 × (1 − 0.633) ≈ 367."
+    }
+  }
+];
+</script>
+
+<script id="lesson-quiz">
+const QUIZ = [
+  { id:"q1", bloom:2, type:"free", points:8,
+    prompt:"(Understand) Explain the Epley formula and its domain of validity. When does it break down, and what does Peak Fettle do at reps == 1?",
+    rubric:["States 1RM = w×(1+reps/30)","Notes ~2–12 rep validity / high-rep breakdown","Explains the reps==1 raw-weight special case and why (avoid inflating a true single)"],
+    model_answer:"1RM ≈ w×(1+reps/30), empirically accurate ~2–12 reps; past ~12 reps fatigue dominates so it over/under-shoots. At reps==1 the code returns the raw weight, since a true single is already a 1RM and Epley would inflate it ~3.3%." },
+  { id:"q2", bloom:2, type:"free", points:8,
+    prompt:"(Understand) What is a log-normal distribution and why does Peak Fettle use it for strength instead of a normal distribution?",
+    rubric:["Defines log-normal (log of the variable is normal)","Connects to strength's hard floor + right skew + multiplicative scaling","Notes the payoff: Gaussian math (z, Φ) applies after a log transform"],
+    model_answer:"Log-normal means ln(L) is normally distributed. Strength is bounded below by 0, right-skewed, and scales multiplicatively with bodyweight/experience, so logs are roughly normal — letting the model use z-scores and the normal CDF after taking logs." },
+  { id:"q3", bloom:3, type:"free", points:12,
+    prompt:"(Apply) Female, 70 kg, age 26, 4 yrs training, 60 kg back squat. Vector μ≈4.17, σ≈0.29, α=0.667, BW₀=65, peak window 23–35. Using the SPEC floor f₀≈0.327, compute the four factors and the percentile.",
+    rubric:["B(70)=(70/65)^0.667≈1.05","A(26)=1.0","T(4)=0.327+0.673(1−e^−1.333)≈0.82","Combines to L₅₀≈55–56 kg, z≈0.25, ≈60th percentile"],
+    model_answer:"B≈1.05, A=1.0, T(4)≈0.82 → L₅₀=exp(4.17)×1.05×1×0.82≈55.8 kg; z=(ln60−ln55.8)/0.29≈0.25; Φ(0.25)≈0.60 → ~60th percentile. (The shipped C++ port uses floor 0.55, so the app would read a bit different.)" },
+  { id:"q4", bloom:4, type:"free", points:14,
+    prompt:"(Analyze) Compare v1 and v2 of the model: name the v1 bug, its consequence, and the key equation that changed.",
+    rubric:["Identifies μ pinned to the intermediate standard in v1","Explains the consequence: T→1 so trained lifters cap at intermediate / look weak","Shows the fix: μ set to a high asymptote and f₀ solved from two calibration anchors"],
+    model_answer:"v1 set μ=ln(intermediate×BW₀); since T(years)→1 the asymptote was only intermediate, so multi-year lifters were under-rated. v2 sets μ=ln(asymptote×BW₀) with a much higher ceiling and derives f₀ from beginner (t=0) and intermediate (t=2yr) anchors, landing the whole curve on the standards." },
+  { id:"q5", bloom:5, type:"free", points:9,
+    prompt:"(Evaluate) The age curve is piecewise-linear (youth deficit / flat peak 23–35 / decline). Evaluate that choice vs. a smooth curve: pros, cons, and your recommendation for THIS app.",
+    rubric:["Names pros: interpretable peak window, few parameters, matches age-adjustment tables","Names cons: derivative discontinuities at 23 and 35, real aging is smooth","Defends a recommendation with reasoning, not just a verdict"],
+    model_answer:"Piecewise-linear is interpretable (an explicit peak window), cheap to fit, and matches published age-adjustment data; its cost is non-smooth corners at 23/35 that don't reflect smooth real aging. For a consumer app the interpretability wins and the corner effects are negligible at integer ages, so piecewise-linear is the right call; a smooth Gaussian-in-age curve is more elegant but buys little." },
+  { id:"q6", bloom:5, type:"free", points:10,
+    prompt:"(Evaluate) Redesign the model to use IPF-style weight classes instead of continuous bodyweight. What changes, what data do you need, and what are the trade-offs?",
+    rubric:["Replaces B(BW)=(BW/BW₀)^α with a per-class lookup (or interpolation)","Identifies data need: per-class standards with adequate N","Weighs trade-offs: matches competition structure / easier to read vs. edge effects at boundaries and lost precision"],
+    model_answer:"Swap the allometric factor for a class lookup table (optionally interpolated near boundaries). You'd need per-class standards with enough samples per class, stratified by age/experience. Pros: matches federation structure, intuitive for competitors; cons: discontinuities at class edges, lost precision for lifters between classes. Worth it for a competition app, not for Peak Fettle's general audience." }
+];
+</script>
+
+<script id="custom-widget">
+window.__registerWidgets = function(PF){
+  PF.mountWidget(2, function(stage){
+    const host = document.getElementById('pct-widget');
+    if (!host) return;
+    // Real lift vectors (src/StrengthCurve.cpp). [mu, sigma, bwRef]; alpha=0.667.
+    const V = {
+      back_squat:   { M:[4.7228,0.3107,75], F:[4.1744,0.2934,65] },
+      bench_press:  { M:[4.3175,0.2466,75], F:[3.8177,0.2749,65] },
+      deadlift:     { M:[4.8767,0.2741,75], F:[4.4067,0.2697,65] },
+      overhead_press:{M:[3.8849,0.2913,75], F:[3.3781,0.3105,65] },
+    };
+    const ALPHA=0.667, FLOOR=0.55, TAU=3.0; // C++ port constants
+    function erf(x){ // Abramowitz & Stegun 7.1.26
+      const s=x<0?-1:1; x=Math.abs(x);
+      const t=1/(1+0.3275911*x);
+      const y=1-(((((1.061405429*t-1.453152027)*t)+1.421413741)*t-0.284496736)*t+0.254829592)*t*Math.exp(-x*x);
+      return s*y;
+    }
+    const phi=z=>0.5*(1+erf(z/Math.SQRT2));
+    const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+    host.innerHTML = `
+      <div class="check" style="margin-top:6px">
+        <div class="q">Live percentile + strength-score calculator</div>
+        <div class="opts" id="w-lift"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+          <label>Sex
+            <select id="w-sex"><option value="M">M</option><option value="F">F</option></select></label>
+          <label>Bodyweight kg <input type="number" id="w-bw" value="80" style="width:80px"></label>
+          <label>Age <input type="number" id="w-age" value="28" style="width:64px"></label>
+          <label>Yrs training <input type="number" id="w-yrs" value="3" style="width:64px"></label>
+          <label>Lift kg (E1RM) <input type="number" id="w-kg" value="100" style="width:80px"></label>
+        </div>
+        <div class="feedback ok" id="w-out" style="margin-top:10px;white-space:pre-wrap"></div>
+      </div>`;
+    const lifts=[["back_squat","Back squat"],["bench_press","Bench"],["deadlift","Deadlift"],["overhead_press","OHP"]];
+    const lb=host.querySelector('#w-lift');
+    lifts.forEach((l,k)=>lb.insertAdjacentHTML('beforeend',
+      `<label style="display:inline-block;margin-right:6px"><input type="radio" name="wl" value="${l[0]}" ${k===0?'checked':''}> ${l[1]}</label>`));
+    function recompute(){
+      const lift=host.querySelector('input[name=wl]:checked').value;
+      const sex=host.querySelector('#w-sex').value;
+      const bwRaw=parseFloat(host.querySelector('#w-bw').value);
+      const ageRaw=parseFloat(host.querySelector('#w-age').value);
+      const yrsRaw=parseFloat(host.querySelector('#w-yrs').value);
+      const kg=parseFloat(host.querySelector('#w-kg').value);
+      const out=host.querySelector('#w-out');
+      const vec=V[lift][sex]; if(!vec||!(kg>0)){out.textContent='Enter a positive lift.';return;}
+      const [mu,sigma,bwRef]=vec;
+      const bw=clamp(bwRaw,40,sex==='M'?210:150);
+      const age=clamp(ageRaw,14,90);
+      const yrs=clamp(yrsRaw,0,30);
+      const B=Math.pow(bw/bwRef,ALPHA);
+      let A; if(age<23)A=Math.max(0.40,1-0.012*(23-age)); else if(age<=35)A=1.0; else A=Math.max(0.40,1-0.010*(age-35));
+      const T=FLOOR+(1-FLOOR)*(1-Math.exp(-yrs/TAU));
+      const l50=Math.exp(mu)*B*A*T;
+      let z=clamp((Math.log(kg)-Math.log(l50))/sigma,-4,4);
+      const pct=clamp(100*phi(z),0.003,99.997);
+      const score=1000*(1-Math.exp(-0.00916*kg));
+      out.textContent =
+        `B(bw)=${B.toFixed(3)}  A(age)=${A.toFixed(3)}  T(yrs)=${T.toFixed(3)}\n`+
+        `Expected median L₅₀ = ${l50.toFixed(1)} kg\n`+
+        `z = ${z.toFixed(2)}  →  percentile ≈ ${pct.toFixed(1)}\n`+
+        `strength score ≈ ${Math.round(score)} / 1000`;
+    }
+    host.querySelectorAll('input,select').forEach(el=>{el.addEventListener('input',recompute);el.addEventListener('change',recompute);});
+    recompute();
+  });
+};
+</script>
+
+<!-- ========================================================================
+     >>> ENGINE — DO NOT EDIT BELOW THIS LINE <<<
+     ===================================================================== -->
+<script>
+const PF = (function(){
+  let i = 0;                       // current section index
+  const answers = {};              // section check answers (for gating only)
+  const committed = {};            // which section checks have been committed
+  const quizAnswers = {};
+  const LS_KEY = 'pf_lesson_' + (LESSON_META.id || 'x');          // quiz responses
+  const stage = document.getElementById('stage');
+  const bar = document.getElementById('bar');
+  const nextBtn = document.getElementById('next');
+  const prevBtn = document.getElementById('prev');
+  const TOTAL = SECTIONS.length + 1; // +1 for the quiz screen
+
+  document.getElementById('lesson-title').textContent = LESSON_META.title || document.getElementById('lesson-title').textContent;
+  document.getElementById('lesson-sub').textContent = LESSON_META.subtitle || '';
+  document.title = "Peak Fettle Lesson · " + (LESSON_META.title||"");
+
+  function esc(s){return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+  function renderSection(idx){
+    const s = SECTIONS[idx];
+    let html = `<div class="card"><span class="pill">Section ${idx+1} of ${SECTIONS.length}</span>
+      <h2>${esc(s.title)}</h2><div class="body">${s.html}</div>`;
+    if (s.check){
+      const c = s.check;
+      html += `<div class="check"><div class="q">🧠 ${esc(c.prompt)}</div>`;
+      if (c.type === 'mc'){
+        html += `<div class="opts" id="opts">`;
+        c.options.forEach((o,k)=>{ html += `<label><input type="radio" name="chk" value="${k}"> ${esc(o)}</label>`; });
+        html += `</div><button class="ghost" onclick="PF.commit(${idx})">Check & continue</button>`;
+      } else {
+        html += `<textarea id="chkfree" placeholder="Type your answer — then commit to continue"></textarea>
+                 <button class="ghost" onclick="PF.commit(${idx})" style="margin-top:8px">Commit answer</button>`;
+      }
+      html += `<div class="feedback" id="chkfb"></div></div>`;
+    }
+    html += `</div>`;
+    stage.innerHTML = html;
+    runCustomWidgetFor(idx);
+    updateNav();
+  }
+
+  function commit(idx){
+    const c = SECTIONS[idx].check;
+    const fb = document.getElementById('chkfb');
+    if (c.type === 'mc'){
+      const sel = document.querySelector('input[name=chk]:checked');
+      if (!sel){ fb.className='feedback no'; fb.textContent='Pick an option first.'; return; }
+      const ok = (+sel.value === c.answerIndex);
+      answers[idx]=+sel.value; committed[idx]=true;
+      fb.className = 'feedback ' + (ok?'ok':'no');
+      fb.textContent = (ok?'✓ Correct. ':'✗ Not quite. ') + (c.why||'');
+    } else {
+      const v = (document.getElementById('chkfree').value||'').trim();
+      if (v.length < 2){ fb.className='feedback no'; fb.textContent='Write a little more, then commit.'; return; }
+      answers[idx]=v; committed[idx]=true;
+      fb.className='feedback ok'; fb.textContent='✓ Committed. Retrieval beats re-reading — onward.';
+    }
+    updateNav();
+  }
+
+  function renderQuiz(){
+    let html = `<div class="card"><span class="pill">Graded quiz · Bloom L1–L5</span>
+      <h2>Show what you know</h2>
+      <p class="sub" style="margin-top:-2px">Answer all items, then grade with Claude. L4/L5 are scored on the quality of your reasoning, not keywords.</p>`;
+    QUIZ.forEach(q=>{
+      html += `<div class="quiz-item"><div class="qprompt">
+        <span class="badge ${q.bloom>=5?'b5':''}">Bloom L${q.bloom}</span>
+        <span class="pill"> · ${q.points} pts</span><br>${esc(q.prompt)}</div>`;
+      if (q.type==='mc'){
+        html += `<div class="opts">`;
+        q.options.forEach((o,k)=>{ html += `<label><input type="radio" name="${q.id}" value="${k}"> ${esc(o)}</label>`; });
+        html += `</div>`;
+      } else {
+        html += `<textarea data-q="${q.id}" placeholder="Your answer..."></textarea>`;
+      }
+      html += `</div>`;
+    });
+    html += `<div style="margin-top:18px;display:flex;gap:10px;flex-wrap:wrap">
+        <button onclick="PF.grade()">⚡ Grade with Claude</button>
+        <button class="ghost" onclick="PF.copyPrompt()">Copy grading prompt</button>
+        <button class="ghost" onclick="PF.toggleRubric()">Show rubric & model answers</button>
+      </div>
+      <div id="grade-status"></div>
+      <div class="grade-box" id="grade-box"></div>
+      <div class="grade-box" id="rubric-box"></div>
+      </div>`;
+    stage.innerHTML = html;
+    hydrateQuiz();
+    updateNav();
+  }
+
+  function hydrateQuiz(){
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch(e){}
+    QUIZ.forEach(function(q){
+      const v = saved[q.id];
+      if (v != null){
+        if (q.type === 'mc'){
+          const idx = q.options.indexOf(v);
+          if (idx >= 0){ const r = document.querySelector('input[name='+q.id+'][value="'+idx+'"]'); if (r) r.checked = true; }
+        } else {
+          const ta = document.querySelector('textarea[data-q='+q.id+']');
+          if (ta) ta.value = v;
+        }
+      }
+      if (q.type === 'mc'){
+        const els = document.querySelectorAll('input[name='+q.id+']');
+        els && els.forEach && els.forEach(function(el){ el.addEventListener('change', persistQuiz); });
+      } else {
+        const ta = document.querySelector('textarea[data-q='+q.id+']');
+        if (ta) ta.addEventListener('input', persistQuiz);
+      }
+    });
+  }
+
+  function persistQuiz(){
+    collectQuiz();
+    try { localStorage.setItem(LS_KEY, JSON.stringify(quizAnswers)); } catch(e){}
+  }
+
+  function collectQuiz(){
+    QUIZ.forEach(q=>{
+      if (q.type==='mc'){
+        const sel = document.querySelector(`input[name=${q.id}]:checked`);
+        quizAnswers[q.id] = sel ? q.options[+sel.value] : "(no answer)";
+      } else {
+        const ta = document.querySelector(`textarea[data-q=${q.id}]`);
+        quizAnswers[q.id] = (ta && ta.value.trim()) || "(no answer)";
+      }
+    });
+  }
+
+  function buildGradingPrompt(){
+    collectQuiz();
+    let p = `You are grading a learner (Arvin) on the Peak Fettle codebase curriculum lesson "${LESSON_META.title}" (${LESSON_META.id}).\n`;
+    p += `Grade each item against its rubric. Award PARTIAL credit. For Bloom L4/L5/L6 items, grade the QUALITY OF REASONING — a clear, evidence-backed, counter-case-aware argument scores full marks even if it differs from the model answer; do NOT keyword-match. Give specific, kind, actionable feedback per item. End with: total score /${QUIZ.reduce((a,q)=>a+q.points,0)}, the Bloom levels that look strong vs. weak, and one misconception to revisit. Then remind me to update the LEARNER PROFILE in teacher_skill.md.\n\n`;
+    QUIZ.forEach((q,n)=>{
+      p += `--- Item ${n+1} (${q.id}, Bloom L${q.bloom}, ${q.points} pts) ---\n`;
+      p += `Question: ${q.prompt}\n`;
+      p += `Rubric: ${(q.rubric||[]).map((r,k)=>`(${k+1}) ${r}`).join(' ')}\n`;
+      p += `Reference/model answer: ${q.model_answer||'(none)'}\n`;
+      p += `Arvin's answer: ${quizAnswers[q.id]}\n\n`;
+    });
+    return p;
+  }
+
+  async function grade(){
+    const status = document.getElementById('grade-status');
+    const box = document.getElementById('grade-box');
+    const prompt = buildGradingPrompt();
+    // Channel (a): Cowork bridge
+    if (window.cowork && typeof window.cowork.askClaude === 'function'){
+      status.textContent = 'Grading with Claude…';
+      try{
+        const res = await window.cowork.askClaude(prompt, []);
+        const text = (typeof res === 'string') ? res : (res && (res.text||res.content||JSON.stringify(res)));
+        box.style.display='block';
+        box.innerHTML = `<strong>Claude's grade</strong><div style="white-space:pre-wrap;margin-top:8px">${esc(text)}</div>`;
+        status.textContent = '';
+        return;
+      }catch(e){
+        status.textContent = 'Bridge grading failed ('+e.message+'). Falling back to clipboard.';
+      }
+    }
+    // Channel (b): clipboard fallback
+    copyPrompt(true);
+  }
+
+  function copyPrompt(fromGrade){
+    const status = document.getElementById('grade-status');
+    const prompt = buildGradingPrompt();
+    try { localStorage.setItem(LS_KEY, JSON.stringify(quizAnswers)); } catch(e){}
+    showPrompt(prompt);   // ALWAYS render the prompt+answers so nothing is ever lost
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(prompt).then(function(){
+        status.textContent = 'Copied to clipboard AND shown below — paste it into your Claude chat to be graded.';
+      }).catch(function(){
+        status.textContent = 'Your answers are saved and shown below — copy the box and paste it into your Claude chat to be graded.';
+      });
+    } else {
+      status.textContent = 'Your answers are saved and shown below — copy the box and paste it into your Claude chat to be graded.';
+    }
+  }
+  function showPrompt(prompt){
+    const box = document.getElementById('grade-box');
+    box.style.display='block';
+    box.innerHTML = `<strong>Copy this grading prompt into Claude:</strong>
+      <textarea style="margin-top:8px" rows="10">${esc(prompt)}</textarea>`;
+  }
+
+  function toggleRubric(){
+    const box = document.getElementById('rubric-box');
+    if (box.style.display==='block'){ box.style.display='none'; return; }
+    let h = `<strong>Rubric & model answers (self-assess)</strong>`;
+    QUIZ.forEach((q,n)=>{
+      h += `<div style="margin-top:12px"><div class="pill">Item ${n+1} · Bloom L${q.bloom}</div>
+        <div class="rubric"><em>Rubric:</em> ${(q.rubric||[]).map(esc).join(' · ')}</div>
+        <div class="rubric"><em>Model:</em> ${esc(q.model_answer||'')}</div></div>`;
+    });
+    box.style.display='block'; box.innerHTML = h;
+  }
+
+  function updateNav(){
+    bar.style.width = Math.round((i/(TOTAL-1))*100) + '%';
+    prevBtn.disabled = (i===0);
+    if (i >= SECTIONS.length){ nextBtn.classList.add('hidden'); }
+    else {
+      nextBtn.classList.remove('hidden');
+      nextBtn.textContent = (i === SECTIONS.length-1) ? 'Go to quiz →' : 'Next →';
+      // Gate: if this section has an uncommitted check, block advancing.
+      const needsCheck = SECTIONS[i] && SECTIONS[i].check && !committed[i];
+      nextBtn.disabled = !!needsCheck;
+      nextBtn.title = needsCheck ? 'Answer the check to continue' : '';
+    }
+  }
+
+  function render(){ if (i < SECTIONS.length) renderSection(i); else renderQuiz(); }
+  function next(){ if (i < SECTIONS.length){ i++; render(); window.scrollTo(0,0); } }
+  function prev(){ if (i>0){ i--; render(); window.scrollTo(0,0); } }
+
+  // Custom widget hook: lessons may register per-section mount fns.
+  const widgetMounts = {};
+  function mountWidget(idx, fn){ widgetMounts[idx]=fn; }
+  function runCustomWidgetFor(idx){ if (widgetMounts[idx]) try{ widgetMounts[idx](stage); }catch(e){console.warn(e);} }
+
+  return { next, prev, commit, grade, copyPrompt, toggleRubric, mountWidget,
+           _boot:function(){ render(); } };
+})();
+</script>
+<script>
+/* register custom widgets (if any), then boot — so mounts exist before render. */
+if (window.__registerWidgets) window.__registerWidgets(PF);
+PF._boot();
+</script>
+</body>
+</html>

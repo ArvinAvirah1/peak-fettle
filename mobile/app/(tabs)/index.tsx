@@ -59,6 +59,15 @@ import { logRestDay, undoRestDay } from '../../src/api/workouts';
 import { BrandLogo } from '../../src/components/BrandLogo'; // TICKET-063
 import { WorkoutLoggerHost, WorkoutLoggerRef } from '../../src/components/WorkoutLoggerHost';
 import { RoutineStrip } from '../../src/components/RoutineStrip';
+// TICKET-098: bundled beginner programs open in the stepper without a server call.
+import { getExercises } from '../../src/api/exercises';
+import {
+  buildBundledSession,
+  buildLibraryNameIndex,
+  LibraryNameIndex,
+} from '../../src/data/beginnerTemplates';
+// TICKET-095: welcome tour auto-start + anchor.
+import { useTour, useTourAnchor } from '../../src/components/tour/WelcomeTour';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -524,18 +533,61 @@ export default function HomeScreen(): React.ReactElement {
     routineName?: string;
     logExercise?: string;
     logExerciseName?: string;
+    bundledProgram?: string;
+    bundledDay?: string;
   }>();
 
   // Track which param combos we've already handled to avoid re-triggering on re-renders
   const handledParamRef = useRef<string | null>(null);
 
+  // TICKET-095: welcome tour — auto-start once after onboarding; anchor the
+  // "Start workout" CTA so the tour can spotlight it.
+  const { maybeAutoStart } = useTour();
+  const startWorkoutAnchor = useTourAnchor('home-start-workout');
   useEffect(() => {
-    const { startWorkout, routineId, routineName, logExercise, logExerciseName } = params;
+    maybeAutoStart();
+  }, [maybeAutoStart]);
+
+  useEffect(() => {
+    const {
+      startWorkout,
+      routineId,
+      routineName,
+      logExercise,
+      logExerciseName,
+      bundledProgram,
+      bundledDay,
+    } = params;
 
     if (routineId && routineId !== '' && handledParamRef.current !== `routine:${routineId}`) {
       handledParamRef.current = `routine:${routineId}`;
       loggerRef.current?.startRoutine(routineId, routineName ?? '');
       router.setParams({ routineId: '', routineName: '' });
+      return;
+    }
+
+    // TICKET-098: start a bundled beginner-program day in the stepper. The
+    // library fetch is best-effort — offline we fall back to a name-only session
+    // (the stepper accepts exerciseId ''), so this always opens without a server.
+    if (
+      bundledProgram &&
+      bundledProgram !== '' &&
+      handledParamRef.current !== `bundled:${bundledProgram}:${bundledDay ?? '0'}`
+    ) {
+      handledParamRef.current = `bundled:${bundledProgram}:${bundledDay ?? '0'}`;
+      const dayIdx = Number.parseInt(bundledDay ?? '0', 10) || 0;
+      const programId = bundledProgram;
+      (async () => {
+        let libIndex: LibraryNameIndex | undefined;
+        try {
+          libIndex = buildLibraryNameIndex(await getExercises());
+        } catch {
+          libIndex = undefined; // offline / API down -> name-only session
+        }
+        const session = buildBundledSession(programId, dayIdx, libIndex);
+        if (session) loggerRef.current?.startSession(session);
+      })();
+      router.setParams({ bundledProgram: '', bundledDay: '' });
       return;
     }
 
@@ -779,6 +831,7 @@ export default function HomeScreen(): React.ReactElement {
       {/* ── TICKET-084: Start workout CTA ── */}
       {!restDayLoggedToday && (
         <TouchableOpacity
+          ref={startWorkoutAnchor.ref}
           style={[styles.startWorkoutBtn, { backgroundColor: theme.colors.accentDefault, borderRadius: radius.md }]}
           onPress={() => loggerRef.current?.startWorkout()}
           accessibilityRole="button"

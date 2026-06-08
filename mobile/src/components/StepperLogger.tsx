@@ -103,6 +103,12 @@ interface Props {
    */
   onLogSet: (exerciseId: string, weight: string, reps: string, rir?: string) => void;
   /**
+   * Called when the user taps a logged LIFT-set chip and saves a correction
+   * (e.g. a mistyped weight). `setIndex` is 0-based within the current exercise.
+   * Undefined = chips are not editable.
+   */
+  onUpdateSet?: (exerciseId: string, setIndex: number, weight: string, reps: string, rir?: string) => void;
+  /**
    * Called when user logs a CARDIO set. The parent should build the LogCardioSetPayload.
    * Separated from onLogSet to keep the lift path unchanged (TICKET-080 §2).
    */
@@ -179,7 +185,19 @@ interface Props {
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function SetChip({ set, index, unitPref }: { set: LoggedSet; index: number; unitPref?: 'kg' | 'lbs' }) {
+function SetChip({
+  set,
+  index,
+  unitPref,
+  onPress,
+  editing,
+}: {
+  set: LoggedSet;
+  index: number;
+  unitPref?: 'kg' | 'lbs';
+  onPress?: () => void;
+  editing?: boolean;
+}) {
   let label: string;
   if (set.durationSec != null) {
     // Cardio chip: "Set 1 · 22:30 · 5.0 km"
@@ -205,11 +223,32 @@ function SetChip({ set, index, unitPref }: { set: LoggedSet; index: number; unit
           : ` · RIR ${rirNum}`;
     label = `Set ${index + 1} · ${set.weight}×${set.reps}${rirLabel}`;
   }
+  // Lift sets are tappable (to correct a mistyped value); cardio sets are not.
+  const editable = !!onPress && set.durationSec == null;
+  if (editable) {
+    return (
+      <TouchableOpacity
+        style={[chipStyles.chip, editing && chipStyles.chipEditing]}
+        onPress={onPress}
+        accessibilityRole="button"
+        accessibilityLabel={`Edit set ${index + 1}`}
+      >
+        <Text style={[chipStyles.label, editing && chipStyles.labelEditing]}>{label}  ✎</Text>
+      </TouchableOpacity>
+    );
+  }
   return (
-    <View style={chipStyles.chip}>
-      <Text style={chipStyles.label}>{label}</Text>
+    <View style={[chipStyles.chip, editing && chipStyles.chipEditing]}>
+      <Text style={[chipStyles.label, editing && chipStyles.labelEditing]}>{label}</Text>
     </View>
   );
+}
+
+/** Heuristic: does this exercise's name denote a bodyweight movement? */
+const BODYWEIGHT_NAME_RE =
+  /\b(pull[\s-]?ups?|chin[\s-]?ups?|push[\s-]?ups?|press[\s-]?ups?|dips?|planks?|sit[\s-]?ups?|crunch(es)?|leg raises?|muscle[\s-]?ups?|pistol squats?|burpees?|mountain climbers?|hanging|inverted rows?|nordic|bodyweight)\b/i;
+function isBodyweightExercise(name?: string): boolean {
+  return !!name && BODYWEIGHT_NAME_RE.test(name);
 }
 
 /** "3 sets · top 100×6" summary for the JUST LOGGED interstitial. */
@@ -228,6 +267,7 @@ function topSetLabel(sets: LoggedSet[]): string {
 export default function StepperLogger({
   routineSession,
   onLogSet,
+  onUpdateSet,
   onLogCardioSet,
   onAdvance,
   onFinish,
@@ -262,6 +302,8 @@ export default function StepperLogger({
   const [reps, setReps] = useState('');
   const [rir, setRir] = useState('');
   const [showRir, setShowRir] = useState(false);
+  // Edit mode: index of the logged set currently being corrected (null = adding a new set).
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
   // ── Local form state — CARDIO ────────────────────────────────────────────
   const [cardioDurationMm, setCardioDurationMm] = useState('');
@@ -322,8 +364,17 @@ export default function StepperLogger({
       setCardioDurationSs('');
       setCardioDistance('');
     } else {
-      // Lift path (unchanged)
+      // Lift path
       if (!weight.trim() && !reps.trim()) return;
+      if (editingIndex != null) {
+        // Saving a correction to an already-logged set (e.g. a mistyped weight).
+        onUpdateSet?.(currentEx?.exerciseId ?? '', editingIndex, weight.trim(), reps.trim(), rir.trim() || undefined);
+        setEditingIndex(null);
+        setWeight('');
+        setReps('');
+        setRir('');
+        return; // an edit must not trigger the off-routine prompt
+      }
       onLogSet(currentEx?.exerciseId ?? '', weight.trim(), reps.trim(), rir.trim() || undefined);
       setReps('');
       setRir('');
@@ -333,9 +384,26 @@ export default function StepperLogger({
   }, [
     isCardio, cardioDurationMm, cardioDurationSs, cardioDistance, unitPref,
     onLogCardioSet, currentEx, weight, reps, rir, onLogSet, afterLogSet,
+    editingIndex, onUpdateSet,
   ]);
 
+  // Tap a logged lift-set chip to pull it back up into the inputs for correction.
+  const handleEditChip = useCallback((index: number) => {
+    const s = currentExerciseSets[index];
+    if (!s || s.durationSec != null) return; // lift sets only
+    setWeight(s.weight ?? '');
+    setReps(s.reps ?? '');
+    if (s.rir != null && s.rir !== '') {
+      setRir(s.rir);
+      setShowRir(true);
+    } else {
+      setRir('');
+    }
+    setEditingIndex(index);
+  }, [currentExerciseSets]);
+
   const handleContinue = useCallback(() => {
+    setEditingIndex(null);
     if (isLast) {
       onFinish();
     } else {
@@ -346,6 +414,7 @@ export default function StepperLogger({
   }, [isLast, currentIndex, onAdvance, onFinish]);
 
   const handleSelectIndex = useCallback((idx: number) => {
+    setEditingIndex(null);
     onAdvance(idx);
     setWeight('');
     setReps('');
@@ -529,7 +598,14 @@ export default function StepperLogger({
                 contentContainerStyle={styles.chipsContent}
               >
                 {currentExerciseSets.map((s, i) => (
-                  <SetChip key={i} set={s} index={i} unitPref={unitPref} />
+                  <SetChip
+                    key={i}
+                    set={s}
+                    index={i}
+                    unitPref={unitPref}
+                    onPress={onUpdateSet ? () => handleEditChip(i) : undefined}
+                    editing={editingIndex === i}
+                  />
                 ))}
               </ScrollView>
             )}
@@ -594,7 +670,7 @@ export default function StepperLogger({
                       value={weight}
                       onChangeText={setWeight}
                       keyboardType="decimal-pad"
-                      placeholder="—"
+                      placeholder={isBodyweightExercise(currentEx?.name) ? 'Your bodyweight' : '—'}
                       placeholderTextColor={stepperPalette.muted}
                       selectTextOnFocus
                       accessibilityLabel="Weight"
@@ -661,10 +737,22 @@ export default function StepperLogger({
               style={styles.logSetBtn}
               onPress={handleLogSet}
               accessibilityRole="button"
-              accessibilityLabel={`Log set ${setNumber}`}
+              accessibilityLabel={editingIndex != null ? `Save set ${editingIndex + 1}` : `Log set ${setNumber}`}
             >
-              <Text style={styles.logSetLabel}>Log set {setNumber}</Text>
+              <Text style={styles.logSetLabel}>
+                {editingIndex != null ? `Save set ${editingIndex + 1}` : `Log set ${setNumber}`}
+              </Text>
             </TouchableOpacity>
+            {editingIndex != null && (
+              <TouchableOpacity
+                onPress={() => { setEditingIndex(null); setWeight(''); setReps(''); setRir(''); }}
+                style={styles.cancelEditLink}
+                accessibilityRole="button"
+                accessibilityLabel="Cancel editing set"
+              >
+                <Text style={styles.cancelEditLabel}>Cancel edit</Text>
+              </TouchableOpacity>
+            )}
           </>
         )}
       </ScrollView>
@@ -1006,6 +1094,16 @@ const styles = StyleSheet.create({
     fontSize: fontSize.bodySm,
     color: stepperPalette.accentInk,
   },
+  cancelEditLink: {
+    alignSelf: 'center',
+    paddingVertical: spacing.s2,
+    marginBottom: spacing.s1,
+  },
+  cancelEditLabel: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: fontSize.caption,
+    color: stepperPalette.muted,
+  },
   actionBar: {
     paddingHorizontal: spacing.s4,
     paddingBottom: spacing.s8,
@@ -1303,5 +1401,12 @@ const chipStyles = StyleSheet.create({
     fontFamily: fontFamily.semiBold,
     fontSize: fontSize.caption,
     color: stepperPalette.accent,
+  },
+  chipEditing: {
+    backgroundColor: stepperPalette.accent,
+    borderColor: stepperPalette.accent,
+  },
+  labelEditing: {
+    color: stepperPalette.accentInk,
   },
 });

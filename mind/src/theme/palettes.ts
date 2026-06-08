@@ -206,4 +206,4 @@ export const MIND_TOKEN_OVERRIDES = {
   defaultAppearance: 'automatic' as const,
 } as const;
 
-export const MIND_DEFAULT_FAMILY = 'cool'; // Still Water / Deep Calm — recommended default
+export const MIND_DEFAULT_FAMILY = 'warm'; // Warm Sand (light) / Clay & Dusk (dark) — founder choice 2026-05-29

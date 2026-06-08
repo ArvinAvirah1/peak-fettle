@@ -510,6 +510,50 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
       [workout, selectedExercise, logSet, updateRoutineExercise, stepperSets],
     );
 
+    // Edit a previously-logged LIFT set (e.g. fix a mistyped weight). The sync
+    // layer has no update op, so we replace the row: delete the old set, then
+    // re-insert the correction at the SAME set_index. Reuses the proven
+    // deleteSet + logSet paths — no new server contract.
+    const handleStepperUpdateSet = useCallback(
+      async (exerciseId: string, setIndex: number, weight: string, reps: string, rir?: string) => {
+        // 1) Update the in-memory chip mirror immediately for instant feedback.
+        setStepperSets((prev) => {
+          const next = new Map(prev);
+          const existing = [...(next.get(exerciseId) ?? [])];
+          if (existing[setIndex]) {
+            existing[setIndex] = { ...existing[setIndex], weight, reps, rir };
+            next.set(exerciseId, existing);
+          }
+          return next;
+        });
+        // 2) Persist the correction.
+        const targetId = exerciseId || selectedExercise?.id || '';
+        if (!workout?.id || !targetId) return;
+        const existingRow = sets.find(
+          (s) => s.exercise_id === targetId && s.set_index === setIndex && s.kind === 'lift',
+        );
+        const rirNum = rir != null && rir.trim() !== '' ? parseInt(rir, 10) : undefined;
+        try {
+          if (existingRow) {
+            await deleteSet(existingRow.id);
+          }
+          await logSet({
+            kind: 'lift',
+            workoutId: workout.id,
+            exerciseId: targetId,
+            setIndex,
+            reps: parseInt(reps, 10) || 0,
+            weightKg: parseFloat(weight) || 0,
+            ...(rirNum !== undefined && !Number.isNaN(rirNum) ? { rir: rirNum } : {}),
+          });
+          haptics.success();
+        } catch (err) {
+          console.warn('[PF] WorkoutLoggerHost/handleStepperUpdateSet:', err instanceof Error ? err.message : String(err));
+        }
+      },
+      [workout, selectedExercise, sets, deleteSet, logSet],
+    );
+
     const handleStepperLogCardioSet = useCallback(
       async (exerciseId: string, durationSec: number, distanceM?: number, avgPaceSecPerKm?: number) => {
         const setIndex = stepperSets.get(exerciseId)?.length ?? 0;
@@ -750,6 +794,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
             <StepperLogger
               routineSession={routineSession}
               onLogSet={handleStepperLogSet}
+              onUpdateSet={handleStepperUpdateSet}
               onLogCardioSet={handleStepperLogCardioSet}
               onAdvance={handleStepperAdvance}
               onFinish={() => {

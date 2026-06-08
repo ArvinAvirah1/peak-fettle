@@ -372,3 +372,43 @@ Before triggering an EAS build or deploying the server, run through this:
 5. **Pushed to remote**: `git status -sb` shows no ahead commits. EAS reads from `origin/main`.
 6. **Server health**: hit `GET /health` on the Railway deployment and confirm it returns 200.
 7. **Push smoke test**: after a new EAS build, send one test push notification from the admin panel and verify it arrives on device.
+
+---
+
+## CORRUPT-001 (P0, found & fixed 2026-05-25 automated dev pass, commit `a3be2ae`)
+
+**Seven mobile source files were corrupt in HEAD/origin-main and would have failed the EAS build — while the working tree was clean.** Roadmap v23 (2026-05-25 1AM pass) declared "98/98 files clean, all dev-actionable items resolved, EAS Build is the only gate." It was wrong: the sweep had parsed only the **working tree**, never the **committed blobs**. EAS builds from `origin/main`, not the working tree.
+
+Files (all introduced by `63038c3`, 2026-05-21, "Add eas.json and pending mobile changes"):
+
+| File | HEAD corruption | Type |
+|------|-----------------|------|
+| `mobile/app/(tabs)/profile.tsx` | cut at `alignItems` (1314) | truncation mid-token |
+| `mobile/app/(tabs)/rankings.tsx` | cut at `fontSize: fo` (1074) | truncation mid-token |
+| `mobile/app/groups.tsx` | duplicate `StyleSheet.create` block + orphaned `ap: 16…` fragment after legit `});` at 944 (runs to 1175) | duplicated block |
+| `mobile/app/templates.tsx` | cut after `variant="primary"` (582) | truncation mid-token |
+| `mobile/src/components/ThemeSelector.tsx` | `// E-003: was 18` dropped mid-line, commenting out the real `color: meta.accentHex }` (84) | E-003 annotation |
+| `mobile/src/hooks/useWorkoutHistory.ts` | cut at `set` / `setLoading` (176) | truncation mid-token |
+| `mobile/src/utils/liftNames.ts` | cut at `.toUppe` / `toUpperCase` (48) | truncation mid-token |
+
+The working tree held the correct repairs for all 7 (each parses clean; `groups.tsx` WT was verified byte-identical to HEAD lines 1–944, i.e. the legitimate content with the duplicate dropped). They had simply never been committed. Fixed by committing the working-tree versions via temp-index plumbing → `a3be2ae`. After the fix, a full HEAD-blob sweep is **101/101 clean**.
+
+**Best practice — parse the COMMITTED BLOBS, not just the working tree.** This is the same lesson as PUSH-002, generalized: a "clean" working-tree sweep proves nothing about what EAS will build. Add a HEAD-blob sweep to every pre-build pass:
+
+```
+for f in $(git ls-tree -r --name-only HEAD | grep -E '^(mobile/(app|src)|peak-fettle-agents/server/(routes|cron|lib|middleware)).*\.(ts|tsx|js|jsx)$' | grep -v node_modules); do
+  git show "HEAD:$f" > /tmp/blob.txt
+  # .ts/.tsx -> babel parser (jsx+typescript); .js -> node --check on a .js-named copy
+done
+```
+
+(A reusable version lives in `outputs/headsweep.js` from this pass — babel-parses every tracked mobile+server source blob in HEAD and lists any that fail.)
+
+**Corollary — a roadmap's "clean / resolved" claim is never verification.** v22 made this mistake with PUSH-002; v23 repeated it with CORRUPT-001. Re-derive cleanliness every pass with the parser, over HEAD blobs, before trusting any "EAS Build is the only gate" statement.
+
+**Method gotchas hit this pass (so the next agent doesn't lose time):**
+- `node --check` on a temp file **without a `.js` extension** fails with `node:internal/modules/esm/get_format` — a false "corrupt" positive. Name the temp file `*.js`, or just use the babel parser for JS too.
+- The sandbox `git commit` / `git update-ref` still fail on unremovable `.git/*.lock`; the temp-index + hand-written loose-ref sequence in CLAUDE.md works. `unable to unlink … tmp_obj_*` warnings during `commit-tree` are expected and do **not** mean failure — verify with `git log --oneline -1`.
+
+### Pre-build checklist — UPDATED item 1
+1. **Parse sweep — over HEAD blobs, then the working tree.** EAS builds `origin/main`. A clean working tree with a corrupt HEAD (CORRUPT-001) still fails the build. Run `headsweep.js` (HEAD blobs) AND the working-tree babel sweep; both must be clean. Then confirm `git rev-list --count origin/main...HEAD` shows the local fixes are actually pushed.

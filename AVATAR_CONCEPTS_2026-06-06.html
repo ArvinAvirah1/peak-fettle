@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Peak Fettle — Avatar Art-Direction Concepts (TICKET-096 · Phase 1)</title>
+<style>
+  :root{
+    --ink:#0f172a; --muted:#5b6472; --line:#e3e7ee; --bg:#f6f8fb; --card:#ffffff;
+    --accent:#0fb5a6; --accent2:#1f7a8c;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  header{padding:32px 28px 8px;max-width:1080px;margin:0 auto;}
+  h1{font-size:24px;margin:0 0 6px;letter-spacing:-0.3px}
+  .sub{color:var(--muted);max-width:760px}
+  .gate{margin:18px auto 0;max-width:1080px;padding:0 28px}
+  .gatebox{background:#fff7ed;border:1px solid #fdba74;border-radius:12px;padding:14px 16px;color:#7c2d12;font-size:14px}
+  main{max-width:1080px;margin:0 auto;padding:20px 28px 64px}
+  .dir{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:22px;margin:18px 0;box-shadow:0 1px 2px rgba(15,23,42,.04)}
+  .dirhead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+  .dirhead h2{font-size:19px;margin:0}
+  .tag{font-size:12px;color:var(--accent2);background:#e6f7f4;border:1px solid #b8ece5;border-radius:999px;padding:2px 10px}
+  .desc{color:var(--muted);margin:6px 0 16px;max-width:820px}
+  .row{display:flex;gap:18px;flex-wrap:wrap}
+  .ch{width:150px;text-align:center}
+  .ch svg{width:130px;height:130px;border-radius:14px;border:1px solid var(--line);background:#fff}
+  .ch span{display:block;margin-top:8px;font-size:12px;color:var(--muted)}
+  .why{margin-top:16px;font-size:13px;color:var(--ink);background:#f1f5f9;border-radius:10px;padding:12px 14px}
+  .why b{color:var(--accent2)}
+  footer{max-width:1080px;margin:0 auto;padding:0 28px 60px;color:var(--muted);font-size:13px}
+  .feat{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+  .feat span{font-size:12px;border:1px solid var(--line);border-radius:999px;padding:3px 10px;background:#fff;color:var(--muted)}
+  ol{padding-left:18px} li{margin:4px 0}
+</style>
+</head>
+<body>
+<header>
+  <h1>Peak Fettle — Avatar Art-Direction Concepts</h1>
+  <div class="sub">TICKET-096, Phase 1. Four distinct directions for the customizable cartoon avatar, three sample characters each. The brief: <b>bespoke, fun, simple, funny.</b> Pick one direction (or mix two) and the layered, parametric avatar system gets built against it — no avatar code ships until you choose.</div>
+</header>
+<div class="gate">
+  <div class="gatebox">⛔ <b>Decision needed from you:</b> choose an art direction below. Everything here is a sketch to react to, not final art — once you pick, a proper artist/asset pipeline produces the full option set (many hairstyles, hats, etc.) in the chosen style.</div>
+</div>
+<main>
+
+  <!-- DIRECTION A -->
+  <section class="dir">
+    <div class="dirhead"><h2>A · Flat Chunky</h2><span class="tag">bold • geometric • modern</span></div>
+    <div class="desc">Big round heads, flat color blocks, thick rounded outlines. Reads clearly at tiny sizes (rankings rows, group lists). Friendly and confident — the "default modern app avatar" but with personality.</div>
+    <div class="row">
+      <div class="ch">
+        <svg viewBox="0 0 120 120">
+          <rect width="120" height="120" rx="16" fill="#ffe3b3"/>
+          <circle cx="60" cy="60" r="34" fill="#f2b48c"/>
+          <path d="M28 52a32 32 0 0 1 64 0v-4a32 32 0 0 0-64 0z" fill="#3b2a20"/>
+          <path d="M26 54q34 -22 68 0v-10q-34 -20 -68 0z" fill="#4a3527"/>
+          <circle cx="49" cy="60" r="4" fill="#241a14"/><circle cx="71" cy="60" r="4" fill="#241a14"/>
+          <path d="M50 74q10 8 20 0" stroke="#241a14" stroke-width="4" fill="none" stroke-linecap="round"/>
+        </svg>
+        <span>warm skin · brown crop</span>
+      </div>
+      <div class="ch">
+        <svg viewBox="0 0 120 120">
+          <rect width="120" height="120" rx="16" fill="#cdeafe"/>
+          <circle cx="60" cy="62" r="34" fill="#8d5524"/>
+          <path d="M26 56a34 30 0 0 1 68 0c0 -22 -68 -22 -68 0z" fill="#101010"/>
+          <rect x="40" y="55" width="16" height="10" rx="5" fill="#101010"/><rect x="64" y="55" width="16" height="10" rx="5" fill="#101010"/>
+          <line x1="56" y1="60" x2="64" y2="60" stroke="#101010" stroke-width="3"/>
+          <circle cx="48" cy="60" r="3.5" fill="#fff"/><circle cx="72" cy="60" r="3.5" fill="#fff"/>
+          <path d="M52 76q8 6 16 0" stroke="#3a241a" stroke-width="4" fill="none" stroke-linecap="round"/>
+        </svg>
+        <span>deep skin · round glasses</span>
+      </div>
+      <div class="ch">
+        <svg viewBox="0 0 120 120">
+          <rect width="120" height="120" rx="16" fill="#d9f5e6"/>
+          <circle cx="60" cy="62" r="34" fill="#ffd9b8"/>
+          <path d="M28 50h64v-6a32 14 0 0 0 -64 0z" fill="#0fb5a6"/>
+          <rect x="26" y="44" width="68" height="10" rx="5" fill="#0a8f84"/>
+          <circle cx="50" cy="62" r="4" fill="#241a14"/><circle cx="70" cy="62" r="4" fill="#241a14"/>
+          <path d="M48 76q12 9 24 0" stroke="#241a14" stroke-width="4" fill="none" stroke-linecap="round"/>
+        </svg>
+        <span>light skin · beanie</span>
+      </div>
+    </div>
+    <div class="why"><b>Why it works:</b> instantly legible at 28px, cheap to produce a large option library, and on-trend. <b>Risk:</b> can feel generic if the feature set isn't pushed (lean into expressive eyes + props).</div>
+  </section>
+
+  <!-- DIRECTION B -->
+  <section class="dir">
+    <div class="dirhead"><h2>B · Soft Blob</h2><span class="tag">minimal • silly • squishy</span></div>
+    <div class="desc">Almost no anatomy — a rounded blob, dot eyes, a single expressive mouth line. Maximum "funny/simple." Personality comes from color + one or two props. Charming and very cheap to extend.</div>
+    <div class="row">
+      <div class="ch">
+        <svg viewBox="0 0 120 120">
+          <rect width="120" height="120" rx="16" fill="#fde2e4"/>
+          <path d="M35 78c-6-30 14-46 25-46s31 16 25 46z" fill="#ffba49"/>
+          <circle cx="50" cy="58" r="3.5" fill="#23201c"/><circle cx="70" cy="58" r="3.5" fill="#23201c"/>
+          <path d="M54 67q6 5 12 0" stroke="#23201c" stroke-width="3" fill="none" stroke-linecap="round"/>
+          <circle cx="44" cy="64" r="3" fill="#ff9aa2" opacity="0.7"/><circle cx="76" cy="64" r="3" fill="#ff9aa2" opacity="0.7"/>
+        </svg>
+        <span>mango blob</span>
+      </div>
+      <div class="ch">
+        <svg viewBox="0 0 120 120">
+          <rect width="120" height="120" rx="16" fill="#e7f0ff"/>
+          <path d="M35 80c-6-32 14-48 25-48s31 16 25 48z" fill="#7ec4cf"/>
+          <path d="M44 40l6 8M76 40l-6 8" stroke="#3a8f9c" stroke-width="4" stroke-linecap="round"/>
+          <circle cx="51" cy="60" r="3.5" fill="#1f2a30"/><circle cx="69" cy="60" r="3.5" fill="#1f2a30"/>
+          <path d="M52 70q8 -4 16 0" stroke="#1f2a30" stroke-width="3" fill="none" stroke-linecap="round"/>
+        </svg>
+        <span>teal blob · antennae</span>
+      </div>
+      <div class="ch">
+        <svg viewBox="0 0 120 120">
+          <rect width="120" height="120" rx="16" fill="#eef7e6"/>
+          <path d="M35 80c-6-32 14-48 25-48s31 16 25 48z" fill="#b388eb"/>
+          <rect x="42" y="54" width="14" height="9" rx="4" fill="#1f2a30"/><rect x="64" y="54" width="14" height="9" rx="4" fill="#1f2a30"/>
+          <line x1="56" y1="58" x2="64" y2="58" stroke="#1f2a30" stroke-width="2.5"/>
+          <path d="M54 70q6 6 12 0" stroke="#1f2a30" stroke-width="3" fill="none" stroke-linecap="round"/>
+        </svg>
+        <span>grape blob · specs</span>
+      </div>
+    </div>
+    <div class="why"><b>Why it works:</b> the funniest + simplest, scales to hundreds of combos trivially, very "ownable." <b>Risk:</b> less "this is me" realism — fewer human features to customize (skin tone matters less). Great for a playful brand, weaker if users want a literal self-portrait.</div>
+  </section>
+
+  <!-- DIRECTION C -->
+  <section class="dir">
+    <div class="dirhead"><h2>C · Bold Sticker</h2><span class="tag">heavy outline • vivid • retro</span></div>
+    <div class="desc">Thick black ink lines, saturated fills, a die-cut "sticker" feel. High energy, slightly retro/streetwear. Pops on a dark theme (Deep Ocean) and feels collectible — pairs naturally with unlockable cosmetics.</div>
+    <div class="row">
+      <div class="ch">
+        <svg viewBox="0 0 120 120">
+          <rect width="120" height="120" rx="16" fill="#13343b"/>
+          <g stroke="#0b1417" stroke-width="4">
+            <circle cx="60" cy="62" r="32" fill="#f3a953"/>
+            <path d="M30 56q30 -30 60 0q2 -28 -30 -28t-30 28z" fill="#0b1417"/>
+            <circle cx="50" cy="62" r="4.5" fill="#0b1417" stroke="none"/><circle cx="70" cy="62" r="4.5" fill="#0b1417" stroke="none"/>
+            <path d="M48 78q12 8 24 0" fill="none" stroke-linecap="round"/>
+          </g>
+        </svg>
+        <span>classic ink</span>
+      </div>
+      <div class="ch">
+        <svg viewBox="0 0 120 120">
+          <rect width="120" height="120" rx="16" fill="#1d2a4a"/>
+          <g stroke="#0b1020" stroke-width="4">
+            <circle cx="60" cy="62" r="32" fill="#c98a5e"/>
+            <rect x="38" y="40" width="44" height="12" rx="4" fill="#ef476f"/>
+            <path d="M30 46h60" fill="none"/>
+            <rect x="40" y="58" width="16" height="11" rx="3" fill="#0b1020" stroke="none"/><rect x="64" y="58" width="16" height="11" rx="3" fill="#0b1020" stroke="none"/>
+            <path d="M50 80q10 5 20 0" fill="none" stroke-linecap="round"/>
+            <path d="M48 86q12 8 24 0" fill="#0b1020" stroke="none"/>
+          </g>
+        </svg>
+        <span>cap · shades · 'stache</span>
+      </div>
+      <div class="ch">
+        <svg viewBox="0 0 120 120">
+          <rect width="120" height="120" rx="16" fill="#0f3b2e"/>
+          <g stroke="#06140f" stroke-width="4">
+            <circle cx="60" cy="62" r="32" fill="#7a4a2b"/>
+            <path d="M28 60q4 -34 32 -34t32 34q-32 -16 -64 0z" fill="#1b1b1b"/>
+            <circle cx="50" cy="62" r="4.5" fill="#06140f" stroke="none"/><circle cx="70" cy="62" r="4.5" fill="#06140f" stroke="none"/>
+            <path d="M46 74q14 12 28 0q-14 22 -28 0z" fill="#1b1b1b" stroke="none"/>
+            <path d="M50 78q10 4 20 0" fill="none" stroke="#06140f"/>
+          </g>
+        </svg>
+        <span>beard · big curls</span>
+      </div>
+    </div>
+    <div class="why"><b>Why it works:</b> the most distinctive + "premium/collectible" — strong fit with the cosmetics shop (cosmetic_items). Looks great on the dark UI. <b>Risk:</b> heavier to draw each asset cleanly; busy at very small sizes.</div>
+  </section>
+
+  <!-- DIRECTION D -->
+  <section class="dir">
+    <div class="dirhead"><h2>D · Peak Pals (on-brand mascot)</h2><span class="tag">branded • gym buddies • warm</span></div>
+    <div class="desc">Rounded "buddy" characters built around Peak Fettle cues — headbands, a little mountain/peak motif, dumbbell accents. Less a literal self-portrait, more a companion that grows with you. Ties the avatar into the brand and the "training companion" idea.</div>
+    <div class="row">
+      <div class="ch">
+        <svg viewBox="0 0 120 120">
+          <rect width="120" height="120" rx="16" fill="#eaf7f5"/>
+          <path d="M18 96l20-30 12 14 14-26 18 42z" fill="#bfe9e2"/>
+          <circle cx="60" cy="56" r="28" fill="#ffcf99"/>
+          <rect x="34" y="44" width="52" height="9" rx="4" fill="#0fb5a6"/>
+          <circle cx="51" cy="58" r="3.5" fill="#23201c"/><circle cx="69" cy="58" r="3.5" fill="#23201c"/>
+          <path d="M52 68q8 6 16 0" stroke="#23201c" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+        </svg>
+        <span>headband · peaks</span>
+      </div>
+      <div class="ch">
+        <svg viewBox="0 0 120 120">
+          <rect width="120" height="120" rx="16" fill="#fff1d6"/>
+          <circle cx="60" cy="56" r="28" fill="#9c6b46"/>
+          <path d="M34 50a26 22 0 0 1 52 0c0 -20 -52 -20 -52 0z" fill="#2a2118"/>
+          <circle cx="51" cy="58" r="3.5" fill="#1c1208"/><circle cx="69" cy="58" r="3.5" fill="#1c1208"/>
+          <path d="M52 68q8 6 16 0" stroke="#1c1208" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+          <rect x="22" y="84" width="22" height="8" rx="4" fill="#1f7a8c"/><circle cx="22" cy="88" r="7" fill="#1f7a8c"/><circle cx="44" cy="88" r="7" fill="#1f7a8c"/>
+        </svg>
+        <span>spotting a dumbbell</span>
+      </div>
+      <div class="ch">
+        <svg viewBox="0 0 120 120">
+          <rect width="120" height="120" rx="16" fill="#e9ecff"/>
+          <circle cx="60" cy="56" r="28" fill="#f1c27d"/>
+          <path d="M36 48q24 -26 48 0q-6 -24 -24 -24t-24 24z" fill="#caa15a"/>
+          <rect x="40" y="54" width="15" height="10" rx="4" fill="#23201c"/><rect x="65" y="54" width="15" height="10" rx="4" fill="#23201c"/>
+          <line x1="55" y1="58" x2="65" y2="58" stroke="#23201c" stroke-width="2.5"/>
+          <path d="M53 68q7 5 14 0" stroke="#23201c" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+          <path d="M84 40l5-5m0 0l4 4m-4-4l-4-4m4 4l5 5" stroke="#f6b93b" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+        <span>PR sparkle</span>
+      </div>
+    </div>
+    <div class="why"><b>Why it works:</b> the only direction that builds brand equity — the avatar becomes a recognizable Peak Fettle "pal." Strong for retention/streak moments. <b>Risk:</b> furthest from "a face that looks like me"; needs the most original character design up front.</div>
+  </section>
+
+  <section class="dir">
+    <div class="dirhead"><h2>The customizer (same in every direction)</h2></div>
+    <div class="desc">Whichever style you pick, the build is a <b>layered, parametric</b> system: each category is a swappable layer with many options, plus a Randomize button and live preview. We serialize the <b>option set</b> (not a rendered image) so it ships in the local-first backup (TICKET-094) and re-renders identically on any device.</div>
+    <div class="feat">
+      <span>Face / head shape</span><span>Skin tone</span><span>Hairstyle</span><span>Facial hair</span>
+      <span>Eyes / brows</span><span>Mouth</span><span>Glasses</span><span>Hats / headwear</span><span>Background</span>
+    </div>
+  </section>
+
+</main>
+<footer>
+  <b>Next step:</b> reply with your pick — A · Flat Chunky, B · Soft Blob, C · Bold Sticker, or D · Peak Pals (or "blend C+D", etc.). On approval, Phase 2 builds the customizer + asset library in the chosen style. Until then, per the ticket's hard gate, no avatar code is written.
+  <div style="margin-top:8px">Sketches are concept-only, hand-built SVG to convey direction; final art would be produced properly in the selected style.</div>
+</footer>
+</body>
+</html>

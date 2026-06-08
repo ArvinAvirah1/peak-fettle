@@ -3,7 +3,7 @@ name: teacher_skill
 description: Reference doc for the Peak Fettle teacher agent. Encodes the most evidence-backed teaching/retention methods from cognitive science, plus a learner-profile section that updates over time as Arvin's learning style and abilities become clearer. The teacher agent (and any tutoring task in this repo) MUST read this file at the start of a session and update the LEARNER PROFILE section at the end.
 type: skill
 owner: Arvin
-last_reviewed: 2026-04-30
+last_reviewed: 2026-05-24
 ---
 
 # Teacher Skill — Peak Fettle
@@ -112,6 +112,8 @@ At the start of the NEXT session, before introducing new material, ask 1–2 que
 | Date | Topics covered | Confidence ratings (1–5) | Notes for next session |
 |------|----------------|--------------------------|------------------------|
 | 2026-04-30 | _pre-lesson survey + lesson 1 in progress_ | _pending end-of-session check_ | _pending_ |
+| 2026-05-24 | **Log-reconciliation note (unattended run).** This row was written by a scheduled, no-user run, so it records *artifacts observed*, not live teaching. Built interactive apps now exist for **L01** (May 20), **L02** (May 22), **L03** (May 23) — strong evidence prior runs taught L01→L03 but failed to append session-log rows. No confidence ratings exist for L02/L03 because those live sessions were never logged. | _n/a — reconciliation, not a live session_ | Next live session should open with M14 spacing retrieval on L03 (domain math: Epley, DOTS, the 0–1000 score) to confirm retention before L04, since L02/L03 mastery is unverified. |
+| 2026-05-24 | **L04 — Relational modeling & the Postgres schema: interactive app generated, NOT yet taught live.** Built `lessons/L04_relational_modeling.html` (8 segmented sections + Bloom L1–L5 quiz, spread [1,2,3,4,5,5]) grounded in a fresh read of `migrations/20260430_initial_schema.sql`. Awaiting Arvin's live session. | _pending — no live session held_ | Resume here: teach L04 live (concept-first per profile). Joins/indexes/normalization are flagged fuzzy in Prior Knowledge — go slow on §6–7 (B-tree intuition, composite leading-column rule, partial indexes). Real hooks baked into the app to lean on: cascade-delete demo widget; the pg_trgm-before-GIN ordering gotcha (N-10); the duplicate-trigger incident (N-09); the legacy read-only `rpe` column tying back to L01's RIR decision. |
 
 ---
 

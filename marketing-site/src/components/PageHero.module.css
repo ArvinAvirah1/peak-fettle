@@ -1,0 +1,16 @@
+.hero {
+    position: relative;
+    padding-top: calc(var(--nav-h) + clamp(3rem, 7vw, 6rem));
+    padding-bottom: clamp(2.5rem, 5vw, 4rem);
+    overflow: hidden;
+}
+.glow {
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 420px;
+    background: radial-gradient(60% 100% at 30% 0%, rgba(45,212,191,.16), transparent 70%);
+    pointer-events: none;
+}
+.title { margin-top: 1rem; max-width: 18ch; }
+.lede { margin-top: 1.5rem; }
+.extra { margin-top: 2rem; }

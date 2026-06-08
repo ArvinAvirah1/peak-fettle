@@ -65,6 +65,27 @@ CREATE TABLE IF NOT EXISTS outbox (
   last_error TEXT
 )`;
 
+// TICKET-097: training split schedule (cycle | weekly). One row, id='active'.
+// The full config is stored as JSON in `data` so it round-trips through the
+// TICKET-094 schema-versioned backup unchanged.
+export const CREATE_SCHEDULE = `
+CREATE TABLE IF NOT EXISTS schedule (
+  id TEXT PRIMARY KEY,
+  mode TEXT,
+  data TEXT,
+  position INTEGER DEFAULT 0,
+  updated_at TEXT
+)`;
+
+// TICKET-096 Phase 2: customizable avatar config (the option-set, not an image).
+// One row, id='active'. JSON in `data` so it round-trips through TICKET-094 backup.
+export const CREATE_AVATAR = `
+CREATE TABLE IF NOT EXISTS avatar (
+  id TEXT PRIMARY KEY,
+  data TEXT,
+  updated_at TEXT
+)`;
+
 // ---------------------------------------------------------------------------
 // Indexes
 // ---------------------------------------------------------------------------
@@ -83,6 +104,8 @@ export const SCHEMA_STATEMENTS: string[] = [
   CREATE_WORKOUTS,
   CREATE_SETS,
   CREATE_OUTBOX,
+  CREATE_SCHEDULE,
+  CREATE_AVATAR,
   CREATE_SETS_WORKOUT_IDX,
   CREATE_OUTBOX_ID_IDX,
 ];

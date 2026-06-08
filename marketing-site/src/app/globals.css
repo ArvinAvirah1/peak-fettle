@@ -1,64 +1,216 @@
-/* Peak Fettle marketing site — global styles
-   Palette mirrors the Qt app (Theme.qml) so brand is consistent. */
+/* Peak Fettle — marketing site design system
+   Dark, athletic, turquoise-on-navy. Mirrors the app's "Deep Ocean" theme so
+   brand reads identically across web and app.
+   Fonts are injected by next/font in layout.tsx (--font-display / --font-body). */
 
 :root {
-    --ink:           #06080F;
-    --ink-2:         #0A1A33;
-    --ink-3:         #122E5C;
-    --turquoise:     #2DD4BF;
-    --turquoise-hi:  #5EEAD4;
-    --turquoise-lo:  #14B8A6;
-    --white:         #E2EEF7;
-    --muted:         #8FA4BC;
-    --line:          rgba(45, 212, 191, 0.15);
-    --line-strong:   rgba(45, 212, 191, 0.35);
-    --danger:        #F87171;
-    --success:       #34D399;
-    --display:       'Space Grotesk', system-ui, sans-serif;
-    --body:          'Inter', system-ui, sans-serif;
-    --ease:          cubic-bezier(.2,.8,.2,1);
-    --max:           1200px;
+    /* ---- Brand palette ---- */
+    --ink:          #06080F;   /* page background */
+    --ink-2:        #0A0F1E;   /* alt section background */
+    --surface:      #0D1426;   /* cards */
+    --surface-2:    #121B31;   /* sub-cards / inputs */
+    --surface-3:    #18233D;   /* elevated / hover */
+
+    --accent:       #2DD4BF;   /* turquoise — primary interactive */
+    --accent-hi:    #5EEAD4;   /* lighter (hover / glow) */
+    --accent-lo:    #14B8A6;   /* darker (pressed) */
+    --accent-deep:  #0E5C55;   /* deep teal for fills */
+
+    --text:         #E8F1F8;
+    --text-strong:  #FFFFFF;
+    --muted:        #98ACC4;
+    --muted-2:      #6F86A0;
+
+    --line:         rgba(45, 212, 191, 0.14);
+    --line-2:       rgba(152, 172, 196, 0.12);
+    --line-strong:  rgba(45, 212, 191, 0.40);
+
+    --danger:       #F87171;
+    --success:      #34D399;
+
+    /* ---- Type ---- */
+    --display: var(--font-display), 'Space Grotesk', system-ui, sans-serif;
+    --body:    var(--font-body), 'Inter', system-ui, sans-serif;
+
+    /* ---- Shape & motion ---- */
+    --r-sm: 10px;
+    --r:    16px;
+    --r-lg: 24px;
+    --r-xl: 32px;
+    --ease: cubic-bezier(.22, .8, .28, 1);
+    --ease-out: cubic-bezier(.16, 1, .3, 1);
+
+    --shadow:    0 1px 2px rgba(0,0,0,.4), 0 8px 30px rgba(0,0,0,.35);
+    --shadow-lg: 0 20px 60px rgba(0,0,0,.5);
+    --glow:      0 0 0 1px var(--line-strong), 0 0 40px rgba(45,212,191,.25);
+
+    --nav-h: 68px;
+    --max:   1180px;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-html  { scroll-behavior: smooth; }
 
-/* T-09 (2026-05-03): offset anchored sections so they don't hide under the 72px sticky nav.
-   76px = 72px nav height + 4px breathing room. */
-#features,
-#waitlist {
-    scroll-margin-top: 76px;
+html {
+    scroll-behavior: smooth;
+    /* offset anchor targets so they clear the sticky nav */
+    scroll-padding-top: calc(var(--nav-h) + 12px);
+    -webkit-text-size-adjust: 100%;
 }
-body  {
-    background:  var(--ink);
-    color:       var(--white);
+
+body {
+    background: var(--ink);
+    color: var(--text);
     font-family: var(--body);
-    font-size:   16px;
-    line-height: 1.6;
+    font-size: 16px;
+    line-height: 1.65;
+    letter-spacing: -0.011em;
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
+    /* subtle top-of-page brand wash */
+    background-image:
+        radial-gradient(60% 50% at 50% -8%, rgba(45,212,191,.10), transparent 70%),
+        radial-gradient(40% 30% at 100% 0%, rgba(30,58,138,.18), transparent 70%);
+    background-attachment: fixed;
+    background-repeat: no-repeat;
 }
 
-a    { color: inherit; text-decoration: none; }
-img  { display: block; max-width: 100%; }
-ul   { list-style: none; }
+h1, h2, h3, h4 {
+    font-family: var(--display);
+    font-weight: 700;
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    color: var(--text-strong);
+}
 
-::selection { background: var(--turquoise); color: var(--ink); }
-:focus-visible { outline: 2px solid var(--turquoise); outline-offset: 2px; }
+p { text-wrap: pretty; }
+a { color: inherit; text-decoration: none; }
+img, svg, video { display: block; max-width: 100%; }
+ul { list-style: none; }
+button { font: inherit; color: inherit; cursor: pointer; background: none; border: none; }
 
-/* ----- Utility classes ----- */
+::selection { background: var(--accent); color: var(--ink); }
+:focus-visible { outline: 2px solid var(--accent-hi); outline-offset: 3px; border-radius: 4px; }
+
+/* ---- Layout utilities ---- */
 .container {
     width: 100%;
     max-width: var(--max);
     margin-inline: auto;
-    padding-inline: clamp(1rem, 5vw, 3rem);
+    padding-inline: clamp(1.1rem, 5vw, 3rem);
 }
 
-.sr-only {
-    position: absolute;
-    width: 1px; height: 1px;
-    padding: 0; overflow: hidden;
-    clip: rect(0,0,0,0);
+.section { padding-block: clamp(4.5rem, 9vw, 8rem); }
+.section-tight { padding-block: clamp(3rem, 6vw, 5rem); }
+
+.eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: .5rem;
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: .78rem;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent-hi);
+}
+.eyebrow::before {
+    content: '';
+    width: 18px; height: 1px;
+    background: var(--accent);
+}
+
+.h1 { font-size: clamp(2.6rem, 6.5vw, 4.6rem); }
+.h2 { font-size: clamp(2rem, 4.4vw, 3.1rem); }
+.h3 { font-size: clamp(1.25rem, 2.2vw, 1.6rem); }
+.lede {
+    font-size: clamp(1.05rem, 1.7vw, 1.3rem);
+    color: var(--muted);
+    line-height: 1.6;
+    max-width: 56ch;
+}
+.accent { color: var(--accent); }
+.gradient-text {
+    background: linear-gradient(100deg, var(--text-strong) 10%, var(--accent-hi) 60%, var(--accent) 100%);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+}
+
+/* ---- Buttons ---- */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: .55rem;
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 1rem;
+    line-height: 1;
+    padding: .95rem 1.5rem;
+    border-radius: 999px;
+    transition: transform .25s var(--ease), background .25s var(--ease), box-shadow .25s var(--ease), border-color .25s var(--ease);
     white-space: nowrap;
-    border: 0;
+}
+.btn:active { transform: translateY(1px) scale(.99); }
+
+.btn-primary {
+    background: linear-gradient(180deg, var(--accent-hi), var(--accent));
+    color: var(--ink);
+    box-shadow: 0 6px 22px rgba(45,212,191,.32);
+}
+.btn-primary:hover { box-shadow: 0 10px 34px rgba(45,212,191,.5); transform: translateY(-2px); }
+
+.btn-ghost {
+    background: rgba(152,172,196,.06);
+    color: var(--text);
+    border: 1px solid var(--line-2);
+}
+.btn-ghost:hover { background: rgba(152,172,196,.12); border-color: var(--line-strong); transform: translateY(-2px); }
+
+/* ---- Cards ---- */
+.card {
+    background: linear-gradient(180deg, var(--surface), var(--ink-2));
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow);
+}
+
+/* ---- Scroll-reveal (driven by Reveal.tsx via .is-in) ---- */
+.reveal {
+    opacity: 0;
+    transform: translateY(22px);
+    transition: opacity .7s var(--ease-out), transform .7s var(--ease-out);
+    will-change: opacity, transform;
+}
+.reveal.is-in { opacity: 1; transform: none; }
+.reveal-1 { transition-delay: .06s; }
+.reveal-2 { transition-delay: .12s; }
+.reveal-3 { transition-delay: .18s; }
+.reveal-4 { transition-delay: .24s; }
+.reveal-5 { transition-delay: .30s; }
+
+/* ---- Accessibility helpers ---- */
+.sr-only {
+    position: absolute; width: 1px; height: 1px;
+    padding: 0; overflow: hidden; clip: rect(0,0,0,0);
+    white-space: nowrap; border: 0;
+}
+.skip-link {
+    position: fixed; top: -100%; left: 12px; z-index: 200;
+    background: var(--accent); color: var(--ink);
+    padding: .65rem 1rem; border-radius: 8px; font-weight: 600;
+    transition: top .2s var(--ease);
+}
+.skip-link:focus { top: 12px; }
+
+/* ---- Reduced motion ---- */
+@media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+        animation-duration: .001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .001ms !important;
+        scroll-behavior: auto !important;
+    }
+    .reveal { opacity: 1; transform: none; }
 }

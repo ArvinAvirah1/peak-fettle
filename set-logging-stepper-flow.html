@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Peak Fettle — Focus Stepper flow + variants (TICKET-059…062)</title>
+<style>
+  :root{
+    --bg:#0b1622; --frame:#0a121c; --card:#13212f; --field:#0a121c;
+    --accent:#2dd4bf; --accent-ink:#06231f; --text:#e8eef2; --muted:#7d8b99;
+    --line:rgba(255,255,255,.10); --acs:rgba(45,212,191,.14); --acl:rgba(45,212,191,.40);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:#1c1f24;color:var(--text);padding:28px 18px 60px;}
+  .head{max-width:1160px;margin:0 auto 8px;}
+  .head h1{font-size:22px;font-weight:600;margin:0 0 6px;}
+  .head p{font-size:14px;line-height:1.6;color:#aab4c0;margin:0;max-width:840px;}
+  .sec{max-width:1160px;margin:32px auto 0;}
+  .sec h2{font-size:16px;font-weight:600;margin:0 0 4px;}
+  .sec .lead{font-size:13px;color:#9aa6b2;margin:0 0 16px;max-width:840px;line-height:1.55;}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:28px;}
+  .col{display:flex;flex-direction:column;align-items:center;gap:10px;}
+  .nm{font-size:14px;font-weight:600;}
+  .desc{font-size:12px;line-height:1.45;color:#9aa6b2;text-align:center;min-height:48px;max-width:300px;}
+  .phone{width:300px;border-radius:28px;padding:10px;background:var(--frame);border:1px solid rgba(255,255,255,.13);box-shadow:0 10px 36px rgba(0,0,0,.35);}
+  .sc{height:540px;border-radius:20px;background:var(--bg);padding:14px 12px;overflow:hidden;display:flex;flex-direction:column;position:relative;}
+  .r{display:flex;align-items:center;}.bw{justify-content:space-between;}
+  .t{font-size:15px;font-weight:700;}.sub{font-size:10px;color:var(--muted);}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--line);}.dot.on{background:var(--accent);}
+  .kick{font-size:9.5px;font-weight:700;letter-spacing:.05em;color:var(--muted);}
+  .exname{font-size:24px;font-weight:700;}
+  .cd{border-radius:13px;background:var(--card);border:1px solid var(--line);padding:11px;}
+  .cd.sel{border-color:var(--acl);}
+  .pb{font-size:11px;font-weight:600;color:var(--accent);}
+  .lab{font-size:9px;font-weight:700;letter-spacing:.03em;color:var(--muted);}
+  .fl{border-radius:10px;background:var(--field);border:1px solid var(--line);padding:11px;font-size:20px;font-weight:700;text-align:center;}
+  .cta{border-radius:11px;background:var(--accent);color:var(--accent-ink);text-align:center;font-weight:700;padding:11px;font-size:13.5px;}
+  .cta2{border-radius:11px;background:var(--card);color:var(--accent);border:1px solid var(--acl);text-align:center;font-weight:700;padding:10px;font-size:12.5px;}
+  .ghost{border-radius:11px;border:1px solid var(--line);color:var(--muted);text-align:center;font-weight:600;padding:9px;font-size:12px;background:transparent;}
+  .setchip{font-size:10px;font-weight:600;color:var(--muted);background:rgba(255,255,255,.04);border:1px solid var(--line);border-radius:999px;padding:3px 9px;}
+  .setchip.done{color:var(--accent);background:var(--acs);border-color:var(--acl);}
+  .er{border-radius:11px;background:rgba(255,255,255,.03);border:1px solid var(--line);padding:9px 11px;}
+  .er.cur{border-color:var(--acl);}
+  .tick{width:16px;height:16px;border-radius:5px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--accent);}
+  .tick.done{background:var(--acs);border-color:var(--acl);}
+  .sm{font-size:9.5px;color:var(--muted);}
+  .sheet{position:absolute;left:-12px;right:-12px;bottom:-14px;background:var(--card);border-top:1px solid var(--acl);border-radius:18px 18px 0 0;padding:13px;}
+  .handle{width:34px;height:4px;border-radius:99px;background:var(--line);margin:0 auto 11px;}
+  .seclab{font-size:10px;font-weight:700;color:#5f6f7d;letter-spacing:.03em;}
+  .browse{border-radius:11px;border:1px dashed var(--acl);color:var(--accent);text-align:center;font-weight:700;padding:10px;font-size:12px;}
+  .prompt{position:absolute;left:-12px;right:-12px;bottom:-14px;background:var(--card);border-top:1px solid var(--acl);border-radius:18px 18px 0 0;padding:13px;}
+  .opt{border-radius:10px;border:1px solid var(--line);padding:9px;font-size:11px;font-weight:600;text-align:center;color:var(--text);}
+  .opt.on{border-color:var(--acl);background:var(--acs);color:var(--accent);}
+  .drag{color:var(--muted);font-size:14px;}
+  .pill{border-radius:999px;background:var(--acs);color:var(--accent);font-size:9px;font-weight:700;padding:3px 8px;}
+  .grow{flex:1;}
+</style>
+</head>
+<body>
+  <div class="head">
+    <h1>Peak Fettle — Focus Stepper logging (chosen model) + variants</h1>
+    <p>The set-logging screen is now the Focus Stepper. Colour is held constant on purpose — these frames show the <em>interaction structure</em> you specified: the dynamic "Continue to &lt;next&gt;" + "Select different exercise" buttons, the exercise switcher (all routine exercises, done ones marked, plus Browse), the "ask where to place it" prompt for off-routine adds, two ways to manage routines for you to compare, and three ways the stepper can work for non-routine users for you to pick. Maps to TICKET-059…062.</p>
+  </div>
+
+  <!-- SECTION 1 -->
+  <div class="sec">
+    <h2>1 · The Focus Stepper flow (TICKET-059 / 060)</h2>
+    <p class="lead">One exercise at a time. Log as many sets as you want on the current exercise, then advance with a button that names the next exercise — or switch to any other exercise.</p>
+    <div class="grid">
+
+      <!-- 1a stepper main -->
+      <div class="col">
+        <div class="nm">1a · Stepper — after logging a set</div>
+        <div class="desc">Primary button names the next exercise; secondary opens the switcher. Multiple sets log in place before you advance.</div>
+        <div class="phone"><div class="sc">
+          <div class="r bw" style="margin-bottom:12px;"><span class="sub">Push A · wk 6</span><div class="r" style="gap:5px;"><span class="dot on"></span><span class="dot on"></span><span class="dot on"></span><span class="dot"></span><span class="dot"></span></div><span class="sub">3 / 5</span></div>
+          <div class="kick" style="margin-bottom:3px;">EXERCISE 3 OF 5</div>
+          <div class="exname" style="margin-bottom:11px;">Cable Fly</div>
+          <div class="cd" style="margin-bottom:10px;"><div class="pb">PB 25kg × 12 · aim 10–15 reps</div></div>
+          <div class="r" style="gap:6px;margin-bottom:11px;flex-wrap:wrap;"><span class="setchip done">Set 1 · 25×12</span><span class="setchip done">Set 2 · 25×11</span></div>
+          <div class="r" style="gap:9px;margin-bottom:11px;"><div class="grow"><div class="lab" style="margin-bottom:5px;">WEIGHT</div><div class="fl">25</div></div><div class="grow"><div class="lab" style="margin-bottom:5px;">REPS</div><div class="fl">11</div></div></div>
+          <div class="cta" style="margin-bottom:14px;">Log set 3</div>
+          <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px;">
+            <div class="cta">Continue to Shoulder Press →</div>
+            <div class="cta2">Select different exercise</div>
+          </div>
+        </div></div>
+      </div>
+
+      <!-- 1b switcher sheet -->
+      <div class="col">
+        <div class="nm">1b · "Select different exercise" sheet</div>
+        <div class="desc">All routine exercises listed; completed ones marked with a check + set count. Tap to jump, or Browse the full library for anything else.</div>
+        <div class="phone"><div class="sc">
+          <div class="r bw" style="opacity:.35;margin-bottom:10px;"><span class="sub">Push A</span><span class="sub">3 / 5</span></div>
+          <div class="exname" style="opacity:.35;margin-bottom:8px;">Cable Fly</div>
+          <div class="cd" style="opacity:.35;"><div class="pb">PB 25kg × 12</div></div>
+          <div class="sheet">
+            <div class="handle"></div>
+            <div class="seclab" style="margin-bottom:9px;">IN THIS ROUTINE</div>
+            <div style="display:flex;flex-direction:column;gap:7px;margin-bottom:11px;">
+              <div class="r er bw"><div class="r" style="gap:9px;"><span class="tick done">✓</span><span style="font-size:12px;font-weight:600;">Bench Press</span></div><span class="sm">3 sets</span></div>
+              <div class="r er bw"><div class="r" style="gap:9px;"><span class="tick done">✓</span><span style="font-size:12px;font-weight:600;">Incline DB</span></div><span class="sm">2 sets</span></div>
+              <div class="r er bw cur"><div class="r" style="gap:9px;"><span class="tick"></span><span style="font-size:12px;font-weight:700;color:var(--accent);">Cable Fly</span></div><span class="sm">current</span></div>
+              <div class="r er bw"><div class="r" style="gap:9px;"><span class="tick"></span><span style="font-size:12px;font-weight:600;">Shoulder Press</span></div><span class="sm">—</span></div>
+              <div class="r er bw"><div class="r" style="gap:9px;"><span class="tick"></span><span style="font-size:12px;font-weight:600;">Triceps Pushdown</span></div><span class="sm">—</span></div>
+            </div>
+            <div class="browse">⌕ Browse full library →</div>
+          </div>
+        </div></div>
+      </div>
+
+      <!-- 1c off-routine add placement -->
+      <div class="col">
+        <div class="nm">1c · Off-routine add → where to place it?</div>
+        <div class="desc">Picked an exercise not in the routine — it loads immediately. A prompt asks to add it for next time, and lets you choose where it goes.</div>
+        <div class="phone"><div class="sc">
+          <div class="r bw" style="opacity:.4;margin-bottom:10px;"><span class="sub">Push A</span><span class="sub">free pick</span></div>
+          <div class="kick" style="opacity:.4;margin-bottom:3px;">NOT IN ROUTINE</div>
+          <div class="exname" style="opacity:.4;margin-bottom:8px;">Pec Deck</div>
+          <div class="cd" style="opacity:.4;"><div class="pb">PB 60kg × 12</div></div>
+          <div class="prompt">
+            <div class="handle"></div>
+            <div style="font-size:13px;font-weight:700;margin-bottom:4px;">Add Pec Deck to “Push A”?</div>
+            <div class="sm" style="margin-bottom:11px;">Keep it for next time — where should it go?</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:8px;">
+              <div class="opt">End of routine</div>
+              <div class="opt on">After current</div>
+              <div class="opt" style="grid-column:span 2;">Pick position…</div>
+            </div>
+            <div class="r" style="gap:8px;"><div class="ghost grow">Not now</div><div class="cta grow">Add to routine</div></div>
+          </div>
+        </div></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- SECTION 2 -->
+  <div class="sec">
+    <h2>2 · Managing routines — two options to compare (TICKET-061)</h2>
+    <p class="lead">You asked to see both. Same capability (create / edit / drag-reorder / delete / start), surfaced two ways — pick whichever reads cleaner.</p>
+    <div class="grid">
+
+      <!-- 2a dedicated page -->
+      <div class="col">
+        <div class="nm">Option A · Dedicated Routines page</div>
+        <div class="desc">Its own screen/tab. A full list of your routines + the built-in splits as starting points. Most room for heavy editing.</div>
+        <div class="phone"><div class="sc">
+          <div class="r bw" style="margin-bottom:14px;"><div class="t">Routines</div><span class="pill">＋ New</span></div>
+          <div class="seclab" style="margin-bottom:7px;">YOURS</div>
+          <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;">
+            <div class="cd"><div class="r bw" style="margin-bottom:5px;"><span style="font-size:13px;font-weight:700;">Push A</span><span class="sm">5 exercises</span></div><div class="r" style="gap:8px;"><div class="cta2 grow" style="padding:7px;">▶ Start</div><div class="ghost grow" style="padding:7px;">✎ Edit</div></div></div>
+            <div class="cd"><div class="r bw" style="margin-bottom:5px;"><span style="font-size:13px;font-weight:700;">Pull A</span><span class="sm">6 exercises</span></div><div class="r" style="gap:8px;"><div class="cta2 grow" style="padding:7px;">▶ Start</div><div class="ghost grow" style="padding:7px;">✎ Edit</div></div></div>
+            <div class="cd"><div class="r bw" style="margin-bottom:5px;"><span style="font-size:13px;font-weight:700;">Leg Day</span><span class="sm">5 exercises</span></div><div class="r" style="gap:8px;"><div class="cta2 grow" style="padding:7px;">▶ Start</div><div class="ghost grow" style="padding:7px;">✎ Edit</div></div></div>
+          </div>
+          <div class="seclab" style="margin-bottom:7px;">STARTER SPLITS · tap to duplicate</div>
+          <div class="r" style="gap:6px;flex-wrap:wrap;"><span class="setchip">PPL · Push</span><span class="setchip">PPL · Pull</span><span class="setchip">Upper A</span><span class="setchip">Lower A</span></div>
+        </div></div>
+      </div>
+
+      <!-- 2b bottom sheet builder -->
+      <div class="col">
+        <div class="nm">Option B · Bottom-sheet builder</div>
+        <div class="desc">Slides up over the logger — rename, add, drag-reorder without leaving the flow. "Open full editor" escape hatch for big jobs.</div>
+        <div class="phone"><div class="sc">
+          <div class="r bw" style="opacity:.35;margin-bottom:10px;"><span class="sub">Push A</span><span class="sub">3 / 5</span></div>
+          <div class="exname" style="opacity:.35;">Cable Fly</div>
+          <div class="sheet" style="bottom:-14px;">
+            <div class="handle"></div>
+            <div class="r bw" style="margin-bottom:11px;"><span style="font-size:13px;font-weight:700;">Edit · Push A</span><span class="sm">5 exercises</span></div>
+            <div style="display:flex;flex-direction:column;gap:7px;margin-bottom:10px;">
+              <div class="r er bw"><div class="r" style="gap:9px;"><span class="drag">≡</span><span style="font-size:12px;font-weight:600;">Bench Press</span></div><span class="sm">4 × 6</span></div>
+              <div class="r er bw"><div class="r" style="gap:9px;"><span class="drag">≡</span><span style="font-size:12px;font-weight:600;">Incline DB</span></div><span class="sm">3 × 8</span></div>
+              <div class="r er bw"><div class="r" style="gap:9px;"><span class="drag">≡</span><span style="font-size:12px;font-weight:600;">Cable Fly</span></div><span class="sm">3 × 12</span></div>
+              <div class="r er bw"><div class="r" style="gap:9px;"><span class="drag">≡</span><span style="font-size:12px;font-weight:600;">Shoulder Press</span></div><span class="sm">3 × 8</span></div>
+            </div>
+            <div class="browse" style="margin-bottom:9px;">＋ Add exercise</div>
+            <div class="r" style="gap:8px;"><div class="ghost grow">Open full editor</div><div class="cta grow">Save</div></div>
+          </div>
+        </div></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- SECTION 3 -->
+  <div class="sec">
+    <h2>3 · Stepper for non-routine users — three ways (TICKET-062)</h2>
+    <p class="lead">The stepper is used for everyone. For users not following a saved routine, here are three ways it can behave — pick the one you want as the default for those users.</p>
+    <div class="grid">
+
+      <!-- 3a add as you go -->
+      <div class="col">
+        <div class="nm">Variant 1 · Add-as-you-go</div>
+        <div class="desc">Start empty, pick the first exercise, log, then "+ Add next exercise". Open-ended, most spontaneous.</div>
+        <div class="phone"><div class="sc">
+          <div class="r bw" style="margin-bottom:12px;"><span class="sub">Free session · wk 6</span><span class="sub">2 logged</span></div>
+          <div class="kick" style="margin-bottom:3px;">EXERCISE 2 · NO ROUTINE</div>
+          <div class="exname" style="margin-bottom:11px;">Lat Pulldown</div>
+          <div class="cd" style="margin-bottom:10px;"><div class="pb">PB 70kg × 10 · aim 8–12 reps</div></div>
+          <div class="r" style="gap:6px;margin-bottom:11px;"><span class="setchip done">Set 1 · 65×10</span></div>
+          <div class="r" style="gap:9px;margin-bottom:11px;"><div class="grow"><div class="lab" style="margin-bottom:5px;">WEIGHT</div><div class="fl">65</div></div><div class="grow"><div class="lab" style="margin-bottom:5px;">REPS</div><div class="fl">10</div></div></div>
+          <div class="cta" style="margin-bottom:14px;">Log set 2</div>
+          <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px;">
+            <div class="cta">＋ Add next exercise</div>
+            <div class="cta2">Finish &amp; save as routine</div>
+          </div>
+        </div></div>
+      </div>
+
+      <!-- 3b build then step -->
+      <div class="col">
+        <div class="nm">Variant 2 · Build-then-step</div>
+        <div class="desc">Multi-select a few exercises up front; the stepper walks them like a routine. "Continue to &lt;next&gt;" works, and you can save it.</div>
+        <div class="phone"><div class="sc">
+          <div class="r bw" style="margin-bottom:14px;"><div class="t">Build today's session</div></div>
+          <div class="sm" style="margin-bottom:11px;">Pick the exercises — we'll step you through them in order.</div>
+          <div style="display:flex;flex-direction:column;gap:7px;margin-bottom:12px;">
+            <div class="r er bw"><div class="r" style="gap:9px;"><span class="tick done">✓</span><span style="font-size:12px;font-weight:600;">Bench Press</span></div><span class="sm">1</span></div>
+            <div class="r er bw"><div class="r" style="gap:9px;"><span class="tick done">✓</span><span style="font-size:12px;font-weight:600;">Incline DB</span></div><span class="sm">2</span></div>
+            <div class="r er bw"><div class="r" style="gap:9px;"><span class="tick done">✓</span><span style="font-size:12px;font-weight:600;">Cable Fly</span></div><span class="sm">3</span></div>
+            <div class="r er bw"><div class="r" style="gap:9px;"><span class="tick"></span><span style="font-size:12px;font-weight:600;">Shoulder Press</span></div><span class="sm"></span></div>
+            <div class="r er bw"><div class="r" style="gap:9px;"><span class="tick"></span><span style="font-size:12px;font-weight:600;">Triceps Pushdown</span></div><span class="sm"></span></div>
+          </div>
+          <div class="browse" style="margin-bottom:11px;">⌕ Browse for more</div>
+          <div style="margin-top:auto;"><div class="cta">Start stepper (3 exercises) →</div></div>
+        </div></div>
+      </div>
+
+      <!-- 3c smart suggest -->
+      <div class="col">
+        <div class="nm">Variant 3 · Smart-suggest</div>
+        <div class="desc">After each lift the stepper proposes a sensible next exercise (from history / muscle balance / Haiku). One tap to accept, or choose different.</div>
+        <div class="phone"><div class="sc">
+          <div class="r bw" style="margin-bottom:12px;"><span class="sub">Free session · wk 6</span><span class="sub">2 logged</span></div>
+          <div class="kick" style="margin-bottom:3px;">JUST LOGGED</div>
+          <div class="exname" style="margin-bottom:11px;">Bench Press</div>
+          <div class="r" style="gap:6px;margin-bottom:14px;"><span class="setchip done">3 sets · top 100×6</span></div>
+          <div class="cd sel" style="margin-bottom:14px;">
+            <div class="r bw" style="margin-bottom:5px;"><span class="pill">Suggested next</span><span class="sm">balances push volume</span></div>
+            <div style="font-size:15px;font-weight:700;">Shoulder Press</div>
+            <div class="pb" style="margin-top:3px;">PB 45kg × 8 · aim 6–10</div>
+          </div>
+          <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px;">
+            <div class="cta">Continue to Shoulder Press →</div>
+            <div class="cta2">Select different exercise</div>
+          </div>
+        </div></div>
+      </div>
+
+    </div>
+  </div>
+
+</body>
+</html>

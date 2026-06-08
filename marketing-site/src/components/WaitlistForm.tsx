@@ -107,8 +107,8 @@ export default function WaitlistForm() {
                     )}
 
                     <p className={styles.privacy}>
-                        No spam. One email when your beta spot is ready.
-                        Unsubscribe at any time.
+                        No spam. We&apos;ll email you the moment Peak Fettle is on your store —
+                        then only when it matters. Unsubscribe anytime.
                     </p>
                 </form>
             )}

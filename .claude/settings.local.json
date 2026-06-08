@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \"require\\('@babel/parser'\\); console.log\\('babel/parser OK'\\)\")",
+      "Bash(node -e \"require\\('@babel/parser'\\); console.log\\('OK'\\)\")",
+      "Bash(node -e ' *)",
+      "Bash(cd \"/c/Users/aavir/dev/Peak Fettle\" && echo \"=== PUSH TOKEN TRANSPORT ===\" && grep -rn \"fcm\\\\|getDevicePushToken\\\\|getExpoPushToken\\\\|exp\\\\.host\\\\|fcm\\\\.googleapis\\\\|push/send\" mobile/src peak-fettle-agents/server --include=\"*.ts\" --include=\"*.tsx\" --include=\"*.js\" -i 2>/dev/null | grep -v \"node_modules\")",
+      "Bash(cd \"/c/Users/aavir/dev/Peak Fettle\" && grep -n \"fcm\\\\|FCM\\\\|googleapis\\\\|exp\\\\.host\" peak-fettle-agents/server/cron/cohort-graduation.js)",
+      "Bash(cd \"/c/Users/aavir/dev/Peak Fettle\" && grep -rn \"RETURNING\\\\|\\\\.select\\(\" peak-fettle-agents/server/routes/*.js peak-fettle-agents/server/cron/*.js 2>/dev/null | grep -v \"node_modules\" | head -40)",
+      "Bash(ls peak-fettle-agents/server/migrations/)",
+      "Bash(find peak-fettle-agents *)",
+      "Bash(grep -rn \"} catch {$\\\\|catch \\(_\\\\|catch \\(e\\) {}\" mobile/src mobile/app peak-fettle-agents/server --include=\"*.ts\" --include=\"*.tsx\" --include=\"*.js\")",
+      "Bash(cd \"/c/Users/aavir/dev/Peak Fettle\" && grep -n \"^## L-0[12][0-9]\\\\|^## CORRUPT\" dev_learnings.md | head -30)",
+      "Bash(node peak-fettle-agents/server/scripts/parse-sweep.js)",
+      "Bash(node --check peak-fettle-agents/server/routes/sets.js peak-fettle-agents/server/cron/cohort-graduation.js peak-fettle-agents/server/lib/notificationTypes.js)",
+      "Bash(node --check peak-fettle-agents/server/routes/user.js)",
+      "Bash(node --check peak-fettle-agents/server/migrations/20260529_show_wilks.sql)"
+    ]
+  }
+}

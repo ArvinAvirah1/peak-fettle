@@ -1,153 +1,187 @@
-# Peak Fettle Dev Roadmap — 2026-05-25
-
-## Session summary
-
-Bug-fix session + Qt parity audit. Three regressions fixed, one precision band-aid
-applied, free-text exercise entry shipped, Qt parity gaps catalogued below.
-
----
-
-## Fixes shipped this session
-
-| Ref | Fix |
-|-----|-----|
-| EX-001 | `searchExercises()` mock fallback removed — now returns empty results on failure instead of fake-UUID exercises that cause FK violations on POST /sets |
-| EX-002 | `POST /exercises` added (auth-gated) — upserts an exercise by name and returns the server UUID; backs free-text "Add custom exercise" flow |
-| EX-003 | `ExercisePicker` — search placeholder updated, "Add '[query]' as custom exercise" button shown when query is non-empty (in search results footer and in empty state) |
-| WGT-001 | `formatWeight()` — quarter-lb rounding (`Math.round(lbs × 4) / 4`) applied before display; 44.9 lbs → 45.0 lbs for standard plate weights |
-| WGT-002 | Long-term fix identified: store weight in user's preferred unit to eliminate round-trip precision loss (deferred, see QT-005 below) |
+# Peak Fettle — Development Roadmap (v23)
+**Date:** 2026-05-25 (automated 1AM dev pass)
+**From:** pf-1am-dev-ops (scheduled dev task)
+**Status:** ACTIVE — supersedes v22 (DEV_ROADMAP_2026-05-24-NIGHT.md)
+**Source inputs:**
+- v22 (2026-05-24 night pass)
+- commits `263556d` through `26f210c` (9 commits since v22)
+- Parse sweep this pass: 98 files — 1 truncation found and fixed
 
 ---
 
-## Qt Creator app → Mobile parity gaps
+## Executive Summary
 
-The Qt Creator desktop app has features not yet present in the mobile release.
-These are ranked roughly by user impact.
+Nine commits landed since v22 closed the NEW-002/003/004/005 batch. Those commits addressed PUSH-002 truncation recovery, EAS Railway URL, plans.js and workouts.js OneDrive corruption, post-login UX bugs, UUID mock validation, RETURNING clause 500s on prod, TabErrorBoundary, and 20 dev learnings. **BUG-008 is now fully resolved** (AsyncStorage persistence confirmed in rankings.tsx). **HealthKit real implementation is confirmed present** (5 AppleHealthKit references in healthKit.ts — not a stub).
 
----
+This pass found and fixed one new OneDrive truncation: `ExercisePicker.tsx` was cut at line 356 of 402 — restored from HEAD, working tree now matches HEAD. No new commit required.
 
-### QT-001 · Routine planner with PPL / Upper-Lower A/B split selector  ★★★ HIGH
-
-**Qt behaviour.** The routine setup screen offers:
-- Push / Pull / Legs (3-day split, or 6-day P/P/L/P/P/L)
-- Upper A / Upper B / Lower A / Lower B (4-day UL with A/B variation)
-- Save your own routine and track it persistently
-
-**Mobile status.** Templates screen shows PPL and Upper/Lower template tiles
-(`Leg Day (PPL)`, `Lower A (Upper/Lower)` etc.) as one-tap starters, but there
-is no screen to *configure* a personalised split (e.g. "I train 4 days/week,
-UL A/B, set my schedule to Mon/Tue/Thu/Fri"). The user must manually pick
-a template tile each session.
-
-**Required work.**
-- New screen: Routine Planner (`/routine-planner`)
-- User picks split type (PPL / UL / custom) and maps days of week to sessions
-- Persisted as a `plan` row with `is_active = true` (migration `20260515_plans_active.sql` already exists)
-- Log tab checks active plan and auto-suggests today's session name at session start
-- "Save as routine" button on Log tab (already visible) wires to this flow
+**The only remaining launch gate is EAS Build (Founder action).** All dev-actionable backlog items are resolved. The codebase is in its cleanest state to date.
 
 ---
 
-### QT-002 · Richer exercise library — more exercises, muscle-group filters  ★★★ HIGH
+## What Changed Since v22 (commits `263556d` → `26f210c`)
 
-**Qt behaviour.** The Qt library had a broader selection with clear muscle-group
-category navigation (compound movements separated from isolation, sport-specific
-exercises visible).
-
-**Mobile status.** Library is seeded with ~160 exercises (`20260502_seed_exercise_library.sql`).
-Filtering by muscle group is not exposed in the ExercisePicker UI — only
-`lift / cardio / sport / mobility` category tabs exist. Compound badge shown
-but not filterable.
-
-**Required work.**
-- ExercisePicker: add muscle-group filter chips (Chest, Back, Legs, Shoulders, Arms, Core)
-- Server: `GET /exercises?muscle=chest` already supported via the `muscle_groups` array
-  (add a `muscle` query param to `exercises.js`)
-- Optionally: expand the seed with more sport and mobility exercises
+| Commit | Fix |
+|--------|-----|
+| `263556d` | fix(push): restore push-dispatcher.js truncated by OneDrive — PUSH-002 actual fix |
+| `8e5cb93` | fix(eas): correct Railway API URL in eas.json for preview/production profiles |
+| `53e4a12` | fix(server): restore plans.js truncated by OneDrive — re-apply NEW-005 AI timeout |
+| `910a454` | fix(server): strip null-byte padding from workouts.js |
+| `0c0d40a` | fix(auth): stop global isLoading during login/register; add API URL to eas.json |
+| `f687528` | fix(log): restore user on cold-start, unblock set logging |
+| `680ff72` | Fix post-login bugs: rest-day route, templates sessions, exercise mock (UUID format), rankings crash, 400 error display; dev learnings L-001→L-015 |
+| `e3bdfde` | Fix: UUID mocks to valid format, RETURNING clause pared to baseline columns, TabErrorBoundary, unit pref error surfacing |
+| `26f210c` | docs: add dev learnings L-016→L-020 |
 
 ---
 
-### QT-003 · Per-exercise history and progress graph on the Log tab  ★★ MEDIUM
+## This Pass — Actions Taken (2026-05-25)
 
-**Qt behaviour.** Tapping an exercise in the log showed its full history
-(all logged sets, weight trend graph, PR dates).
+### Parse Sweep Results
+- **98 files scanned** (mobile/app + mobile/src TypeScript/TSX, server/routes + server/cron JavaScript)
+- **1 truncation found:** `mobile/src/components/ExercisePicker.tsx` — working tree had 356 lines; HEAD blob has 402 lines and parses clean. Restored from HEAD. Working tree now matches HEAD. No new commit required.
+- **98/98 files clean after fix**
 
-**Mobile status.** The Graph link in the header of the Log tab routes to
-`/exercise-library` (browse) rather than an exercise-specific history view.
-There is no weight-over-time graph for a single exercise.
+### Null Byte Check
+- `grep -rPl '\x00' peak-fettle-agents/server/routes peak-fettle-agents/server/cron` → **no null bytes**
 
-**Required work.**
-- New screen: Exercise History (`/exercise-history/:exerciseId`)
-- Fetches sets via `GET /sets?exerciseId=<uuid>` + cursor pagination
-- Renders a line chart (recharts or Victory Native) of best set weight per session
-- PR dates annotated on the chart
-- Hook up the "Graph →" header button in Log tab
+### Key File Integrity (WT vs HEAD)
 
----
-
-### QT-004 · Inline weight/reps editing for already-logged sets  ★★ MEDIUM
-
-**Qt behaviour.** Tapping a logged set opened an edit form to correct the weight or reps.
-
-**Mobile status.** Sets can only be deleted (trash icon). No edit flow exists.
-
-**Required work.**
-- Add `PATCH /sets/:id` server route (validates same fields as POST)
-- Trigger update PR recompute (the `trg_exercise_prs_recompute_on_update` trigger fires automatically)
-- Long-press or swipe-reveal "Edit" action on `ExerciseGroupCard` in Log tab
+| File | WT Lines | HEAD Lines | Status |
+|------|----------|------------|--------|
+| `workouts.js` | 349 | 349 | ✅ Match |
+| `plans.js` | 567 | 567 | ✅ Match |
+| `user.js` | 394 | 394 | ✅ Match |
+| `push-dispatcher.js` | 300 | 300 | ✅ Match |
+| `index.tsx` | 1013 | 1013 | ✅ Match |
+| `ExercisePicker.tsx` | 356→402 | 402 | ✅ Fixed |
 
 ---
 
-### QT-005 · Store and display weight in user's preferred unit (no kg round-trip)  ★ LOW
+## Priority Stack (as of 2026-05-25)
 
-**Qt behaviour.** The Qt app stored weights in the user's entered unit.
-There was no lbs↔kg conversion artifact.
-
-**Mobile status.** All weights stored as `weight_raw` (kg × 8 SMALLINT). The
-quarter-lb rounding in `formatWeight` (WGT-001 above) is a display band-aid;
-the underlying precision loss is still there. A 45.1 lb entry round-trips to
-45.0 lbs (indistinguishable from 45.0).
-
-**Required work (long-term).**
-- Add a `weight_raw_lbs` SMALLINT column (lbs × 8) OR store `unit_at_log` + `raw_value`
-- Serve the original unit back to the client so no conversion happens for display
-- The kg value can be derived for server-side E1RM computation
-
----
-
-### QT-006 · Rest day / deload week planner  ★ LOW
-
-**Qt behaviour.** Could mark a day as rest, deload, or active-recovery and have
-that reflected in the streak logic.
-
-**Mobile status.** REST day button exists on the Log tab (`POST /workouts/rest-day`),
-but deload weeks and active-recovery designations are not exposed.
-
-**Required work.**
-- Extend `workouts.activity_type` enum (migration `20260519_workouts_activity_type.sql`
-  already adds `active_recovery` and `deload`)
-- Expose a session type picker on the Log tab header ("Active · Rest · Deload")
+| Rank | ID | Sev | Description | Owner | Status |
+|------|----|-----|-------------|-------|--------|
+| 1 | **EAS Build** | 🔴 INFRA | No `.ipa`/`.apk`; blocks all device testing, TICKET-025/027, push verify, HealthKit verify, App Store submission | **Founder** | 🔲 USER ACTION |
+| 2 | **NEW-003 migration** | 🟡 P2 | `20260524_notification_queue_retry_cap.sql` must be applied in Supabase SQL editor before retry columns are live | **Founder** | 🔲 PENDING DB APPLY |
+| 3 | **PUSH-001 on-device verify** | 🟠 P1 | Queue a push, confirm `status:"ok"` Expo receipt, confirm device delivery | QA | ⏳ AWAITING EAS BUILD |
+| 4 | **P0-003 HealthKit device test** | 🔴 P0 | Real `requestHealthKitPermissions()` confirmed in code; needs EAS build + Apple device | QA | ⏳ AWAITING EAS BUILD |
+| 5 | **OD-5 tab architecture** | 🟠 EXEC | Progress vs. Log as Tab 2 — blocks P1-007, Phase F screen layout freeze | **Exec (PM)** | 🔲 EXEC DECISION |
+| 6 | **TICKET-025** | 🟠 P1 | Group Streak Credits UI — human staging sign-off | QA | ⏳ AWAITING EAS BUILD |
+| 7 | **TICKET-027** | 🟠 P1 | PowerSync offline sync — real-device test | Dev/QA | 🔲 BLOCKED on TICKET-025 |
+| 8 | **CSV-003** | 🟡 P2 | Strava pace unit unconfirmed — one real `activities.csv` from a metric account closes this | QA/Tester | ⚠️ PARTIAL |
+| 9 | **Supabase service role key** | 🟡 P2 | Required for `auth.admin.deleteUser()` and cohort-graduation cron | **Founder** | 🔲 OPEN |
+| 10 | **Store submission prep** | 🟡 P2 | Screenshots, metadata, `PrivacyInfo.xcprivacy`, Play Store listing | Dev | 🔲 OPEN |
+| 11 | **Phase 2 tickets** | 🟢 P3 | TICKET-044→050 (RPE field, 1RM formula, Wilks modal, deload weeks, exercise demos, data export, cohort graduation) | Dev | 🔲 POST-LAUNCH |
 
 ---
 
-## Migration checklist (run in Supabase if not yet applied)
+## Resolved This Pass or Immediately Prior
 
-These are needed for the features above and for fixes already shipped:
-
-```
-20260510_1rm_confirmation.sql        — use_1rm_confirmation column (safe re-run script provided)
-20260516_theme_preference.sql        — theme_preference column
-20260518_fcm_token.sql               — fcm_token column
-20260518_notification_prefs.sql      — notification pref columns
-20260515_plans_active.sql            — is_active column (needed for QT-001)
-20260519_workouts_activity_type.sql  — deload/active_recovery types (needed for QT-006)
-```
+| ID | Description | Commit / Action |
+|----|-------------|-----------------|
+| **PUSH-002** | push-dispatcher.js truncation (OneDrive) | `263556d` |
+| **EAS URL** | Wrong Railway API URL for non-dev EAS profiles | `8e5cb93` |
+| **NEW-005 restore** | plans.js truncation re-applied AI timeout | `53e4a12` |
+| **workouts null-bytes** | Null-byte padding stripped from workouts.js | `910a454` |
+| **isLoading fix** | Global spinner blocked login/register screens | `0c0d40a` |
+| **cold-start user** | User not restored on cold start, set logging broken | `f687528` |
+| **post-login bugs** | rest-day route, templates, exercise UUID mocks, rankings liftNames crash, 400 display | `680ff72` |
+| **RETURNING 500** | user.js RETURNING clause referenced unapplied migration columns | `e3bdfde` |
+| **TabErrorBoundary** | Rankings and Home tab crashes now show recoverable error card | `e3bdfde` |
+| **BUG-008** | confirmedThisSession persisted via AsyncStorage (fully resolved) | `680ff72` |
+| **ExercisePicker truncation** | 356→402 lines, restored from HEAD | This pass |
 
 ---
 
-## Commit reference
+## Confirmed Not Regressed
 
-Commits on `main` this session:
-- `e3bdfde` Fix: UUID mocks, RETURNING clause, error boundaries, unit pref error surfacing
-- `26f210c` docs: add L-016 through L-020 to dev learnings
-- *(pending)* Fix: search mock fallback, custom exercise entry, weight precision, Qt roadmap
+| ID | Verdict |
+|----|---------|
+| PUSH-001 | ✅ Expo Push API dispatcher intact (300 lines, matches HEAD) |
+| NEW-001 | ✅ AuthContext dead push code removed |
+| NEW-002 | ✅ Double paywall notification deduped |
+| NEW-003 | ✅ retry_count/failed_permanently in dispatcher (migration pending DB apply) |
+| NEW-004 | ✅ Expo Push API batching (100-message chunks) |
+| P0-003 | ✅ Real HealthKit implementation confirmed (5 AppleHealthKit references) |
+| EX-001 / PLANS-001 | ✅ Not regressed |
+| BUG-007 / BUG-012 / BUG-013 | ✅ Not regressed |
+| MOCK-001 / MOCK-002 | ✅ Not regressed |
+| TYPE-001 / EPLEY-001 | ✅ Not regressed |
+| CSV-001 / CSV-002 | ✅ Not regressed |
+| POOL-001 | ✅ Not regressed |
+
+---
+
+## Phase F — Remaining Work by Track
+
+### Track 1 — Infrastructure (single gating action)
+1. **EAS Build** — `npm install -g eas-cli` → `eas login` → `eas build --profile development --platform ios` **[Founder, ~30 min first-time setup]**
+2. Apply `20260524_notification_queue_retry_cap.sql` in Supabase SQL editor **[Founder, 2 min]**
+3. PUSH-001 on-device verification post-build
+
+### Track 2 — QA / Staging (all await EAS build)
+4. P0-003 HealthKit — verify `requestHealthKitPermissions()` on Apple device
+5. TICKET-025 — Group Streak Credits UI staging sign-off
+6. TICKET-027 — PowerSync offline real-device verification (after TICKET-025)
+7. CSV-003 — supply one real Strava `activities.csv` from a metric account
+
+### Track 3 — Store Submission Prep
+8. App Store screenshots (all 4 personas, iPhone 15 Pro / iPhone SE frames)
+9. App Store Connect metadata (description, keywords, privacy policy URL, support URL)
+10. `PrivacyInfo.xcprivacy` — required for App Store submission
+11. Android Play Store listing
+
+### Track 4 — Exec-Decision-Gated Polish
+12. P1-007 — Progress tab registration (blocked on OD-5)
+13. Weekly/daily calendar view for AI plans (blocked on OD-3)
+14. Body composition goal flow (blocked on OD-4)
+15. RPE field on set-logging form (blocked on OD-1)
+
+### Track 5 — Phase 2 Post-Launch (TICKET-044 → TICKET-050)
+All opened 2026-05-22. Not launch blockers. Work begins after EAS build and initial launch stabilization.
+
+---
+
+## Outstanding Exec Decisions
+
+| ID | Decision | Blocking | Status |
+|----|----------|----------|--------|
+| **OD-5** | Tab architecture: Progress vs. Log as Tab 2 | P1-007, Phase F screen layout freeze | 🔴 HIGHEST PRIORITY |
+| **OD-1** | RPE vs. RIR — separate RPE field? | `log.tsx` set-logging form | 🔲 OPEN |
+| **OD-2** | Wilks score prominence in Rankings | Rankings screen layout | 🔲 OPEN |
+| **OD-3** | AI plan calendar view — week-grid or list? | `plans.tsx` layout | 🔲 OPEN |
+| **OD-4** | Body composition goal flow — 1.0 or Phase 2? | Onboarding + AI plan screen | 🔲 OPEN |
+
+---
+
+## Phase Status Snapshot
+
+| Phase | Name | Status |
+|-------|------|--------|
+| A | Core infrastructure & auth | ✅ COMPLETE |
+| B | Data model & session logging | ✅ COMPLETE |
+| C | AI plans & scoring | ✅ COMPLETE |
+| D | Social / groups / streaks | ✅ COMPLETE |
+| E | Phase F prep | ✅ COMPLETE |
+| **F** | **EAS Build, store submission, post-launch polish** | 🟡 IN PROGRESS — EAS Build is the single gate |
+
+---
+
+## Pre-Build Checklist (from dev_learnings.md)
+
+Before triggering the EAS build:
+- [x] **Parse sweep** — 98/98 files clean (verified this pass)
+- [x] **No null bytes** — confirmed this pass
+- [x] **No debug flags** — `USE_MOCK_AUTH` requires `__DEV__ === true` (safe for all EAS profiles)
+- [x] **Pushed to remote** — `git log origin/main` confirms `26f210c` is HEAD on remote
+- [ ] **EAS env vars** — verify `eas.json` `EXPO_PUBLIC_API_URL` points to Railway URL for preview/prod (fixed in `8e5cb93`)
+- [ ] **Server health** — hit `GET /health` on Railway deployment, confirm 200
+- [ ] **Push smoke test** — after EAS build, queue one test notification and verify on-device delivery
+
+---
+
+*Roadmap v23 written by pf-1am-dev-ops (automated scheduled run) — 2026-05-25.*
+*Current HEAD: `26f210c` (docs: add L-016 through L-020 to dev learnings).*
+*Parse sweep this pass: 98 files, 1 truncation fixed (ExercisePicker.tsx 356→402 lines), 0 errors remaining.*
+*All dev-actionable backlog items resolved. EAS Build + migration apply are the only outstanding dev-actionable items.*

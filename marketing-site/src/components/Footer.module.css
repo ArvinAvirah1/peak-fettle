@@ -1,0 +1,76 @@
+.footer {
+    border-top: 1px solid var(--line-2);
+    background: var(--ink-2);
+    padding-block: clamp(3rem, 6vw, 4.5rem) 2rem;
+    margin-top: 2rem;
+}
+
+.top {
+    display: grid;
+    grid-template-columns: 1.4fr 2fr;
+    gap: clamp(2rem, 5vw, 4rem);
+    padding-bottom: 2.5rem;
+    border-bottom: 1px solid var(--line-2);
+}
+
+.logo {
+    display: inline-flex;
+    align-items: center;
+    gap: .55rem;
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 1.15rem;
+    color: var(--text-strong);
+}
+.logoMark { width: 24px; height: 24px; }
+
+.tagline {
+    margin-top: 1rem;
+    color: var(--muted);
+    max-width: 38ch;
+    font-size: .96rem;
+}
+.email {
+    display: inline-block;
+    margin-top: 1rem;
+    color: var(--accent);
+    font-weight: 500;
+}
+.email:hover { color: var(--accent-hi); text-decoration: underline; }
+
+.cols {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+}
+.colTitle {
+    font-family: var(--display);
+    font-size: .82rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+    margin-bottom: 1rem;
+}
+.col ul { display: flex; flex-direction: column; gap: .7rem; }
+.col a { color: var(--text); font-size: .96rem; transition: color .2s var(--ease); }
+.col a:hover { color: var(--accent); }
+
+.bottom {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding-top: 1.75rem;
+    color: var(--muted-2);
+    font-size: .85rem;
+}
+.fineprint { max-width: 48ch; }
+
+@media (max-width: 760px) {
+    .top { grid-template-columns: 1fr; }
+    .cols { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 480px) {
+    .cols { grid-template-columns: 1fr 1fr; }
+}
