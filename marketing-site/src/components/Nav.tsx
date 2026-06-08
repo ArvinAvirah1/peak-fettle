@@ -1,31 +1,40 @@
 'use client';
-// Nav — sticky top nav with responsive hamburger menu
-// T-10 (2026-05-03): aria-modal + focus trap on mobile menu
-// T-12 (2026-05-03): visibility/opacity animation replaces display:none
-// dev-frontend (Web Dept) — 2026-05-03
+// Sticky top nav. Multi-page links + a primary "Get the app" CTA.
+// Accessible mobile menu: aria-modal dialog, focus trap, Esc to close, scroll lock.
 
+import Link from 'next/link';
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { NAV_LINKS } from '@/lib/site';
+import Logo from './Logo';
 import styles from './Nav.module.css';
 
 export default function Nav() {
     const [open, setOpen] = useState(false);
-    const hamburgerRef  = useRef<HTMLButtonElement>(null);
-    const menuRef       = useRef<HTMLDivElement>(null);
+    const [scrolled, setScrolled] = useState(false);
+    const hamburgerRef = useRef<HTMLButtonElement>(null);
+    const menuRef = useRef<HTMLDivElement>(null);
 
-    // Close on Escape; restore focus to hamburger
+    // Add a solid background once the page is scrolled.
+    useEffect(() => {
+        const onScroll = () => setScrolled(window.scrollY > 12);
+        onScroll();
+        window.addEventListener('scroll', onScroll, { passive: true });
+        return () => window.removeEventListener('scroll', onScroll);
+    }, []);
+
+    // Esc closes the mobile menu and restores focus.
     useEffect(() => {
         if (!open) return;
-        function onKey(e: KeyboardEvent) {
+        const onKey = (e: KeyboardEvent) => {
             if (e.key === 'Escape') {
                 setOpen(false);
                 hamburgerRef.current?.focus();
             }
-        }
+        };
         document.addEventListener('keydown', onKey);
         return () => document.removeEventListener('keydown', onKey);
     }, [open]);
 
-    // T-10: focus trap — keep Tab/Shift+Tab inside the mobile menu while open
     const trapFocus = useCallback((e: React.KeyboardEvent) => {
         if (e.key !== 'Tab' || !menuRef.current) return;
         const focusable = Array.from(
@@ -35,7 +44,7 @@ export default function Nav() {
         );
         if (focusable.length === 0) return;
         const first = focusable[0];
-        const last  = focusable[focusable.length - 1];
+        const last = focusable[focusable.length - 1];
         if (e.shiftKey && document.activeElement === first) {
             e.preventDefault();
             last.focus();
@@ -45,38 +54,38 @@ export default function Nav() {
         }
     }, []);
 
-    // Lock body scroll when menu is open
     useEffect(() => {
         document.body.style.overflow = open ? 'hidden' : '';
         return () => { document.body.style.overflow = ''; };
     }, [open]);
 
-    function close() { setOpen(false); }
+    const close = () => setOpen(false);
 
     return (
-        <nav className={styles.nav} aria-label="Main navigation">
+        <nav className={`${styles.nav} ${scrolled ? styles.scrolled : ''}`} aria-label="Main navigation">
             <div className="container">
-                <div className={styles.navInner}>
-                    {/* Logo */}
-                    <span className={styles.logo}>
-                        <span className={styles.logoMark}>▲</span>
-                        Peak Fettle
-                    </span>
+                <div className={styles.inner}>
+                    <Link href="/" className={styles.logo} aria-label="Peak Fettle home">
+                        <Logo className={styles.logoMark} />
+                        <span>Peak Fettle</span>
+                    </Link>
 
-                    {/* Desktop links */}
                     <ul className={styles.desktopLinks} role="list">
-                        <li><a href="#features">Features</a></li>
-                        <li><a href="#waitlist" className={styles.navCta}>Early Access</a></li>
+                        {NAV_LINKS.map((l) => (
+                            <li key={l.href}><Link href={l.href}>{l.label}</Link></li>
+                        ))}
+                        <li>
+                            <Link href="/#download" className={styles.cta}>Get the app</Link>
+                        </li>
                     </ul>
 
-                    {/* Hamburger (mobile only) */}
                     <button
                         ref={hamburgerRef}
                         className={styles.hamburger}
-                        aria-label={open ? 'Close navigation menu' : 'Open navigation menu'}
+                        aria-label={open ? 'Close menu' : 'Open menu'}
                         aria-expanded={open}
                         aria-controls="mobile-menu"
-                        onClick={() => setOpen(prev => !prev)}
+                        onClick={() => setOpen((p) => !p)}
                     >
                         <span className={`${styles.bar} ${open ? styles.barTop : ''}`} />
                         <span className={`${styles.bar} ${open ? styles.barMid : ''}`} />
@@ -85,8 +94,6 @@ export default function Nav() {
                 </div>
             </div>
 
-            {/* T-12: overlay uses visibility/opacity — no display:none so transition works */}
-            {/* T-10: role=dialog + aria-modal so screen readers don't escape into page behind */}
             <div
                 id="mobile-menu"
                 ref={menuRef}
@@ -97,23 +104,19 @@ export default function Nav() {
                 onKeyDown={trapFocus}
             >
                 <ul className={styles.mobileLinks} role="list">
+                    {NAV_LINKS.map((l) => (
+                        <li key={l.href}>
+                            <Link href={l.href} className={styles.mobileLink} onClick={close}>{l.label}</Link>
+                        </li>
+                    ))}
                     <li>
-                        <a href="#features" className={styles.mobileLink} onClick={close}>
-                            Features
-                        </a>
-                    </li>
-                    <li>
-                        <a href="#waitlist" className={`${styles.mobileLink} ${styles.mobileLinkCta}`} onClick={close}>
-                            Early Access
-                        </a>
+                        <Link href="/#download" className={`${styles.mobileLink} ${styles.mobileLinkCta}`} onClick={close}>
+                            Get the app
+                        </Link>
                     </li>
                 </ul>
-                <button className={styles.mobileClose} onClick={close}>
-                    Close menu
-                </button>
             </div>
 
-            {/* Backdrop — closes menu on outside click */}
             <div
                 className={`${styles.backdrop} ${open ? styles.backdropVisible : ''}`}
                 onClick={close}

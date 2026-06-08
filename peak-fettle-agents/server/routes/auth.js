@@ -10,6 +10,7 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { z } = require('zod');
 const { pool } = require('../db');
+const { verifyOAuthIdToken } = require('../lib/oauthVerify'); // TICKET-099
 
 const router = express.Router();
 
@@ -201,6 +202,65 @@ router.post('/logout', async (req, res, next) => {
         );
 
         res.status(204).end();
+    } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// POST /auth/oauth — Sign in with Apple / Google (TICKET-099)
+// ---------------------------------------------------------------------------
+// Verifies the provider id_token server-side (lib/oauthVerify), then find-or-
+// creates the user by verified email and issues the SAME session/refresh pair as
+// password login. INERT until GOOGLE_OAUTH_AUDIENCE / APPLE_OAUTH_AUDIENCE are
+// configured (returns 501), so shipping it changes nothing until credentials are
+// added + a dev/EAS build wires the client buttons.
+const OAuthSchema = z.object({
+    provider: z.enum(['google', 'apple']),
+    idToken: z.string().min(10),
+});
+
+router.post('/oauth', async (req, res, next) => {
+    try {
+        const { provider, idToken } = OAuthSchema.parse(req.body);
+
+        let claims;
+        try {
+            claims = await verifyOAuthIdToken(provider, idToken);
+        } catch (err) {
+            if (err.code === 'not_configured') {
+                return res.status(501).json({ error: 'oauth_not_configured' });
+            }
+            return res.status(401).json({ error: 'invalid_provider_token' });
+        }
+
+        const email = (claims.email || '').toLowerCase();
+        if (!email) return res.status(400).json({ error: 'provider_no_email' });
+
+        // Find-or-create by verified email. NOTE: a dedicated oauth_identities
+        // table mapping provider `sub` -> account is the proper long-term store
+        // (and the account-linking follow-up that TICKET-099 scopes OUT). That
+        // needs its own migration + review before it ships.
+        let { rows } = await pool.query(
+            `SELECT ${USER_PROFILE_SELECT} FROM users WHERE email = $1 AND deleted_at IS NULL`,
+            [email]
+        );
+        let user = rows[0];
+
+        if (!user) {
+            // OAuth accounts have no usable password: store a random hash so the
+            // NOT-NULL column is satisfied and password login is impossible.
+            const randomHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
+            const displayName = claims.name || email.split('@')[0];
+            const created = await pool.query(
+                `INSERT INTO users (email, password_hash, display_name)
+                 VALUES ($1, $2, $3)
+                 RETURNING ${USER_PROFILE_SELECT}`,
+                [email, randomHash, displayName]
+            );
+            user = created.rows[0];
+        }
+
+        const tokens = await issueTokens(user);
+        res.json({ user, ...tokens });
     } catch (err) { next(err); }
 });
 

@@ -1,0 +1,44 @@
+.phone {
+    position: relative;
+    width: 100%;
+    max-width: 290px;
+    aspect-ratio: 390 / 844;
+    border-radius: 44px;
+    padding: 12px;
+    background: linear-gradient(155deg, #1b2436, #070a12);
+    box-shadow:
+        0 0 0 2px rgba(45,212,191,.12),
+        var(--shadow-lg),
+        0 30px 80px rgba(0,0,0,.55);
+}
+
+.screen {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    border-radius: 33px;
+    overflow: hidden;
+    background: #0A0E1A;
+}
+
+.img, .svgWrap { width: 100%; height: 100%; object-fit: cover; }
+.svgWrap svg { display: block; }
+
+.notch {
+    position: absolute;
+    top: 22px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 3;
+    width: 34%; height: 26px;
+    background: #05070d;
+    border-radius: 0 0 16px 16px;
+}
+
+.btnPower, .btnVolUp, .btnVolDn {
+    position: absolute;
+    background: #161e2c;
+    border-radius: 2px;
+}
+.btnPower { right: -3px; top: 168px; width: 3px; height: 64px; }
+.btnVolUp { left: -3px; top: 140px; width: 3px; height: 44px; }
+.btnVolDn { left: -3px; top: 196px; width: 3px; height: 44px; }

@@ -1,0 +1,26 @@
+.storyInner { max-width: 760px; }
+.lead { font-family: var(--display); font-size: clamp(1.4rem, 3vw, 1.9rem); line-height: 1.3; color: var(--text-strong); margin-bottom: 1.75rem; letter-spacing: -0.02em; }
+.story p { color: var(--muted); font-size: 1.08rem; margin-bottom: 1.25rem; }
+.story strong { color: var(--text); }
+
+.values { background: var(--ink-2); border-block: 1px solid var(--line-2); }
+.valuesHead { max-width: 560px; margin-bottom: 3rem; }
+.valuesHead .h2 { margin-top: 1rem; }
+.valueGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.25rem; }
+.value { padding: 1.9rem; }
+.valueIcon {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 48px; height: 48px; border-radius: 14px;
+    color: var(--accent); background: rgba(45,212,191,.1); border: 1px solid var(--line);
+    margin-bottom: 1.1rem;
+}
+.valueTitle { font-size: 1.25rem; margin-bottom: .5rem; }
+.valueBody { color: var(--muted); }
+
+.cta { border-top: 1px solid var(--line-2); }
+.ctaCard { text-align: center; padding: clamp(2.5rem, 6vw, 4rem); }
+.ctaCard .lede { margin: 1rem auto 1.75rem; }
+
+@media (max-width: 720px) {
+    .valueGrid { grid-template-columns: 1fr; }
+}

@@ -25,6 +25,8 @@ import { useAuth } from '../src/hooks/useAuth';
 import { apiClient } from '../src/api/client';
 import { PFCard } from '../src/components/ui/PFCard';
 import { PFButton } from '../src/components/ui/PFButton';
+// TICKET-098: beginner programs bundled with the app (always load, no network).
+import { listBeginnerPrograms, BundledProgram, bundledExerciseName } from '../src/data/beginnerTemplates';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -256,6 +258,9 @@ export default function TemplatesScreen(): React.ReactElement {
   const [selected, setSelected] = useState<Template | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [starting, setStarting] = useState(false);
+  // TICKET-098: bundled beginner programs (offline-safe).
+  const [bundledSelected, setBundledSelected] = useState<BundledProgram | null>(null);
+  const bundledPrograms = listBeginnerPrograms();
 
   const fetchTemplates = useCallback(async () => {
     setLoading(true);
@@ -403,6 +408,46 @@ export default function TemplatesScreen(): React.ReactElement {
           />
         ))}
       </ScrollView>
+
+      {/* TICKET-098: Bundled beginner programs — always available, no network/DB.
+          Rendered above the server list so they show even while the API loads or
+          errors. Tapping a day opens it directly in the stepper. */}
+      <View style={{ paddingHorizontal: spacing.s4, paddingTop: spacing.s2 }}>
+        <Text
+          style={{
+            fontSize: fontSize.caption,
+            fontWeight: fontWeight.semibold,
+            color: colors.textTertiary,
+            letterSpacing: 0.5,
+            marginBottom: spacing.s2,
+          }}
+        >
+          BEGINNER PROGRAMS · WORKS OFFLINE
+        </Text>
+        {bundledPrograms.map((p) => (
+          <Pressable
+            key={p.id}
+            onPress={() => setBundledSelected(p)}
+            style={{
+              backgroundColor: colors.bgSecondary,
+              borderColor: colors.borderDefault,
+              borderWidth: 1,
+              borderRadius: radius.md,
+              padding: spacing.s3,
+              marginBottom: spacing.s2,
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={`Open ${p.name}`}
+          >
+            <Text style={{ fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold, color: colors.textPrimary }}>
+              {p.name}
+            </Text>
+            <Text style={{ fontSize: fontSize.caption, color: colors.textSecondary, marginTop: 2 }}>
+              {`${p.subtitle} · ${p.daysPerWeek}d/wk`}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
 
       {/* Content */}
       {loading ? (
@@ -597,6 +642,81 @@ export default function TemplatesScreen(): React.ReactElement {
                   disabled={starting}
                 />
               </View>
+            </>
+          )}
+        </View>
+      </Modal>
+
+      {/* TICKET-098: Bundled beginner-program detail — tap a day to start it. */}
+      <Modal
+        visible={bundledSelected !== null}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setBundledSelected(null)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setBundledSelected(null)} />
+        <View
+          style={[
+            styles.modalSheet,
+            {
+              backgroundColor: colors.bgSecondary,
+              borderTopLeftRadius: radius.lg,
+              borderTopRightRadius: radius.lg,
+              paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+            },
+          ]}
+        >
+          <View style={[styles.modalHandle, { backgroundColor: colors.bgElevated }]} />
+          {bundledSelected && (
+            <>
+              <View style={{ paddingHorizontal: spacing.s6, paddingTop: spacing.s4, paddingBottom: spacing.s2 }}>
+                <Text style={{ fontSize: fontSize.heading2, fontWeight: fontWeight.bold, color: colors.textPrimary, marginBottom: 4 }}>
+                  {bundledSelected.name}
+                </Text>
+                <Text style={{ fontSize: fontSize.bodySm, color: colors.textSecondary }}>
+                  {bundledSelected.subtitle}
+                </Text>
+                <Text style={{ fontSize: fontSize.caption, color: colors.textTertiary, marginTop: spacing.s2 }}>
+                  Tap a day to start it in the stepper. No barbell back squat or conventional deadlift — beginner-safe swaps only.
+                </Text>
+              </View>
+              <ScrollView
+                style={{ maxHeight: 360 }}
+                contentContainerStyle={{ paddingHorizontal: spacing.s6, paddingBottom: spacing.s6 }}
+              >
+                {bundledSelected.days.map((day, di) => (
+                  <Pressable
+                    key={day.slug}
+                    onPress={() => {
+                      const programId = bundledSelected.id;
+                      setBundledSelected(null);
+                      router.push(`/(tabs)?bundledProgram=${programId}&bundledDay=${di}` as any);
+                    }}
+                    style={{
+                      backgroundColor: colors.bgTertiary,
+                      borderRadius: radius.md,
+                      padding: spacing.s3,
+                      marginBottom: spacing.s2,
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Start ${day.name}`}
+                  >
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                      <Text style={{ fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold, color: colors.textPrimary }}>
+                        {`Day ${di + 1}: ${day.name}`}
+                      </Text>
+                      <Text style={{ fontSize: fontSize.caption, color: colors.accentDefault, fontWeight: fontWeight.semibold }}>
+                        Start ▶
+                      </Text>
+                    </View>
+                    {day.exercises.map((ex, ei) => (
+                      <Text key={ei} style={{ fontSize: fontSize.caption, color: colors.textSecondary }}>
+                        {`• ${bundledExerciseName(ex.slug)}  ${ex.sets}×${ex.reps}`}
+                      </Text>
+                    ))}
+                  </Pressable>
+                ))}
+              </ScrollView>
             </>
           )}
         </View>

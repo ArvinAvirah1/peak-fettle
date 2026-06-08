@@ -1,0 +1,1 @@
+leftover from a write-permission probe; rm is blocked on this mount so it can't be deleted from an agent session. Safe to delete from your own machine.

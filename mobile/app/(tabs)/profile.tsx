@@ -62,6 +62,11 @@ import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
 import { haptics } from '../../src/utils/haptics';
 import { ScreenLayout, PFInput } from '../../src/components/ui';
 import { useReduceMotion } from '../../src/hooks/useReduceMotion';
+import { useTour } from '../../src/components/tour/WelcomeTour'; // TICKET-095
+import PeakAvatar from '../../src/components/avatar/PeakAvatar'; // TICKET-096
+import AvatarCustomizer from '../../src/components/avatar/AvatarCustomizer';
+import { loadAvatar, saveAvatar } from '../../src/data/avatar';
+import { AvatarConfig } from '../../src/components/avatar/peakAvatarOptions';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -97,21 +102,27 @@ function SectionHeader({ label }: { label: string }): React.ReactElement {
 // A. User info card
 // ---------------------------------------------------------------------------
 
-function UserInfoCard(): React.ReactElement {
+function UserInfoCard({ avatar, onEditAvatar }: { avatar: AvatarConfig | null; onEditAvatar: () => void }): React.ReactElement {
   const { user } = useAuth();
   const { theme } = useTheme();
-  const initial = user?.display_name
-    ? user.display_name.charAt(0).toUpperCase()
-    : (user?.email?.charAt(0).toUpperCase() ?? '?');
 
   return (
     <View style={[
       styles.card,
       { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
     ]}>
-      <View style={[styles.avatar, { backgroundColor: theme.colors.accentDefault }]}>
-        <Text style={[styles.avatarText, { color: theme.components.buttonPrimaryText }]}>{initial}</Text>
-      </View>
+      {/* TICKET-096: customizable Peak Pals avatar — tap to edit. */}
+      <Pressable
+        onPress={onEditAvatar}
+        accessibilityRole="button"
+        accessibilityLabel="Edit avatar"
+        style={{ marginBottom: spacing.s3 }}
+      >
+        <PeakAvatar config={avatar} size={84} ring={theme.colors.borderDefault} />
+        <View style={{ position: 'absolute', right: -2, bottom: 0, backgroundColor: theme.colors.accentDefault, borderColor: theme.colors.bgSecondary, borderWidth: 2, borderRadius: 999, width: 22, height: 22, alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="pencil" size={11} color={theme.components.buttonPrimaryText} />
+        </View>
+      </Pressable>
       {user?.display_name ? (
         <Text style={[styles.displayName, { color: theme.colors.textPrimary }]}>{user.display_name}</Text>
       ) : null}
@@ -391,6 +402,7 @@ export default function ProfileScreen(): React.ReactElement {
   const { user, logout, updateUser } = useAuth();
   const { theme, themeName } = useTheme();
   const router = useRouter();
+  const { startTour } = useTour(); // TICKET-095: replay welcome tour
 
   // Map camelCase theme keys to display names for the Appearance row
   const THEME_DISPLAY_NAMES: Record<string, string> = {
@@ -428,6 +440,15 @@ export default function ProfileScreen(): React.ReactElement {
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [showThemePicker, setShowThemePicker] = useState(false);
+  // TICKET-096: avatar config + customizer.
+  const [avatarConfig, setAvatarConfig] = useState<AvatarConfig | null>(null);
+  const [avatarEditorVisible, setAvatarEditorVisible] = useState(false);
+  useEffect(() => { loadAvatar().then(setAvatarConfig).catch(() => {}); }, []);
+  const handleAvatarSaved = useCallback((cfg: AvatarConfig) => {
+    setAvatarConfig(cfg);
+    setAvatarEditorVisible(false);
+    saveAvatar(cfg).catch(() => {});
+  }, []);
 
   // Load constraints on mount
   useEffect(() => {
@@ -634,7 +655,7 @@ export default function ProfileScreen(): React.ReactElement {
     // its own 20pt padding so list items fill edge-to-edge.
     <ScreenLayout scrollable horizontalPadding={false} contentStyle={styles.scrollContent}>
       {/* ── A. User info card ── */}
-      <UserInfoCard />
+      <UserInfoCard avatar={avatarConfig} onEditAvatar={() => setAvatarEditorVisible(true)} />
 
       {/* ── B. Settings ── */}
       <View style={styles.section}>
@@ -914,6 +935,20 @@ export default function ProfileScreen(): React.ReactElement {
             <Ionicons name="chevron-forward-outline" size={16} color={theme.colors.textTertiary} />
           </Pressable>
 
+          {/* TICKET-095: Replay the interactive welcome tour */}
+          <Pressable
+            onPress={() => startTour()}
+            style={[styles.settingRow, { borderTopWidth: 1, borderColor: theme.colors.borderDefault }]}
+            accessibilityRole="button"
+            accessibilityLabel="Replay welcome tour"
+          >
+            <Ionicons name="help-circle-outline" size={20} color={theme.colors.textSecondary} />
+            <Text style={[styles.settingLabel, { color: theme.colors.textPrimary, marginLeft: spacing.s3, flex: 1 }]}>
+              Replay welcome tour
+            </Text>
+            <Ionicons name="chevron-forward-outline" size={16} color={theme.colors.textTertiary} />
+          </Pressable>
+
           {/* PL-2: Import Activity Data nav entry */}
           <Pressable
             onPress={() => router.push('/csv-import')}
@@ -1005,6 +1040,14 @@ export default function ProfileScreen(): React.ReactElement {
         existing={constraints}
         onAdd={handleAddConstraint}
         onClose={() => setShowAddConstraint(false)}
+      />
+
+      {/* ── TICKET-096: Avatar customizer ── */}
+      <AvatarCustomizer
+        visible={avatarEditorVisible}
+        initial={avatarConfig}
+        onClose={() => setAvatarEditorVisible(false)}
+        onSaved={handleAvatarSaved}
       />
     </ScreenLayout>
   );

@@ -1,0 +1,42 @@
+.row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .85rem;
+}
+.center { justify-content: center; }
+
+.store {
+    display: inline-flex;
+    align-items: center;
+    gap: .7rem;
+    padding: .7rem 1.25rem;
+    border-radius: 14px;
+    background: rgba(232, 241, 248, 0.04);
+    border: 1px solid var(--line-2);
+    color: var(--text-strong);
+    transition: transform .2s var(--ease), border-color .2s var(--ease), background .2s var(--ease);
+}
+.store:hover {
+    transform: translateY(-2px);
+    border-color: var(--line-strong);
+    background: rgba(45, 212, 191, 0.06);
+}
+
+.glyph { width: 26px; height: 26px; color: var(--text-strong); }
+
+.txt {
+    display: flex;
+    flex-direction: column;
+    line-height: 1.1;
+    text-align: left;
+}
+.txt small {
+    font-size: .68rem;
+    color: var(--muted);
+    letter-spacing: .02em;
+}
+.txt strong {
+    font-family: var(--display);
+    font-size: 1.12rem;
+    font-weight: 600;
+}

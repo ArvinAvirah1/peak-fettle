@@ -41,6 +41,9 @@ import {
 } from '../../src/api/routines';
 import { getTemplates, getTemplate, WorkoutTemplate } from '../../src/api/templates';
 import RoutineEditorSheet from '../../src/components/RoutineEditorSheet';
+import { useTourAnchor } from '../../src/components/tour/WelcomeTour'; // TICKET-095
+import ScheduleEditorSheet from '../../src/components/ScheduleEditorSheet'; // TICKET-097
+import { loadSchedule, resolveNextUp, advanceSavedCycle, Schedule, NextUp } from '../../src/data/schedule';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -54,6 +57,12 @@ export default function RoutinesPage(): React.ReactElement {
   const router = useRouter();
   const { theme } = useTheme();
   const c = theme.colors;
+  // TICKET-095: anchor the "＋ New" button so the welcome tour can spotlight it.
+  const newRoutineAnchor = useTourAnchor('routines-new');
+  // TICKET-097: schedule editor + next-up.
+  const scheduleAnchor = useTourAnchor('routines-create-schedule');
+  const [scheduleEditorVisible, setScheduleEditorVisible] = useState(false);
+  const [schedule, setSchedule] = useState<Schedule | null>(null);
 
   // ── State ─────────────────────────────────────────────────────────────────
   const [routines, setRoutines] = useState<Routine[]>([]);
@@ -87,6 +96,12 @@ export default function RoutinesPage(): React.ReactElement {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // TICKET-097: load the on-device schedule (+ reload after editing).
+  const reloadSchedule = useCallback(async () => {
+    setSchedule(await loadSchedule());
+  }, []);
+  useEffect(() => { reloadSchedule(); }, [reloadSchedule]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -201,6 +216,33 @@ export default function RoutinesPage(): React.ReactElement {
     router.push(`/(tabs)?routineId=${routine.id}&routineName=${encodeURIComponent(routine.name)}`);
   }, [router]);
 
+  // ── TICKET-097: schedule handlers + next-up ─────────────────────────────────
+  const openScheduleEditor = useCallback(() => setScheduleEditorVisible(true), []);
+  const handleScheduleSaved = useCallback((s: Schedule) => {
+    setSchedule(s);
+    setScheduleEditorVisible(false);
+  }, []);
+  const handleStartNextUp = useCallback((nu: NextUp) => {
+    if (nu.isRest || !nu.slot.routineId) {
+      Alert.alert('Rest day', 'Today is a rest day in your schedule. Enjoy the recovery.');
+      return;
+    }
+    const name = routines.find((r) => r.id === nu.slot.routineId)?.name ?? nu.slot.routineName ?? '';
+    router.push(`/(tabs)?routineId=${nu.slot.routineId}&routineName=${encodeURIComponent(name)}`);
+    // Cycle advances on START of a slot (Phase 1 semantics — see src/data/schedule.ts).
+    if (schedule?.mode === 'cycle') {
+      advanceSavedCycle().then(reloadSchedule).catch(() => {});
+    }
+  }, [router, routines, schedule, reloadSchedule]);
+
+  const hasSchedule =
+    !!schedule && (schedule.cycle.length > 0 || schedule.weekly.some((x) => !!x));
+  const nextUp = hasSchedule ? resolveNextUp(schedule) : null;
+  const nextUpName =
+    nextUp && nextUp.slot.routineId
+      ? routines.find((r) => r.id === nextUp.slot.routineId)?.name ?? nextUp.slot.routineName ?? 'Routine'
+      : null;
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -209,6 +251,7 @@ export default function RoutinesPage(): React.ReactElement {
       <View style={[styles.pageHeader, { borderBottomColor: c.borderDefault }]}>
         <Text style={[styles.pageTitle, { color: c.textPrimary }]}>Routines</Text>
         <TouchableOpacity
+          ref={newRoutineAnchor.ref}
           style={[styles.newPill, { backgroundColor: c.accentDefault }]}
           onPress={openNewSheet}
           accessibilityRole="button"
@@ -228,6 +271,47 @@ export default function RoutinesPage(): React.ReactElement {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
+          {/* ── TICKET-097: Schedule / Next up ──────────────────────────── */}
+          <View style={{ backgroundColor: c.bgSecondary, borderColor: c.borderDefault, borderWidth: 1, borderRadius: radius.md, padding: spacing.s4, marginBottom: spacing.s4 }}>
+            {nextUp ? (
+              <>
+                <Text style={{ color: c.textTertiary, fontFamily: fontFamily.bold, fontSize: fontSize.caption, letterSpacing: 0.5, marginBottom: spacing.s2 }}>
+                  {nextUp.whenLabel.toUpperCase()}
+                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: spacing.s2 }}>
+                  <Text style={{ color: c.textPrimary, fontFamily: fontFamily.bold, fontSize: fontSize.bodyLg, flex: 1 }} numberOfLines={1}>
+                    {nextUp.isRest ? 'Rest day' : nextUpName}
+                  </Text>
+                  {!nextUp.isRest ? (
+                    <TouchableOpacity
+                      onPress={() => handleStartNextUp(nextUp)}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.s1, backgroundColor: c.accentDefault, borderRadius: radius.md, paddingHorizontal: spacing.s3, paddingVertical: spacing.s2 }}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Start ${nextUpName ?? 'next workout'}`}
+                    >
+                      <Ionicons name="play" size={13} color={theme.components.buttonPrimaryText} />
+                      <Text style={{ color: theme.components.buttonPrimaryText, fontFamily: fontFamily.bold, fontSize: fontSize.bodySm }}>Start</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              </>
+            ) : (
+              <Text style={{ color: c.textSecondary, fontSize: fontSize.bodySm }}>
+                Plan your week or build a repeating split — e.g. Push → Pull → Legs and back again.
+              </Text>
+            )}
+            <TouchableOpacity
+              ref={scheduleAnchor.ref}
+              onPress={openScheduleEditor}
+              style={{ marginTop: spacing.s3, borderWidth: 1, borderColor: c.accentDefault, borderRadius: radius.md, paddingVertical: spacing.s2, alignItems: 'center' }}
+              accessibilityRole="button"
+              accessibilityLabel={hasSchedule ? 'Edit schedule' : 'Create schedule'}
+            >
+              <Text style={{ color: c.accentDefault, fontFamily: fontFamily.semiBold, fontSize: fontSize.bodySm }}>
+                {hasSchedule ? 'Edit schedule' : 'Create schedule'}
+              </Text>
+            </TouchableOpacity>
+          </View>
           {/* ── YOURS section ──────────────────────────────────────────── */}
           <Text style={[styles.sectionLabel, { color: c.textTertiary }]}>YOURS</Text>
 
@@ -375,6 +459,14 @@ export default function RoutinesPage(): React.ReactElement {
         routine={editorRoutine}
         onClose={closeEditor}
         onSaved={handleEditorSaved}
+      />
+
+      {/* ── TICKET-097: Schedule editor ──────────────────────────────────── */}
+      <ScheduleEditorSheet
+        visible={scheduleEditorVisible}
+        routines={routines.map((r) => ({ id: r.id, name: r.name }))}
+        onClose={() => setScheduleEditorVisible(false)}
+        onSaved={handleScheduleSaved}
       />
     </View>
   );

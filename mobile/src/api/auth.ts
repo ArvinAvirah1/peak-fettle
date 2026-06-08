@@ -53,6 +53,24 @@ export async function register(
  * The server uses single-use refresh token rotation (T-02 hardening).
  * @throws on invalid/expired/revoked token — caller must redirect to login.
  */
+/**
+ * POST /auth/oauth — Sign in with Apple / Google (TICKET-099).
+ * The provider id_token is obtained on the client (expo-apple-authentication /
+ * expo-auth-session — added in the dev/EAS build) and verified server-side.
+ * Returns the same {user, accessToken, refreshToken} shape as login(); the
+ * backup identity (TICKET-094) is keyed to the resulting account.
+ */
+export async function oauthLogin(
+  provider: 'google' | 'apple',
+  idToken: string
+): Promise<AuthResponse> {
+  const response = await axios.post<AuthResponse>(`${BASE_URL}/auth/oauth`, {
+    provider,
+    idToken,
+  });
+  return response.data;
+}
+
 export async function refreshTokens(refreshToken: string): Promise<AuthTokens> {
   const response = await axios.post<AuthTokens>(`${BASE_URL}/auth/refresh`, {
     refreshToken,
