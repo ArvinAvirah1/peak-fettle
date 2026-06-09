@@ -5,8 +5,9 @@
  * which verifies it server-side (/auth/oauth) and establishes the same session as
  * email/password login.
  *
- * Native modules (added to package.json): expo-apple-authentication,
- * expo-auth-session, expo-web-browser. They do NOT run in Expo Go — a dev/EAS
+ * Native modules — add with `npx expo install expo-apple-authentication
+ * expo-auth-session expo-web-browser` (sets the correct SDK versions + lockfile).
+ * They do NOT run in Expo Go — a dev/EAS
  * build is required. Google client IDs + the App Store "Apple alongside Google"
  * rule are configured via env (see below). Until the env IDs are set the Google
  * button is simply disabled, and Apple only shows on iOS.
