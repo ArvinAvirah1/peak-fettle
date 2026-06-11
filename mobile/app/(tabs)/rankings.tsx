@@ -56,6 +56,7 @@ import { patchProfile } from '../../src/api/user';
 import { liftIdToName } from '../../src/utils/liftNames';
 import { TierLadderCard } from '../../src/components/TierLadderCard'; // TICKET-093 v3 tier headline
 import { BodyweightPromptCard } from '../../src/components/BodyweightPromptCard';
+import Reanimated, { FadeInDown, useReducedMotion } from 'react-native-reanimated';
 import { useBodyweight } from '../../src/hooks/useBodyweight';
 import { PercentileRanking } from '../../src/types/api';
 import { useTheme } from '../../src/theme/ThemeContext';
@@ -648,6 +649,7 @@ export default function RankingsScreen(): React.ReactElement {
   const { user, updateUser } = useAuth();
   // Weekly-median bodyweight (founder 2026-06-10): prompts weekly; gates the tier.
   const { latest: latestBw, freshForTier } = useBodyweight();
+  const reducedMotion = useReducedMotion(); // 2026-06-10 aesthetic pass
   const { theme } = useTheme();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isTogglingWilks, setIsTogglingWilks] = useState(false);
@@ -839,16 +841,24 @@ export default function RankingsScreen(): React.ReactElement {
             {/* Hero card — highest-percentile lift (P0-006 / Spec §6.7) */}
             <PercentileRankHeroCard rankings={rankings} />
           <View style={styles.listContainer}>
-            {rankings.map((ranking) => (
-              <RankingCard
+            {rankings.map((ranking, i) => (
+              <Reanimated.View
                 key={ranking.lift_id}
-                ranking={ranking}
-                use1rmConfirmation={use1rmConfirmation}
-                locallyConfirmed={confirmedThisSession.has(ranking.lift_id) || ranking.confirmed_1rm_kg != null}
-                primaryDiscipline={user?.primary_discipline ?? null}
-                showWilks={showWilks}
-                onConfirmRequest={handleConfirmRequest}
-              />
+                entering={
+                  reducedMotion
+                    ? undefined
+                    : FadeInDown.delay(Math.min(i * 50, 300)).duration(280)
+                }
+              >
+                <RankingCard
+                  ranking={ranking}
+                  use1rmConfirmation={use1rmConfirmation}
+                  locallyConfirmed={confirmedThisSession.has(ranking.lift_id) || ranking.confirmed_1rm_kg != null}
+                  primaryDiscipline={user?.primary_discipline ?? null}
+                  showWilks={showWilks}
+                  onConfirmRequest={handleConfirmRequest}
+                />
+              </Reanimated.View>
             ))}
           </View>
 

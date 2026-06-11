@@ -152,6 +152,10 @@ function RootNavigator(): React.ReactElement {
       <Stack
         screenOptions={{
           headerShown: false,
+          // 2026-06-10 aesthetic pass: consistent, smooth pushes everywhere
+          // (Android otherwise defaults to an abrupt fade-from-bottom).
+          animation: 'slide_from_right',
+          animationDuration: 280,
           // Theme the native stack header so screens like Trends / Workout
           // Templates ("Browse plans") don't show a bare white bar that clashes
           // with the app theme. Applies to every screen that sets headerShown.
@@ -163,16 +167,16 @@ function RootNavigator(): React.ReactElement {
         }}
       >
         <Stack.Screen name="index" options={{ headerShown: false }} />
-        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="(auth)" options={{ headerShown: false, animation: 'fade', animationDuration: 220 }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false, animation: 'fade', animationDuration: 220 }} />
         <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="health-metrics" options={{ headerShown: false }} />
         <Stack.Screen name="groups" options={{ headerShown: false }} />
         <Stack.Screen name="group-detail" options={{ headerShown: false }} />
         <Stack.Screen name="glossary" options={{ title: 'Glossary', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="one-rm" options={{ title: '1RM calculator', headerShown: true, gestureEnabled: true }} />
-        <Stack.Screen name="splash" options={{ headerShown: false, gestureEnabled: false }} />
-        <Stack.Screen name="intro" options={{ headerShown: false, gestureEnabled: false }} />
+        <Stack.Screen name="splash" options={{ headerShown: false, gestureEnabled: false, animation: 'fade' }} />
+        <Stack.Screen name="intro" options={{ headerShown: false, gestureEnabled: false, animation: 'fade' }} />
         <Stack.Screen name="templates" options={{ title: 'Workout Templates', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="csv-import" options={{ title: 'Import Activity Data', headerShown: true, gestureEnabled: true }} />
 <Stack.Screen name="exercise-library" options={{ title: 'Exercise Library', headerShown: true, gestureEnabled: true }} />
