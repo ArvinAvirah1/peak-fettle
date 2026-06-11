@@ -6051,6 +6051,97 @@ END $$;
 
 
 -- #############################################################################
+-- # SOURCE: peak-fettle-agents/server/migrations/20260604_workout_routine_link.sql
+-- # (folded 2026-06-10 — standing rule: every schema change edits this file
+-- #  in the same commit; migrations/ files are incremental convenience copies.)
+-- #############################################################################
+
+-- 20260604 — Link a workout to the routine it was performed from.
+--
+-- Recent Activity needs to label a session "Leg Day 6/4/26" when it came from a
+-- routine, and fall back to a plain date for free (ad-hoc) sessions. Workouts are
+-- stored one-per-(user, day_key) and previously had no routine reference.
+--
+-- We store BOTH:
+--   routine_id   — FK to the routine (nullable; ON DELETE SET NULL so deleting a
+--                  routine does not delete history, it just drops the link).
+--   routine_name — denormalised snapshot of the routine name at session time, so
+--                  the historical label survives a later rename or delete of the
+--                  routine. routine_name is what the UI renders.
+--
+-- Both are NULL for ad-hoc / free sessions, which keep their date-only label.
+--
+-- Idempotent: safe to re-run.
+
+ALTER TABLE workouts
+  ADD COLUMN IF NOT EXISTS routine_id   UUID REFERENCES routines(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS routine_name TEXT;
+
+
+
+-- #############################################################################
+-- # SOURCE: peak-fettle-agents/server/migrations/20260607_expand_exercise_library.sql
+-- # (folded 2026-06-10)
+-- #############################################################################
+
+-- 20260607 — Expand the exercise library (TICKET-098).
+--
+-- (a) Adds the one bundled-template exercise that had no exact library row
+--     ("Close-Grip Lat Pulldown") so the beginner templates resolve 1:1 instead
+--     of falling back to "Lat Pulldown".
+-- (b) Deeper pass: common machine/cable/dumbbell/bodyweight variants that were
+--     missing from the seed, across every muscle group + a couple of cardio.
+--
+-- Idempotent: ON CONFLICT (name) DO NOTHING relies on idx_exercises_name_unique.
+-- Safe to re-run; only inserts names that don't already exist.
+
+INSERT INTO exercises (name, category, muscle_groups, is_compound) VALUES
+  -- Back / lats
+  ('Close-Grip Lat Pulldown',      'lift', ARRAY['lats','biceps','back'],            TRUE),
+  ('Reverse-Grip Lat Pulldown',    'lift', ARRAY['lats','biceps','back'],            TRUE),
+  ('Neutral-Grip Lat Pulldown',    'lift', ARRAY['lats','biceps','back'],            TRUE),
+  ('Seal Row',                     'lift', ARRAY['back','lats','biceps'],            TRUE),
+  ('Meadows Row',                  'lift', ARRAY['back','lats','biceps'],            TRUE),
+  ('Landmine Row',                 'lift', ARRAY['back','lats','biceps'],            TRUE),
+  ('Assisted Pull-Up',             'lift', ARRAY['lats','back','biceps'],            TRUE),
+  -- Chest
+  ('Smith Machine Bench Press',    'lift', ARRAY['chest','triceps','anterior_deltoid'], TRUE),
+  ('Dumbbell Pullover',            'lift', ARRAY['chest','lats'],                    FALSE),
+  ('Incline Cable Fly',            'lift', ARRAY['chest','anterior_deltoid'],        FALSE),
+  -- Shoulders
+  ('Smith Machine Shoulder Press', 'lift', ARRAY['anterior_deltoid','triceps'],      TRUE),
+  ('Cable Front Raise',            'lift', ARRAY['anterior_deltoid'],                FALSE),
+  ('Cuban Press',                  'lift', ARRAY['shoulders','rotator_cuff'],        FALSE),
+  -- Legs / glutes
+  ('Smith Machine Squat',          'lift', ARRAY['quads','glutes','hamstrings'],     TRUE),
+  ('Sissy Squat',                  'lift', ARRAY['quads'],                           FALSE),
+  ('Pendulum Squat',               'lift', ARRAY['quads','glutes'],                  TRUE),
+  ('Hip Abduction Machine',        'lift', ARRAY['glutes','abductors'],              FALSE),
+  ('Hip Adduction Machine',        'lift', ARRAY['adductors'],                       FALSE),
+  ('Cable Kickback',               'lift', ARRAY['glutes'],                          FALSE),
+  ('Reverse Hyperextension',       'lift', ARRAY['glutes','hamstrings','lower_back'], FALSE),
+  ('Dumbbell Lunge',               'lift', ARRAY['quads','glutes','hamstrings'],     TRUE),
+  ('Goblet Lunge',                 'lift', ARRAY['quads','glutes'],                  TRUE),
+  -- Arms
+  ('Cable Rope Hammer Curl',       'lift', ARRAY['biceps','forearms'],              FALSE),
+  ('Preacher Curl Machine',        'lift', ARRAY['biceps'],                          FALSE),
+  ('Cable Reverse Curl',           'lift', ARRAY['forearms','biceps'],              FALSE),
+  ('Tricep Dip Machine',           'lift', ARRAY['triceps','chest'],                FALSE),
+  -- Core
+  ('Bicycle Crunch',               'lift', ARRAY['core','obliques'],                FALSE),
+  ('Decline Crunch',               'lift', ARRAY['core'],                            FALSE),
+  ('Cable Woodchopper',            'lift', ARRAY['core','obliques'],                FALSE),
+  ('Mountain Climbers',            'lift', ARRAY['core','hip_flexors'],             FALSE),
+  ('Suitcase Carry',               'lift', ARRAY['core','obliques','forearms'],     TRUE),
+  ('Hanging Knee Raise',           'lift', ARRAY['core','hip_flexors'],             FALSE),
+  -- Cardio / conditioning
+  ('Battle Ropes',                 'cardio', ARRAY['shoulders','core'],             FALSE),
+  ('Ski Erg',                      'cardio', ARRAY['lats','triceps','core'],        FALSE)
+ON CONFLICT (name) DO NOTHING;
+
+
+
+-- #############################################################################
 -- # Security hardening: SECURITY INVOKER on advisor-flagged views
 -- # (Supabase Advisor: "Security Definer View" — CRITICAL)
 -- #
