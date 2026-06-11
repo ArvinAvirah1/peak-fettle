@@ -54,6 +54,7 @@ import { ConfidenceRing, confidenceRingTooltip } from '../../src/components/Conf
 import { confirm1rm } from '../../src/api/percentile';
 import { patchProfile } from '../../src/api/user';
 import { liftIdToName } from '../../src/utils/liftNames';
+import { TierLadderCard } from '../../src/components/TierLadderCard'; // TICKET-093 v3 tier headline
 import { PercentileRanking } from '../../src/types/api';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
@@ -821,6 +822,12 @@ export default function RankingsScreen(): React.ReactElement {
         {/* Rankings list */}
         {!isLoading && !error && rankings.length > 0 ? (
           <>
+            {/* Tier ladder headline — on-device v3 model (TICKET-093 / Q2) */}
+            <TierLadderCard
+              rankings={rankings}
+              sex={user?.sex ?? null}
+              bodyweightKg={user?.weight_class_kg ?? null}
+            />
             {/* Hero card — highest-percentile lift (P0-006 / Spec §6.7) */}
             <PercentileRankHeroCard rankings={rankings} />
           <View style={styles.listContainer}>
