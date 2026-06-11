@@ -1,70 +1,33 @@
 /**
- * BrandLogo — Peak Fettle brand lockup
- * TICKET-063
+ * BrandLogo — Peak Fettle brand lockup (founder 2026-06-10 revision).
  *
- * Renders the scatter-plot + wordmark logo from pre-exported PNG assets
- * (generated from mobile/assets/brand/peak-fettle-logo.svg at build time).
- * Using PNGs avoids the react-native-svg limitation where in-SVG @font-face
- * is ignored, so the Outfit wordmark always renders correctly on device.
+ * The mark is now the APP ICON artwork (BrandMark: ascending teal bars +
+ * peak arrow), replacing the earlier scatter-plot iteration, so the home
+ * header, auth screens, and splash all match the App Store icon. The
+ * "Peak Fettle" lettering stays beside (horizontal) or below (vertical)
+ * the mark, set in Outfit Bold.
  *
- * Variants
- *   dark       — light-on-dark recolor (white axes/wordmark, teal stays)
- *   horizontal — chart mark on left, "Peak Fettle" text on right
- *
- * For horizontal layout the mark-only PNG is used alongside a native <Text>
- * set in Outfit Bold (bundled via TICKET-057), giving crisp text at any size.
- *
- * The vertical lockup PNG (logo-light / logo-dark) is used for splash and
- * auth header surfaces where the full stacked lockup is appropriate.
- *
- * Asset source: scatter_09_outfit-stacked.svg → cairosvg exports
- * Dark variant: #13415C (slate) swapped to #FFFFFF; #0F9D8E (teal) unchanged.
+ * Variants (API unchanged from TICKET-063):
+ *   dark       — white lettering for dark surfaces; mark teal is identical
+ *   horizontal — mark left, lettering right (home header)
+ *   default    — stacked lockup (splash / auth headers)
  */
 
 import React from 'react';
-import { View, Text, Image } from 'react-native';
+import { View, Text } from 'react-native';
 import { fontFamily } from '../theme/tokens';
+import { BrandMark } from './BrandMark';
 
-// ── PNG asset references ─────────────────────────────────────────────────────
-
-// Full vertical lockup (chart + "Peak Fettle" wordmark stacked)
-const LOGO_LIGHT = require('../../assets/brand/logo-light.png');
-const LOGO_DARK  = require('../../assets/brand/logo-dark.png');
-
-// Mark-only (chart without wordmark) — used for horizontal layout
-const MARK_LIGHT = require('../../assets/brand/mark-only.png');
-const MARK_DARK  = require('../../assets/brand/mark-only-dark.png');
-
-// ── Aspect ratios ────────────────────────────────────────────────────────────
-// Full lockup exported from viewBox 0 0 620 560  → 620:560 ≈ 1.107
-const LOGO_ASPECT = 620 / 560;
-// Mark-only exported from viewBox 80 0 500 520 into a square canvas;
-// resizeMode="contain" handles any padding automatically.
-
-// ── Brand identity colors (fixed, not from theme) ────────────────────────────
+// Brand lettering colors (fixed, not from theme)
 const SLATE = '#13415C';
 const WHITE = '#FFFFFF';
 
-// ── Component ────────────────────────────────────────────────────────────────
-
 export interface BrandLogoProps {
-  /**
-   * Controls the display height in logical pixels.
-   * Width is derived from aspect ratio for the vertical lockup;
-   * in horizontal layout the mark height equals this value.
-   */
+  /** Display height in logical pixels (mark height; lockup scales from it). */
   height?: number;
-
-  /**
-   * Light-on-dark variant — white axes, dots, and wordmark; teal stays.
-   * Use on all dark-background surfaces (splash, auth, home tab).
-   */
+  /** Light-on-dark variant — white lettering; the teal mark is unchanged. */
   dark?: boolean;
-
-  /**
-   * Horizontal layout: chart mark on the left, wordmark to the right.
-   * Use for compact surfaces like the home header bar.
-   */
+  /** Horizontal layout: mark on the left, lettering to the right. */
   horizontal?: boolean;
 }
 
@@ -76,10 +39,7 @@ export function BrandLogo({
   const textColor = dark ? WHITE : SLATE;
 
   if (horizontal) {
-    // Mark-only PNG + native Text (Outfit Bold) side by side
-    const markSize = height;          // mark is visually square-ish
-    const wordmarkFontSize = Math.round(height * 0.42);
-
+    const wordmarkFontSize = Math.round(height * 0.52);
     return (
       <View
         style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}
@@ -87,11 +47,7 @@ export function BrandLogo({
         accessibilityRole="image"
         accessibilityLabel="Peak Fettle logo"
       >
-        <Image
-          source={dark ? MARK_DARK : MARK_LIGHT}
-          style={{ width: markSize, height: markSize }}
-          resizeMode="contain"
-        />
+        <BrandMark size={height} />
         <Text
           style={{
             fontFamily: fontFamily.bold,
@@ -107,17 +63,28 @@ export function BrandLogo({
     );
   }
 
-  // Vertical lockup: full PNG (chart + wordmark already baked in)
-  const logoWidth = height * LOGO_ASPECT;
-
+  // Vertical lockup: mark stacked above the lettering.
+  const markSize = Math.round(height * 0.72);
+  const wordmarkFontSize = Math.round(height * 0.2);
   return (
-    <Image
-      source={dark ? LOGO_DARK : LOGO_LIGHT}
-      style={{ width: logoWidth, height }}
-      resizeMode="contain"
+    <View
+      style={{ alignItems: 'center', gap: 4 }}
       accessible
       accessibilityRole="image"
       accessibilityLabel="Peak Fettle logo"
-    />
+    >
+      <BrandMark size={markSize} />
+      <Text
+        style={{
+          fontFamily: fontFamily.bold,
+          fontSize: wordmarkFontSize,
+          color: textColor,
+          letterSpacing: -0.5,
+          includeFontPadding: false,
+        }}
+      >
+        Peak Fettle
+      </Text>
+    </View>
   );
 }
