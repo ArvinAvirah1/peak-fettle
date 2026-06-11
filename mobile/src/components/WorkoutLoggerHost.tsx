@@ -49,7 +49,8 @@ import StepperLogger, { LoggedSet } from './StepperLogger';
 import { useTheme } from '../theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
 import { haptics } from '../utils/haptics';
-import { formatWeight } from '../constants/units';
+import { formatWeight, kgToLbs, roundToNearestQuarterLb } from '../constants/units';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getRoutine } from '../api/routines';
 import { markRoutineCompleted } from '../data/schedule'; // TICKET-097
 import { createWorkout } from '../api/workouts';
@@ -70,6 +71,10 @@ try {
 }
 
 const REST_DEFAULT = 90;
+// Configurable rest default — tap the time in the banner to cycle presets;
+// persisted so the choice survives restarts.
+const REST_PRESETS = [60, 90, 120, 180];
+const REST_PREF_KEY = '@peak_fettle/rest_default_sec';
 
 // ---------------------------------------------------------------------------
 // PaywallUpgradeModal
@@ -178,6 +183,22 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
     const [timerActive, setTimerActive] = useState(false);
     const [elapsedSeconds, setElapsedSeconds] = useState(0);
     const [restSecondsLeft, setRestSecondsLeft] = useState<number | null>(null);
+    const [restDefault, setRestDefault] = useState(REST_DEFAULT);
+    useEffect(() => {
+      AsyncStorage.getItem(REST_PREF_KEY)
+        .then((raw) => {
+          const v = raw ? parseInt(raw, 10) : NaN;
+          if (REST_PRESETS.includes(v)) setRestDefault(v);
+        })
+        .catch(() => {});
+    }, []);
+    const cycleRestDefault = useCallback(() => {
+      setRestDefault((cur) => {
+        const next = REST_PRESETS[(REST_PRESETS.indexOf(cur) + 1) % REST_PRESETS.length] ?? REST_DEFAULT;
+        AsyncStorage.setItem(REST_PREF_KEY, String(next)).catch(() => {});
+        return next;
+      });
+    }, []);
 
     useEffect(() => {
       if (!timerActive) return;
@@ -194,6 +215,24 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
       const t = setTimeout(() => setRestSecondsLeft((s) => (s ?? 1) - 1), 1000);
       return () => clearTimeout(t);
     }, [restSecondsLeft]);
+
+    // PB + last-session for the STEPPER'S current exercise (routine advance
+    // doesn't go through the picker, so fetch per current index). Powers the
+    // PB line, the "Last session" line, and the warm-up ramp (founder 2026-06-10).
+    const [stepperPB, setStepperPB] = useState<PersonalBest | null>(null);
+    const stepperExerciseId =
+      routineSession?.exercises[routineSession.currentIndex]?.exerciseId ?? null;
+    useEffect(() => {
+      if (!stepperExerciseId) {
+        setStepperPB(null);
+        return;
+      }
+      let cancelled = false;
+      getPersonalBest(stepperExerciseId)
+        .then((pb) => { if (!cancelled) setStepperPB(pb); })
+        .catch(() => {});
+      return () => { cancelled = true; };
+    }, [stepperExerciseId]);
 
     // Alternatives sheet
     const [alternativesSheetExerciseId, setAlternativesSheetExerciseId] = useState<string | null>(null);
@@ -503,7 +542,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           });
           haptics.success();
           setTimerActive(true);
-          setRestSecondsLeft(REST_DEFAULT);
+          setRestSecondsLeft(restDefault);
         } catch (err) {
           console.warn('[PF] WorkoutLoggerHost/handleStepperLogSet:', err instanceof Error ? err.message : String(err));
         }
@@ -579,7 +618,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           });
           haptics.success();
           setTimerActive(true);
-          setRestSecondsLeft(REST_DEFAULT);
+          setRestSecondsLeft(restDefault);
         } catch (err) {
           console.warn('[PF] WorkoutLoggerHost/handleStepperLogCardioSet:', err instanceof Error ? err.message : String(err));
         }
@@ -764,9 +803,24 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
         {/* Rest timer banner */}
         {restSecondsLeft !== null && (
           <View style={[restStyles.banner, { backgroundColor: theme.colors.bgElevated }]}>
-            <Text style={{ color: theme.colors.accentDefault, fontSize: fontSize.bodyMd, fontWeight: fontWeight.bold, fontVariant: ['tabular-nums'] }}>
-              Rest: {Math.floor(restSecondsLeft / 60).toString().padStart(2, '0')}:{(restSecondsLeft % 60).toString().padStart(2, '0')}
-            </Text>
+            <TouchableOpacity
+              onPress={cycleRestDefault}
+              accessibilityRole="button"
+              accessibilityLabel={`Rest timer. Default ${restDefault} seconds. Tap to change default`}
+            >
+              <Text style={{ color: theme.colors.accentDefault, fontSize: fontSize.bodyMd, fontWeight: fontWeight.bold, fontVariant: ['tabular-nums'] }}>
+                Rest: {Math.floor(restSecondsLeft / 60).toString().padStart(2, '0')}:{(restSecondsLeft % 60).toString().padStart(2, '0')}
+                <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.micro }}>  · {restDefault}s ▸</Text>
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setRestSecondsLeft((v) => (v == null ? v : v + 30))}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel="Add 30 seconds of rest"
+            >
+              <Text style={{ color: theme.colors.accentDefault, fontSize: fontSize.bodySm, fontWeight: fontWeight.bold }}>+30s</Text>
+            </TouchableOpacity>
             <TouchableOpacity
               onPress={() => setRestSecondsLeft(null)}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -838,10 +892,21 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
               }}
               onSaveAsRoutine={handleSaveAsRoutine}
               pbLabel={
-                exercisePB?.all_time_best
-                  ? `${formatWeight(exercisePB.all_time_best.weight_kg, unitPref)} × ${exercisePB.all_time_best.reps}`
+                (stepperPB ?? exercisePB)?.all_time_best
+                  ? `${formatWeight((stepperPB ?? exercisePB)!.all_time_best!.weight_kg, unitPref)} × ${(stepperPB ?? exercisePB)!.all_time_best!.reps}`
                   : null
               }
+              lastSessionLabel={
+                (stepperPB ?? exercisePB)?.last_session
+                  ? `${formatWeight((stepperPB ?? exercisePB)!.last_session!.weight_kg, unitPref)} × ${(stepperPB ?? exercisePB)!.last_session!.reps}`
+                  : null
+              }
+              lastTopSetDisplay={(() => {
+                const ls = (stepperPB ?? exercisePB)?.last_session;
+                if (!ls) return null;
+                const w = unitPref === 'lbs' ? roundToNearestQuarterLb(kgToLbs(ls.weight_kg)) : ls.weight_kg;
+                return { weight: w, reps: ls.reps };
+              })()}
               repTarget={routineSession.exercises[routineSession.currentIndex]?.targetReps ?? null}
               currentExerciseSets={
                 stepperSets.get(routineSession.exercises[routineSession.currentIndex]?.exerciseId ?? '') ?? []
