@@ -40,6 +40,7 @@ import { ThemeProvider, useTheme, ThemeName } from '../src/theme/ThemeContext';
 import { patchProfile } from '../src/api/user';
 import { registerForPushNotificationsAsync } from '../src/services/pushNotifications';
 import { TourProvider } from '../src/components/tour/WelcomeTour'; // TICKET-095
+import { startWidgetBridge } from '../src/services/widgetBridge'; // WIDGET-001
 
 // ---------------------------------------------------------------------------
 // Root-level Error Boundary (2026-05-28)
@@ -134,6 +135,19 @@ function RootNavigator(): React.ReactElement {
     });
     return () => task.cancel();
   }, [isLoading, isAuthenticated]);
+
+  // WIDGET-001 (2026-06-11): publish next-split / PRs / goals to the iOS
+  // home & lock screen widget via App Group storage. Local-data only, so it
+  // does NOT gate on auth. Deferred off the boot frame for the same iOS 26
+  // reason as push registration above; the bridge is iOS-only and inert when
+  // the native module is absent (Expo Go / Android).
+  useEffect(() => {
+    if (isLoading) return;
+    const task = InteractionManager.runAfterInteractions(() => {
+      startWidgetBridge();
+    });
+    return () => task.cancel();
+  }, [isLoading]);
 
   if (isLoading) {
     return (

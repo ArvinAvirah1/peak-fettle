@@ -16,6 +16,11 @@
       "bundleIdentifier": "com.peakfettle.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
+      },
+      "entitlements": {
+        "com.apple.security.application-groups": [
+          "group.com.peakfettle.app"
+        ]
       }
     },
     "android": {
@@ -54,7 +59,8 @@
         }
       ],
       "expo-sqlite",
-      "expo-web-browser"
+      "expo-web-browser",
+      "@bacons/apple-targets"
     ],
     "scheme": "peak-fettle",
     "experiments": {
@@ -63,7 +69,24 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "de9093c0-e047-43cd-a1de-16334f5a059b"
+        "projectId": "de9093c0-e047-43cd-a1de-16334f5a059b",
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "targetName": "PeakFettleWidget",
+                  "bundleIdentifier": "com.peakfettle.app.widget",
+                  "entitlements": {
+                    "com.apple.security.application-groups": [
+                      "group.com.peakfettle.app"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
       }
     }
   }

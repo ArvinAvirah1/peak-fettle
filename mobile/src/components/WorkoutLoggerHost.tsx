@@ -53,6 +53,7 @@ import { formatWeight, kgToLbs, roundToNearestQuarterLb } from '../constants/uni
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getRoutine } from '../api/routines';
 import { markRoutineCompleted } from '../data/schedule'; // TICKET-097
+import { checkGoalAchieved } from '../data/exerciseGoals'; // WIDGET-002
 import { createWorkout } from '../api/workouts';
 import { toDateKey } from '../utils/dateHelpers';
 import { getExercises } from '../api/exercises';
@@ -531,7 +532,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
         if (!workout?.id || !targetId) return;
         const rirNum = rir != null && rir.trim() !== '' ? parseInt(rir, 10) : undefined;
         try {
-          await logSet({
+          const logged = await logSet({
             kind: 'lift',
             workoutId: workout.id,
             exerciseId: targetId,
@@ -541,6 +542,17 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
             ...(rirNum !== undefined && !Number.isNaN(rirNum) ? { rir: rirNum } : {}),
           });
           haptics.success();
+          // WIDGET-002: a logged set that meets BOTH targets of this exercise's
+          // goal marks it achieved (fire-and-forget; StepperLogger re-reads the
+          // goal row after each set and shows the achieved state).
+          void checkGoalAchieved(
+            targetId,
+            parseFloat(weight) || 0,
+            parseInt(reps, 10) || 0,
+            logged?.id ?? null,
+          ).then((achieved) => {
+            if (achieved) haptics.success();
+          });
           setTimerActive(true);
           setRestSecondsLeft(restDefault);
         } catch (err) {
