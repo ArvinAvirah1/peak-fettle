@@ -7,11 +7,12 @@
 
 import React, { useEffect } from 'react';
 import { View, StyleSheet } from 'react-native';
-import Animated, { FadeIn, SlideInUp, useReducedMotion } from 'react-native-reanimated';
+import Animated, { FadeIn, FadeInDown, FadeInUp, useReducedMotion } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../src/theme/ThemeContext';
-import { BrandLogo } from '../src/components/BrandLogo';
+import { BrandMark, BRAND_NAVY } from '../src/components/BrandMark';
+import { fontFamily } from '../src/theme/tokens';
 
 const FIRST_LAUNCH_KEY = '@peak_fettle/first_launch_done';
 
@@ -42,17 +43,33 @@ export default function SplashScreen(): React.ReactElement {
     return () => clearTimeout(timer);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const logoEntering  = reducedMotion ? undefined : FadeIn.duration(700);
-  const sublineEntering = reducedMotion
+  // Staggered entrance: mark springs in, lettering follows, subline last.
+  // (Founder 2026-06-10: splash artwork now matches the App Store icon.)
+  const markEntering = reducedMotion
     ? undefined
-    : SlideInUp.duration(400).delay(300);
+    : FadeInDown.springify().damping(14).stiffness(120).duration(600);
+  const wordmarkEntering = reducedMotion ? undefined : FadeIn.duration(450).delay(250);
+  const sublineEntering = reducedMotion ? undefined : FadeInUp.duration(400).delay(500);
 
   return (
-    <View style={[styles.container, { backgroundColor: colors.bgPrimary }]}>
-      {/* TICKET-063: Brand logo (scatter + trendline lockup, dark variant) */}
-      <Animated.View entering={logoEntering}>
-        <BrandLogo height={140} dark />
+    <View style={[styles.container, { backgroundColor: BRAND_NAVY }]}>
+      {/* App-icon mark (bars + peak) — seamless against the native splash,
+          which uses the same artwork and background (founder 2026-06-10). */}
+      <Animated.View entering={markEntering}>
+        <BrandMark size={132} />
       </Animated.View>
+      <Animated.Text
+        entering={wordmarkEntering}
+        style={{
+          fontFamily: fontFamily.bold,
+          fontSize: fontSize.heading2,
+          color: '#FFFFFF',
+          letterSpacing: -0.5,
+          marginTop: 12,
+        }}
+      >
+        Peak Fettle
+      </Animated.Text>
       <Animated.Text
         entering={sublineEntering}
         style={{
