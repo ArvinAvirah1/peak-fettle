@@ -28,11 +28,12 @@ export default function OpengraphImage() {
                 }}
             >
                 <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
-                    <svg width="56" height="56" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
-                        <rect x="6" y="20" width="4.5" height="6" rx="1.4" fill="#2DD4BF" opacity="0.5" />
-                        <rect x="13" y="15" width="4.5" height="11" rx="1.4" fill="#2DD4BF" opacity="0.75" />
-                        <path d="M24 6 L29 16 L25.5 16 L24 12.6 L22.5 16 L19 16 Z" fill="#5EEAD4" />
-                        <rect x="20" y="19" width="4.5" height="7" rx="1.4" fill="#2DD4BF" />
+                    {/* Exact App Store icon mark (sampled from mobile/assets/icon.png) */}
+                    <svg width="56" height="56" viewBox="160 160 800 704" xmlns="http://www.w3.org/2000/svg">
+                        <rect x="192" y="640" width="144" height="191" rx="40" fill="#136760" />
+                        <rect x="416" y="480" width="144" height="351" rx="40" fill="#1f9c8f" />
+                        <rect x="640" y="608" width="144" height="223" rx="40" fill="#2bd1bd" />
+                        <polygon points="767,192 927,511 815,511 767,409 720,511 608,511" fill="#3edcc6" />
                     </svg>
                     <div style={{ fontSize: 34, fontWeight: 700, letterSpacing: -1 }}>Peak Fettle</div>
                 </div>
