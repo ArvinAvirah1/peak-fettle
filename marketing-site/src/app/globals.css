@@ -203,9 +203,30 @@ button { font: inherit; color: inherit; cursor: pointer; background: none; borde
 }
 .skip-link:focus { top: 12px; }
 
+/* ---- Page transition (template.tsx re-mounts per navigation) ---- */
+.page-enter {
+    animation: page-enter .45s var(--ease-out) both;
+}
+@keyframes page-enter {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: none; }
+}
+
+/* ---- Card hover lift (2026-06-10 aesthetic pass) ---- */
+.card {
+    transition: transform .3s var(--ease), border-color .3s var(--ease), box-shadow .3s var(--ease);
+}
+.card:hover {
+    transform: translateY(-3px);
+    border-color: rgba(45,212,191,.35);
+    box-shadow: 0 14px 40px rgba(0,0,0,.45), 0 0 0 1px rgba(45,212,191,.08);
+}
+
 /* ---- Reduced motion ---- */
 @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
+    .page-enter { animation: none; }
+    .card:hover { transform: none; }
     *, *::before, *::after {
         animation-duration: .001ms !important;
         animation-iteration-count: 1 !important;
