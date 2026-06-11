@@ -55,6 +55,8 @@ import { confirm1rm } from '../../src/api/percentile';
 import { patchProfile } from '../../src/api/user';
 import { liftIdToName } from '../../src/utils/liftNames';
 import { TierLadderCard } from '../../src/components/TierLadderCard'; // TICKET-093 v3 tier headline
+import { BodyweightPromptCard } from '../../src/components/BodyweightPromptCard';
+import { useBodyweight } from '../../src/hooks/useBodyweight';
 import { PercentileRanking } from '../../src/types/api';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
@@ -644,6 +646,8 @@ function ErrorBanner({
 export default function RankingsScreen(): React.ReactElement {
   const { response, isLoading, error, refetch } = usePercentile();
   const { user, updateUser } = useAuth();
+  // Weekly-median bodyweight (founder 2026-06-10): prompts weekly; gates the tier.
+  const { latest: latestBw, freshForTier } = useBodyweight();
   const { theme } = useTheme();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isTogglingWilks, setIsTogglingWilks] = useState(false);
@@ -822,11 +826,15 @@ export default function RankingsScreen(): React.ReactElement {
         {/* Rankings list */}
         {!isLoading && !error && rankings.length > 0 ? (
           <>
-            {/* Tier ladder headline — on-device v3 model (TICKET-093 / Q2) */}
+            {/* Weekly bodyweight check-in — feeds the tier gate (founder 2026-06-10) */}
+            <BodyweightPromptCard unitPref={(user?.unit_pref ?? 'kg') as 'kg' | 'lbs'} />
+            {/* Tier ladder headline — on-device v3 model (TICKET-093 / Q2).
+                Uses the real weekly-median weight; locked when it's stale. */}
             <TierLadderCard
               rankings={rankings}
               sex={user?.sex ?? null}
-              bodyweightKg={user?.weight_class_kg ?? null}
+              bodyweightKg={latestBw?.weight_kg ?? user?.weight_class_kg ?? null}
+              bodyweightFresh={freshForTier}
             />
             {/* Hero card — highest-percentile lift (P0-006 / Spec §6.7) */}
             <PercentileRankHeroCard rankings={rankings} />

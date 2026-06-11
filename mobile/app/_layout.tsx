@@ -170,6 +170,7 @@ function RootNavigator(): React.ReactElement {
         <Stack.Screen name="groups" options={{ headerShown: false }} />
         <Stack.Screen name="group-detail" options={{ headerShown: false }} />
         <Stack.Screen name="glossary" options={{ title: 'Glossary', headerShown: true, gestureEnabled: true }} />
+        <Stack.Screen name="one-rm" options={{ title: '1RM calculator', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="splash" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="intro" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="templates" options={{ title: 'Workout Templates', headerShown: true, gestureEnabled: true }} />
