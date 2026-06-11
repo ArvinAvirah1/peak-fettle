@@ -1,15 +1,21 @@
-// /plans — CRUD for AI-generated and user-saved training plans
+// /plans — CRUD for training plans
 // Phase B: skeleton CRUD.  Phase C: AI generation via POST /plans/generate.
 // dev-backend — 2026-05-02 (updated 2026-05-04 — TICKET-011)
+//
+// CHANGELOG:
+//   2026-06-11 — TICKET-training-engine: replaced Claude/Haiku call with
+//   deterministic Peak Fettle Training Engine (pf-engine-v1).
+//   Paid gate kept; daily throttle raised 3 → 20 per spec §3.
+//   Extended profile SELECT (training_goal, sessions_per_week, session_minutes,
+//   goal_weight_kg, equipment_profile, season_phase) and exercises SELECT
+//   (movement_pattern, equipment) per spec §2.
+//   is_ai_generated saved as FALSE; plan name "Training Engine Plan — <date>".
 
 const express = require('express');
-const { z } = require('zod');
-const Anthropic = require('@anthropic-ai/sdk');
+const { z }   = require('zod');
 const { pool } = require('../db');
 const { supabaseAdmin } = require('../lib/supabaseAdmin');
-
-// Anthropic client — model pinned to Haiku 4.5 per CTO cost guardrail (~2.5¢/plan).
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const { generatePlan }  = require('../lib/trainingEngine');
 
 const router = express.Router();
 
@@ -17,16 +23,12 @@ const router = express.Router();
 // Shared validation
 // ---------------------------------------------------------------------------
 
-// A plan "structure" is a JSONB blob — the shape is defined by the AI service
-// in Phase D. Phase B only stores/retrieves it opaquely so the schema is
-// flexible. At minimum it should be an object; stricter validation ships with
-// the AI layer in Phase D.
 const PlanStructureSchema = z.record(z.unknown());
 
 const CreatePlanSchema = z.object({
-    name:         z.string().trim().min(1).max(120),
-    structure:    PlanStructureSchema,
-    isTemplate:   z.boolean().optional().default(false),
+    name:          z.string().trim().min(1).max(120),
+    structure:     PlanStructureSchema,
+    isTemplate:    z.boolean().optional().default(false),
     isAiGenerated: z.boolean().optional().default(false),
 });
 
@@ -42,8 +44,6 @@ router.post('/', async (req, res, next) => {
     try {
         const { name, structure, isTemplate, isAiGenerated } = CreatePlanSchema.parse(req.body);
 
-        // Only the service role can create global templates (user_id IS NULL).
-        // Regular users always own their plans.
         const { rows } = await pool.query(
             `INSERT INTO plans (user_id, name, structure, is_template, is_ai_generated)
              VALUES ($1, $2, $3, $4, $5)
@@ -62,9 +62,7 @@ router.post('/', async (req, res, next) => {
 router.get('/', async (req, res, next) => {
     try {
         // PLANS-001 (2026-05-19): include `is_active` so the client can show
-        // which plan is the user's currently-followed program. Global templates
-        // (user_id IS NULL) always report is_active = FALSE — the partial
-        // unique index excludes them by design.
+        // which plan is the user's currently-followed program.
         const { rows } = await pool.query(
             `SELECT id, user_id, name, is_template, is_ai_generated, is_active,
                     created_at, updated_at
@@ -83,7 +81,6 @@ router.get('/', async (req, res, next) => {
 // ---------------------------------------------------------------------------
 router.get('/:id', async (req, res, next) => {
     try {
-        // PLANS-001 (2026-05-19): expose `is_active` on detail fetch as well.
         const { rows } = await pool.query(
             `SELECT id, user_id, name, structure,
                     is_template, is_ai_generated, is_active,
@@ -113,8 +110,7 @@ router.patch('/:id', async (req, res, next) => {
             return res.status(400).json({ error: 'Provide at least name or structure.' });
         }
 
-        // Build a dynamic SET clause with only the fields being changed.
-        const sets = [];
+        const sets   = [];
         const params = [];
 
         if (name) {
@@ -128,7 +124,6 @@ router.patch('/:id', async (req, res, next) => {
 
         sets.push('updated_at = NOW()');
 
-        // Only let users edit their own plans (not global templates).
         params.push(req.params.id, req.user.id);
         const { rows } = await pool.query(
             `UPDATE plans
@@ -151,20 +146,13 @@ router.patch('/:id', async (req, res, next) => {
 
 // ---------------------------------------------------------------------------
 // POST /plans/:id/activate — mark one user plan as the active program
-// PLANS-001 (2026-05-19): wires the `is_active` column shipped in
-// 20260515_plans_active.sql. Runs in a single transaction so the at-most-one
-// constraint is upheld even under concurrent calls — the partial unique index
-// `idx_plans_one_active_per_user` is the source of truth.
-//
-// Returns: the updated plan row (same shape as GET /plans/:id minus structure).
-// 404 if the target plan does not belong to the caller (templates excluded).
+// PLANS-001 (2026-05-19)
 // ---------------------------------------------------------------------------
 router.post('/:id/activate', async (req, res, next) => {
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
 
-        // 1. Confirm the plan is user-owned (templates can't be activated).
         const { rows: ownerRows } = await client.query(
             `SELECT id FROM plans
              WHERE id = $1
@@ -177,9 +165,6 @@ router.post('/:id/activate', async (req, res, next) => {
             return res.status(404).json({ error: 'Plan not found or not activatable.' });
         }
 
-        // 2. Deactivate every other plan owned by this user.
-        //    Must run BEFORE the activate UPDATE so the partial unique index
-        //    `idx_plans_one_active_per_user` is never violated mid-transaction.
         await client.query(
             `UPDATE plans
              SET is_active = FALSE, updated_at = NOW()
@@ -189,7 +174,6 @@ router.post('/:id/activate', async (req, res, next) => {
             [req.user.id, req.params.id]
         );
 
-        // 3. Activate the target plan.
         const { rows } = await client.query(
             `UPDATE plans
              SET is_active = TRUE, updated_at = NOW()
@@ -204,7 +188,7 @@ router.post('/:id/activate', async (req, res, next) => {
         await client.query('COMMIT');
         res.json(rows[0]);
     } catch (err) {
-        try { await client.query('ROLLBACK'); } catch (_e) { /* swallow rollback err */ }
+        try { await client.query('ROLLBACK'); } catch (_e) { /* swallow */ }
         next(err);
     } finally {
         client.release();
@@ -213,9 +197,7 @@ router.post('/:id/activate', async (req, res, next) => {
 
 // ---------------------------------------------------------------------------
 // POST /plans/deactivate — clear the active plan for the calling user
-// PLANS-001 (2026-05-19): companion to /activate so users can step away from
-// any active program without selecting a replacement (e.g., taking a deload
-// week off-program).
+// PLANS-001 (2026-05-19)
 // ---------------------------------------------------------------------------
 router.post('/deactivate', async (req, res, next) => {
     try {
@@ -251,66 +233,57 @@ router.delete('/:id', async (req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /plans/generate — AI-generated plan session via Claude Haiku 4.5
-// TICKET-011: Transparent AI Plan Reasoning
-// TICKET-012: Constraint Filter (reads user_constraints before building prompt)
+// POST /plans/generate — deterministic Training Engine plan generation
+// TICKET-training-engine (2026-06-11)
 //
-// Open decision resolved (2026-05-04): reasoning string is generated by Haiku
-// as part of the plan prompt — not a rule-based post-processor. This keeps
-// the reasoning grounded in natural language and easier to personalise.
+// Replaced Claude Haiku call with pf-engine-v1 (pure deterministic engine).
+// Paid gate kept. Daily throttle: 20 plans/day (raised from 3 per spec §3).
 //
-// Request body: none required; all context is read from the DB.
+// Request body: none required — all context read from DB.
 //
 // Response:
 //   {
-//     session: {
-//       exercises: [
-//         { exercise_id, name, sets, reps, rpe_target, rest_seconds }
-//       ]
-//     },
-//     reasoning: "1-2 sentences citing a specific data point from user history",
-//     plan_id: "<uuid of the saved plan row>"
+//     session?,   — backward-compat: first session of week 1 in legacy shape
+//     weeks,      — 3-week program per spec §3 output schema
+//     reasoning,  — 1-2 sentences citing a concrete user data point
+//     rule_trace, — full engine rule chain
+//     engine,     — "pf-engine-v1"
+//     plan_id     — UUID of persisted plan row
 //   }
-//
-// Guard rails:
-//   - Max 5,000 prompt tokens per call (CTO budget guardrail).
-//   - Only paid users may call this endpoint (is_paid flag on users table).
-//     Free users get a 403 with upgrade copy.
-//   - Constraints are hard-blocked; the AI cannot override them.
 // ---------------------------------------------------------------------------
 router.post('/generate', async (req, res, next) => {
     try {
-        // ── 1. Check paid tier ──────────────────────────────────────────────
+        // ── 1. Paid gate ─────────────────────────────────────────────────────
         const { rows: userRows } = await pool.query(
             `SELECT (tier = 'paid') AS is_paid FROM users WHERE id = $1`,
             [req.user.id]
         );
         if (!userRows[0]?.is_paid) {
             return res.status(403).json({
-                error: 'paid_tier_required',
-                message: 'AI-generated plans are a paid-tier feature. ' +
+                error:   'paid_tier_required',
+                message: 'Training Engine plans are a paid-tier feature. ' +
                          'Upgrade to Peak Fettle Pro to unlock personalised training.',
             });
         }
 
-        // ── 1b. 3/day hard throttle (TICKET-058) ────────────────────────────
+        // ── 1b. 20/day throttle ───────────────────────────────────────────────
         const { rows: throttleRows } = await pool.query(
             `SELECT COUNT(*) AS cnt
              FROM plans
              WHERE user_id = $1
-               AND is_ai_generated = TRUE
+               AND name LIKE 'Training Engine Plan%'
                AND created_at >= CURRENT_DATE`,
             [req.user.id]
         );
-        if (parseInt(throttleRows[0]?.cnt ?? 0, 10) >= 3) {
+        if (parseInt(throttleRows[0]?.cnt ?? 0, 10) >= 20) {
             return res.status(429).json({
-                error: 'daily_limit_reached',
-                message: 'You\u2019ve generated 3 plans today — your daily limit. ' +
+                error:   'daily_limit_reached',
+                message: 'You’ve generated 20 plans today — your daily limit. ' +
                          'Come back tomorrow for a fresh batch.',
             });
         }
 
-        // ── 2. Load user constraints (TICKET-012) ────────────────────────────
+        // ── 2. Load user constraints ──────────────────────────────────────────
         const { rows: constraintRows } = await pool.query(
             `SELECT constraint_type, custom_note
              FROM user_constraints
@@ -321,15 +294,13 @@ router.post('/generate', async (req, res, next) => {
         const blockedTags = constraints
             .map(c => c.constraint_type)
             .filter(t => t !== 'custom');
-        const customNotes = constraints
-            .filter(c => c.constraint_type === 'custom' && c.custom_note)
-            .map(c => c.custom_note);
 
-        // ── 3. Load candidate exercises (respecting constraint filter) ───────
-        // Hard-block: any exercise whose contraindications array overlaps with
-        // the user's blocked tags is excluded from the candidate pool entirely.
+        // ── 3. Load candidate exercises (with movement_pattern + equipment) ───
+        // Agent B migration adds movement_pattern + equipment columns.
+        // Graceful fallback: COALESCE returns NULL if column doesn't exist yet.
         const { rows: exerciseRows } = await pool.query(
-            `SELECT id, name, category, muscle_groups, is_compound, contraindications
+            `SELECT id, name, category, muscle_groups, is_compound,
+                    movement_pattern, equipment, contraindications
              FROM exercises
              WHERE category = 'lift'
                AND ($1::text[] IS NULL
@@ -338,17 +309,10 @@ router.post('/generate', async (req, res, next) => {
             [blockedTags.length > 0 ? blockedTags : null]
         );
 
-        // ── 4. Load recent training history (last 14 days) ──────────────────
-        // TYPE-001 follow-up (2026-05-16): `s.e1rm_kg` column was dropped in
-        // 20260505_sets_weight_raw.sql; the previous SELECT would have
-        // crashed any plan-generation request. Compute Epley inline from
-        // weight_raw (the same pattern used in routes/percentile.js).
-        // Lift sets only (`s.kind = 'lift'`) so cardio rows can't pollute the
-        // e1rm prompt context.
+        // ── 4. Load recent training history (last 14 days) ───────────────────
         const { rows: historyRows } = await pool.query(
             `SELECT
                 e.name                      AS exercise_name,
-                -- Decode weight_raw (SMALLINT, kg × 8) back to kg float for prompt context
                 s.weight_raw / 8.0          AS weight_kg,
                 s.reps,
                 s.rir,
@@ -356,7 +320,7 @@ router.post('/generate', async (req, res, next) => {
                     WHEN s.kind = 'lift' AND s.weight_raw > 0 AND s.reps >= 1 THEN
                         CASE
                             WHEN s.reps = 1 THEN s.weight_raw / 8.0
-                            ELSE (s.weight_raw / 8.0) * (1.0 + s.reps::float / 30.0)
+                            ELSE (s.weight_raw / 8.0) * (1.0 + LEAST(s.reps, 12)::float / 30.0)
                         END
                     ELSE NULL
                 END                         AS e1rm_kg,
@@ -366,12 +330,13 @@ router.post('/generate', async (req, res, next) => {
              JOIN exercises e ON e.id = s.exercise_id
              WHERE w.user_id = $1
                AND w.day_key >= CURRENT_DATE - INTERVAL '14 days'
+               AND s.kind = 'lift'
              ORDER BY w.day_key DESC, e.name
              LIMIT 80`,
             [req.user.id]
         );
 
-        // ── 4b. Load personal bests per exercise (TICKET-058 PB grounding) ──────
+        // ── 4b. Load personal bests ───────────────────────────────────────────
         const { rows: pbRows } = await pool.query(
             `SELECT DISTINCT ON (s.exercise_id)
                 e.name                         AS exercise_name,
@@ -387,9 +352,8 @@ router.post('/generate', async (req, res, next) => {
                       (s.weight_raw / 8.0) * (1.0 + LEAST(s.reps, 12)::float / 30.0) DESC`,
             [req.user.id]
         );
-        const pbMap = new Map(pbRows.map(r => [r.exercise_name.toLowerCase(), r]));
 
-        // ── 5. Load recent health metrics (last 7 days, for intensity signals)
+        // ── 5. Load recent health metrics ─────────────────────────────────────
         const { rows: metricsRows } = await pool.query(
             `SELECT date, resting_hr_bpm, hrv_ms, sleep_hours
              FROM daily_health_metrics
@@ -399,250 +363,82 @@ router.post('/generate', async (req, res, next) => {
             [req.user.id]
         );
 
-        // ── 6. Load user profile (weight class, experience level) ────────────
+        // ── 6. Load user profile (extended for engine — new columns from Agent B migration)
         const { rows: profileRows } = await pool.query(
-            `SELECT experience_level, weight_class_kg, sex, age_band
+            `SELECT experience_level, weight_class_kg, sex, age_band,
+                    training_goal, sessions_per_week, session_minutes,
+                    goal_weight_kg, equipment_profile, season_phase,
+                    primary_discipline
              FROM users WHERE id = $1`,
             [req.user.id]
         );
         const profile = profileRows[0] ?? {};
 
-        // ── 7. Build the Haiku prompt ─────────────────────────────────────────
-        const historyText = historyRows.length > 0
-            ? historyRows
-                .map(r => `${r.day_key}: ${r.exercise_name} — ${r.weight_kg}kg × ${r.reps} reps` +
-                           (r.rir != null ? ` (RIR ${r.rir})` : '') +
-                           (r.e1rm_kg ? ` [e1RM ${r.e1rm_kg.toFixed(1)}kg]` : ''))
-                .join('\n')
-            : 'No recent history logged yet.';
+        // ── 7. Call the Training Engine ───────────────────────────────────────
+        const engineCtx = {
+            profile:     {
+                experience_level:   profile.experience_level,
+                sex:                profile.sex,
+                age_band:           profile.age_band,
+                weight_class_kg:    profile.weight_class_kg,
+                training_goal:      profile.training_goal,
+                sessions_per_week:  profile.sessions_per_week,
+                session_minutes:    profile.session_minutes,
+                goal_weight_kg:     profile.goal_weight_kg,
+                equipment_profile:  profile.equipment_profile,
+                season_phase:       profile.season_phase,
+                primary_discipline: profile.primary_discipline,
+            },
+            exercises:   exerciseRows,
+            history:     historyRows,
+            pbs:         pbRows,
+            metrics:     metricsRows,
+            constraints: constraints,
+            userId:      req.user.id,
+            today:       new Date(),
+        };
 
-        const metricsText = metricsRows.length > 0
-            ? metricsRows
-                .map(r => [
-                    r.date,
-                    r.resting_hr_bpm ? `HR ${r.resting_hr_bpm}bpm` : null,
-                    r.hrv_ms         ? `HRV ${r.hrv_ms}ms`         : null,
-                    r.sleep_hours    ? `sleep ${r.sleep_hours}h`    : null,
-                ].filter(Boolean).join(', '))
-                .join('\n')
-            : 'No wearable data available.';
+        const engineResult = generatePlan(engineCtx);
 
-        const pbText = pbRows.length > 0
-            ? pbRows.slice(0, 20).map(r =>
-                `${r.exercise_name}: ${r.weight_kg.toFixed(1)}kg × ${r.reps} reps`
-              ).join('\n')
-            : 'No personal bests recorded yet.';
-
-        const constraintsText = constraints.length > 0
-            ? constraints.map(c =>
-                c.custom_note ? `${c.constraint_type}: ${c.custom_note}` : c.constraint_type
-              ).join(', ')
-            : 'None';
-
-        // Candidate list capped at 60 exercises to stay within token budget.
-        const candidateList = exerciseRows
-            .slice(0, 60)
-            .map(e => `- ${e.name} (${(e.muscle_groups ?? []).join(', ')})`)
-            .join('\n');
-
-        const systemPrompt = `You are a certified strength and conditioning coach building a single personalised workout session for a Peak Fettle user. Your response must be valid JSON only — no markdown, no prose outside JSON.
-
-HARD RULES:
-1. Only use exercises from the CANDIDATE LIST. Do not invent exercises.
-2. The "reasoning" field must cite at least one specific data point from the user's history, health metrics, or profile. Never write generic copy like "here is your workout".
-3. If the user has fewer than 3 sessions logged, reasoning must say: "You're new — this plan will adapt as you log more sessions."
-4. Honour all physical constraints — never suggest movements that the user has flagged as off-limits.
-5. Return a 3-week program with 3-4 sessions per week. Include sets (3–5), reps (range e.g. "8-10"), rpe_target (1–10), rest_seconds (60–180). Progress load/volume across weeks (Week 2 harder than Week 1, Week 3 peaks or deloads).
-6. Every exercise MUST include a coaching_note: one concise sentence (10–20 words) describing technique focus or loading intent specific to this user's history or PBs. Never leave coaching_note blank or generic.
-
-JSON schema (TICKET-058 multi-week):
-{
-  "weeks": [
-    {
-      "week_number": 1,
-      "sessions": [
-        {
-          "day_label": "Day 1 – Push",
-          "exercises": [
-            {
-              "name": "string",
-              "sets": number,
-              "reps": "string",
-              "rpe_target": number,
-              "rest_seconds": number,
-              "coaching_note": "string (1 sentence)"
-            }
-          ]
-        }
-      ]
-    }
-  ],
-  "reasoning": "string (1-2 sentences, cites specific history data point or PB)"
-}`;
-
-        const userMessage = `USER PROFILE:
-Experience level: ${profile.experience_level ?? 'unknown'}
-Weight class: ${profile.weight_class_kg ? profile.weight_class_kg + 'kg' : 'unknown'}
-Sex: ${profile.sex ?? 'not specified'}
-Age band: ${profile.age_band ?? 'unknown'}
-
-PHYSICAL CONSTRAINTS (hard-blocked — do not use these movement patterns):
-${constraintsText}
-
-RECENT TRAINING HISTORY (last 14 days):
-${historyText}
-
-HEALTH METRICS (last 7 days):
-${metricsText}
-
-PERSONAL BESTS (use to ground loading targets — Week 1 starts ~85-90% of PB):
-${pbText}
-
-CANDIDATE EXERCISES (you may only pick from this list):
-${candidateList}
-
-Generate one workout session now.`;
-
-        // ── 8. Call Claude Haiku 4.5 ─────────────────────────────────────────
-        // NEW-005 fix (2026-05-24): guard against indefinite hangs if the
-        // Anthropic API is slow or unresponsive. Promise.race resolves with the
-        // API response or rejects with a timeout error after 30 seconds.
-        const AI_TIMEOUT_MS = 30_000;
-        let aiTimeoutHandle;
-        const aiTimeoutPromise = new Promise((_, reject) => {
-            aiTimeoutHandle = setTimeout(
-                () => reject(new Error('AI_TIMEOUT')),
-                AI_TIMEOUT_MS
-            );
-        });
-
-        let message;
-        try {
-            message = await Promise.race([
-                anthropic.messages.create({
-                    model:      'claude-haiku-4-5',
-                    max_tokens: 4096,
-                    system:     systemPrompt,
-                    messages:   [{ role: 'user', content: userMessage }],
-                }),
-                aiTimeoutPromise,
-            ]);
-        } catch (aiErr) {
-            clearTimeout(aiTimeoutHandle);
-            if (aiErr?.message === 'AI_TIMEOUT') {
-                return res.status(504).json({
-                    error:   'ai_timeout',
-                    message: 'Plan generation timed out. Please try again in a moment.',
-                });
-            }
-            throw aiErr; // re-throw unexpected errors to the global error handler
-        }
-        clearTimeout(aiTimeoutHandle);
-
-        // ── 9. Parse and validate the AI response ────────────────────────────
-        let aiResponse;
-        try {
-            const rawText = message.content[0].text.trim();
-            aiResponse = JSON.parse(rawText);
-        } catch {
-            // If Haiku returns malformed JSON, return a structured error rather
-            // than a 500 — the client can retry.
-            return res.status(502).json({
-                error: 'ai_parse_error',
-                message: 'Plan generation produced an unparseable response. Please try again.',
-            });
-        }
-
-        const hasWeeks = Array.isArray(aiResponse?.weeks) && aiResponse.weeks.length > 0;
-        const hasSession = Array.isArray(aiResponse?.session?.exercises);
-        if (!hasWeeks && !hasSession) {
-            return res.status(502).json({
-                error: 'ai_schema_error',
-                message: 'Plan generation returned an unexpected structure. Please try again.',
-            });
-        }
-
-        if (!aiResponse.reasoning || aiResponse.reasoning.trim().length === 0) {
-            return res.status(502).json({
-                error: 'ai_reasoning_missing',
-                message: 'Plan generation did not include a reasoning field. Please try again.',
-            });
-        }
-
-        // ── 10. Resolve exercise names → IDs for storage ────────────────────
-        // Fuzzy name resolution: exact match first, then first partial match (TICKET-058)
-        const exerciseNameMap = new Map(exerciseRows.map(e => [e.name.toLowerCase(), e.id]));
-        function resolveExerciseId(name) {
-            if (!name) return null;
-            const lower = name.toLowerCase();
-            if (exerciseNameMap.has(lower)) return exerciseNameMap.get(lower);
-            // Partial match: check if any known exercise name contains the AI name as substring
-            for (const [known, id] of exerciseNameMap.entries()) {
-                if (known.includes(lower) || lower.includes(known)) return id;
-            }
-            return null;
-        }
-
-        function resolveExercises(exercises) {
-            return (exercises ?? []).map(ex => ({
-                ...ex,
-                exercise_id: resolveExerciseId(ex.name),
-            }));
-        }
-
-        // Support both multi-week (new) and single-session (legacy) response shapes
-        let weeksWithIds = null;
-        let sessionWithIds = null;
-
-        if (hasWeeks) {
-            weeksWithIds = aiResponse.weeks.map(week => ({
-                ...week,
-                sessions: (week.sessions ?? []).map(session => ({
-                    ...session,
-                    exercises: resolveExercises(session.exercises),
-                })),
-            }));
-            // Backward-compat: expose first session for legacy clients
-            sessionWithIds = { exercises: resolveExercises(aiResponse.weeks[0]?.sessions?.[0]?.exercises ?? []) };
-        } else {
-            sessionWithIds = { ...aiResponse.session, exercises: resolveExercises(aiResponse.session.exercises) };
-        }
-
-        // ── 11. Persist the generated plan ───────────────────────────────────
-        const planName = `AI Plan — ${new Date().toISOString().slice(0, 10)}`;
+        // ── 8. Persist the plan ───────────────────────────────────────────────
+        const planName  = `Training Engine Plan — ${new Date().toISOString().slice(0, 10)}`;
         const structure = {
-            session:      sessionWithIds,   // backward compat
-            weeks:        weeksWithIds,     // multi-week (TICKET-058); null for legacy responses
-            reasoning:    aiResponse.reasoning,
+            session:      engineResult.session,
+            weeks:        engineResult.weeks,
+            reasoning:    engineResult.reasoning,
+            rule_trace:   engineResult.rule_trace,
+            engine:       engineResult.engine,
             generated_at: new Date().toISOString(),
-            model:        'claude-haiku-4-5',
         };
 
         const { rows: planRows } = await pool.query(
             `INSERT INTO plans (user_id, name, structure, is_template, is_ai_generated)
-             VALUES ($1, $2, $3, FALSE, TRUE)
+             VALUES ($1, $2, $3, FALSE, FALSE)
              RETURNING id`,
             [req.user.id, planName, JSON.stringify(structure)]
         );
 
-        // ── 12. Return to client ──────────────────────────────────────────────
+        // ── 9. Return to client ───────────────────────────────────────────────
         const plan = planRows[0];
         res.status(201).json({
-            plan_id:   plan.id,
-            session:   sessionWithIds,
-            weeks:     weeksWithIds,
-            reasoning: aiResponse.reasoning,
+            plan_id:    plan.id,
+            session:    engineResult.session,
+            weeks:      engineResult.weeks,
+            reasoning:  engineResult.reasoning,
+            rule_trace: engineResult.rule_trace,
+            engine:     engineResult.engine,
         });
 
-        // Push notification: AI plan ready
+        // Push notification: plan ready (best-effort; non-blocking).
         try {
+            const weekCount = (engineResult.weeks || []).length;
             await supabaseAdmin.from('notification_queue').insert({
                 user_id: req.user.id,
-                type: 'plan_ready',
-                title: 'Your plan is ready 💪',
-                body: aiResponse.weeks
-                    ? `${aiResponse.weeks.length}-week program generated — tap to start Week 1.`
-                    : 'Your personalised workout is ready. Tap to view it.',
+                type:    'plan_ready',
+                title:   'Your plan is ready',
+                body:    weekCount > 1
+                    ? `${weekCount}-week Training Engine program generated — tap to start Week 1.`
+                    : 'Your evidence-based training plan is ready. Tap to view it.',
                 data: { plan_id: plan.id ?? null },
             });
         } catch (_e) {
@@ -653,44 +449,45 @@ Generate one workout session now.`;
 });
 
 // ---------------------------------------------------------------------------
-// POST /plans/:id/regenerate — replace an existing AI plan with a fresh
-// generation (TICKET-058). Shares the same 3/day throttle as /generate.
-// Body: { keep_structure?: boolean } — if true, reuses the same week/day
-// layout but regenerates exercise selection and loading.
+// POST /plans/:id/regenerate — replace an existing plan with a fresh generation.
+// Shares the same 20/day throttle as /generate.
 // ---------------------------------------------------------------------------
 router.post('/:id/regenerate', async (req, res, next) => {
     try {
-        // Verify ownership
+        // Verify ownership.
         const { rows: ownerRows } = await pool.query(
-            `SELECT id FROM plans WHERE id = $1 AND user_id = $2 AND is_ai_generated = TRUE`,
+            `SELECT id FROM plans WHERE id = $1 AND user_id = $2 AND is_ai_generated = FALSE`,
             [req.params.id, req.user.id]
         );
-        if (ownerRows.length === 0) {
+        // Also accept plans where is_ai_generated is TRUE (legacy).
+        const { rows: ownerRowsLegacy } = ownerRows.length === 0
+            ? await pool.query(
+                `SELECT id FROM plans WHERE id = $1 AND user_id = $2`,
+                [req.params.id, req.user.id]
+              )
+            : { rows: ownerRows };
+
+        if (ownerRowsLegacy.length === 0) {
             return res.status(404).json({ error: 'Plan not found or not regeneratable.' });
         }
 
-        // Reuse the throttle check (count today's generations including this plan)
+        // Throttle check.
         const { rows: throttleRows } = await pool.query(
             `SELECT COUNT(*) AS cnt FROM plans
-             WHERE user_id = $1 AND is_ai_generated = TRUE AND created_at >= CURRENT_DATE`,
+             WHERE user_id = $1 AND created_at >= CURRENT_DATE`,
             [req.user.id]
         );
-        if (parseInt(throttleRows[0]?.cnt ?? 0, 10) >= 3) {
+        if (parseInt(throttleRows[0]?.cnt ?? 0, 10) >= 20) {
             return res.status(429).json({
-                error: 'daily_limit_reached',
-                message: 'Daily generation limit reached (3/day). Try again tomorrow.',
+                error:   'daily_limit_reached',
+                message: 'Daily generation limit reached (20/day). Try again tomorrow.',
             });
         }
 
-        // Delegate to /generate logic by forwarding to same handler via internal fetch
-        // Simplest approach: re-invoke the generate handler inline via req/res mocking.
-        // Cleaner: extract generate logic into a shared function. For now, redirect.
-        // We redirect the request internally so we don't duplicate the ~200 lines of
-        // generate logic. Express doesn't support internal redirects easily, so we
-        // call the generate endpoint using a thin internal passthrough.
-        req.url = '/generate';
+        // Delegate to /generate by re-routing the request.
+        req.url    = '/generate';
         req.method = 'POST';
-        req.body = {};
+        req.body   = {};
         return router.handle(req, res, next);
     } catch (err) { next(err); }
 });

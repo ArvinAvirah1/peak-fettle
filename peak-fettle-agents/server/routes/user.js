@@ -332,6 +332,12 @@ router.delete('/push-token', async (req, res, next) => {
 //   theme_preference     — 'deepOcean'|'ember'|'forest'|'midnight'|'monochrome' (E-002)
 //   sex                  — 'MALE'|'FEMALE'|'UNDISCLOSED' (ROADMAP 1.6)
 //   primary_discipline   — 7-value CHECK string (ROADMAP 1.6)
+//   training_goal        — 'strength'|'hypertrophy'|'endurance'|'sport_performance'|'general_fitness'
+//   sessions_per_week    — integer 1–7
+//   session_minutes      — 15|30|45|60|90
+//   goal_weight_kg       — number 20–400 (nullable)
+//   equipment_profile    — TEXT[] from the closed equipment vocabulary (spec §2)
+//   season_phase         — 'off_season'|'in_season' (nullable)
 //
 // E-002: theme_preference is written by the mobile ThemeProvider whenever the
 // user changes their theme. It is read at login and merged into the session so
@@ -352,6 +358,13 @@ router.patch('/profile', async (req, res, next) => {
             sex,
             primary_discipline,
             show_wilks,
+            // Training Engine spec §2 survey fields (2026-06-11)
+            training_goal,
+            sessions_per_week,
+            session_minutes,
+            goal_weight_kg,
+            equipment_profile,
+            season_phase,
         } = req.body ?? {};
 
         // Build SET clause dynamically — only update fields that were provided.
@@ -428,6 +441,111 @@ router.patch('/profile', async (req, res, next) => {
             setClauses.push(`show_wilks = $${params.length}`);
         }
 
+        // ROADMAP 1.6 fix (2026-06-11): sex and primary_discipline were
+        // destructured + documented but never persisted — silent no-op bug.
+        if (sex !== undefined) {
+            if (!['MALE', 'FEMALE', 'UNDISCLOSED'].includes(sex)) {
+                return res.status(400).json({
+                    error: 'invalid_sex',
+                    message: "sex must be 'MALE', 'FEMALE' or 'UNDISCLOSED'.",
+                });
+            }
+            params.push(sex);
+            setClauses.push(`sex = $${params.length}`);
+        }
+
+        const VALID_DISCIPLINES = ['powerlifting', 'weightlifting', 'general_strength',
+                                   'running', 'cycling', 'swimming', 'other'];
+        if (primary_discipline !== undefined) {
+            if (!VALID_DISCIPLINES.includes(primary_discipline)) {
+                return res.status(400).json({
+                    error: 'invalid_primary_discipline',
+                    message: `primary_discipline must be one of: ${VALID_DISCIPLINES.join(', ')}.`,
+                });
+            }
+            params.push(primary_discipline);
+            setClauses.push(`primary_discipline = $${params.length}`);
+        }
+
+        // ── Training Engine survey fields (spec §2, 2026-06-11) ─────────────
+        if (training_goal !== undefined) {
+            const VALID_GOALS = ['strength', 'hypertrophy', 'endurance',
+                                 'sport_performance', 'general_fitness'];
+            if (training_goal !== null && !VALID_GOALS.includes(training_goal)) {
+                return res.status(400).json({
+                    error: 'invalid_training_goal',
+                    message: `training_goal must be one of: ${VALID_GOALS.join(', ')}.`,
+                });
+            }
+            params.push(training_goal);
+            setClauses.push(`training_goal = $${params.length}`);
+        }
+
+        if (sessions_per_week !== undefined) {
+            const spw = Number(sessions_per_week);
+            if (sessions_per_week !== null &&
+                (!Number.isInteger(spw) || spw < 1 || spw > 7)) {
+                return res.status(400).json({
+                    error: 'invalid_sessions_per_week',
+                    message: 'sessions_per_week must be an integer between 1 and 7.',
+                });
+            }
+            params.push(sessions_per_week === null ? null : spw);
+            setClauses.push(`sessions_per_week = $${params.length}`);
+        }
+
+        if (session_minutes !== undefined) {
+            const sm = Number(session_minutes);
+            if (session_minutes !== null && ![15, 30, 45, 60, 90].includes(sm)) {
+                return res.status(400).json({
+                    error: 'invalid_session_minutes',
+                    message: 'session_minutes must be one of: 15, 30, 45, 60, 90.',
+                });
+            }
+            params.push(session_minutes === null ? null : sm);
+            setClauses.push(`session_minutes = $${params.length}`);
+        }
+
+        if (goal_weight_kg !== undefined) {
+            const gw = Number(goal_weight_kg);
+            if (goal_weight_kg !== null &&
+                (!Number.isFinite(gw) || gw < 20 || gw > 400)) {
+                return res.status(400).json({
+                    error: 'invalid_goal_weight_kg',
+                    message: 'goal_weight_kg must be a number between 20 and 400, or null.',
+                });
+            }
+            params.push(goal_weight_kg === null ? null : gw);
+            setClauses.push(`goal_weight_kg = $${params.length}`);
+        }
+
+        if (equipment_profile !== undefined) {
+            const VALID_EQUIPMENT = ['barbell', 'dumbbell', 'kettlebell', 'machine',
+                                     'cable', 'bodyweight', 'bands', 'bench', 'rack',
+                                     'pullup_bar', 'bike', 'treadmill', 'pool', 'track'];
+            if (equipment_profile !== null &&
+                (!Array.isArray(equipment_profile) ||
+                 equipment_profile.some(e => !VALID_EQUIPMENT.includes(e)))) {
+                return res.status(400).json({
+                    error: 'invalid_equipment_profile',
+                    message: `equipment_profile must be null or an array drawn from: ${VALID_EQUIPMENT.join(', ')}.`,
+                });
+            }
+            params.push(equipment_profile);
+            setClauses.push(`equipment_profile = $${params.length}`);
+        }
+
+        if (season_phase !== undefined) {
+            if (season_phase !== null && !['off_season', 'in_season'].includes(season_phase)) {
+                return res.status(400).json({
+                    error: 'invalid_season_phase',
+                    message: "season_phase must be 'off_season', 'in_season' or null.",
+                });
+            }
+            params.push(season_phase);
+            setClauses.push(`season_phase = $${params.length}`);
+        }
+
         if (setClauses.length === 0) {
             return res.status(400).json({
                 error: 'no_fields',
@@ -439,7 +557,9 @@ router.patch('/profile', async (req, res, next) => {
             `UPDATE users
              SET ${setClauses.join(', ')}
              WHERE id = $1
-             RETURNING id, unit_pref, experience_level, weight_class_kg, show_wilks`,
+             RETURNING id, unit_pref, experience_level, weight_class_kg, show_wilks,
+                       sex, primary_discipline, training_goal, sessions_per_week,
+                       session_minutes, goal_weight_kg, equipment_profile, season_phase`,
             params
         );
 
@@ -448,6 +568,167 @@ router.patch('/profile', async (req, res, next) => {
         }
 
         res.json({ profile: rows[0] });
+    } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// GET /user/export
+// Full JSON data dump — Training Engine spec §4.
+// Returns profile (minus internal flags), workouts+sets (decoded weight_kg =
+// weight_raw/8.0), plans, constraints, health metrics, PBs.
+// NOT paid-gated — export is a user-data-rights feature for all tiers.
+//
+// Uses the existing exportLimiter (5 requests/hour) to throttle heavy I/O.
+// ---------------------------------------------------------------------------
+router.get('/export', exportLimiter, async (req, res, next) => {
+    try {
+        const uid = req.user.id;
+
+        const [
+            profileResult,
+            workoutsResult,
+            setsResult,
+            plansResult,
+            constraintsResult,
+            healthMetricsResult,
+            pbsResult,
+        ] = await Promise.all([
+            pool.query(
+                `SELECT id, email, experience_level, weight_class_kg,
+                        sex, age_band, unit_pref, training_goal,
+                        sessions_per_week, session_minutes, goal_weight_kg,
+                        equipment_profile, season_phase, primary_discipline,
+                        created_at
+                 FROM users WHERE id = $1`,
+                [uid]
+            ),
+            pool.query(
+                `SELECT id, day_key, notes, routine_name, created_at
+                 FROM workouts WHERE user_id = $1
+                 ORDER BY day_key DESC`,
+                [uid]
+            ),
+            pool.query(
+                `SELECT s.id, s.workout_id, w.day_key,
+                        e.name AS exercise,
+                        s.weight_raw / 8.0 AS weight_kg,
+                        s.reps, s.rir, s.kind, s.set_number, s.logged_at
+                 FROM sets s
+                 JOIN workouts w ON w.id = s.workout_id
+                 JOIN exercises e ON e.id = s.exercise_id
+                 WHERE w.user_id = $1
+                 ORDER BY s.logged_at DESC`,
+                [uid]
+            ),
+            pool.query(
+                `SELECT id, name, is_ai_generated, is_template, created_at, updated_at
+                 FROM plans WHERE user_id = $1
+                 ORDER BY created_at DESC`,
+                [uid]
+            ),
+            pool.query(
+                `SELECT constraint_type, custom_note, created_at
+                 FROM user_constraints WHERE user_id = $1`,
+                [uid]
+            ),
+            pool.query(
+                `SELECT date, resting_hr_bpm, hrv_ms, sleep_hours, active_kcal, source
+                 FROM daily_health_metrics WHERE user_id = $1
+                 ORDER BY date DESC`,
+                [uid]
+            ),
+            // Personal bests: best e1RM per exercise (Epley, reps capped 12)
+            pool.query(
+                `SELECT e.name AS exercise,
+                        MAX(
+                            CASE
+                                WHEN s.reps = 1 THEN s.weight_raw / 8.0
+                                ELSE (s.weight_raw / 8.0) * (1.0 + LEAST(s.reps, 12)::float / 30.0)
+                            END
+                        ) AS best_e1rm_kg,
+                        MAX(s.weight_raw / 8.0) AS best_weight_kg
+                 FROM sets s
+                 JOIN workouts w ON w.id = s.workout_id
+                 JOIN exercises e ON e.id = s.exercise_id
+                 WHERE w.user_id = $1
+                   AND s.kind = 'lift'
+                   AND s.weight_raw > 0
+                   AND s.reps >= 1
+                 GROUP BY e.name
+                 ORDER BY e.name`,
+                [uid]
+            ),
+        ]);
+
+        const exportPayload = {
+            exported_at:    new Date().toISOString(),
+            data_version:   '2.0',
+            data_categories: ['profile', 'workouts', 'sets', 'plans', 'constraints', 'health_metrics', 'personal_bests'],
+            profile:              profileResult.rows[0] ?? null,
+            workouts:             workoutsResult.rows,
+            sets:                 setsResult.rows,
+            plans:                plansResult.rows,
+            constraints:          constraintsResult.rows,
+            health_metrics:       healthMetricsResult.rows,
+            personal_bests:       pbsResult.rows,
+        };
+
+        res.setHeader(
+            'Content-Disposition',
+            `attachment; filename="peak-fettle-export-${new Date().toISOString().slice(0, 10)}.json"`
+        );
+        res.setHeader('Content-Type', 'application/json');
+        res.json(exportPayload);
+    } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// GET /user/export.csv
+// Sets flattened as CSV: day_key,exercise,weight_kg,reps,rir,kind
+// Stream-friendly: rows written individually via res.write.
+// NOT paid-gated.
+// ---------------------------------------------------------------------------
+router.get('/export.csv', exportLimiter, async (req, res, next) => {
+    try {
+        const uid = req.user.id;
+
+        const { rows } = await pool.query(
+            `SELECT w.day_key,
+                    e.name AS exercise,
+                    s.weight_raw / 8.0 AS weight_kg,
+                    s.reps,
+                    s.rir,
+                    s.kind
+             FROM sets s
+             JOIN workouts w ON w.id = s.workout_id
+             JOIN exercises e ON e.id = s.exercise_id
+             WHERE w.user_id = $1
+               AND s.kind = 'lift'
+             ORDER BY w.day_key DESC, s.logged_at DESC`,
+            [uid]
+        );
+
+        res.setHeader(
+            'Content-Disposition',
+            `attachment; filename="peak-fettle-sets-${new Date().toISOString().slice(0, 10)}.csv"`
+        );
+        res.setHeader('Content-Type', 'text/csv');
+
+        // Write header
+        res.write('day_key,exercise,weight_kg,reps,rir,kind\n');
+
+        // Write rows — stream-friendly
+        for (const row of rows) {
+            // Escape any commas or quotes in the exercise name
+            const exercise = `"${String(row.exercise ?? '').replace(/"/g, '""')}"`;
+            const weight = row.weight_kg != null ? parseFloat(row.weight_kg).toFixed(2) : '';
+            const reps   = row.reps     != null ? row.reps    : '';
+            const rir    = row.rir      != null ? row.rir     : '';
+            const kind   = row.kind     != null ? row.kind    : '';
+            res.write(`${row.day_key},${exercise},${weight},${reps},${rir},${kind}\n`);
+        }
+
+        res.end();
     } catch (err) { next(err); }
 });
 

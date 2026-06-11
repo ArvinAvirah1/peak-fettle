@@ -6,15 +6,15 @@
  *   isLoading   — true on initial fetch
  *   error       — human-readable error string or null
  *   refetch     — pull-to-refresh trigger
- *   generate    — kicks off AI plan generation (POST /plans/generate)
- *   isGenerating — true while the Haiku call is in flight
+ *   generate    — kicks off Training Engine plan generation (POST /plans/generate)
+ *   isGenerating — true while the engine request is in flight
  *   generateError — error string from the last generate attempt or null
  *
  * Generation error codes (from server):
- *   paid_tier_required — 403, user is on free tier
- *   ai_parse_error     — 502, Haiku returned malformed JSON (retry safe)
- *   ai_schema_error    — 502, Haiku returned unexpected structure (retry safe)
- *   ai_reasoning_missing — 502, Haiku omitted reasoning field (retry safe)
+ *   paid_tier_required  — 403, user is on free tier
+ *   daily_limit_reached — 429, 20 engine plans generated today
+ *   (Haiku-era ai_parse_error / ai_schema_error / ai_reasoning_missing codes
+ *    were retired with the deterministic engine, 2026-06-11.)
  */
 
 import { useState, useEffect, useCallback } from 'react';
