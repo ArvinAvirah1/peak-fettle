@@ -20,7 +20,7 @@
  * screen matches the two-field (WEIGHT / REPS) mock.
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -43,6 +43,9 @@ import {
 import { RoutineSession, RoutineSessionExercise } from './RoutineStrip';
 import ExerciseSwitcherSheet from './ExerciseSwitcherSheet';
 import { SuggestCandidate } from '../utils/smartSuggest';
+import PlateCalculatorSheet from './PlateCalculatorSheet';
+import { computeWarmupPlan, WARMUP_SET_CHOICES } from '../lib/warmup';
+import { getExercisePrefs, setExercisePrefs } from '../data/exercisePrefs';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -128,6 +131,10 @@ interface Props {
   pbLabel?: string | null;
   /** Rep range target for this exercise from the routine, e.g. "8-12" or null. */
   repTarget?: string | null;
+  /** Last-session summary for the current exercise, e.g. "80 kg × 8" or null. */
+  lastSessionLabel?: string | null;
+  /** Last-session top set in DISPLAY units — drives the warm-up ramp (founder 2026-06-10). */
+  lastTopSetDisplay?: { weight: number; reps: number } | null;
   /** Logged sets for the current exercise in THIS workout session. */
   currentExerciseSets: LoggedSet[];
   /** Called when user adds an off-routine exercise into the routine. */
@@ -274,6 +281,8 @@ export default function StepperLogger({
   onBrowseLibrary,
   pbLabel,
   repTarget,
+  lastSessionLabel,
+  lastTopSetDisplay,
   currentExerciseSets,
   onAddOffRoutineExercise,
   onClose,
@@ -309,6 +318,34 @@ export default function StepperLogger({
   const [cardioDurationMm, setCardioDurationMm] = useState('');
   const [cardioDurationSs, setCardioDurationSs] = useState('');
   const [cardioDistance, setCardioDistance] = useState('');
+
+  // ── Plate calculator + per-exercise warm-up prefs (founder 2026-06-10) ───
+  const [plateCalcVisible, setPlateCalcVisible] = useState(false);
+  const [wuEnabled, setWuEnabled] = useState(false);
+  const [wuSets, setWuSets] = useState(3);
+  useEffect(() => {
+    const id = currentEx?.exerciseId;
+    if (!id) { setWuEnabled(false); return; }
+    let cancelled = false;
+    getExercisePrefs(id)
+      .then((prefs) => {
+        if (cancelled) return;
+        setWuEnabled(prefs.warmup_enabled);
+        setWuSets(prefs.warmup_sets);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [currentEx?.exerciseId]);
+
+  const warmupIncrement = unitPref === 'lbs' ? 5 : 2.5;
+  const warmupPlan = useMemo(
+    () => computeWarmupPlan(lastTopSetDisplay?.weight ?? null, wuSets, warmupIncrement),
+    [lastTopSetDisplay?.weight, wuSets, warmupIncrement],
+  );
+  const persistWuPrefs = useCallback((enabled: boolean, sets: number) => {
+    const id = currentEx?.exerciseId;
+    if (id) setExercisePrefs(id, { warmup_enabled: enabled, warmup_sets: sets }).catch(() => {});
+  }, [currentEx?.exerciseId]);
 
   const [switcherVisible, setSwitcherVisible] = useState(false);
   const [offRoutinePrompt, setOffRoutinePrompt] = useState<OffRoutinePrompt | null>(null);
@@ -580,14 +617,81 @@ export default function StepperLogger({
             <Text style={styles.exLabel}>{kicker}</Text>
             <Text style={styles.exName}>{currentEx.name}</Text>
 
-            {(pbLabel || repTarget) && (
+            {(pbLabel || repTarget || lastSessionLabel) && (
               <View style={styles.pbCard}>
-                <Text style={styles.pbText}>
-                  {pbLabel ? `PB ${pbLabel}` : ''}
-                  {pbLabel && repTarget ? ' · ' : ''}
-                  {repTarget ? `aim ${repTarget} reps` : ''}
-                </Text>
+                {(pbLabel || repTarget) ? (
+                  <Text style={styles.pbText}>
+                    {pbLabel ? `PB ${pbLabel}` : ''}
+                    {pbLabel && repTarget ? ' · ' : ''}
+                    {repTarget ? `aim ${repTarget} reps` : ''}
+                  </Text>
+                ) : null}
+                {lastSessionLabel ? (
+                  <Text style={wuStyles.lastSessionText}>Last session: {lastSessionLabel}</Text>
+                ) : null}
               </View>
+            )}
+
+            {/* ── Warm-up ramp (founder 2026-06-10): per-exercise opt-in; weights/
+                reps recommended from the previous top set; rows prefill the
+                inputs and stay fully editable. Hidden once working sets begin. */}
+            {!isCardio && currentExerciseSets.length === 0 && (
+              wuEnabled ? (
+                <View style={wuStyles.card}>
+                  <View style={wuStyles.headerRow}>
+                    <Text style={wuStyles.title}>WARM-UP</Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        const idx = WARMUP_SET_CHOICES.indexOf(wuSets);
+                        const next = WARMUP_SET_CHOICES[(idx + 1) % WARMUP_SET_CHOICES.length] ?? 3;
+                        setWuSets(next);
+                        persistWuPrefs(true, next);
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Change number of warm-up sets"
+                    >
+                      <Text style={wuStyles.setsToggle}>{wuSets} set{wuSets !== 1 ? 's' : ''} ▸</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={() => { setWuEnabled(false); persistWuPrefs(false, wuSets); }}
+                      accessibilityRole="button"
+                      accessibilityLabel="Turn warm-up off for this exercise"
+                    >
+                      <Text style={wuStyles.offLink}>off</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {warmupPlan.length > 0 ? (
+                    warmupPlan.map((w, i) => (
+                      <TouchableOpacity
+                        key={i}
+                        style={wuStyles.row}
+                        onPress={() => { setWeight(w.weight > 0 ? String(w.weight) : ''); setReps(String(w.reps)); }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Use warm-up set ${i + 1}: ${w.weight} for ${w.reps} reps`}
+                      >
+                        <Text style={wuStyles.rowPct}>{Math.round(w.pct * 100)}%</Text>
+                        <Text style={wuStyles.rowMain}>
+                          {w.weight > 0 ? `${w.weight} × ${w.reps}` : `bodyweight × ${w.reps}`}
+                        </Text>
+                        <Text style={wuStyles.rowUse}>tap to fill</Text>
+                      </TouchableOpacity>
+                    ))
+                  ) : (
+                    <Text style={wuStyles.hint}>
+                      Log this exercise once — recommendations come from your previous top set.
+                    </Text>
+                  )}
+                </View>
+              ) : (
+                <TouchableOpacity
+                  onPress={() => { setWuEnabled(true); persistWuPrefs(true, wuSets); }}
+                  style={wuStyles.enableLink}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add a warm-up ramp for this exercise"
+                >
+                  <Text style={wuStyles.enableLabel}>＋ Warm-up ramp (optional)</Text>
+                </TouchableOpacity>
+              )
             )}
 
             {currentExerciseSets.length > 0 && (
@@ -664,7 +768,16 @@ export default function StepperLogger({
               <>
                 <View style={styles.inputRow}>
                   <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>WEIGHT</Text>
+                    <View style={wuStyles.weightLabelRow}>
+                      <Text style={styles.inputLabel}>WEIGHT</Text>
+                      <TouchableOpacity
+                        onPress={() => setPlateCalcVisible(true)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Open plate and load calculator"
+                      >
+                        <Text style={wuStyles.plateLink}>plates / machine</Text>
+                      </TouchableOpacity>
+                    </View>
                     <TextInput
                       style={styles.input}
                       value={weight}
@@ -945,9 +1058,104 @@ export default function StepperLogger({
           onBrowseLibrary();
         }}
       />
+
+      {/* ── Plate / machine load calculator (founder 2026-06-10) ───────────── */}
+      <PlateCalculatorSheet
+        visible={plateCalcVisible}
+        onClose={() => setPlateCalcVisible(false)}
+        exerciseId={currentEx?.exerciseId ?? ''}
+        unitPref={unitPref}
+        initialTarget={weight}
+        onUseWeight={(w) => setWeight(String(w))}
+      />
     </KeyboardAvoidingView>
   );
 }
+
+// ── Warm-up / plate-calc styles ──────────────────────────────────────────────
+
+const wuStyles = StyleSheet.create({
+  lastSessionText: {
+    color: stepperPalette.muted,
+    fontSize: fontSize.caption,
+    marginTop: 2,
+  },
+  card: {
+    backgroundColor: stepperPalette.card,
+    borderWidth: 1,
+    borderColor: stepperPalette.line,
+    borderRadius: radius.md,
+    padding: spacing.s3,
+    marginBottom: spacing.s3,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s3,
+    marginBottom: spacing.s2,
+  },
+  title: {
+    color: stepperPalette.muted,
+    fontSize: fontSize.micro,
+    fontWeight: '600',
+    letterSpacing: 1,
+    flex: 1,
+  },
+  setsToggle: {
+    color: stepperPalette.accent,
+    fontSize: fontSize.caption,
+    fontWeight: '600',
+  },
+  offLink: {
+    color: stepperPalette.muted,
+    fontSize: fontSize.caption,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.s2,
+    borderTopWidth: 1,
+    borderTopColor: stepperPalette.line,
+    gap: spacing.s3,
+  },
+  rowPct: {
+    color: stepperPalette.muted,
+    fontSize: fontSize.caption,
+    width: 38,
+  },
+  rowMain: {
+    color: stepperPalette.text,
+    fontSize: fontSize.bodyMd,
+    fontWeight: '600',
+    flex: 1,
+  },
+  rowUse: {
+    color: stepperPalette.accent,
+    fontSize: fontSize.micro,
+  },
+  hint: {
+    color: stepperPalette.muted,
+    fontSize: fontSize.caption,
+  },
+  enableLink: {
+    marginBottom: spacing.s3,
+  },
+  enableLabel: {
+    color: stepperPalette.accent,
+    fontSize: fontSize.bodySm,
+    fontWeight: '600',
+  },
+  weightLabelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  plateLink: {
+    color: stepperPalette.accent,
+    fontSize: fontSize.micro,
+    fontWeight: '600',
+  },
+});
 
 // ── Styles ───────────────────────────────────────────────────────────────────
 
