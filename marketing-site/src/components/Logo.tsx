@@ -1,32 +1,27 @@
-// Peak Fettle mark — an upward "peak" built from ascending bars (progress /
-// a loaded plate stack climbing), not a mountain. Pure SVG, scales cleanly.
+// Peak Fettle mark — the EXACT App Store icon artwork (founder 2026-06-10):
+// three ascending teal bars + the bright notched peak. Geometry and colors
+// were pixel-sampled from mobile/assets/icon.png (1024×1024), then the
+// viewBox is cropped tight to the mark so it sits correctly in the nav.
+// Matches mobile/src/components/BrandMark.tsx — one artwork everywhere.
 
 export default function Logo({ className }: { className?: string }) {
     return (
         <svg
             className={className}
-            viewBox="0 0 32 32"
+            viewBox="160 160 800 704"
             role="img"
             aria-label="Peak Fettle"
             xmlns="http://www.w3.org/2000/svg"
         >
-            <defs>
-                <linearGradient id="pf-peak" x1="0" y1="32" x2="32" y2="0" gradientUnits="userSpaceOnUse">
-                    <stop offset="0" stopColor="#14B8A6" />
-                    <stop offset="0.55" stopColor="#2DD4BF" />
-                    <stop offset="1" stopColor="#5EEAD4" />
-                </linearGradient>
-            </defs>
-            {/* ascending bars climbing to a peak */}
-            <rect x="3" y="22" width="5" height="7" rx="1.5" fill="url(#pf-peak)" opacity="0.45" />
-            <rect x="10.5" y="16" width="5" height="13" rx="1.5" fill="url(#pf-peak)" opacity="0.7" />
-            {/* the apex — a sharp peak chevron */}
-            <path
-                d="M24 3.5 L31 16.5 L26.5 16.5 L24 11.8 L21.5 16.5 L17 16.5 Z"
-                fill="url(#pf-peak)"
+            {/* ascending bars (sampled: #136760 → #1f9c8f → #2bd1bd) */}
+            <rect x="192" y="640" width="144" height="191" rx="40" fill="#136760" />
+            <rect x="416" y="480" width="144" height="351" rx="40" fill="#1f9c8f" />
+            <rect x="640" y="608" width="144" height="223" rx="40" fill="#2bd1bd" />
+            {/* the peak — notched arrow above the last bar */}
+            <polygon
+                points="767,192 927,511 815,511 767,409 720,511 608,511"
+                fill="#3edcc6"
             />
-            <rect x="18" y="20" width="5" height="9" rx="1.5" fill="url(#pf-peak)" />
-            <rect x="25.5" y="18" width="3.5" height="11" rx="1.5" fill="url(#pf-peak)" opacity="0.85" />
         </svg>
     );
 }
