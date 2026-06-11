@@ -127,3 +127,12 @@
     .desktopLinks { display: none; }
     .hamburger { display: block; }
 }
+
+/* 2026-06-10 aesthetic pass: brand mark micro-interaction */
+.logoMark {
+    transition: transform .3s cubic-bezier(.2,.7,.2,1);
+}
+a:hover > .logoMark,
+a:focus-visible > .logoMark {
+    transform: translateY(-1px) scale(1.06);
+}
