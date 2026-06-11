@@ -28,6 +28,7 @@ import {
 import { useRouter } from 'expo-router';
 
 import { useTheme } from '../src/theme/ThemeContext';
+import { CalendarHeatmap } from '../src/components/CalendarHeatmap';
 import { ScreenLayout, PFButton, PressableCard } from '../src/components/ui';
 import { apiClient } from '../src/api/client';
 
@@ -292,6 +293,10 @@ export default function WorkoutHistoryScreen(): React.ReactElement {
       <SectionList
         sections={sections}
         keyExtractor={(item) => item.id}
+        ListHeaderComponent={
+          /* Training-frequency heatmap (founder 2026-06-10) over the loaded window */
+          <CalendarHeatmap dayKeys={allWorkouts.map((w) => w.day_key)} />
+        }
         stickySectionHeadersEnabled
         onEndReached={handleEndReached}
         onEndReachedThreshold={0.3}

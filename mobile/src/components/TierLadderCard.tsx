@@ -61,14 +61,45 @@ export interface TierLadderCardProps {
   rankings: PercentileRanking[];
   sex: string | null;
   bodyweightKg: number | null;
+  /**
+   * Founder rule (2026-06-10): the tier is HIDDEN unless the user has a fresh
+   * weekly-median bodyweight (a big bulk/cut between weigh-ins would make the
+   * tier wrong). When false, a locked card prompts the weekly check-in.
+   */
+  bodyweightFresh?: boolean;
 }
 
 export function TierLadderCard({
   rankings,
   sex,
   bodyweightKg,
+  bodyweightFresh = true,
 }: TierLadderCardProps): React.ReactElement | null {
   const { theme } = useTheme();
+
+  // Tier gate: stale/missing weekly median → locked card, never a tier.
+  if (!bodyweightFresh) {
+    return (
+      <View
+        style={[
+          styles.card,
+          {
+            backgroundColor: theme.colors.bgSecondary,
+            borderColor: theme.colors.borderDefault,
+          },
+        ]}
+      >
+        <Text style={[styles.kicker, { color: theme.colors.textTertiary }]}>
+          STRENGTH TIER
+        </Text>
+        <Text style={[styles.hint, { color: theme.colors.textSecondary }]}>
+          Log this week&apos;s median bodyweight to unlock your tier — weight
+          changes shift what your lifts mean, so a fresh weigh-in keeps the
+          tier honest.
+        </Text>
+      </View>
+    );
+  }
 
   // Best e1RM per competition lift from data already on the screen.
   const lifts: Partial<Record<'squat' | 'bench' | 'deadlift', number>> = {};

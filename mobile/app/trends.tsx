@@ -32,6 +32,10 @@ import { useAuth } from '../src/hooks/useAuth';
 import { ScreenLayout } from '../src/components/ui';
 import { useWorkoutHistory } from '../src/hooks/useWorkoutHistory';
 import LiftProgressChart from '../src/components/LiftProgressChart';
+import { useRouter } from 'expo-router';
+import { useBodyweight } from '../src/hooks/useBodyweight';
+import { BodyweightChart } from '../src/components/BodyweightChart';
+import { BodyweightPromptCard } from '../src/components/BodyweightPromptCard';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -228,6 +232,7 @@ export default function TrendsScreen(): React.ReactElement {
           paddingTop: spacing.s3,
           paddingBottom: spacing.s8 ?? spacing.s6,
         }}
+        ListHeaderComponent={<TrendsHeader unitPref={unitPref} />}
         renderItem={({ item }) => (
           <View>
             <LiftRow
@@ -256,6 +261,48 @@ export default function TrendsScreen(): React.ReactElement {
         )}
       />
     </ScreenLayout>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// TrendsHeader — weekly bodyweight prompt + bodyweight trend + 1RM calc link
+// (founder 2026-06-10). Rendered as the FlatList header so it scrolls.
+// ---------------------------------------------------------------------------
+
+function TrendsHeader({ unitPref }: { unitPref: 'kg' | 'lbs' }): React.ReactElement {
+  const { theme, spacing, fontSize, fontWeight, radius } = useTheme();
+  const router = useRouter();
+  const { history } = useBodyweight();
+  return (
+    <View>
+      <BodyweightPromptCard unitPref={unitPref} />
+      {history.length > 0 ? <BodyweightChart history={history} unitPref={unitPref} /> : null}
+      <Pressable
+        onPress={() => router.push('/one-rm' as Parameters<typeof router.push>[0])}
+        accessibilityRole="button"
+        accessibilityLabel="Open the 1RM calculator"
+        style={{
+          borderWidth: 1,
+          borderColor: theme.colors.borderDefault,
+          backgroundColor: theme.colors.bgSecondary,
+          borderRadius: radius.md,
+          paddingVertical: spacing.s3,
+          paddingHorizontal: spacing.s4,
+          marginBottom: spacing.s4,
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+        }}
+      >
+        <Text style={{ color: theme.colors.textPrimary, fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold }}>
+          1RM calculator
+        </Text>
+        <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodySm }}>›</Text>
+      </Pressable>
+      <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.micro, fontWeight: fontWeight.semibold, letterSpacing: 1.2, marginBottom: spacing.s2 }}>
+        LIFT PROGRESS
+      </Text>
+    </View>
   );
 }
 
