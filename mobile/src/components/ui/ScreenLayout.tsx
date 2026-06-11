@@ -38,6 +38,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../theme/ThemeContext';
+import Animated, { FadeIn } from 'react-native-reanimated';
+import { useReduceMotion } from '../../hooks/useReduceMotion';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -70,6 +72,9 @@ export function ScreenLayout({
   style,
 }: ScreenLayoutProps): React.ReactElement {
   const { theme, spacing } = useTheme();
+  // 2026-06-10 aesthetic pass: every screen's content fades in softly on mount
+  // (240ms), giving app-wide transition smoothness from one shared component.
+  const reduceMotion = useReduceMotion();
 
   const hPad = horizontalPadding ? spacing.s5 : 0;
 
@@ -116,7 +121,12 @@ export function ScreenLayout({
       ]}
       edges={['top', 'bottom']}
     >
-      {inner}
+      <Animated.View
+        style={styles.fill}
+        entering={reduceMotion ? undefined : FadeIn.duration(240)}
+      >
+        {inner}
+      </Animated.View>
     </SafeAreaView>
   );
 }

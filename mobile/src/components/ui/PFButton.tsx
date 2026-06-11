@@ -21,6 +21,14 @@
  */
 
 import React from 'react';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
+import { motion } from '../../theme/tokens';
+import { useReduceMotion } from '../../hooks/useReduceMotion';
 import {
   TouchableOpacity,
   Text,
@@ -173,10 +181,23 @@ export function PFButton({
     onPress();
   }
 
+  // E-006 extension (2026-06-10 aesthetic pass): press-in scale + spring-back,
+  // collapsing to identity under Reduce Motion.
+  const reduceMotion = useReduceMotion();
+  const scale = useSharedValue(1);
+  const pressAnim = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
+
   return (
+    <Animated.View style={[pressAnim, fullWidth && { width: '100%' }]}>
     <TouchableOpacity
       style={[containerStyle, isDisabled && styles.disabled, fullWidth && { width: '100%' }, style]}
       onPress={handlePress}
+      onPressIn={() => {
+        if (!reduceMotion) scale.value = withTiming(motion.cardTap.scale, { duration: motion.cardTap.duration });
+      }}
+      onPressOut={() => {
+        scale.value = withSpring(1, { damping: 15, stiffness: 300 });
+      }}
       disabled={isDisabled}
       activeOpacity={0.75}
       accessibilityRole={'button' as AccessibilityRole}
@@ -202,6 +223,7 @@ export function PFButton({
         </>
       )}
     </TouchableOpacity>
+    </Animated.View>
   );
 }
 

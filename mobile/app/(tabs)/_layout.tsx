@@ -84,6 +84,8 @@ export default function TabsLayout(): React.ReactElement {
   return (
     <Tabs
       screenOptions={{
+        // 2026-06-10 aesthetic pass: animate tab switches instead of hard cuts.
+        animation: 'shift',
         tabBarActiveTintColor: colors.accentDefault,
         tabBarInactiveTintColor: colors.textTertiary,
         tabBarStyle: {

@@ -44,6 +44,7 @@ import { RoutineSession, RoutineSessionExercise } from './RoutineStrip';
 import ExerciseSwitcherSheet from './ExerciseSwitcherSheet';
 import { SuggestCandidate } from '../utils/smartSuggest';
 import PlateCalculatorSheet from './PlateCalculatorSheet';
+import Animated, { FadeIn, FadeInDown, useReducedMotion } from 'react-native-reanimated';
 import { computeWarmupPlan, WARMUP_SET_CHOICES } from '../lib/warmup';
 import { getExercisePrefs, setExercisePrefs } from '../data/exercisePrefs';
 
@@ -297,6 +298,7 @@ export default function StepperLogger({
   weekNumber,
 }: Props): React.ReactElement {
   const { exercises, currentIndex, name: routineName } = routineSession;
+  const reducedMotion = useReducedMotion(); // 2026-06-10 aesthetic pass
   const currentEx: RoutineSessionExercise | undefined = exercises[currentIndex];
   const nextEx: RoutineSessionExercise | undefined = exercises[currentIndex + 1];
   const isLast = currentIndex === exercises.length - 1;
@@ -637,7 +639,10 @@ export default function StepperLogger({
                 inputs and stay fully editable. Hidden once working sets begin. */}
             {!isCardio && currentExerciseSets.length === 0 && (
               wuEnabled ? (
-                <View style={wuStyles.card}>
+                <Animated.View
+                  style={wuStyles.card}
+                  entering={reducedMotion ? undefined : FadeInDown.duration(220)}
+                >
                   <View style={wuStyles.headerRow}>
                     <Text style={wuStyles.title}>WARM-UP</Text>
                     <TouchableOpacity
@@ -681,7 +686,7 @@ export default function StepperLogger({
                       Log this exercise once — recommendations come from your previous top set.
                     </Text>
                   )}
-                </View>
+                </Animated.View>
               ) : (
                 <TouchableOpacity
                   onPress={() => { setWuEnabled(true); persistWuPrefs(true, wuSets); }}
@@ -702,14 +707,18 @@ export default function StepperLogger({
                 contentContainerStyle={styles.chipsContent}
               >
                 {currentExerciseSets.map((s, i) => (
-                  <SetChip
+                  <Animated.View
                     key={i}
-                    set={s}
-                    index={i}
-                    unitPref={unitPref}
-                    onPress={onUpdateSet ? () => handleEditChip(i) : undefined}
-                    editing={editingIndex === i}
-                  />
+                    entering={reducedMotion ? undefined : FadeIn.duration(180)}
+                  >
+                    <SetChip
+                      set={s}
+                      index={i}
+                      unitPref={unitPref}
+                      onPress={onUpdateSet ? () => handleEditChip(i) : undefined}
+                      editing={editingIndex === i}
+                    />
+                  </Animated.View>
                 ))}
               </ScrollView>
             )}
