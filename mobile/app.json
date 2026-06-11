@@ -53,7 +53,8 @@
           }
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-web-browser"
     ],
     "scheme": "peak-fettle",
     "experiments": {
