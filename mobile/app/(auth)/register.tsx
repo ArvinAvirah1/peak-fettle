@@ -24,7 +24,9 @@ import { useTheme } from '../../src/theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
 import { ScreenLayout, PFButton, PFInput } from '../../src/components/ui';
 import { BrandLogo } from '../../src/components/BrandLogo';
-import { OAuthButtons } from '../../src/components/auth/OAuthButtons'; // TICKET-099
+// TICKET-099: to enable Apple/Google sign-in, run
+//   npx expo install expo-apple-authentication expo-auth-session expo-web-browser
+// then restore: import { OAuthButtons } from '../../src/components/auth/OAuthButtons';
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -185,8 +187,7 @@ export default function RegisterScreen(): React.ReactElement {
       />
 
       {/* Login link */}
-      {/* TICKET-099: Sign in with Apple / Google */}
-      <OAuthButtons />
+      {/* TICKET-099: <OAuthButtons /> mounts here once the native auth deps are installed. */}
 
       <View style={styles.footer}>
         <Text style={[styles.footerText, { color: theme.colors.textSecondary }]}>
