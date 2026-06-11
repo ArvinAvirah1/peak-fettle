@@ -111,7 +111,11 @@ export async function unregisterForPushNotificationsAsync(): Promise<void> {
 export function setForegroundNotificationHandler(): void {
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
+      // SDK 54 shape: shouldShowBanner/shouldShowList replace the deprecated
+      // shouldShowAlert (kept for back-compat with older runtime checks).
       shouldShowAlert: true,
+      shouldShowBanner: true,
+      shouldShowList: true,
       shouldPlaySound: true,
       shouldSetBadge: true,
     }),

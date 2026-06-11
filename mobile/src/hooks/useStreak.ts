@@ -37,7 +37,9 @@ export function computeStreak(workouts: Workout[]): number {
   // Build a Set of ISO week keys that have at least one workout.
   const weeksWithWorkout = new Set<string>();
   for (const w of workouts) {
-    const [year, month, day] = w.day_key.split('-').map(Number);
+    // Guard: a malformed day_key must not poison the week set with NaN dates.
+    const [year = NaN, month = NaN, day = NaN] = w.day_key.split('-').map(Number);
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) continue;
     weeksWithWorkout.add(isoWeekKey(new Date(year, month - 1, day)));
   }
 

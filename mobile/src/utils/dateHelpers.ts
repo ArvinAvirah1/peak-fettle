@@ -49,7 +49,7 @@ const SHORT_MONTHS = [
 export function formatDayLabel(dateStr: string): string {
   // Guard: a missing/malformed key must never render as "undefined NaN undefined".
   if (!dateStr || typeof dateStr !== 'string') return 'Workout';
-  const [year, month, day] = dateStr.split('-').map(Number);
+  const [year = NaN, month = NaN, day = NaN] = dateStr.split('-').map(Number);
   if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
     return 'Workout';
   }
@@ -76,7 +76,7 @@ export function formatDayLabel(dateStr: string): string {
  */
 export function formatShortDate(dateStr: string): string {
   if (!dateStr || typeof dateStr !== 'string') return '';
-  const [year, month, day] = dateStr.split('-').map(Number);
+  const [year = NaN, month = NaN, day = NaN] = dateStr.split('-').map(Number);
   if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
     return '';
   }
