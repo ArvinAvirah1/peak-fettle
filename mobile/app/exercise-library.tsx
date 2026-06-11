@@ -57,6 +57,7 @@ import { useTheme } from '../src/theme/ThemeContext';
 import { PFButton } from '../src/components/ui/PFButton';
 import { PressableCard } from '../src/components/ui/PressableCard';
 import { apiClient } from '../src/api/client';
+import { getExerciseGoal, setExerciseGoal, clearExerciseGoal, ExerciseGoal } from '../src/data/exerciseGoals'; // WIDGET-002
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -539,6 +540,41 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
   const [setsLoading, setSetsLoading] = useState(false);
   const [setsError, setSetsError] = useState<string | null>(null);
 
+  // WIDGET-002: per-exercise weight x reps goal (local-first)
+  const [goal, setGoal] = useState<ExerciseGoal | null>(null);
+  const [goalEditing, setGoalEditing] = useState(false);
+  const [goalWeight, setGoalWeight] = useState('');
+  const [goalReps, setGoalReps] = useState('');
+
+  useEffect(() => {
+    setGoalEditing(false);
+    if (!exercise || !visible) { setGoal(null); return; }
+    let cancelled = false;
+    getExerciseGoal(exercise.id)
+      .then((g) => { if (!cancelled) setGoal(g); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [exercise?.id, visible]);
+
+  const handleSaveGoal = useCallback(() => {
+    if (!exercise) return;
+    const w = parseFloat(goalWeight);
+    const r = parseInt(goalReps, 10);
+    if (!Number.isFinite(w) || w <= 0 || !Number.isInteger(r) || r <= 0) return;
+    setGoalEditing(false);
+    setExerciseGoal(exercise.id, w, r, exercise.name)
+      .then(() => getExerciseGoal(exercise.id))
+      .then((g) => setGoal(g))
+      .catch(() => {});
+  }, [exercise, goalWeight, goalReps]);
+
+  const handleRemoveGoal = useCallback(() => {
+    if (!exercise) return;
+    setGoalEditing(false);
+    setGoal(null);
+    clearExerciseGoal(exercise.id).catch(() => {});
+  }, [exercise]);
+
   // Reset progress chart visibility when exercise changes
   useEffect(() => {
     setShowProgressChart(false);
@@ -749,6 +785,166 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
               <Text style={{ fontSize: fontSize.bodySm, color: colors.textTertiary }}>
                 No logged sets yet
               </Text>
+            )}
+          </View>
+
+          {/* WIDGET-002: weight x reps goal for this exercise */}
+          <View
+            style={[
+              styles.section,
+              {
+                backgroundColor: colors.bgSecondary,
+                borderRadius: radius.md,
+                padding: spacing.s4,
+                borderWidth: 1,
+                borderColor: colors.borderDefault,
+                marginBottom: spacing.s4,
+              },
+            ]}
+          >
+            <Text
+              style={{
+                fontSize: fontSize.bodySm,
+                fontWeight: fontWeight.semibold,
+                color: colors.textTertiary,
+                textTransform: 'uppercase',
+                letterSpacing: 0.8,
+                marginBottom: spacing.s3,
+              }}
+            >
+              Goal
+            </Text>
+
+            {goalEditing ? (
+              <View>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.s2 }}>
+                  <TextInput
+                    value={goalWeight}
+                    onChangeText={setGoalWeight}
+                    keyboardType="decimal-pad"
+                    placeholder="Weight (kg)"
+                    placeholderTextColor={colors.textTertiary}
+                    accessibilityLabel="Goal weight in kilograms"
+                    style={{
+                      flex: 1,
+                      minHeight: 48,
+                      borderWidth: 1,
+                      borderColor: colors.borderDefault,
+                      borderRadius: radius.sm,
+                      color: colors.textPrimary,
+                      paddingHorizontal: spacing.s3,
+                      fontSize: fontSize.bodyMd,
+                    }}
+                  />
+                  <Text style={{ color: colors.textSecondary, fontSize: fontSize.bodyMd }}>×</Text>
+                  <TextInput
+                    value={goalReps}
+                    onChangeText={setGoalReps}
+                    keyboardType="number-pad"
+                    placeholder="Reps"
+                    placeholderTextColor={colors.textTertiary}
+                    accessibilityLabel="Goal reps"
+                    style={{
+                      flex: 1,
+                      minHeight: 48,
+                      borderWidth: 1,
+                      borderColor: colors.borderDefault,
+                      borderRadius: radius.sm,
+                      color: colors.textPrimary,
+                      paddingHorizontal: spacing.s3,
+                      fontSize: fontSize.bodyMd,
+                    }}
+                  />
+                </View>
+                <View
+                  style={{
+                    flexDirection: 'row',
+                    justifyContent: 'flex-end',
+                    alignItems: 'center',
+                    gap: spacing.s5,
+                    marginTop: spacing.s3,
+                  }}
+                >
+                  {goal ? (
+                    <Pressable
+                      onPress={handleRemoveGoal}
+                      accessibilityRole="button"
+                      accessibilityLabel="Remove goal"
+                      style={{ minHeight: 48, justifyContent: 'center' }}
+                    >
+                      <Text style={{ color: colors.statusError, fontSize: fontSize.bodySm }}>Remove</Text>
+                    </Pressable>
+                  ) : null}
+                  <Pressable
+                    onPress={() => setGoalEditing(false)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Cancel goal editing"
+                    style={{ minHeight: 48, justifyContent: 'center' }}
+                  >
+                    <Text style={{ color: colors.textSecondary, fontSize: fontSize.bodySm }}>Cancel</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={handleSaveGoal}
+                    accessibilityRole="button"
+                    accessibilityLabel="Save goal"
+                    style={{ minHeight: 48, justifyContent: 'center' }}
+                  >
+                    <Text style={{ color: colors.accentDefault, fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold }}>
+                      Save
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : goal ? (
+              <View>
+                <Text
+                  style={{
+                    fontSize: fontSize.heading3,
+                    fontWeight: fontWeight.bold,
+                    color: goal.achieved_at ? colors.accentDefault : colors.textPrimary,
+                    fontVariant: ['tabular-nums'],
+                  }}
+                >
+                  {goal.achieved_at ? '🏆 ' : '🎯 '}
+                  {goal.target_weight_kg} kg × {goal.target_reps}
+                </Text>
+                <Text
+                  style={{
+                    fontSize: fontSize.caption,
+                    color: colors.textTertiary,
+                    marginTop: spacing.s1,
+                  }}
+                >
+                  {goal.achieved_at
+                    ? `Achieved ${new Date(goal.achieved_at).toLocaleDateString()}`
+                    : 'In progress — log a set that meets both targets'}
+                </Text>
+                <Pressable
+                  onPress={() => {
+                    setGoalWeight(String(goal.target_weight_kg));
+                    setGoalReps(String(goal.target_reps));
+                    setGoalEditing(true);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={goal.achieved_at ? 'Set a new goal' : 'Edit goal'}
+                  style={{ minHeight: 48, justifyContent: 'center' }}
+                >
+                  <Text style={{ color: colors.accentDefault, fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold }}>
+                    {goal.achieved_at ? 'Set a new goal' : 'Edit goal'}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : (
+              <Pressable
+                onPress={() => { setGoalWeight(''); setGoalReps(''); setGoalEditing(true); }}
+                accessibilityRole="button"
+                accessibilityLabel="Set a weight and rep goal for this exercise"
+                style={{ minHeight: 48, justifyContent: 'center' }}
+              >
+                <Text style={{ color: colors.accentDefault, fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold }}>
+                  ＋ Set a goal (weight × reps)
+                </Text>
+              </Pressable>
             )}
           </View>
 

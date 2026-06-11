@@ -47,6 +47,7 @@ import PlateCalculatorSheet from './PlateCalculatorSheet';
 import Animated, { FadeIn, FadeInDown, useReducedMotion } from 'react-native-reanimated';
 import { computeWarmupPlan, WARMUP_SET_CHOICES } from '../lib/warmup';
 import { getExercisePrefs, setExercisePrefs } from '../data/exercisePrefs';
+import { getExerciseGoal, setExerciseGoal, clearExerciseGoal, ExerciseGoal } from '../data/exerciseGoals'; // WIDGET-002
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -349,6 +350,44 @@ export default function StepperLogger({
     if (id) setExercisePrefs(id, { warmup_enabled: enabled, warmup_sets: sets }).catch(() => {});
   }, [currentEx?.exerciseId]);
 
+  // ── Per-exercise goal (WIDGET-002, founder 2026-06-11): one weight x reps
+  // target. Reloaded after every logged set (currentExerciseSets.length dep)
+  // so the achieved state appears as soon as WorkoutLoggerHost marks it.
+  const [goal, setGoal] = useState<ExerciseGoal | null>(null);
+  const [goalEditing, setGoalEditing] = useState(false);
+  const [goalWeight, setGoalWeight] = useState('');
+  const [goalReps, setGoalReps] = useState('');
+  useEffect(() => {
+    const id = currentEx?.exerciseId;
+    setGoalEditing(false);
+    if (!id) { setGoal(null); return; }
+    let cancelled = false;
+    getExerciseGoal(id)
+      .then((g) => { if (!cancelled) setGoal(g); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [currentEx?.exerciseId, currentExerciseSets.length]);
+
+  const handleSaveGoal = useCallback(() => {
+    const id = currentEx?.exerciseId;
+    const w = parseFloat(goalWeight);
+    const r = parseInt(goalReps, 10);
+    if (!id || !Number.isFinite(w) || w <= 0 || !Number.isInteger(r) || r <= 0) return;
+    setGoalEditing(false);
+    setExerciseGoal(id, w, r, currentEx?.name ?? null)
+      .then(() => getExerciseGoal(id))
+      .then((g) => setGoal(g))
+      .catch(() => {});
+  }, [currentEx?.exerciseId, currentEx?.name, goalWeight, goalReps]);
+
+  const handleRemoveGoal = useCallback(() => {
+    const id = currentEx?.exerciseId;
+    if (!id) return;
+    setGoalEditing(false);
+    setGoal(null);
+    clearExerciseGoal(id).catch(() => {});
+  }, [currentEx?.exerciseId]);
+
   const [switcherVisible, setSwitcherVisible] = useState(false);
   const [offRoutinePrompt, setOffRoutinePrompt] = useState<OffRoutinePrompt | null>(null);
   const [promptPlacement, setPromptPlacement] = useState<OffRoutinePlacement>('after_current');
@@ -632,6 +671,94 @@ export default function StepperLogger({
                   <Text style={wuStyles.lastSessionText}>Last session: {lastSessionLabel}</Text>
                 ) : null}
               </View>
+            )}
+
+            {/* ── Per-exercise goal (WIDGET-002): single weight x reps target.
+                Tap to edit; shows the trophy state once a logged set meets both
+                targets. Hidden for cardio and off-routine placeholder slots. */}
+            {!isCardio && (currentEx.exerciseId ?? '') !== '' && (
+              goalEditing ? (
+                <View style={goalStyles.card}>
+                  <Text style={goalStyles.title}>GOAL — WEIGHT × REPS</Text>
+                  <View style={goalStyles.editRow}>
+                    <TextInput
+                      style={goalStyles.input}
+                      value={goalWeight}
+                      onChangeText={setGoalWeight}
+                      keyboardType="decimal-pad"
+                      placeholder="weight"
+                      placeholderTextColor={stepperPalette.muted}
+                      accessibilityLabel="Goal weight"
+                    />
+                    <Text style={goalStyles.times}>×</Text>
+                    <TextInput
+                      style={goalStyles.input}
+                      value={goalReps}
+                      onChangeText={setGoalReps}
+                      keyboardType="number-pad"
+                      placeholder="reps"
+                      placeholderTextColor={stepperPalette.muted}
+                      accessibilityLabel="Goal reps"
+                    />
+                    <TouchableOpacity
+                      onPress={handleSaveGoal}
+                      accessibilityRole="button"
+                      accessibilityLabel="Save goal"
+                    >
+                      <Text style={goalStyles.saveLabel}>Save</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={goalStyles.editActions}>
+                    {goal ? (
+                      <TouchableOpacity
+                        onPress={handleRemoveGoal}
+                        accessibilityRole="button"
+                        accessibilityLabel="Remove goal"
+                      >
+                        <Text style={goalStyles.removeLabel}>Remove goal</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    <TouchableOpacity
+                      onPress={() => setGoalEditing(false)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Cancel goal editing"
+                    >
+                      <Text style={goalStyles.cancelLabel}>Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : goal ? (
+                <TouchableOpacity
+                  style={goalStyles.row}
+                  onPress={() => {
+                    setGoalWeight(String(goal.target_weight_kg));
+                    setGoalReps(String(goal.target_reps));
+                    setGoalEditing(true);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    goal.achieved_at
+                      ? `Goal achieved: ${goal.target_weight_kg} for ${goal.target_reps} reps. Tap to set a new goal.`
+                      : `Goal: ${goal.target_weight_kg} for ${goal.target_reps} reps. Tap to edit.`
+                  }
+                >
+                  <Text style={goal.achieved_at ? goalStyles.achievedText : goalStyles.rowText}>
+                    {goal.achieved_at
+                      ? `🏆 Goal achieved — ${goal.target_weight_kg} × ${goal.target_reps}`
+                      : `🎯 Goal ${goal.target_weight_kg} × ${goal.target_reps}`}
+                  </Text>
+                  <Text style={goalStyles.editLabel}>{goal.achieved_at ? 'set new' : 'edit'}</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  onPress={() => { setGoalWeight(''); setGoalReps(''); setGoalEditing(true); }}
+                  style={wuStyles.enableLink}
+                  accessibilityRole="button"
+                  accessibilityLabel="Set a weight and rep goal for this exercise"
+                >
+                  <Text style={wuStyles.enableLabel}>＋ Goal (optional)</Text>
+                </TouchableOpacity>
+              )
             )}
 
             {/* ── Warm-up ramp (founder 2026-06-10): per-exercise opt-in; weights/
@@ -1080,6 +1207,94 @@ export default function StepperLogger({
     </KeyboardAvoidingView>
   );
 }
+
+// ── Goal styles (WIDGET-002) ─────────────────────────────────────────────────
+
+const goalStyles = StyleSheet.create({
+  card: {
+    backgroundColor: stepperPalette.card,
+    borderWidth: 1,
+    borderColor: stepperPalette.line,
+    borderRadius: radius.md,
+    padding: spacing.s3,
+    marginBottom: spacing.s3,
+  },
+  title: {
+    color: stepperPalette.muted,
+    fontSize: fontSize.micro,
+    fontWeight: '600',
+    letterSpacing: 1,
+    marginBottom: spacing.s2,
+  },
+  editRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s2,
+  },
+  input: {
+    flex: 1,
+    color: stepperPalette.text,
+    fontSize: fontSize.bodyMd,
+    borderWidth: 1,
+    borderColor: stepperPalette.line,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.s2,
+    paddingVertical: spacing.s2,
+    minHeight: 44,
+  },
+  times: {
+    color: stepperPalette.muted,
+    fontSize: fontSize.bodyMd,
+  },
+  saveLabel: {
+    color: stepperPalette.accent,
+    fontSize: fontSize.bodySm,
+    fontWeight: '600',
+    paddingHorizontal: spacing.s2,
+    paddingVertical: spacing.s2,
+  },
+  editActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.s4,
+    marginTop: spacing.s2,
+  },
+  removeLabel: {
+    color: stepperPalette.muted,
+    fontSize: fontSize.caption,
+  },
+  cancelLabel: {
+    color: stepperPalette.muted,
+    fontSize: fontSize.caption,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: stepperPalette.card,
+    borderWidth: 1,
+    borderColor: stepperPalette.line,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.s3,
+    paddingVertical: spacing.s2,
+    marginBottom: spacing.s3,
+    minHeight: 44,
+  },
+  rowText: {
+    color: stepperPalette.text,
+    fontSize: fontSize.bodySm,
+    fontWeight: '600',
+  },
+  achievedText: {
+    color: stepperPalette.accent,
+    fontSize: fontSize.bodySm,
+    fontWeight: '600',
+  },
+  editLabel: {
+    color: stepperPalette.muted,
+    fontSize: fontSize.caption,
+  },
+});
 
 // ── Warm-up / plate-calc styles ──────────────────────────────────────────────
 

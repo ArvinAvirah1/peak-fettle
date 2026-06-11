@@ -29,7 +29,7 @@ export const BACKUP_SCHEMA_VERSION = 1;
 // TICKET-094 data-layer move lands more tables (plans, routines, streaks, …),
 // append them here — the engine serializes whatever is registered.
 // `outbox` is sync bookkeeping, not user data, so it is intentionally excluded.
-export const BACKUP_TABLES: string[] = ['workouts', 'sets', 'schedule', 'avatar', 'bodyweight', 'exercise_prefs'];
+export const BACKUP_TABLES: string[] = ['workouts', 'sets', 'schedule', 'avatar', 'bodyweight', 'exercise_prefs', 'exercise_goals'];
 
 export type Row = Record<string, unknown>;
 export type TableMap = Record<string, Row[]>;

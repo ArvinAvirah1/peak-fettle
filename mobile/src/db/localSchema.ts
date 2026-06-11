@@ -113,6 +113,21 @@ CREATE TABLE IF NOT EXISTS exercise_prefs (
   updated_at TEXT
 )`;
 
+// WIDGET-002 (founder 2026-06-11): per-exercise weight x rep goal. One active
+// goal per exercise (PRIMARY KEY exercise_id). target_weight_kg uses the same
+// kg convention as sets.weight_kg; achieved_* set when a logged set meets BOTH
+// targets. Local-first; in the backup registry (exportEngine BACKUP_TABLES).
+export const CREATE_EXERCISE_GOALS = `
+CREATE TABLE IF NOT EXISTS exercise_goals (
+  exercise_id TEXT PRIMARY KEY,
+  exercise_name TEXT,
+  target_weight_kg REAL NOT NULL,
+  target_reps INTEGER NOT NULL,
+  created_at TEXT,
+  achieved_at TEXT,
+  achieved_set_id TEXT
+)`;
+
 export const CREATE_SETS_WORKOUT_IDX = `
 CREATE INDEX IF NOT EXISTS idx_sets_workout_id ON sets(workout_id)`;
 
@@ -131,6 +146,7 @@ export const SCHEMA_STATEMENTS: string[] = [
   CREATE_AVATAR,
   CREATE_BODYWEIGHT,
   CREATE_EXERCISE_PREFS,
+  CREATE_EXERCISE_GOALS,
   CREATE_SETS_WORKOUT_IDX,
   CREATE_OUTBOX_ID_IDX,
 ];
