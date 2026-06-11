@@ -143,7 +143,8 @@ export function useWorkoutHistory(): UseWorkoutHistoryResult {
 
       // Build history entries.
       const entries: WorkoutHistoryEntry[] = workouts.map((workout, idx) => {
-        const rawSets = setsArrays[idx];
+        // Guard: a fetch that returned fewer arrays than workouts must not crash the map.
+        const rawSets = setsArrays[idx] ?? [];
         const setsWithPR: WorkoutSetWithPR[] = rawSets.map((s) => {
           if (s.kind === 'lift') {
             return { ...(s as LiftSet), is_pr: prIds.has(s.id) };
