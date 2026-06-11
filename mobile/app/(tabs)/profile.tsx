@@ -320,7 +320,7 @@ function AddConstraintModal({
 
             <ScrollView contentContainerStyle={addConstraintStyles.scrollContent} keyboardShouldPersistTaps="handled">
               <Text style={[addConstraintStyles.note, { color: theme.colors.textTertiary }]}>
-                These restrictions are used by the AI planner to avoid exercises
+                These restrictions are used by the Training Engine to avoid exercises
                 that could aggravate your conditions.
               </Text>
 
@@ -699,6 +699,66 @@ export default function ProfileScreen(): React.ReactElement {
         </View>
       </View>
 
+
+      {/* ── Training ── */}
+      <View style={styles.section}>
+        <SectionHeader label="TRAINING" />
+        <View style={[
+          styles.settingsCard,
+          { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
+        ]}>
+          {/* Training profile — survey for Training Engine */}
+          <TouchableOpacity
+            style={styles.settingRow}
+            onPress={() => router.push('/training-survey')}
+            accessibilityRole="button"
+            accessibilityLabel="Edit training profile"
+          >
+            <View style={styles.settingLabelGroup}>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Training profile</Text>
+              <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
+                Goal, schedule, equipment & season
+              </Text>
+            </View>
+            <Text style={[styles.settingChevron, { color: theme.colors.textTertiary }]}>›</Text>
+          </TouchableOpacity>
+
+          {/* Readiness & recovery — Agent D screen */}
+          <TouchableOpacity
+            style={[styles.settingRow, styles.settingRowBordered, styles.settingRowTop,
+              { borderTopColor: theme.colors.borderDefault, borderBottomColor: theme.colors.borderDefault }]}
+            onPress={() => router.push('/insights')}
+            accessibilityRole="button"
+            accessibilityLabel="View readiness and recovery"
+          >
+            <View style={styles.settingLabelGroup}>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Readiness &amp; recovery</Text>
+              <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
+                Daily readiness score, muscle freshness &amp; deload alerts
+              </Text>
+            </View>
+            <Text style={[styles.settingChevron, { color: theme.colors.textTertiary }]}>›</Text>
+          </TouchableOpacity>
+
+          {/* Export my data — Agent D screen */}
+          <TouchableOpacity
+            style={[styles.settingRow, styles.settingRowBordered, styles.settingRowTop,
+              { borderTopColor: theme.colors.borderDefault, borderBottomColor: theme.colors.borderDefault }]}
+            onPress={() => router.push('/data-export')}
+            accessibilityRole="button"
+            accessibilityLabel="Export my data"
+          >
+            <View style={styles.settingLabelGroup}>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Export my data</Text>
+              <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
+                Download your full workout history as JSON or CSV
+              </Text>
+            </View>
+            <Text style={[styles.settingChevron, { color: theme.colors.textTertiary }]}>›</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
       {/* ── Appearance ── */}
       <View style={styles.section}>
         <SectionHeader label="APPEARANCE" />
@@ -727,7 +787,7 @@ export default function ProfileScreen(): React.ReactElement {
       <View style={styles.section}>
         <SectionHeader label="PHYSICAL RESTRICTIONS" />
         <Text style={[styles.sectionNote, { color: theme.colors.textTertiary }]}>
-          These constraints are shared with the AI planner to avoid incompatible exercises.
+          These constraints are shared with the Training Engine to avoid incompatible exercises.
         </Text>
 
         {constraintsLoading ? (
@@ -830,7 +890,7 @@ export default function ProfileScreen(): React.ReactElement {
             <View style={styles.settingLabelGroup}>
               <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Plan notifications</Text>
               <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
-                Notify when your AI plan is ready
+                Notify when your plan is ready
               </Text>
             </View>
             <Switch
@@ -881,7 +941,7 @@ export default function ProfileScreen(): React.ReactElement {
           {/* Data category rows */}
           {[
             { label: 'Workouts', description: 'Session logs, sets, reps, weights' },
-            { label: 'Plans', description: 'AI-generated training plans' },
+            { label: 'Plans', description: 'Evidence-based training plans' },
             { label: 'Health Metrics', description: 'HealthKit data and manual entries' },
             { label: 'Profile', description: 'Account info and preferences' },
           ].map((category, i) => (
@@ -1024,7 +1084,7 @@ export default function ProfileScreen(): React.ReactElement {
       </TouchableOpacity>
 
       {/* App version note */}
-      <Text style={[styles.appVersion, { color: theme.colors.borderDefault }]}>Peak Fettle · Claude Haiku 4.5</Text>
+      <Text style={[styles.appVersion, { color: theme.colors.borderDefault }]}>Peak Fettle</Text>
 
       <View style={styles.bottomPad} />
 

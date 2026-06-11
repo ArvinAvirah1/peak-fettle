@@ -1,5 +1,5 @@
 /**
- * Plans API module — training plan CRUD + AI generation.
+ * Plans API module — training plan CRUD + Training Engine generation.
  *
  * Server docs: peak-fettle-agents/server/routes/plans.js
  *
@@ -8,7 +8,9 @@
  * "Generate plan" button (to avoid a round-trip 403). The server enforces
  * the gate regardless, so this is defence-in-depth only.
  *
- * AI generation uses Claude Haiku 4.5 (~2.5¢/plan, CTO cost guardrail).
+ * Generation uses the Peak Fettle Training Engine (pf-engine-v1), a
+ * deterministic sports-science rule engine. No external AI calls.
+ * Updated 2026-06-11 — response now includes rule_trace[] and engine field.
  */
 
 import { apiClient } from './client';
@@ -18,6 +20,34 @@ import {
   PlansResponse,
   GeneratePlanResponse,
 } from '../types/api';
+
+// ---------------------------------------------------------------------------
+// Extended generate response (Training Engine — spec §3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Extended generate/regenerate response shape from the Training Engine.
+ * Superset of GeneratePlanResponse — backward compatible: session and weeks
+ * fields are preserved.
+ */
+export interface EngineGenerateResponse extends GeneratePlanResponse {
+  /**
+   * 1–2 sentence reasoning string citing a concrete user data point
+   * (e.g. a PB, e1RM, HRV trend, or "fewer than 3 sessions logged").
+   */
+  reasoning: string;
+  /**
+   * Full rule-trace chain from the Training Engine pipeline.
+   * Each string is a human-readable explanation of one decision step.
+   */
+  rule_trace: string[];
+  /**
+   * Engine identifier — always 'pf-engine-v1' for Training Engine plans.
+   * Absent on legacy Haiku-generated plans (use plan.is_ai_generated to
+   * distinguish, but never surface the engine name as "AI").
+   */
+  engine?: string;
+}
 
 /**
  * List all plans for the authenticated user plus global templates.
@@ -36,17 +66,18 @@ export async function getPlan(id: string): Promise<PlanWithStructure> {
 }
 
 /**
- * Generate an AI training plan session for the authenticated user.
+ * Generate a Training Engine plan for the authenticated user.
  *
  * Requires is_paid = true. The server reads workout history, health metrics,
- * and physical constraints from the DB before calling Claude Haiku 4.5.
+ * physical constraints, and the training survey profile from the DB, then
+ * runs the deterministic pf-engine-v1 pipeline synchronously.
  * The generated plan is persisted automatically and returned in the response.
  *
  * @throws 403 ApiError with error: 'paid_tier_required' if user is on free tier.
- * @throws 502 ApiError with error: 'ai_parse_error' | 'ai_schema_error' on Haiku failure.
+ * @throws 429 ApiError when the 20 plans/day limit is exceeded.
  */
-export async function generatePlan(): Promise<GeneratePlanResponse> {
-  const response = await apiClient.post<GeneratePlanResponse>('/plans/generate');
+export async function generatePlan(): Promise<EngineGenerateResponse> {
+  const response = await apiClient.post<EngineGenerateResponse>('/plans/generate');
   return response.data;
 }
 
@@ -78,17 +109,17 @@ export async function deactivateAllPlans(): Promise<void> {
 }
 
 /**
- * Regenerate the AI content for an existing plan in-place.
+ * Regenerate the Training Engine plan for an existing plan in-place.
  *
- * TICKET-058: calls POST /plans/:id/regenerate which re-runs the Haiku prompt
+ * TICKET-058: calls POST /plans/:id/regenerate which re-runs the engine
  * against fresh workout history and replaces the plan's `structure` column.
  * The plan_id is preserved so the user keeps the same record active.
  *
- * Subject to the same 3/day throttle as /generate (server-enforced).
+ * Subject to the same 20/day throttle as /generate (server-enforced).
  * @throws 429 if the daily limit has been reached.
  * @throws 403 if the user is on the free tier.
  */
-export async function regeneratePlan(id: string): Promise<GeneratePlanResponse> {
-  const response = await apiClient.post<GeneratePlanResponse>(`/plans/${id}/regenerate`);
+export async function regeneratePlan(id: string): Promise<EngineGenerateResponse> {
+  const response = await apiClient.post<EngineGenerateResponse>(`/plans/${id}/regenerate`);
   return response.data;
 }

@@ -25,6 +25,7 @@ const userRoutes         = require('./routes/user');           // TICKET-014
 const templateRoutes     = require('./routes/templates');      // PL-1
 const csvImportRoutes    = require('./routes/csvImport');      // PL-2
 const routinesRoutes     = require('./routes/routines');       // TICKET-055/056
+const insightsRoutes     = require('./routes/insights');       // TICKET-engine spec §4
 const { errorHandler } = require('./middleware/errorHandler');
 const { requireAuth }  = require('./middleware/requireAuth');
 
@@ -117,6 +118,9 @@ app.use('/user', requireAuth, userRoutes);
 
 // PL-2: CSV import (Garmin / Strava) — auth required
 app.use('/import', requireAuth, csvImportRoutes);
+
+// Training Engine — insight endpoints (spec §4)
+app.use('/insights', requireAuth, insightsRoutes);
 
 // Centralized error handler — last middleware
 app.use(errorHandler);
