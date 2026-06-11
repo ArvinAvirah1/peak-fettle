@@ -90,6 +90,29 @@ CREATE TABLE IF NOT EXISTS avatar (
 // Indexes
 // ---------------------------------------------------------------------------
 
+// Weekly-median bodyweight log (founder 2026-06-10): prompted weekly; guides
+// strength calculations; the tier ladder is GATED on a fresh entry because a
+// significant bulk/cut between weigh-ins would make the tier inaccurate.
+export const CREATE_BODYWEIGHT = `
+CREATE TABLE IF NOT EXISTS bodyweight (
+  id TEXT PRIMARY KEY,
+  week_key TEXT UNIQUE,
+  weight_kg REAL,
+  logged_at TEXT
+)`;
+
+// Per-exercise training prefs (founder 2026-06-10): warm-up on/off + set count,
+// last-used machine/bar base weight, pulley config for cable machines.
+export const CREATE_EXERCISE_PREFS = `
+CREATE TABLE IF NOT EXISTS exercise_prefs (
+  exercise_id TEXT PRIMARY KEY,
+  warmup_enabled INTEGER DEFAULT 0,
+  warmup_sets INTEGER DEFAULT 3,
+  base_weight_kg REAL,
+  pulley_id TEXT,
+  updated_at TEXT
+)`;
+
 export const CREATE_SETS_WORKOUT_IDX = `
 CREATE INDEX IF NOT EXISTS idx_sets_workout_id ON sets(workout_id)`;
 
@@ -106,6 +129,8 @@ export const SCHEMA_STATEMENTS: string[] = [
   CREATE_OUTBOX,
   CREATE_SCHEDULE,
   CREATE_AVATAR,
+  CREATE_BODYWEIGHT,
+  CREATE_EXERCISE_PREFS,
   CREATE_SETS_WORKOUT_IDX,
   CREATE_OUTBOX_ID_IDX,
 ];
