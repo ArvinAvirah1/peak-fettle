@@ -59,7 +59,4 @@ export const APP_IS_LIVE = Boolean(SITE.ios || SITE.android);
 export const ASSETS = {
     // Set true after exporting real screenshots to /public/screens/*.png
     screens: false,
-    // Set true to use the two-image hero crossfade (hero-start.jpg + hero-end.jpg)
-    // INSTEAD of a hero.mp4 video. Leave false when using a video.
-    heroStills: false,
 };

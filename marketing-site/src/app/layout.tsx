@@ -3,6 +3,7 @@ import { Space_Grotesk, Inter } from 'next/font/google';
 import './globals.css';
 import Nav from '@/components/Nav';
 import Footer from '@/components/Footer';
+import CursorAura from '@/components/CursorAura';
 import JsonLd from '@/components/JsonLd';
 import { SITE } from '@/lib/site';
 
@@ -99,6 +100,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <body>
                 <a href="#main" className="skip-link">Skip to content</a>
                 <JsonLd data={[orgSchema, websiteSchema]} />
+                <CursorAura />
                 <Nav />
                 <main id="main">{children}</main>
                 <Footer />

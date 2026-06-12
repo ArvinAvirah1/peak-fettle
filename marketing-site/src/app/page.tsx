@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import ScrollHero from '@/components/ScrollHero';
+import InteractiveHero from '@/components/InteractiveHero';
 import Reveal from '@/components/Reveal';
 import DeviceMockup from '@/components/DeviceMockup';
 import Icon from '@/components/Icon';
@@ -44,7 +44,7 @@ export default function Home() {
         <>
             <JsonLd data={[softwareSchema, faqSchema]} />
 
-            <ScrollHero />
+            <InteractiveHero />
 
             {/* ---- Disciplines strip ---- */}
             <section className={`${styles.strip} section-tight`} aria-label="Supported disciplines">

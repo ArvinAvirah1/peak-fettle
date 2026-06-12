@@ -1,0 +1,81 @@
+/* Mouse-interactive hero. Full-viewport, no scroll-scrub — the section is a
+   single screen whose canvas reacts to the pointer. */
+
+.section {
+    position: relative;
+    min-height: 100vh;
+    min-height: 100svh;
+    margin-top: calc(var(--nav-h) * -1); /* sits under the transparent nav */
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+}
+
+.canvas {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+}
+
+.vignette {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    background:
+        radial-gradient(70% 60% at 50% 42%, transparent 40%, rgba(6,8,15,.55) 100%),
+        linear-gradient(180deg, rgba(6,8,15,.45) 0%, transparent 22%, transparent 60%, var(--ink) 100%);
+}
+
+/* ---- Copy ---- */
+.copyWrap { position: relative; z-index: 2; width: 100%; }
+.copy {
+    max-width: 760px;
+    /* subtle pointer parallax — --mx/--my set in InteractiveHero.tsx (-0.5..0.5) */
+    transform: translate(calc(var(--mx, 0) * -10px), calc(var(--my, 0) * -8px));
+    transition: transform .25s var(--ease-out);
+    will-change: transform;
+}
+.headline { margin-top: 1.1rem; }
+.headline2 { color: var(--text); }
+.sub { margin-top: 1.5rem; }
+.sub em { color: var(--accent-hi); font-style: italic; }
+.actions { margin-top: 2rem; }
+.meta {
+    margin-top: 1.1rem;
+    color: var(--muted-2);
+    font-size: .9rem;
+    font-family: var(--display);
+    letter-spacing: .02em;
+}
+
+/* ---- Scroll hint ---- */
+.scrollHint {
+    position: absolute;
+    bottom: 1.6rem; left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: .5rem;
+    color: var(--muted-2);
+    font-family: var(--display);
+    font-size: .72rem;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+}
+.scrollLine {
+    width: 1px; height: 38px;
+    background: linear-gradient(var(--accent), transparent);
+    animation: pulse 2s var(--ease) infinite;
+}
+@keyframes pulse {
+    0%, 100% { transform: scaleY(.5); opacity: .4; transform-origin: top; }
+    50%      { transform: scaleY(1);  opacity: 1;  transform-origin: top; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .copy { transform: none; }
+    .scrollLine { animation: none; }
+}
