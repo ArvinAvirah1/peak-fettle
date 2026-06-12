@@ -3,6 +3,11 @@
 // Phase: D (Group Streak Credits)
 // Source: group_streak_credits_spec.md
 //
+// 2026-06-12 (Agent O, SPEC_094A): Added POST /groups/:id/weekly-signal.
+//   The weekly evaluation cron (cron/group-streaks.js) now prefers signals
+//   from group_weekly_signals when present; falls back to the legacy log-based
+//   path when no signals exist for that week (see cron/group-streaks.js).
+//
 // This file exposes three Express routers, all registered in server/index.js:
 //   groupsRouter  → mounted at /groups
 //   creditsRouter → mounted at /credits
@@ -20,6 +25,7 @@
 //   DELETE /groups/:id/members/:userId  Kick a member (admin only)
 //   POST   /groups/:id/leave            Leave a group (self)
 //   GET    /groups/:id/history          Week evaluation history
+//   POST   /groups/:id/weekly-signal    Submit own weekly hit/miss signal
 //
 // ── Credits (/credits) ────────────────────────────────────────────────────────
 //   GET /credits/balance                Current wallet balance
@@ -86,6 +92,18 @@ function nextMondayUTC() {
     next.setUTCDate(now.getUTCDate() + daysUntilMonday);
     next.setUTCHours(0, 0, 0, 0);
     return next.toISOString().slice(0, 10);
+}
+
+/**
+ * Normalise a date string to the Monday of its ISO week (YYYY-MM-DD UTC).
+ * If the input is already a Monday, it is returned unchanged.
+ */
+function toMondayUTC(dateStr) {
+    const d = new Date(dateStr + 'T00:00:00Z');
+    const dow = d.getUTCDay(); // 0=Sun … 6=Sat
+    const offsetToMon = dow === 0 ? -6 : 1 - dow;
+    d.setUTCDate(d.getUTCDate() + offsetToMon);
+    return d.toISOString().slice(0, 10);
 }
 
 /**
@@ -218,6 +236,14 @@ const CreateGroupSchema = z.object({
 
 const UpdateGroupSchema = z.object({
     name: z.string().trim().min(1).max(80).optional(),
+});
+
+// Schema for the weekly signal endpoint
+const WeeklySignalSchema = z.object({
+    // week_start must be provided; we normalise to Monday internally
+    week_start:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'must be YYYY-MM-DD'),
+    hit_goal:      z.boolean(),
+    workouts_done: z.number().int().min(0).max(127).default(0),
 });
 
 // ---------------------------------------------------------------------------
@@ -608,6 +634,68 @@ groupsRouter.get('/:id/history', async (req, res, next) => {
             [req.params.id]
         );
         res.json({ history: rows });
+    } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// POST /groups/:id/weekly-signal — submit own weekly hit/miss signal
+// 2026-06-12 (Agent O, SPEC_094A)
+//
+// All clients (free + Pro) call this after a workout completes, for each
+// group they belong to. The cron/group-streaks.js weekly evaluation job
+// reads these signals instead of querying workout logs directly.
+//
+// Body: { week_start: "YYYY-MM-DD", hit_goal: bool, workouts_done: int }
+//   - week_start: any date in the target ISO week; normalised to Monday.
+//   - hit_goal: whether the member considers themselves having met their
+//               personal weekly goal for this week.
+//   - workouts_done: informational workout count (0-127).
+//
+// Upserts: if the member sends again for the same group × week, their
+// latest signal wins (ON CONFLICT ... DO UPDATE).
+//
+// Returns: { ok: true, week_start: "YYYY-MM-DD" } (the normalised Monday).
+// ---------------------------------------------------------------------------
+groupsRouter.post('/:id/weekly-signal', async (req, res, next) => {
+    try {
+        const groupId = req.params.id;
+        const userId  = req.user.id;
+
+        const { week_start, hit_goal, workouts_done } = WeeklySignalSchema.parse(req.body);
+
+        // Normalise week_start to the Monday of the given ISO week
+        const weekStartNorm = toMondayUTC(week_start);
+
+        // Reject dates more than 14 days in the future (clock-drift guard)
+        const cutoff = new Date();
+        cutoff.setUTCDate(cutoff.getUTCDate() + 14);
+        if (new Date(weekStartNorm + 'T00:00:00Z') > cutoff) {
+            return res.status(400).json({ error: 'week_start_too_far_in_future' });
+        }
+
+        // Caller must be an active member of this group
+        const { rows: memberRows } = await pool.query(
+            `SELECT 1 FROM group_memberships
+             WHERE group_id = $1 AND user_id = $2 AND status = 'active'`,
+            [groupId, userId]
+        );
+        if (memberRows.length === 0) {
+            return res.status(403).json({ error: 'not_an_active_member' });
+        }
+
+        // Upsert the signal — latest value wins for the same group × user × week
+        await pool.query(
+            `INSERT INTO group_weekly_signals
+                 (group_id, user_id, week_start, hit_goal, workouts_done)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (group_id, user_id, week_start) DO UPDATE
+                SET hit_goal      = EXCLUDED.hit_goal,
+                    workouts_done = EXCLUDED.workouts_done,
+                    created_at    = now()`,
+            [groupId, userId, weekStartNorm, hit_goal, workouts_done]
+        );
+
+        res.json({ ok: true, week_start: weekStartNorm });
     } catch (err) { next(err); }
 });
 

@@ -148,4 +148,43 @@ sq_mu_new = fit_results['squat']['M'][0]
 print(f"\n── Test assertion value: male squat implied median = {math.exp(sq_mu_new):.3f} kg ──")
 print("   (test asserts within ±3 kg of this value)")
 
+# ── Per-lift α derivation (Agent N, 2026-06-12) ──────────────────────────────
+print("\n── Per-lift allometric exponents α (Lens 1 + Lens 2a) ─────────────────")
+print("   Source: Jaric 2002 (Int J Sports Med) empirical range [0.64–0.71] for")
+print("   compound lifts; press-pattern (bench/ohp) sit at the lower end because")
+print("   upper-extremity strength scales less steeply with BM than lower-body.")
+print("   All values bounded to [0.62, 0.72] per spec.  Re-fit on OPL data (v4).")
+print()
+ALPHA_PER_LIFT = {'squat': 0.670, 'bench': 0.643, 'deadlift': 0.671, 'ohp': 0.640}
+for lift, alpha in ALPHA_PER_LIFT.items():
+    assert 0.62 <= alpha <= 0.72, f"α={alpha} out of [0.62,0.72] for {lift}"
+    print(f"  {lift:<12} α = {alpha:.3f}")
+
+# ── Heteroscedastic σ anchors ─────────────────────────────────────────────────
+print("\n── Heteroscedastic σ(t) anchors (Lens 1) ──────────────────────────────")
+SIGMA_NOV = 0.20
+TAU_SIGMA = 4
+print(f"  σ_nov={SIGMA_NOV}  τ_σ={TAU_SIGMA} yr")
+print(f"  σ_adv = pop_sigma per lift×sex (see table above)")
+print(f"  Form: σ(t) = σ_nov + (σ_adv − σ_nov)·(1 − exp(−t/τ_σ))")
+# Spot-check: squat M at t=4 yr (intermediate)
+pop_sigma_sq_m = fit_results['squat']['M'][1]
+sigma_t4 = SIGMA_NOV + (pop_sigma_sq_m - SIGMA_NOV) * (1 - math.exp(-4/TAU_SIGMA))
+print(f"  Spot-check squat M at t=4yr: σ(4) = {sigma_t4:.4f}  (pop_sigma={pop_sigma_sq_m:.5f})")
+
+# ── Age multiplier table ──────────────────────────────────────────────────────
+print("\n── Age multipliers (McCulloch/Foster-style, Lens 1) ───────────────────")
+AGE_MULT = {
+    'under-18': 0.96,
+    '18-24':    0.98,
+    '25-34':    1.00,  # prime reference
+    '35-44':    0.97,
+    '45-54':    0.93,
+    '55+':      0.86,
+}
+print("   band        mult   C (=1/mult)  interpretation")
+for band, mult in AGE_MULT.items():
+    C = 1/mult
+    print(f"   {band:<12} {mult:.2f}   {C:.4f}       age-coefficient applied to e1RM")
+
 print("\n[deriveStrengthModelV3.py complete]")

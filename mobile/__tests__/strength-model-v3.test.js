@@ -138,5 +138,77 @@ near(M.QUANTILE_MAP[5], 0.995, 1e-9, 'QUANTILE_MAP[5] = 0.995 (world-class)');
 // ── 9. MODEL_VERSION ──────────────────────────────────────────────────────
 ok(M.MODEL_VERSION === 3, 'MODEL_VERSION is 3');
 
+// ── 10. Per-lift α (Agent N) ──────────────────────────────────────────────
+console.log('\n  -- Per-lift α (Agent N) --');
+ok(typeof M.ALPHA_PER_LIFT === 'object' && M.ALPHA_PER_LIFT !== null, 'ALPHA_PER_LIFT exported');
+for (const lift of ['squat', 'bench', 'deadlift', 'ohp']) {
+  const alpha = M.ALPHA_PER_LIFT[lift];
+  ok(alpha >= 0.62 && alpha <= 0.72, `${lift} α=${alpha} within [0.62,0.72]`);
+}
+// squat and deadlift should be higher than bench and ohp (biomechanical prior)
+ok(M.ALPHA_PER_LIFT.squat > M.ALPHA_PER_LIFT.bench, 'squat α > bench α');
+ok(M.ALPHA_PER_LIFT.deadlift > M.ALPHA_PER_LIFT.ohp, 'deadlift α > ohp α');
+// Ranked percentile uses per-lift α by default (different from global 0.667 for bench)
+const rBenchGlobal = M.computeRankedPercentile('bench', 'M', 100, 80, 0.667);
+const rBenchPerLift = M.computeRankedPercentile('bench', 'M', 100, 80);
+ok(rBenchGlobal !== rBenchPerLift, 'bench ranked percentile differs when using per-lift α vs global 0.667');
+
+// ── 11. Heteroscedastic σ (Agent N) ──────────────────────────────────────
+console.log('\n  -- Heteroscedastic σ (Agent N) --');
+ok(typeof M.heteroscedasticSigma === 'function', 'heteroscedasticSigma exported');
+ok(M.SIGMA_NOV === 0.20, 'SIGMA_NOV = 0.20');
+ok(M.TAU_SIGMA === 4, 'TAU_SIGMA = 4 yr');
+// σ is monotonically non-decreasing with training years
+const { sigma: popSigSq } = M.liftPopParams('squat', 'M');
+const s0 = M.heteroscedasticSigma(popSigSq, 0);
+const s2 = M.heteroscedasticSigma(popSigSq, 2);
+const s6 = M.heteroscedasticSigma(popSigSq, 6);
+const sInf = M.heteroscedasticSigma(popSigSq, 100);
+ok(s0 <= s2 && s2 <= s6 && s6 <= sInf, `σ monotone: ${s0.toFixed(3)} ≤ ${s2.toFixed(3)} ≤ ${s6.toFixed(3)} ≤ ${sInf.toFixed(3)}`);
+// At t=0: σ = σ_nov
+near(s0, M.SIGMA_NOV, 1e-9, 'σ(0) = σ_nov');
+// As t→∞: σ → pop_sigma (within 1%)
+near(sInf, popSigSq, 0.01 * popSigSq, 'σ(100yr) ≈ pop_sigma (within 1%)');
+// Null training years: falls back to pop_sigma
+near(M.heteroscedasticSigma(popSigSq, null), popSigSq, 1e-9, 'heteroscedasticSigma(null) = pop_sigma');
+
+// ── 12. Age multiplier (Agent N) ──────────────────────────────────────────
+console.log('\n  -- Age multiplier (Agent N) --');
+ok(typeof M.ageMultiplier === 'function', 'ageMultiplier exported');
+ok(typeof M.AGE_MULT === 'object' && M.AGE_MULT !== null, 'AGE_MULT exported');
+near(M.ageMultiplier('25-34'), 1.0, 1e-9, 'prime age (25-34) mult = 1.0');
+ok(M.ageMultiplier('55+') < 1.0, '55+ mult < 1.0 (masters deficit)');
+ok(M.ageMultiplier('under-18') < 1.0, 'under-18 mult < 1.0 (youth developing)');
+ok(M.ageMultiplier(null) === 1.0, 'null age_band → mult = 1.0 (OFF)');
+ok(M.ageMultiplier(undefined) === 1.0, 'undefined age_band → mult = 1.0 (OFF)');
+ok(M.ageMultiplier('unknown-band') === 1.0, 'unknown band → mult = 1.0');
+// Masters correction boosts effective percentile
+const rawPct = M.computePercentile('squat', 'M', 100, 80, 'intermediate', '25-34');
+const mastersPct = M.computePercentile('squat', 'M', 100, 80, 'intermediate', '55+');
+ok(mastersPct > rawPct, `55+ age adjustment boosts percentile (${mastersPct.toFixed(1)} > ${rawPct.toFixed(1)})`);
+
+// ── 13. computePercentile (Lens 1) (Agent N) ──────────────────────────────
+console.log('\n  -- computePercentile / Lens 1 (Agent N) --');
+ok(typeof M.computePercentile === 'function', 'computePercentile exported');
+// Returns 0 for invalid inputs
+ok(M.computePercentile('squat', 'M', 0, 80, 'intermediate', '25-34') === 0, 'e1rm=0 → 0');
+ok(M.computePercentile('squat', 'M', 100, 0, 'intermediate', '25-34') === 0, 'bw=0 → 0');
+// Age OFF when null → same as prime-age
+near(
+  M.computePercentile('deadlift', 'M', 150, 75, 'advanced', null),
+  M.computePercentile('deadlift', 'M', 150, 75, 'advanced', '25-34'),
+  1e-6, 'null age = 25-34 (prime reference)'
+);
+// Higher experience level → wider σ → different percentile distribution
+const pBeg = M.computePercentile('bench', 'M', 80, 75, 'beginner', '25-34');
+const pAdv = M.computePercentile('bench', 'M', 80, 75, 'advanced', '25-34');
+// At the same load, higher experience widens σ → centile moves toward 50
+ok(typeof pBeg === 'number' && typeof pAdv === 'number' && pBeg >= 0 && pAdv >= 0,
+   `Lens 1 returns valid percentiles: beginner=${pBeg.toFixed(1)} advanced=${pAdv.toFixed(1)}`);
+// Load monotonicity: higher load → higher percentile
+const p_lo = M.computePercentile('squat', 'M', 80, 80, 'intermediate', '25-34');
+const p_hi = M.computePercentile('squat', 'M', 120, 80, 'intermediate', '25-34');
+ok(p_hi > p_lo, `Lens 1 monotone in load: ${p_lo.toFixed(1)} < ${p_hi.toFixed(1)}`);
+
 console.log(fail === 0 ? '\nALL V3 MODEL TESTS PASS' : `\n${fail} TEST(S) FAILED`);
 process.exit(fail === 0 ? 0 : 1);

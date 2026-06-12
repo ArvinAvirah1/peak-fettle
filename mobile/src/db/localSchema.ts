@@ -16,10 +16,14 @@
  * Weight encoding mirrors Postgres: `weight_raw` is INTEGER = kg × 8.
  *
  * Statements run in order, all CREATE ... IF NOT EXISTS, so init() is idempotent.
+ *
+ * Schema v2 (SPEC-094A, 2026-06-12): adds personal-data tables for local-first
+ * free tier. All v2 tables use TEXT pk id, snake_case cols mirroring server,
+ * JSON-as-TEXT for jsonb, ISO TEXT dates.
  */
 
 // ---------------------------------------------------------------------------
-// Table DDL
+// Table DDL — v1 (unchanged)
 // ---------------------------------------------------------------------------
 
 export const CREATE_WORKOUTS = `
@@ -135,7 +139,254 @@ export const CREATE_OUTBOX_ID_IDX = `
 CREATE INDEX IF NOT EXISTS idx_outbox_id ON outbox(id)`;
 
 // ---------------------------------------------------------------------------
-// Ordered execution list — run by localDb.init().
+// Table DDL — v2 (SPEC-094A local-first tables)
+// All TEXT pk id, snake_case, JSON-as-TEXT for jsonb, ISO TEXT dates.
+// ---------------------------------------------------------------------------
+
+// Plans: mirrors server plans table (structure as JSON TEXT).
+export const CREATE_PLANS = `
+CREATE TABLE IF NOT EXISTS plans (
+  id TEXT PRIMARY KEY,
+  user_id TEXT,
+  name TEXT NOT NULL,
+  is_template INTEGER NOT NULL DEFAULT 0,
+  is_ai_generated INTEGER NOT NULL DEFAULT 0,
+  structure TEXT NOT NULL,
+  created_at TEXT,
+  updated_at TEXT
+)`;
+
+// Routines: user-defined exercise lists (exercises as JSON TEXT).
+export const CREATE_ROUTINES = `
+CREATE TABLE IF NOT EXISTS routines (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  exercises TEXT NOT NULL DEFAULT '[]',
+  created_at TEXT,
+  updated_at TEXT
+)`;
+
+// Workout templates: curated programs (global, no user_id).
+export const CREATE_WORKOUT_TEMPLATES = `
+CREATE TABLE IF NOT EXISTS workout_templates (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  discipline TEXT NOT NULL,
+  experience_level TEXT NOT NULL,
+  days_per_week INTEGER NOT NULL,
+  is_featured INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT
+)`;
+
+// Template sessions: days within a workout template.
+export const CREATE_TEMPLATE_SESSIONS = `
+CREATE TABLE IF NOT EXISTS template_sessions (
+  id TEXT PRIMARY KEY,
+  template_id TEXT NOT NULL,
+  day_number INTEGER NOT NULL,
+  session_name TEXT NOT NULL,
+  notes TEXT
+)`;
+
+// Template exercises: exercises within a template session.
+export const CREATE_TEMPLATE_EXERCISES = `
+CREATE TABLE IF NOT EXISTS template_exercises (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  exercise_name TEXT NOT NULL,
+  sets INTEGER NOT NULL,
+  reps TEXT NOT NULL,
+  rest_seconds INTEGER,
+  form_cue TEXT,
+  order_index INTEGER NOT NULL DEFAULT 0
+)`;
+
+// Streaks: one row per user tracking current/longest streak.
+export const CREATE_STREAKS = `
+CREATE TABLE IF NOT EXISTS streaks (
+  user_id TEXT PRIMARY KEY,
+  current_streak_days INTEGER NOT NULL DEFAULT 0,
+  longest_streak_days INTEGER NOT NULL DEFAULT 0,
+  last_session_date TEXT,
+  pending_makeup INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT
+)`;
+
+// Streak overrides: illness/travel/exam excused days.
+export const CREATE_STREAK_OVERRIDES = `
+CREATE TABLE IF NOT EXISTS streak_overrides (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  override_date TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  notes TEXT,
+  created_at TEXT,
+  UNIQUE (user_id, override_date)
+)`;
+
+// Daily health log: sleep, mood, stress, screen time, meditation.
+export const CREATE_DAILY_HEALTH_LOG = `
+CREATE TABLE IF NOT EXISTS daily_health_log (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  log_date TEXT NOT NULL,
+  sleep_hours REAL,
+  sleep_quality INTEGER,
+  mood_score INTEGER,
+  stress_score INTEGER,
+  screen_time_minutes INTEGER,
+  habits_completed TEXT DEFAULT '[]',
+  meditation_minutes INTEGER,
+  notes TEXT,
+  created_at TEXT,
+  updated_at TEXT,
+  UNIQUE (user_id, log_date)
+)`;
+
+// Daily health metrics: wearable data (HRV, resting HR, etc.).
+export const CREATE_DAILY_HEALTH_METRICS = `
+CREATE TABLE IF NOT EXISTS daily_health_metrics (
+  metric_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  date TEXT NOT NULL,
+  resting_hr_bpm INTEGER,
+  hrv_ms REAL,
+  sleep_hours REAL,
+  active_kcal INTEGER,
+  source TEXT NOT NULL DEFAULT 'manual',
+  created_at TEXT,
+  UNIQUE (user_id, date, source)
+)`;
+
+// Habits: user-defined recurring habits.
+export const CREATE_HABITS = `
+CREATE TABLE IF NOT EXISTS habits (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  frequency TEXT NOT NULL DEFAULT 'daily',
+  is_active INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT
+)`;
+
+// User weekly goals: workouts-per-week target with pending-change queue.
+export const CREATE_USER_WEEKLY_GOALS = `
+CREATE TABLE IF NOT EXISTS user_weekly_goals (
+  user_id TEXT PRIMARY KEY,
+  workouts_per_week INTEGER NOT NULL DEFAULT 3,
+  pending_workouts_per_week INTEGER,
+  pending_applies_at TEXT,
+  created_at TEXT,
+  updated_at TEXT
+)`;
+
+// User constraints: physical limitation flags for plan generation.
+export const CREATE_USER_CONSTRAINTS = `
+CREATE TABLE IF NOT EXISTS user_constraints (
+  constraint_id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  constraint_type TEXT NOT NULL,
+  custom_note TEXT,
+  created_at TEXT,
+  UNIQUE (user_id, constraint_type)
+)`;
+
+// Exercise PRs: best weight per rep count per exercise.
+export const CREATE_EXERCISE_PRS = `
+CREATE TABLE IF NOT EXISTS exercise_prs (
+  user_id TEXT NOT NULL,
+  exercise_id TEXT NOT NULL,
+  rep_count INTEGER NOT NULL,
+  weight_kg REAL NOT NULL,
+  set_id TEXT NOT NULL,
+  achieved_at TEXT NOT NULL,
+  created_at TEXT,
+  updated_at TEXT,
+  PRIMARY KEY (user_id, exercise_id, rep_count)
+)`;
+
+// User confirmed 1RM: manually confirmed 1-rep maxes.
+export const CREATE_USER_CONFIRMED_1RM = `
+CREATE TABLE IF NOT EXISTS user_confirmed_1rm (
+  user_id TEXT NOT NULL,
+  lift_id TEXT NOT NULL,
+  confirmed_kg REAL NOT NULL,
+  confirmed_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, lift_id)
+)`;
+
+// User cosmetics: owned cosmetic items ledger.
+export const CREATE_USER_COSMETICS = `
+CREATE TABLE IF NOT EXISTS user_cosmetics (
+  user_id TEXT NOT NULL,
+  item_id TEXT NOT NULL,
+  acquired_at TEXT NOT NULL,
+  acquisition_source TEXT NOT NULL DEFAULT 'purchase',
+  PRIMARY KEY (user_id, item_id)
+)`;
+
+// User equipped cosmetics: active loadout (one row per slot).
+export const CREATE_USER_EQUIPPED_COSMETICS = `
+CREATE TABLE IF NOT EXISTS user_equipped_cosmetics (
+  user_id TEXT NOT NULL,
+  slot TEXT NOT NULL,
+  item_id TEXT NOT NULL,
+  equipped_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, slot)
+)`;
+
+// User profile: single-row profile including survey fields from 20260611.
+// id='active' (one row per install / user session).
+export const CREATE_USER_PROFILE = `
+CREATE TABLE IF NOT EXISTS user_profile (
+  id TEXT PRIMARY KEY,
+  user_id TEXT,
+  email TEXT,
+  display_name TEXT,
+  sex TEXT,
+  birth_date TEXT,
+  weight_class_kg REAL,
+  years_in_sport INTEGER,
+  experience_level TEXT,
+  tier TEXT NOT NULL DEFAULT 'free',
+  unit_pref TEXT NOT NULL DEFAULT 'kg',
+  score_pref TEXT NOT NULL DEFAULT 'peak_fettle',
+  theme_preference TEXT DEFAULT 'deepOcean',
+  show_wilks INTEGER NOT NULL DEFAULT 0,
+  training_goal TEXT,
+  sessions_per_week INTEGER,
+  session_minutes INTEGER,
+  goal_weight_kg REAL,
+  equipment_profile TEXT,
+  season_phase TEXT,
+  last_deload_at TEXT,
+  created_at TEXT,
+  updated_at TEXT
+)`;
+
+// ---------------------------------------------------------------------------
+// v2 indexes
+// ---------------------------------------------------------------------------
+
+export const CREATE_DAILY_HEALTH_LOG_IDX = `
+CREATE INDEX IF NOT EXISTS idx_daily_health_log_user_date ON daily_health_log(user_id, log_date)`;
+
+export const CREATE_DAILY_HEALTH_METRICS_IDX = `
+CREATE INDEX IF NOT EXISTS idx_daily_health_metrics_user_date ON daily_health_metrics(user_id, date)`;
+
+export const CREATE_EXERCISE_PRS_IDX = `
+CREATE INDEX IF NOT EXISTS idx_exercise_prs_user ON exercise_prs(user_id)`;
+
+export const CREATE_USER_CONSTRAINTS_IDX = `
+CREATE INDEX IF NOT EXISTS idx_user_constraints_user ON user_constraints(user_id)`;
+
+export const CREATE_ROUTINES_IDX = `
+CREATE INDEX IF NOT EXISTS idx_routines_user ON routines(user_id)`;
+
+// ---------------------------------------------------------------------------
+// Ordered execution list — v1 statements (run by localDb.init())
 // ---------------------------------------------------------------------------
 
 export const SCHEMA_STATEMENTS: string[] = [
@@ -149,4 +400,34 @@ export const SCHEMA_STATEMENTS: string[] = [
   CREATE_EXERCISE_GOALS,
   CREATE_SETS_WORKOUT_IDX,
   CREATE_OUTBOX_ID_IDX,
+];
+
+// ---------------------------------------------------------------------------
+// v2 statements — applied by the migration runner (migrations.ts), NOT
+// by localDb.init() directly. Exported so migrations.ts can reference them.
+// ---------------------------------------------------------------------------
+
+export const SCHEMA_V2_STATEMENTS: string[] = [
+  CREATE_PLANS,
+  CREATE_ROUTINES,
+  CREATE_WORKOUT_TEMPLATES,
+  CREATE_TEMPLATE_SESSIONS,
+  CREATE_TEMPLATE_EXERCISES,
+  CREATE_STREAKS,
+  CREATE_STREAK_OVERRIDES,
+  CREATE_DAILY_HEALTH_LOG,
+  CREATE_DAILY_HEALTH_METRICS,
+  CREATE_HABITS,
+  CREATE_USER_WEEKLY_GOALS,
+  CREATE_USER_CONSTRAINTS,
+  CREATE_EXERCISE_PRS,
+  CREATE_USER_CONFIRMED_1RM,
+  CREATE_USER_COSMETICS,
+  CREATE_USER_EQUIPPED_COSMETICS,
+  CREATE_USER_PROFILE,
+  CREATE_DAILY_HEALTH_LOG_IDX,
+  CREATE_DAILY_HEALTH_METRICS_IDX,
+  CREATE_EXERCISE_PRS_IDX,
+  CREATE_USER_CONSTRAINTS_IDX,
+  CREATE_ROUTINES_IDX,
 ];

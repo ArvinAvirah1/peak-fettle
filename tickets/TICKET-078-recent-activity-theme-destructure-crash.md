@@ -4,7 +4,7 @@
 **Date opened:** 2026-06-03
 **Phase:** R — Revision & Hardening
 **Model lane:** Sonnet (mechanical fix) — already applied in the 2026-06-03 session; this ticket is the written record + verification gate.
-**Status:** FIX APPLIED (awaiting parse-sweep verification + commit)
+**Status:** FIXED + COMMITTED (2026-06-12) — verified by parse-sweep
 **Depends on:** nothing
 **File-ownership boundary (do not edit outside these):**
 - `mobile/app/workout-history.tsx`
