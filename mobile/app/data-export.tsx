@@ -36,6 +36,13 @@ import {
   parseImport,
   canonicalize,
 } from '../src/data/backup/exportEngine';
+import {
+  backupNow,
+  getStatus,
+  restoreFromCloud,
+  BackupStatus,
+} from '../src/data/backup/backupManager';
+import { useRouter } from 'expo-router';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -77,8 +84,102 @@ export default function DataExportScreen(): React.ReactElement {
   const [csvLoading, setCsvLoading] = useState(false);
   const [backupLoading, setBackupLoading] = useState(false);
   const [restoreLoading, setRestoreLoading] = useState(false);
+  const [cloudBackupLoading, setCloudBackupLoading] = useState(false);
+  const [cloudRestoreLoading, setCloudRestoreLoading] = useState(false);
+  const [cloudStatus, setCloudStatus] = useState<BackupStatus | null>(null);
+  const [recoveryCodeInput, setRecoveryCodeInput] = useState('');
+  const [showRecoveryInput, setShowRecoveryInput] = useState(false);
+  const router = useRouter();
 
   const today = new Date().toISOString().slice(0, 10);
+
+  // Load cloud backup status on mount
+  React.useEffect(() => {
+    getStatus().then(setCloudStatus).catch(() => {});
+  }, []);
+
+  // ── Cloud backup handlers ─────────────────────────────────────────────────
+
+  const handleCloudBackup = async () => {
+    setCloudBackupLoading(true);
+    try {
+      const result = await backupNow();
+      if (!result.ok) {
+        Alert.alert('Backup failed', result.error);
+        return;
+      }
+      if ('needsRecoveryAck' in result && result.needsRecoveryAck) {
+        // Navigate to recovery-code screen — pendingRecoveryCode is already stashed.
+        router.push('/recovery-code');
+        return;
+      }
+      // Refresh status after successful backup.
+      getStatus().then(setCloudStatus).catch(() => {});
+      Alert.alert('Backup complete', 'Your data has been encrypted and backed up.');
+    } catch (err) {
+      Alert.alert('Backup failed', err instanceof Error ? err.message : String(err));
+    } finally {
+      setCloudBackupLoading(false);
+    }
+  };
+
+  const handleCloudRestore = async () => {
+    // Check if we already have a keychain key; if not, show recovery code input.
+    if (showRecoveryInput) {
+      if (!recoveryCodeInput.trim()) {
+        Alert.alert('Recovery code required', 'Enter your recovery code to restore from the cloud backup.');
+        return;
+      }
+      Alert.alert(
+        'Restore from cloud?',
+        'This will replace all training data on this device with your cloud backup. This cannot be undone.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Restore',
+            style: 'destructive',
+            onPress: async () => {
+              setCloudRestoreLoading(true);
+              try {
+                const result = await restoreFromCloud({ recoveryCode: recoveryCodeInput.trim() });
+                if (!result.ok) {
+                  Alert.alert('Restore failed', result.error);
+                } else {
+                  setShowRecoveryInput(false);
+                  setRecoveryCodeInput('');
+                  getStatus().then(setCloudStatus).catch(() => {});
+                  Alert.alert('Restore complete', `Your data has been restored (${result.restored} records).`);
+                }
+              } finally {
+                setCloudRestoreLoading(false);
+              }
+            },
+          },
+        ],
+      );
+      return;
+    }
+
+    // Try keychain path first; show recovery input if no key exists.
+    setCloudRestoreLoading(true);
+    try {
+      const result = await restoreFromCloud({});
+      if (!result.ok) {
+        if (result.error.includes('recovery code')) {
+          // No keychain key — ask for recovery code.
+          setCloudRestoreLoading(false);
+          setShowRecoveryInput(true);
+          return;
+        }
+        Alert.alert('Restore failed', result.error);
+      } else {
+        getStatus().then(setCloudStatus).catch(() => {});
+        Alert.alert('Restore complete', `Your data has been restored (${result.restored} records).`);
+      }
+    } finally {
+      setCloudRestoreLoading(false);
+    }
+  };
 
   const handleExportJson = async () => {
     setJsonLoading(true);
@@ -311,6 +412,133 @@ export default function DataExportScreen(): React.ReactElement {
               </Text>
               <Text style={{ color: colors.textSecondary, fontSize: fs.caption, marginTop: 2 }}>
                 Flat set log: date, exercise, weight, reps, RIR
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {/* ── Cloud backup card (TICKET-094 E2E encrypted) ─────────────────── */}
+        <View
+          style={[
+            styles.ownershipCard,
+            {
+              backgroundColor: colors.bgSecondary,
+              borderRadius: r.lg,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: colors.borderDefault,
+              padding: sp.s4,
+              marginTop: sp.s6,
+              marginBottom: sp.s4,
+            },
+          ]}
+        >
+          <Text style={{ color: colors.textPrimary, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold, marginBottom: sp.s2 }}>
+            Cloud backup
+          </Text>
+          <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, lineHeight: 20, marginBottom: sp.s2 }}>
+            Encrypted on your phone before upload — we can't read it.
+          </Text>
+          {/* Status line */}
+          {cloudStatus && (
+            <Text
+              style={{
+                color: cloudStatus.stale ? colors.statusWarning : colors.textTertiary,
+                fontSize: fs.caption,
+                marginBottom: sp.s3,
+              }}
+            >
+              {cloudStatus.lastLocalAt
+                ? (cloudStatus.stale
+                  ? 'Last backed up: ' + new Date(cloudStatus.lastLocalAt).toLocaleDateString() + ' — backup is overdue'
+                  : 'Last backed up: ' + new Date(cloudStatus.lastLocalAt).toLocaleDateString())
+                : 'Never backed up'}
+            </Text>
+          )}
+        </View>
+
+        {/* Back up now */}
+        <TouchableOpacity
+          onPress={handleCloudBackup}
+          disabled={cloudBackupLoading || cloudRestoreLoading}
+          accessibilityRole="button"
+          accessibilityLabel="Back up now to cloud"
+          style={[
+            styles.exportBtn,
+            {
+              backgroundColor: colors.accentDefault,
+              borderRadius: r.lg,
+              padding: sp.s4,
+              marginBottom: sp.s3,
+              opacity: cloudBackupLoading ? 0.7 : 1,
+            },
+          ]}
+        >
+          <View style={styles.btnContent}>
+            <View>
+              <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold }}>
+                {cloudBackupLoading ? 'Backing up…' : 'Back up now'}
+              </Text>
+              <Text style={{ color: theme.components.buttonPrimaryText + 'CC', fontSize: fs.caption, marginTop: 2 }}>
+                Encrypted backup sent to your account
+              </Text>
+            </View>
+          </View>
+        </TouchableOpacity>
+
+        {/* Restore from cloud */}
+        {showRecoveryInput && (
+          <View style={{ marginBottom: sp.s3 }}>
+            {/* eslint-disable-next-line @typescript-eslint/no-require-imports */}
+            {React.createElement(require('react-native').TextInput, {
+              value: recoveryCodeInput,
+              onChangeText: setRecoveryCodeInput,
+              placeholder: 'XXXX-XXXX-XXXX-XXXX-XXXX-XXXX',
+              placeholderTextColor: colors.textTertiary,
+              autoCapitalize: 'characters' as const,
+              autoCorrect: false,
+              style: {
+                fontFamily: 'Courier New',
+                fontSize: fs.bodyMd,
+                color: colors.textPrimary,
+                backgroundColor: colors.bgTertiary ?? colors.bgSecondary,
+                borderRadius: r.md,
+                borderWidth: 1,
+                borderColor: colors.borderDefault,
+                padding: sp.s3,
+                marginBottom: sp.s2,
+              },
+              accessibilityLabel: 'Enter recovery code',
+            })}
+            <Text style={{ color: colors.textTertiary, fontSize: fs.caption, lineHeight: 16 }}>
+              Enter the recovery code you saved when you first backed up.
+            </Text>
+          </View>
+        )}
+        <TouchableOpacity
+          onPress={handleCloudRestore}
+          disabled={cloudBackupLoading || cloudRestoreLoading}
+          accessibilityRole="button"
+          accessibilityLabel="Restore from cloud backup"
+          style={[
+            styles.exportBtn,
+            {
+              backgroundColor: colors.bgSecondary,
+              borderRadius: r.lg,
+              borderWidth: StyleSheet.hairlineWidth,
+              borderColor: colors.statusDanger,
+              padding: sp.s4,
+              marginBottom: sp.s3,
+              opacity: cloudRestoreLoading ? 0.7 : 1,
+            },
+          ]}
+        >
+          <View style={styles.btnContent}>
+            <View>
+              <Text style={{ color: colors.statusDanger, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold }}>
+                {cloudRestoreLoading ? 'Restoring…' : 'Restore from cloud'}
+              </Text>
+              <Text style={{ color: colors.textSecondary, fontSize: fs.caption, marginTop: 2 }}>
+                Replaces this device's data with your cloud backup
               </Text>
             </View>
           </View>
