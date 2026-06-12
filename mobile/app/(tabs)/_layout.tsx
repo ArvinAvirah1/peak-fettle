@@ -31,7 +31,6 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useAuth } from '../../src/hooks/useAuth';
 import { useTheme } from '../../src/theme/ThemeContext';
-import { useAutoBackup } from '../../src/hooks/useAutoBackup';
 
 // ---------------------------------------------------------------------------
 // AnimatedTabIcon — scale spring on focus, per spec §7 (P1-012)
@@ -70,7 +69,6 @@ export default function TabsLayout(): React.ReactElement {
   const { theme, fontWeight } = useTheme();
   const { colors } = theme;
   const router = useRouter();
-  useAutoBackup();
 
   // Don't render anything while the cold-start auth check is running —
   // the root layout is already showing a spinner.

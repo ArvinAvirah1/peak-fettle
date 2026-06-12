@@ -14,6 +14,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.peakfettle.app",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       },
@@ -60,9 +61,13 @@
       ],
       "expo-sqlite",
       "expo-web-browser",
+      "expo-apple-authentication",
       "@bacons/apple-targets"
     ],
-    "scheme": "peak-fettle",
+    "scheme": [
+      "peak-fettle",
+      "com.googleusercontent.apps.1072305096048-0s6442edsboauv08ini438h0kciohd1j"
+    ],
     "experiments": {
       "typedRoutes": true
     },

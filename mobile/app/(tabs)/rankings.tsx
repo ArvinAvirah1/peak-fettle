@@ -55,12 +55,6 @@ import { confirm1rm } from '../../src/api/percentile';
 import { patchProfile } from '../../src/api/user';
 import { liftIdToName } from '../../src/utils/liftNames';
 import { TierLadderCard } from '../../src/components/TierLadderCard'; // TICKET-093 v3 tier headline
-import {
-  computeRankedPercentile,
-  computePercentile,
-  LiftId,
-  Sex as ModelSex,
-} from '../../src/lib/strengthModelV3'; // Agent N: on-device Lens 1 + 2a
 import { BodyweightPromptCard } from '../../src/components/BodyweightPromptCard';
 import Reanimated, { FadeInDown, useReducedMotion } from 'react-native-reanimated';
 import { useBodyweight } from '../../src/hooks/useBodyweight';
@@ -283,49 +277,6 @@ function ConfirmSheet({
   );
 }
 
-// ---------------------------------------------------------------------------
-// On-device percentile computation (Agent N — SPEC-094A)
-// ---------------------------------------------------------------------------
-
-/** server lift_id → v3 model LiftId (same four competition lifts supported). */
-const LIFT_ID_TO_MODEL_ID: Record<string, LiftId> = {
-  squat: 'squat',
-  back_squat: 'squat',
-  bench: 'bench',
-  bench_press: 'bench',
-  deadlift: 'deadlift',
-  ohp: 'ohp',
-  overhead_press: 'ohp',
-};
-
-/**
- * Compute on-device Lens 1 + Lens 2a percentiles for a single ranking entry.
- * Returns { lens1, lens2a } where either may be null if inputs are unavailable.
- * Falls back to null (caller uses server values) when:
- *   - lift_id not in our competition-lift map
- *   - bodyweight or sex is missing
- *   - e1RM (confirmed or Epley) is null/zero
- */
-function localPercentiles(
-  ranking: { lift_id: string; confirmed_1rm_kg?: number | null; epley_estimate_kg?: number | null },
-  bwKg: number | null | undefined,
-  sex: string | null | undefined,
-  experienceLevel: string | null | undefined,
-  ageBand: string | null | undefined,
-): { lens1: number | null; lens2a: number | null } {
-  const modelLift = LIFT_ID_TO_MODEL_ID[ranking.lift_id];
-  const e1rm = ranking.confirmed_1rm_kg ?? ranking.epley_estimate_kg ?? null;
-  if (!modelLift || !bwKg || bwKg <= 0 || !e1rm || e1rm <= 0) {
-    return { lens1: null, lens2a: null };
-  }
-  const modelSex = sex === 'M' || sex === 'F' ? (sex as ModelSex) : null;
-  if (!modelSex) return { lens1: null, lens2a: null };
-
-  const lens2a = computeRankedPercentile(modelLift, modelSex, e1rm, bwKg);
-  const lens1 = computePercentile(modelLift, modelSex, e1rm, bwKg, experienceLevel, ageBand);
-  return { lens1, lens2a };
-}
-
 /**
  * ScoreBlock — one percentile score with its label, bar, and "Top X%" badge.
  * Renders a "Pending" pill when the value is null (batch job hasn't run yet).
@@ -380,8 +331,6 @@ function RankingCard({
   primaryDiscipline,
   showWilks,
   onConfirmRequest,
-  localLens1,
-  localLens2a,
 }: {
   ranking: PercentileRanking;
   use1rmConfirmation: boolean;
@@ -389,10 +338,6 @@ function RankingCard({
   primaryDiscipline?: string | null;
   showWilks: boolean;
   onConfirmRequest: (ranking: PercentileRanking) => void;
-  /** Agent N: on-device Lens 1 (experience-adjusted). Falls back to server value when null. */
-  localLens1: number | null;
-  /** Agent N: on-device Lens 2a (ranked, BW-normalised). Falls back to server value when null. */
-  localLens2a: number | null;
 }): React.ReactElement {
   const { theme } = useTheme();
   const liftName = liftIdToName(ranking.lift_id);
@@ -451,15 +396,14 @@ function RankingCard({
         </View>
       ) : (
         /* ── Option B / confirmed ranking: show scores ─────────────── */
-        /* Agent N: prefer on-device model values; fall back to server when unavailable */
         <View style={styles.scoresRow}>
           <ScoreBlock
-            value={localLens1 ?? ranking.percentile}
+            value={ranking.percentile}
             label={<GlossaryTerm slug="percentile">vs. your experience band</GlossaryTerm>}
           />
           <View style={[styles.scoresDivider, { backgroundColor: theme.colors.borderDefault }]} />
           <ScoreBlock
-            value={localLens2a ?? ranking.percentile_simple}
+            value={ranking.percentile_simple}
             label="vs. all strength trainees"
           />
         </View>
@@ -913,16 +857,6 @@ export default function RankingsScreen(): React.ReactElement {
                   primaryDiscipline={user?.primary_discipline ?? null}
                   showWilks={showWilks}
                   onConfirmRequest={handleConfirmRequest}
-                  {...(() => {
-                    const lp = localPercentiles(
-                      ranking,
-                      latestBw?.weight_kg ?? user?.weight_class_kg,
-                      user?.sex,
-                      user?.experience_level,
-                      user?.age_band,
-                    );
-                    return { localLens1: lp.lens1, localLens2a: lp.lens2a };
-                  })()}
                 />
               </Reanimated.View>
             ))}

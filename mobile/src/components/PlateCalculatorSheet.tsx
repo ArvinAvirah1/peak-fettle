@@ -38,7 +38,7 @@ import {
 import { getExercisePrefs, setExercisePrefs } from '../data/exercisePrefs';
 import { kgToLbs, displayToKg, UnitSystem } from '../constants/units';
 
-type Mode = 'barbell' | 'machine' | 'warmup';
+type Mode = 'barbell' | 'machine';
 
 interface Props {
   visible: boolean;
@@ -49,8 +49,6 @@ interface Props {
   initialTarget?: string;
   /** Fill the stepper's weight input with this display-unit value. */
   onUseWeight: (displayWeight: number) => void;
-  /** Working weight (display units) for the Warm-up tab. Pass to show the tab. */
-  workingWeightForWarmup?: number;
 }
 
 export default function PlateCalculatorSheet({
@@ -60,7 +58,6 @@ export default function PlateCalculatorSheet({
   unitPref,
   initialTarget,
   onUseWeight,
-  workingWeightForWarmup,
 }: Props): React.ReactElement {
   const isLbs = unitPref === 'lbs';
   const defaultBar = isLbs ? DEFAULT_BAR_LB : DEFAULT_BAR_KG;
@@ -104,23 +101,6 @@ export default function PlateCalculatorSheet({
     mode === 'barbell' && targetNum > 0 ? plateBreakdown(targetNum, baseNum, plates) : null;
   const effective = mode === 'machine' ? effectiveLoad(baseNum, pulley.factor) : 0;
 
-  // ── Warm-up tab ──────────────────────────────────────────────────────────
-  const WARMUP_PERCENTS = [0.40, 0.55, 0.70, 0.85];
-  const BAR_WEIGHT_DISP = isLbs ? DEFAULT_BAR_LB : DEFAULT_BAR_KG;
-  const warmupLadder = React.useMemo(() => {
-    const ref = workingWeightForWarmup ?? targetNum;
-    if (!(ref > 0)) return [];
-    const inc = isLbs ? 5 : 2.5;
-    const minAboveBar = isLbs ? 45 : 20;
-    return WARMUP_PERCENTS.map((pct) => {
-      const rounded = Math.round((ref * pct) / inc) * inc;
-      return { pct, weight: rounded, skip: (rounded - BAR_WEIGHT_DISP) < minAboveBar };
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workingWeightForWarmup, targetNum, isLbs]);
-  const [expandedRung, setExpandedRung] = useState<number | null>(null);
-
-
   const persistPrefs = () => {
     if (!exerciseId) return;
     setExercisePrefs(exerciseId, {
@@ -144,7 +124,7 @@ export default function PlateCalculatorSheet({
 
           {/* Mode toggle */}
           <View style={styles.modeRow}>
-            {(['barbell', 'machine', 'warmup'] as Mode[]).map((m) => (
+            {(['barbell', 'machine'] as Mode[]).map((m) => (
               <TouchableOpacity
                 key={m}
                 style={[styles.modeBtn, mode === m && styles.modeBtnActive]}
@@ -153,14 +133,13 @@ export default function PlateCalculatorSheet({
                 accessibilityLabel={m === 'barbell' ? 'Barbell mode' : 'Machine or cable mode'}
               >
                 <Text style={[styles.modeLabel, mode === m && styles.modeLabelActive]}>
-                  {m === 'barbell' ? 'Barbell' : m === 'machine' ? 'Machine / cable' : 'Warm-up'}
+                  {m === 'barbell' ? 'Barbell' : 'Machine / cable'}
                 </Text>
               </TouchableOpacity>
             ))}
           </View>
 
-          {/* ── Barbell mode ─────────────────────────────────────────── */}
-          {mode === 'barbell' && (
+          {mode === 'barbell' ? (
             <>
               <View style={styles.inputRow}>
                 <View style={styles.inputGroup}>
@@ -224,10 +203,7 @@ export default function PlateCalculatorSheet({
                 <Text style={styles.hint}>Enter a target weight to see the plates.</Text>
               )}
             </>
-          )}
-
-          {/* ── Machine / cable mode ─────────────────────────────────── */}
-          {mode === 'machine' && (
+          ) : (
             <>
               <View style={styles.inputRow}>
                 <View style={styles.inputGroup}>
@@ -288,69 +264,6 @@ export default function PlateCalculatorSheet({
                 <Text style={styles.hint}>
                   Enter the machine weight first — it&apos;s remembered for this exercise.
                 </Text>
-              )}
-            </>
-          )}
-
-          {/* ── Warm-up tab ──────────────────────────────────────────── */}
-          {mode === 'warmup' && (
-            <>
-              {warmupLadder.length === 0 ? (
-                <Text style={styles.hint}>
-                  {workingWeightForWarmup
-                    ? 'Working weight is too light to generate a warm-up ladder.'
-                    : 'Enter a target weight in the Barbell tab to generate warm-up rungs.'}
-                </Text>
-              ) : (
-                <>
-                  <Text style={[styles.inputLabel, { marginBottom: spacing.s3 }]}>
-                    WARM-UP LADDER — {Math.round((workingWeightForWarmup ?? targetNum) * 10) / 10} {unitLabel}
-                  </Text>
-                  {warmupLadder.map(({ pct, weight, skip }, idx) => {
-                    if (skip) return null;
-                    const bk = plateBreakdown(weight, BAR_WEIGHT_DISP, plates);
-                    const isExp = expandedRung === idx;
-                    return (
-                      <TouchableOpacity
-                        key={idx}
-                        style={[styles.rungRow, isExp && styles.rungRowActive]}
-                        onPress={() => setExpandedRung(isExp ? null : idx)}
-                        accessibilityRole="button"
-                        accessibilityLabel={`${Math.round(pct * 100)}% warm-up — ${weight} ${unitLabel}`}
-                      >
-                        <View style={styles.rungHeader}>
-                          <Text style={[styles.rungPct, { color: stepperPalette.accent }]}>
-                            {Math.round(pct * 100)}%
-                          </Text>
-                          <Text style={[styles.rungWeight, { color: stepperPalette.text }]}>
-                            {weight} {unitLabel}
-                          </Text>
-                          <Text style={{ color: stepperPalette.muted, fontSize: fontSize.caption }}>
-                            {isExp ? '▲' : '▼'}
-                          </Text>
-                        </View>
-                        {isExp && bk && !bk.belowBar && (
-                          <View style={styles.rungBreakdown}>
-                            <Text style={{ color: stepperPalette.muted, fontSize: fontSize.caption, marginBottom: spacing.s2 }}>
-                              {bk.perSide.length === 0
-                                ? 'Empty bar'
-                                : bk.perSide.map((p) => `${p.plate}×${p.count}`).join('  ·  ')}{' '}
-                              per side — loads {bk.achievedTotal} {unitLabel}
-                            </Text>
-                            <TouchableOpacity
-                              style={styles.useBtn}
-                              onPress={() => handleUse(weight)}
-                              accessibilityRole="button"
-                              accessibilityLabel={`Use ${weight} ${unitLabel}`}
-                            >
-                              <Text style={styles.useBtnLabel}>Use {weight} {unitLabel}</Text>
-                            </TouchableOpacity>
-                          </View>
-                        )}
-                      </TouchableOpacity>
-                    );
-                  })}
-                </>
               )}
             </>
           )}
@@ -490,38 +403,6 @@ const styles = StyleSheet.create({
     color: stepperPalette.accentInk,
     fontSize: fontSize.bodyMd,
     fontWeight: fontWeight.bold,
-  },
-  rungRow: {
-    borderWidth: 1,
-    borderColor: stepperPalette.line,
-    borderRadius: radius.md,
-    marginBottom: spacing.s2,
-    overflow: 'hidden',
-  },
-  rungRowActive: {
-    borderColor: stepperPalette.accentLine,
-    backgroundColor: stepperPalette.accentSurface,
-  },
-  rungHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: spacing.s3,
-    paddingHorizontal: spacing.s3,
-    gap: spacing.s2,
-  },
-  rungPct: {
-    width: 44,
-    fontSize: fontSize.bodySm,
-    fontWeight: fontWeight.bold,
-  },
-  rungWeight: {
-    flex: 1,
-    fontSize: fontSize.bodyMd,
-    fontWeight: fontWeight.semibold,
-  },
-  rungBreakdown: {
-    paddingHorizontal: spacing.s3,
-    paddingBottom: spacing.s3,
   },
   hint: {
     color: stepperPalette.muted,
