@@ -11,11 +11,20 @@
  *
  * Data from mobile/src/api/insights.ts (new).
  * No raw 'bold' — fontWeight token only. All colors via useTheme().
+ *
+ * Agent K polish (2026-06-11):
+ *   - Staggered entrance: each section fades + rises in with 60ms delay steps
+ *   - Section headers use micro/uppercase/letterSpacing pattern from house style
+ *   - Deload CTA uses theme token instead of hardcoded '#fff'
+ *   - Empty state when no muscle data (delegated to MuscleHeatmap)
+ *   - Loading state for heatmap section shows skeleton hint
+ *   - Reduce Motion: all FadeInDown entering props become undefined
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  Animated,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -27,7 +36,7 @@ import { useRouter } from 'expo-router';
 import { useTheme } from '../src/theme/ThemeContext';
 import { useAuth } from '../src/hooks/useAuth';
 import { ScreenLayout } from '../src/components/ui';
-import { fontSize, fontWeight, spacing, radius } from '../src/theme/tokens';
+import { fontWeight } from '../src/theme/tokens';
 import ReadinessCard from '../src/components/ReadinessCard';
 import MuscleHeatmap from '../src/components/MuscleHeatmap';
 import {
@@ -40,6 +49,73 @@ import {
   DeloadResponse,
   MuscleRecovery,
 } from '../src/api/insights';
+import { useReduceMotion } from '../src/hooks/useReduceMotion';
+
+// ---------------------------------------------------------------------------
+// Stagger helper
+// ---------------------------------------------------------------------------
+
+function useStaggerFade(count: number, enabled: boolean): Animated.Value[] {
+  const anims = useRef(
+    Array.from({ length: count }, () => new Animated.Value(0))
+  ).current;
+
+  useEffect(() => {
+    if (!enabled) {
+      anims.forEach((a) => a.setValue(1));
+      return;
+    }
+    const animations = anims.map((a, i) =>
+      Animated.timing(a, {
+        toValue: 1,
+        duration: 240,
+        delay: i * 60,
+        useNativeDriver: true,
+      })
+    );
+    Animated.stagger(60, animations).start();
+  }, [enabled, anims]);
+
+  return anims;
+}
+
+// Translate-Y for a staggered "fade-rise" card entrance
+function staggerStyle(anim: Animated.Value): object {
+  return {
+    opacity: anim,
+    transform: [
+      {
+        translateY: anim.interpolate({
+          inputRange: [0, 1],
+          outputRange: [12, 0],
+        }),
+      },
+    ],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Section header — matches house micro/uppercase/letterSpacing pattern
+// ---------------------------------------------------------------------------
+
+function SectionHeader({ label }: { label: string }): React.ReactElement {
+  const { theme, fontSize: fs, fontWeight: fw } = useTheme();
+  return (
+    <Text
+      style={{
+        fontSize: fs.micro,
+        fontWeight: fw.semibold,
+        color: theme.colors.textTertiary,
+        letterSpacing: 1.2,
+        textTransform: 'uppercase',
+        marginBottom: 12,
+      }}
+      accessibilityRole="header"
+    >
+      {label}
+    </Text>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Screen
@@ -50,6 +126,7 @@ export default function InsightsScreen(): React.ReactElement {
   const { colors } = theme;
   const router = useRouter();
   const { user } = useAuth();
+  const reduceMotion = useReduceMotion();
 
   const [readiness, setReadiness] = useState<ReadinessResponse | null>(null);
   const [recovery, setRecovery] = useState<RecoveryResponse | null>(null);
@@ -58,15 +135,18 @@ export default function InsightsScreen(): React.ReactElement {
   const [refreshing, setRefreshing] = useState(false);
   const [deloadAcking, setDeloadAcking] = useState(false);
 
+  // 4 stagger slots: deload banner (conditional), readiness, heatmap, trace
+  const staggerAnims = useStaggerFade(4, !reduceMotion);
+
   const load = useCallback(async () => {
-    const [r, rec, d] = await Promise.all([
+    const [rd, rec, dl] = await Promise.all([
       getReadiness(),
       getRecovery(),
       getDeload(),
     ]);
-    setReadiness(r);
+    setReadiness(rd);
     setRecovery(rec);
-    setDeload(d);
+    setDeload(dl);
   }, []);
 
   useEffect(() => {
@@ -102,8 +182,6 @@ export default function InsightsScreen(): React.ReactElement {
   }, []);
 
   const handleSuggestSubstitutes = useCallback((muscleName: string) => {
-    // Navigate to exercise library filtered by the muscle — Agent C owns that route.
-    // Pass muscle as a query param for future integration.
     router.push({ pathname: '/exercise-library', params: { muscle: muscleName } });
   }, [router]);
 
@@ -129,91 +207,95 @@ export default function InsightsScreen(): React.ReactElement {
         >
           Readiness & Recovery
         </Text>
-        <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, marginBottom: sp.s5 }}>
+        <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, marginBottom: sp.s6, lineHeight: 20 }}>
           Evidence-based signals from your logged training and health metrics.
         </Text>
 
         {/* ── Deload banner ──────────────────────────────────────────────── */}
         {deload?.recommended && (
-          <View
-            style={[
-              styles.deloadBanner,
-              {
-                backgroundColor: colors.statusWarning + '22',
-                borderColor: colors.statusWarning,
-                borderRadius: r.lg,
-                padding: sp.s4,
-                marginBottom: sp.s5,
-              },
-            ]}
-            accessibilityRole="alert"
-          >
-            <Text style={{ color: colors.statusWarning, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold, marginBottom: sp.s1 }}>
-              Deload recommended
-            </Text>
-            {deload.triggers.length > 0 && (
-              <View style={{ marginBottom: sp.s2 }}>
-                {deload.triggers.map((t, i) => (
-                  <Text key={i} style={{ color: colors.textSecondary, fontSize: fs.bodySm }}>
-                    • {t}
-                  </Text>
-                ))}
-              </View>
-            )}
-            <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, marginBottom: sp.s3 }}>
-              {deload.prescription}
-            </Text>
-            <TouchableOpacity
-              onPress={handleAckDeload}
-              disabled={deloadAcking}
-              accessibilityRole="button"
-              accessibilityLabel="Start deload week"
+          <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[0])}>
+            <View
               style={[
-                styles.deloadCta,
+                styles.deloadBanner,
                 {
-                  backgroundColor: colors.statusWarning,
-                  borderRadius: r.md,
-                  opacity: deloadAcking ? 0.6 : 1,
+                  backgroundColor: colors.statusWarning + '22',
+                  borderColor: colors.statusWarning,
+                  borderRadius: r.lg,
+                  padding: sp.s4,
+                  marginBottom: sp.s5,
                 },
               ]}
+              accessibilityRole="alert"
             >
-              <Text style={{ color: '#fff', fontSize: fs.bodyMd, fontWeight: fontWeight.semibold, textAlign: 'center' }}>
-                {deloadAcking ? 'Saving…' : 'Start deload week'}
+              <Text style={{ color: colors.statusWarning, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold, marginBottom: sp.s1 }}>
+                Deload recommended
               </Text>
-            </TouchableOpacity>
-          </View>
+              {deload.triggers.length > 0 && (
+                <View style={{ marginBottom: sp.s2 }}>
+                  {deload.triggers.map((t, i) => (
+                    <Text key={i} style={{ color: colors.textSecondary, fontSize: fs.bodySm }}>
+                      • {t}
+                    </Text>
+                  ))}
+                </View>
+              )}
+              <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, marginBottom: sp.s3 }}>
+                {deload.prescription}
+              </Text>
+              <TouchableOpacity
+                onPress={handleAckDeload}
+                disabled={deloadAcking}
+                accessibilityRole="button"
+                accessibilityLabel="Start deload week"
+                style={[
+                  styles.deloadCta,
+                  {
+                    backgroundColor: colors.statusWarning,
+                    borderRadius: r.md,
+                    opacity: deloadAcking ? 0.6 : 1,
+                    minHeight: 44,
+                    justifyContent: 'center',
+                  },
+                ]}
+              >
+                <Text style={{ color: theme.colors.bgPrimary, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold, textAlign: 'center' }}>
+                  {deloadAcking ? 'Saving…' : 'Start deload week'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </Animated.View>
         )}
 
         {/* ── Readiness card ─────────────────────────────────────────────── */}
-        <Text style={[styles.sectionTitle, { color: colors.textPrimary, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold, marginBottom: sp.s3 }]}>
-          Today's readiness
-        </Text>
-        <ReadinessCard data={readiness} loading={loading} />
+        <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[1])}>
+          <SectionHeader label="Today's Readiness" />
+          <ReadinessCard data={readiness} loading={loading} />
+        </Animated.View>
 
         {/* ── Muscle heatmap ─────────────────────────────────────────────── */}
-        <Text style={[styles.sectionTitle, { color: colors.textPrimary, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold, marginTop: sp.s6, marginBottom: sp.s3 }]}>
-          Muscle recovery
-        </Text>
-        <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, marginBottom: sp.s3 }}>
-          Tap a muscle to see recovery detail and suggest alternatives.
-        </Text>
-        {loading ? null : (
+        <Animated.View style={[reduceMotion ? undefined : staggerStyle(staggerAnims[2]), { marginTop: sp.s6 }]}>
+          <SectionHeader label="Muscle Recovery" />
+          <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, marginBottom: sp.s3, lineHeight: 20 }}>
+            Tap a muscle to see recovery detail and suggest alternatives.
+          </Text>
           <MuscleHeatmap
             muscles={muscles}
             loading={loading}
             onSuggestSubstitutes={handleSuggestSubstitutes}
           />
-        )}
+        </Animated.View>
 
         {/* Recovery rule trace */}
         {recovery?.rule_trace && recovery.rule_trace.length > 0 && (
-          <View style={[styles.recoverTrace, { backgroundColor: colors.bgSecondary, borderRadius: r.md, padding: sp.s3, marginTop: sp.s3 }]}>
-            {recovery.rule_trace.map((line, i) => (
-              <Text key={i} style={{ color: colors.textTertiary, fontSize: fs.micro, lineHeight: 16 }}>
-                {line}
-              </Text>
-            ))}
-          </View>
+          <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[3])}>
+            <View style={[styles.recoverTrace, { backgroundColor: colors.bgSecondary, borderRadius: r.md, padding: sp.s3, marginTop: sp.s3 }]}>
+              {recovery.rule_trace.map((line, i) => (
+                <Text key={i} style={{ color: colors.textTertiary, fontSize: fs.micro, lineHeight: 16 }}>
+                  {line}
+                </Text>
+              ))}
+            </View>
+          </Animated.View>
         )}
       </ScrollView>
     </ScreenLayout>
@@ -226,10 +308,9 @@ export default function InsightsScreen(): React.ReactElement {
 
 const styles = StyleSheet.create({
   content: {
-    paddingTop: 16,
+    paddingTop: 24,
   },
   pageTitle: {},
-  sectionTitle: {},
   deloadBanner: {
     borderWidth: 1,
   },

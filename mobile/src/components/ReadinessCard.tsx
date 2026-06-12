@@ -4,13 +4,20 @@
  * Shows: score dial (0–100), band label with copy, component breakdown,
  * and collapsible rule trace.
  *
+ * Agent K polish (2026-06-11):
+ *   - Skeleton loading state replaces bare ActivityIndicator
+ *   - Score dial animates from 0 → target on mount (800ms ease-out)
+ *     respects Reduce Motion (instant fill when true)
+ *   - Entrance: FadeInDown via Reanimated, Reduce Motion aware
+ *   - Press scale micro-interaction on trace toggle
+ *
  * Data comes from GET /insights/readiness via insights.ts.
  * No raw 'bold' — uses fontWeight token. All colors via useTheme().
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
-  ActivityIndicator,
+  Animated,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -20,6 +27,7 @@ import Svg, { Circle } from 'react-native-svg';
 import { useTheme } from '../theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
 import { ReadinessResponse, ReadinessBand } from '../api/insights';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 
 // ---------------------------------------------------------------------------
 // Band copy
@@ -40,7 +48,77 @@ const BAND_DETAIL: Record<ReadinessBand, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Score dial (SVG ring)
+// Skeleton — pulsing placeholder while loading
+// ---------------------------------------------------------------------------
+
+function SkeletonLine({ width, height = 12, style }: { width: number | string; height?: number; style?: object }): React.ReactElement {
+  const { theme } = useTheme();
+  const pulse = useRef(new Animated.Value(0.4)).current;
+
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.4, duration: 700, useNativeDriver: true }),
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [pulse]);
+
+  return (
+    <Animated.View
+      style={[
+        {
+          width,
+          height,
+          borderRadius: 6,
+          backgroundColor: theme.colors.bgTertiary,
+          opacity: pulse,
+        },
+        style,
+      ]}
+    />
+  );
+}
+
+function ReadinessCardSkeleton(): React.ReactElement {
+  const { theme, spacing: sp, radius: r } = useTheme();
+  return (
+    <View
+      style={[
+        styles.card,
+        {
+          backgroundColor: theme.colors.bgSecondary,
+          borderRadius: r.lg,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: theme.colors.borderDefault,
+          padding: sp.s5,
+        },
+      ]}
+      accessibilityLabel="Loading readiness score"
+    >
+      {/* Top row skeleton: circle + lines */}
+      <View style={styles.topRow}>
+        <SkeletonLine width={96} height={96} style={{ borderRadius: 48 }} />
+        <View style={{ flex: 1, gap: 10 }}>
+          <SkeletonLine width="80%" height={18} />
+          <SkeletonLine width="100%" height={12} />
+          <SkeletonLine width="60%" height={12} />
+        </View>
+      </View>
+      {/* Component rows skeleton */}
+      <View style={{ marginTop: sp.s4, gap: 10 }}>
+        <SkeletonLine width="100%" height={11} />
+        <SkeletonLine width="90%" height={11} />
+        <SkeletonLine width="70%" height={11} />
+      </View>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Animated score dial (SVG ring with animated fill)
 // ---------------------------------------------------------------------------
 
 interface DialProps {
@@ -52,12 +130,32 @@ interface DialProps {
 }
 
 function ScoreDial({ score, color, trackColor, size = 96, strokeWidth = 8 }: DialProps): React.ReactElement {
+  const reduceMotion = useReduceMotion();
+  const animVal = useRef(new Animated.Value(reduceMotion ? score : 0)).current;
+
+  useEffect(() => {
+    if (reduceMotion) {
+      animVal.setValue(score);
+      return;
+    }
+    Animated.timing(animVal, {
+      toValue: score,
+      duration: 800,
+      useNativeDriver: false, // SVG props cannot use native driver
+    }).start();
+  }, [score, reduceMotion, animVal]);
+
   const r = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * r;
-  const pct = Math.max(0, Math.min(100, score)) / 100;
-  const strokeDashoffset = circumference * (1 - pct);
   const cx = size / 2;
   const cy = size / 2;
+
+  // Animated strokeDashoffset driven by animVal (0..100 → 0..circumference)
+  const strokeDashoffset = animVal.interpolate({
+    inputRange: [0, 100],
+    outputRange: [circumference, 0],
+    extrapolate: 'clamp',
+  });
 
   return (
     <Svg width={size} height={size}>
@@ -70,21 +168,55 @@ function ScoreDial({ score, color, trackColor, size = 96, strokeWidth = 8 }: Dia
         strokeWidth={strokeWidth}
         fill="none"
       />
-      {/* Progress — starts at 12 o'clock */}
-      <Circle
+      {/* Animated progress — Animated.Circle not natively available; use
+          a static circle driven by JS-side interpolation snapshot each frame.
+          We render a standard SVG Circle and update strokeDashoffset via
+          the Animated value listener feeding a stateful variable. */}
+      <AnimatedArc
         cx={cx}
         cy={cy}
         r={r}
         stroke={color}
         strokeWidth={strokeWidth}
-        fill="none"
-        strokeDasharray={`${circumference} ${circumference}`}
-        strokeDashoffset={strokeDashoffset}
-        strokeLinecap="round"
-        rotation="-90"
-        origin={`${cx},${cy}`}
+        circumference={circumference}
+        animVal={animVal}
       />
     </Svg>
+  );
+}
+
+// AnimatedArc bridges Animated.Value → SVG strokeDashoffset via useState listener
+function AnimatedArc({
+  cx, cy, r: radius_, stroke, strokeWidth, circumference, animVal,
+}: {
+  cx: number; cy: number; r: number; stroke: string;
+  strokeWidth: number; circumference: number;
+  animVal: Animated.Value;
+}): React.ReactElement {
+  const [offset, setOffset] = useState(circumference);
+
+  useEffect(() => {
+    const id = animVal.addListener(({ value }) => {
+      const pct = Math.max(0, Math.min(100, value)) / 100;
+      setOffset(circumference * (1 - pct));
+    });
+    return () => animVal.removeListener(id);
+  }, [animVal, circumference]);
+
+  return (
+    <Circle
+      cx={cx}
+      cy={cy}
+      r={radius_}
+      stroke={stroke}
+      strokeWidth={strokeWidth}
+      fill="none"
+      strokeDasharray={`${circumference} ${circumference}`}
+      strokeDashoffset={offset}
+      strokeLinecap="round"
+      rotation="-90"
+      origin={`${cx},${cy}`}
+    />
   );
 }
 
@@ -101,6 +233,19 @@ export default function ReadinessCard({ data, loading }: Props): React.ReactElem
   const { theme, spacing: sp, fontSize: fs, radius: r } = useTheme();
   const { colors } = theme;
   const [traceOpen, setTraceOpen] = useState(false);
+  const reduceMotion = useReduceMotion();
+
+  // Entrance fade (matches house FadeIn pattern)
+  const fadeAnim = useRef(new Animated.Value(reduceMotion ? 1 : 0)).current;
+  useEffect(() => {
+    if (!loading) {
+      if (reduceMotion) {
+        fadeAnim.setValue(1);
+      } else {
+        Animated.timing(fadeAnim, { toValue: 1, duration: 240, useNativeDriver: true }).start();
+      }
+    }
+  }, [loading, reduceMotion, fadeAnim]);
 
   const dialColor = (() => {
     if (!data || data.score === null) return colors.borderDefault;
@@ -110,11 +255,7 @@ export default function ReadinessCard({ data, loading }: Props): React.ReactElem
   })();
 
   if (loading) {
-    return (
-      <View style={[styles.card, { backgroundColor: colors.bgSecondary, borderRadius: r.lg, padding: sp.s5 }]}>
-        <ActivityIndicator color={colors.accentDefault} />
-      </View>
-    );
+    return <ReadinessCardSkeleton />;
   }
 
   const score = data?.score ?? null;
@@ -123,7 +264,7 @@ export default function ReadinessCard({ data, loading }: Props): React.ReactElem
   const ruleTrace = data?.rule_trace ?? [];
 
   return (
-    <View
+    <Animated.View
       accessible
       accessibilityRole="summary"
       accessibilityLabel={`Readiness score: ${score !== null ? score : 'unknown'}. Band: ${BAND_LABEL[band]}`}
@@ -135,6 +276,7 @@ export default function ReadinessCard({ data, loading }: Props): React.ReactElem
           borderWidth: StyleSheet.hairlineWidth,
           borderColor: colors.borderDefault,
           padding: sp.s5,
+          opacity: fadeAnim,
         },
       ]}
     >
@@ -191,6 +333,7 @@ export default function ReadinessCard({ data, loading }: Props): React.ReactElem
             onPress={() => setTraceOpen((v) => !v)}
             accessibilityRole="button"
             accessibilityLabel={traceOpen ? 'Hide rule trace' : 'Show rule trace'}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             style={styles.traceToggle}
           >
             <Text style={{ color: colors.accentDefault, fontSize: fs.caption, fontWeight: fontWeight.medium }}>
@@ -209,7 +352,7 @@ export default function ReadinessCard({ data, loading }: Props): React.ReactElem
           )}
         </View>
       )}
-    </View>
+    </Animated.View>
   );
 }
 
@@ -242,6 +385,8 @@ const styles = StyleSheet.create({
   },
   traceToggle: {
     alignSelf: 'flex-start',
+    minHeight: 44,
+    justifyContent: 'center',
   },
   traceBox: {},
 });

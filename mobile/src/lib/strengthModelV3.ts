@@ -15,6 +15,37 @@
  * code from the published standards), never the live user base (D6) — which is
  * exactly why this is portable on-device.
  *
+ * D8 (2026-06-12): beginner anchor tightened 20th → 12th percentile.
+ *   QUANTILE_MAP updated from [0.20, 0.40, …] to [0.12, 0.40, …].
+ *   R² improves +0.02–0.03 across all lifts (residual at bottom anchor eliminated).
+ *   See mobile/scripts/deriveStrengthModelV3.py for full derivation.
+ *
+ * D9 (2026-06-12): 9-band tier ladder.
+ *   Stone band added between Iron and Bronze (25–40).
+ *   Final bands: Iron ≤25 · Stone 25–40 · Bronze 40–60 · Silver 60–75 ·
+ *                Gold 75–88 · Platinum 88–95 · Diamond 95–99 ·
+ *                Elite 99–99.7 · World Class ≥99.7
+ *
+ * PROVENANCE — output of mobile/scripts/deriveStrengthModelV3.py
+ * (run: python3 mobile/scripts/deriveStrengthModelV3.py)
+ *
+ *   QUANTILE_MAP = [0.12, 0.40, 0.60, 0.85, 0.97, 0.995]  // D8: beg=12th (was 20th)
+ *   Reference BW: M=75 kg, F=60 kg
+ *
+ *   Per-lift lognormal params (pop_mu, pop_sigma) — old → new:
+ *   squat M:    mu 4.53336→4.56744  sigma 0.37704→0.35879  R² 0.94549→0.97441  median 96.30 kg (1.284×BW)
+ *   squat F:    mu 3.91103→3.94454  sigma 0.37371→0.35599  R² 0.93942→0.97017  median 51.65 kg (0.861×BW)
+ *   bench M:    mu 4.08430→4.11910  sigma 0.37409→0.35462  R² 0.95789→0.97961  median 61.50 kg (0.820×BW)
+ *   bench F:    mu 3.45035→3.48788  sigma 0.41635→0.39633  R² 0.93509→0.96435  median 32.72 kg (0.545×BW)
+ *   deadlift M: mu 4.72765→4.75745  sigma 0.32362→0.30719  R² 0.95888→0.98333  median 116.45 kg (1.553×BW)
+ *   deadlift F: mu 4.12373→4.15640  sigma 0.35690→0.33906  R² 0.95013→0.97591  median  63.84 kg (1.064×BW)
+ *   ohp M:      mu 3.76158→3.79352  sigma 0.33091→0.31207  R² 0.98495→0.99699  median  44.41 kg (0.592×BW)
+ *   ohp F:      mu 3.01112→3.05218  sigma 0.43806→0.41483  R² 0.95357→0.97317  median  21.16 kg (0.353×BW)
+ *
+ *   DOTS composite (SBD total at ref BW):
+ *   DOTS M: mu_D=5.28260  sigma_D=0.33623  R²=0.98124  median_DOTS=196.88
+ *   DOTS F: mu_D=5.10233  sigma_D=0.35770  R²=0.97265  median_DOTS=164.40
+ *
  * Verifiable in-sandbox: DOTS test vectors, the lognormal fit reproducing the
  * memo's male SBD params, BW-monotonicity of the ranked lens, and the composite's
  * uniform calibration (PIT). See __tests__/strength-model-v3.test.js.
@@ -100,14 +131,19 @@ export function dotsScore(totalKg: number, bwKg: number, sex: Sex): number {
 // memo §5.1 World Class anchor. Order: beg, nov, int, adv, elite, world-class.
 // ---------------------------------------------------------------------------
 
-export const QUANTILE_MAP = [0.2, 0.4, 0.6, 0.85, 0.97, 0.995]; // §5.2
+/**
+ * Quantile map (D8, 2026-06-12): beginner anchor tightened 20th → 12th percentile.
+ * q = [beg=12th, nov=40th, int=60th, adv=85th, elite=97th, wc=99.5th]
+ * See PROVENANCE comment at top for old→new constant table and R² improvement.
+ */
+export const QUANTILE_MAP = [0.12, 0.4, 0.6, 0.85, 0.97, 0.995]; // D8: beg=12th (was 0.20)
 const REF_BW: Record<Sex, number> = { M: 75, F: 60 };
 
 const STANDARDS_XBW: Record<LiftId, Record<Sex, number[]>> = {
-  squat: { M: [0.75, 1.25, 1.5, 2.0, 2.5, 3.0], F: [0.5, 0.85, 1.0, 1.35, 1.65, 2.0] },
-  bench: { M: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0], F: [0.3, 0.5, 0.7, 0.9, 1.1, 1.4] },
-  deadlift: { M: [1.0, 1.5, 1.75, 2.25, 2.75, 3.25], F: [0.65, 1.0, 1.25, 1.65, 1.95, 2.4] },
-  ohp: { M: [0.4, 0.55, 0.65, 0.85, 1.05, 1.3], F: [0.2, 0.3, 0.45, 0.6, 0.75, 0.95] },
+  squat:    { M: [0.75, 1.25, 1.5, 2.0, 2.5, 3.0],    F: [0.5, 0.85, 1.0, 1.35, 1.65, 2.0] },
+  bench:    { M: [0.5,  0.75, 1.0, 1.25, 1.5, 2.0],   F: [0.3, 0.5,  0.7, 0.9,  1.1,  1.4] },
+  deadlift: { M: [1.0,  1.5,  1.75, 2.25, 2.75, 3.25], F: [0.65, 1.0, 1.25, 1.65, 1.95, 2.4] },
+  ohp:      { M: [0.4,  0.55, 0.65, 0.85, 1.05, 1.3],  F: [0.2, 0.3,  0.45, 0.6,  0.75, 0.95] },
 };
 
 const ALPHA_DEFAULT = 0.667; // per-lift α default (memo §3 Lens 1 fix; [0.62,0.72])
@@ -248,18 +284,32 @@ export function overallStrengthPercentilePartial(
 }
 
 // ---------------------------------------------------------------------------
-// Tier ladder on the calibrated overall percentile (memo §9 proposed)
+// Tier ladder on the calibrated overall percentile (D9, 2026-06-12)
+//
+// 9-band ladder (population shares on overall_pct):
+//   Iron ≤25 · Stone 25–40 · Bronze 40–60 · Silver 60–75 · Gold 75–88 ·
+//   Platinum 88–95 · Diamond 95–99 · Elite 99–99.7 · World Class ≥99.7
+//
+// Stone added between Iron and Bronze so newbie-gains arc (~15th→45th pct
+// in months) yields 2–3 promotions in the first half-year (D9 rationale).
 // ---------------------------------------------------------------------------
 
-export interface Tier { name: string; min: number; }
+export interface Tier {
+  name: string;
+  /** Lower bound (inclusive) of overall_pct for this tier. */
+  min: number;
+}
+
+/** 9-band ladder ordered from lowest to highest (D9, 2026-06-12). */
 export const TIER_LADDER: Tier[] = [
-  { name: 'Iron', min: 0 },
-  { name: 'Bronze', min: 40 },
-  { name: 'Silver', min: 60 },
-  { name: 'Gold', min: 75 },
-  { name: 'Platinum', min: 88 },
-  { name: 'Diamond', min: 95 },
-  { name: 'Elite', min: 99 },
+  { name: 'Iron',        min: 0 },
+  { name: 'Stone',       min: 25 },   // D9: new band between Iron and Bronze
+  { name: 'Bronze',      min: 40 },
+  { name: 'Silver',      min: 60 },
+  { name: 'Gold',        min: 75 },
+  { name: 'Platinum',    min: 88 },
+  { name: 'Diamond',     min: 95 },
+  { name: 'Elite',       min: 99 },
   { name: 'World Class', min: 99.7 },
 ];
 

@@ -3,27 +3,23 @@
  *
  * 2026-06-11 (spec §5, Agent C)
  *
+ * Agent K polish (2026-06-11):
+ *   - Staggered entrance: sections fade-rise in 60ms steps
+ *   - Chip minHeight bumped 40→44 pt for WCAG 2.5.5 compliance
+ *   - Save button has press-scale micro-interaction
+ *   - Reduce Motion: all entrance animations skipped
+ *   - paddingTop bumped to 24 for consistent screen spacing
+ *
  * Same steps as onboarding steps 3–8 (training_goal, sessions_per_week,
  * session_minutes, equipment, goal_weight_kg, season_phase), but presented
  * as a standalone settings screen so users can update their answers any time.
  *
- * Entry points:
- *   - profile.tsx → "Training profile" row
- *
  * Pre-fills from the authenticated user profile if those fields are present.
  * On save: PATCH /users/profile with all answered fields.
  * On success: router.back()
- *
- * Steps (internal):
- *   1. training_goal
- *   2. sessions_per_week
- *   3. session_minutes
- *   4. equipment (multi-select)
- *   5. goal_weight_kg (optional)
- *   6. season_phase (conditional — only for running/cycling/swimming/other)
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -35,6 +31,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Animated,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../src/hooks/useAuth';
@@ -42,6 +39,7 @@ import { useTheme } from '../src/theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../src/theme/tokens';
 import { ScreenLayout } from '../src/components/ui';
 import { patchProfile } from '../src/api/user';
+import { useReduceMotion } from '../src/hooks/useReduceMotion';
 import type {
   TrainingGoal,
   SessionMinutes,
@@ -93,6 +91,48 @@ const TEAM_SPORT_DISCIPLINES = new Set([
 ]);
 
 // ---------------------------------------------------------------------------
+// Stagger helper
+// ---------------------------------------------------------------------------
+
+function useStaggerFade(count: number, enabled: boolean): Animated.Value[] {
+  const anims = useRef(
+    Array.from({ length: count }, () => new Animated.Value(0))
+  ).current;
+
+  useEffect(() => {
+    if (!enabled) {
+      anims.forEach((a) => a.setValue(1));
+      return;
+    }
+    const animations = anims.map((a, i) =>
+      Animated.timing(a, {
+        toValue: 1,
+        duration: 240,
+        delay: i * 60,
+        useNativeDriver: true,
+      })
+    );
+    Animated.stagger(60, animations).start();
+  }, [enabled, anims]);
+
+  return anims;
+}
+
+function staggerStyle(anim: Animated.Value): object {
+  return {
+    opacity: anim,
+    transform: [
+      {
+        translateY: anim.interpolate({
+          inputRange: [0, 1],
+          outputRange: [12, 0],
+        }),
+      },
+    ],
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
@@ -127,6 +167,7 @@ function OptionButton<T>({
       onPress={() => onPress(value)}
       accessibilityRole="radio"
       accessibilityState={{ selected }}
+      accessibilityLabel={label + (subtitle ? ': ' + subtitle : '')}
     >
       <View style={styles.optionLabelGroup}>
         <Text style={[styles.optionLabel, { color: theme.colors.textPrimary }]}>
@@ -173,6 +214,7 @@ function ChipButton({
       onPress={onPress}
       accessibilityRole="radio"
       accessibilityState={{ selected }}
+      accessibilityLabel={label}
     >
       <Text
         style={[
@@ -217,6 +259,7 @@ function MultiChipButton({
       onPress={onPress}
       accessibilityRole="checkbox"
       accessibilityState={{ checked: selected }}
+      accessibilityLabel={label}
     >
       <Text
         style={[
@@ -236,7 +279,7 @@ function MultiChipButton({
 }
 
 // ---------------------------------------------------------------------------
-// Section header inside the screen
+// Section header — matches house micro/uppercase style
 // ---------------------------------------------------------------------------
 
 function SurveySection({ title, subtitle, children }: {
@@ -268,6 +311,13 @@ export default function TrainingSurveyScreen(): React.ReactElement {
   const router = useRouter();
   const { user } = useAuth();
   const { theme } = useTheme();
+  const reduceMotion = useReduceMotion();
+
+  // 7 stagger slots: header+subtitle, goal, sessions, length, equipment, goal-weight, save
+  const staggerAnims = useStaggerFade(7, !reduceMotion);
+
+  // Save button press scale
+  const saveScale = useRef(new Animated.Value(1)).current;
 
   // Initialise from user profile if available
   const [trainingGoal, setTrainingGoal] = useState<TrainingGoal | null>(
@@ -361,166 +411,193 @@ export default function TrainingSurveyScreen(): React.ReactElement {
           </TouchableOpacity>
         </View>
 
-        <Text style={[styles.screenTitle, { color: theme.colors.textPrimary }]}>
-          Training Profile
-        </Text>
-        <Text style={[styles.screenSubtitle, { color: theme.colors.textSecondary }]}>
-          These answers shape every plan the Training Engine builds for you.
-          Update them any time — your next plan will reflect the change.
-        </Text>
+        <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[0])}>
+          <Text style={[styles.screenTitle, { color: theme.colors.textPrimary }]}>
+            Training Profile
+          </Text>
+          <Text style={[styles.screenSubtitle, { color: theme.colors.textSecondary }]}>
+            These answers shape every plan the Training Engine builds for you.
+            Update them any time — your next plan will reflect the change.
+          </Text>
+        </Animated.View>
 
         {/* ── Section 1: Training goal ── */}
-        <SurveySection
-          title="Training goal"
-          subtitle="What are you optimising for right now?"
-        >
-          <View style={styles.optionGroup}>
-            {TRAINING_GOAL_OPTIONS.map((opt) => (
-              <OptionButton<TrainingGoal>
-                key={opt.value}
-                label={opt.label}
-                subtitle={opt.subtitle}
-                value={opt.value}
-                selected={trainingGoal === opt.value}
-                onPress={setTrainingGoal}
-              />
-            ))}
-          </View>
-        </SurveySection>
-
-        {/* ── Section 2: Sessions per week ── */}
-        <SurveySection
-          title="Sessions per week"
-          subtitle="How many training sessions can you commit to?"
-        >
-          <View style={styles.chipRow}>
-            {SESSIONS_PER_WEEK_OPTIONS.map((n) => (
-              <ChipButton
-                key={n}
-                label={String(n)}
-                selected={sessionsPerWeek === n}
-                onPress={() => setSessionsPerWeek(n)}
-              />
-            ))}
-          </View>
-          <Text style={[styles.hintText, { color: theme.colors.textTertiary }]}>
-            Engine defaults to 3 sessions if not set.
-          </Text>
-        </SurveySection>
-
-        {/* ── Section 3: Session length ── */}
-        <SurveySection
-          title="Session length"
-          subtitle="How long is each training session?"
-        >
-          <View style={styles.optionGroup}>
-            {SESSION_MINUTES_OPTIONS.map((opt) => (
-              <OptionButton<SessionMinutes>
-                key={opt.value}
-                label={opt.label}
-                subtitle={opt.subtitle}
-                value={opt.value}
-                selected={sessionMinutes === opt.value}
-                onPress={setSessionMinutes}
-              />
-            ))}
-          </View>
-        </SurveySection>
-
-        {/* ── Section 4: Equipment ── */}
-        <SurveySection
-          title="Available equipment"
-          subtitle="The engine only prescribes exercises you can actually perform."
-        >
-          <View style={styles.chipGrid}>
-            {EQUIPMENT_OPTIONS.map((opt) => (
-              <MultiChipButton
-                key={opt.value}
-                label={opt.label}
-                selected={equipmentProfile.has(opt.value)}
-                onPress={() => toggleEquipment(opt.value)}
-              />
-            ))}
-          </View>
-          {equipmentProfile.size === 0 && (
-            <Text style={[styles.hintText, { color: theme.colors.textTertiary }]}>
-              None selected — engine uses full gym default.
-            </Text>
-          )}
-        </SurveySection>
-
-        {/* ── Section 5: Goal weight (optional) ── */}
-        <SurveySection
-          title="Goal weight (optional)"
-          subtitle="Target body weight in kg, if applicable. Leave blank to skip."
-        >
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          >
-            <View style={[
-              styles.inputRow,
-              { borderColor: theme.colors.borderDefault, backgroundColor: theme.colors.bgElevated },
-            ]}>
-              <TextInput
-                style={[styles.weightInput, { color: theme.colors.textPrimary }]}
-                placeholder="e.g. 80"
-                placeholderTextColor={theme.colors.textTertiary}
-                keyboardType="decimal-pad"
-                value={goalWeightKg}
-                onChangeText={setGoalWeightKg}
-                accessibilityLabel="Goal weight in kg"
-                maxLength={6}
-              />
-              <Text style={[styles.weightUnit, { color: theme.colors.textTertiary }]}>kg</Text>
-            </View>
-          </KeyboardAvoidingView>
-        </SurveySection>
-
-        {/* ── Section 6: Season phase (conditional) ── */}
-        {showSeasonStep && (
+        <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[1])}>
           <SurveySection
-            title="Season phase"
-            subtitle="Your competitive phase affects how the engine balances load and recovery."
+            title="Training goal"
+            subtitle="What are you optimising for right now?"
           >
             <View style={styles.optionGroup}>
-              <OptionButton<SeasonPhase>
-                label="Off season"
-                subtitle="Build base fitness and strength"
-                value="off_season"
-                selected={seasonPhase === 'off_season'}
-                onPress={setSeasonPhase}
-              />
-              <OptionButton<SeasonPhase>
-                label="In season"
-                subtitle="Maintain fitness without overloading"
-                value="in_season"
-                selected={seasonPhase === 'in_season'}
-                onPress={setSeasonPhase}
-              />
+              {TRAINING_GOAL_OPTIONS.map((opt) => (
+                <OptionButton<TrainingGoal>
+                  key={opt.value}
+                  label={opt.label}
+                  subtitle={opt.subtitle}
+                  value={opt.value}
+                  selected={trainingGoal === opt.value}
+                  onPress={setTrainingGoal}
+                />
+              ))}
             </View>
           </SurveySection>
-        )}
+        </Animated.View>
+
+        {/* ── Section 2: Sessions per week ── */}
+        <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[2])}>
+          <SurveySection
+            title="Sessions per week"
+            subtitle="How many training sessions can you commit to?"
+          >
+            <View style={styles.chipRow}>
+              {SESSIONS_PER_WEEK_OPTIONS.map((n) => (
+                <ChipButton
+                  key={n}
+                  label={String(n)}
+                  selected={sessionsPerWeek === n}
+                  onPress={() => setSessionsPerWeek(n)}
+                />
+              ))}
+            </View>
+            <Text style={[styles.hintText, { color: theme.colors.textTertiary }]}>
+              Engine defaults to 3 sessions if not set.
+            </Text>
+          </SurveySection>
+        </Animated.View>
+
+        {/* ── Section 3: Session length ── */}
+        <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[3])}>
+          <SurveySection
+            title="Session length"
+            subtitle="How long is each training session?"
+          >
+            <View style={styles.optionGroup}>
+              {SESSION_MINUTES_OPTIONS.map((opt) => (
+                <OptionButton<SessionMinutes>
+                  key={opt.value}
+                  label={opt.label}
+                  subtitle={opt.subtitle}
+                  value={opt.value}
+                  selected={sessionMinutes === opt.value}
+                  onPress={setSessionMinutes}
+                />
+              ))}
+            </View>
+          </SurveySection>
+        </Animated.View>
+
+        {/* ── Section 4: Equipment ── */}
+        <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[4])}>
+          <SurveySection
+            title="Available equipment"
+            subtitle="The engine only prescribes exercises you can actually perform."
+          >
+            <View style={styles.chipGrid}>
+              {EQUIPMENT_OPTIONS.map((opt) => (
+                <MultiChipButton
+                  key={opt.value}
+                  label={opt.label}
+                  selected={equipmentProfile.has(opt.value)}
+                  onPress={() => toggleEquipment(opt.value)}
+                />
+              ))}
+            </View>
+            {equipmentProfile.size === 0 && (
+              <Text style={[styles.hintText, { color: theme.colors.textTertiary }]}>
+                None selected — engine uses full gym default.
+              </Text>
+            )}
+          </SurveySection>
+        </Animated.View>
+
+        {/* ── Section 5: Goal weight (optional) ── */}
+        <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[5])}>
+          <SurveySection
+            title="Goal weight (optional)"
+            subtitle="Target body weight in kg, if applicable. Leave blank to skip."
+          >
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            >
+              <View style={[
+                styles.inputRow,
+                { borderColor: theme.colors.borderDefault, backgroundColor: theme.colors.bgElevated },
+              ]}>
+                <TextInput
+                  style={[styles.weightInput, { color: theme.colors.textPrimary }]}
+                  placeholder="e.g. 80"
+                  placeholderTextColor={theme.colors.textTertiary}
+                  keyboardType="decimal-pad"
+                  value={goalWeightKg}
+                  onChangeText={setGoalWeightKg}
+                  accessibilityLabel="Goal weight in kg"
+                  maxLength={6}
+                />
+                <Text style={[styles.weightUnit, { color: theme.colors.textTertiary }]}>kg</Text>
+              </View>
+            </KeyboardAvoidingView>
+          </SurveySection>
+
+          {/* ── Section 6: Season phase (conditional) ── */}
+          {showSeasonStep && (
+            <SurveySection
+              title="Season phase"
+              subtitle="Your competitive phase affects how the engine balances load and recovery."
+            >
+              <View style={styles.optionGroup}>
+                <OptionButton<SeasonPhase>
+                  label="Off season"
+                  subtitle="Build base fitness and strength"
+                  value="off_season"
+                  selected={seasonPhase === 'off_season'}
+                  onPress={setSeasonPhase}
+                />
+                <OptionButton<SeasonPhase>
+                  label="In season"
+                  subtitle="Maintain fitness without overloading"
+                  value="in_season"
+                  selected={seasonPhase === 'in_season'}
+                  onPress={setSeasonPhase}
+                />
+              </View>
+            </SurveySection>
+          )}
+        </Animated.View>
 
         {/* ── Save button ── */}
-        <TouchableOpacity
+        <Animated.View
           style={[
-            styles.saveButton,
-            { backgroundColor: theme.colors.accentDefault },
-            isSaving && styles.buttonDisabled,
+            reduceMotion ? undefined : staggerStyle(staggerAnims[6]),
+            { transform: [{ scale: saveScale }] },
           ]}
-          onPress={handleSave}
-          disabled={isSaving}
-          accessibilityRole="button"
-          accessibilityLabel="Save training profile"
         >
-          {isSaving ? (
-            <ActivityIndicator color={theme.components.buttonPrimaryText} />
-          ) : (
-            <Text style={[styles.saveButtonText, { color: theme.components.buttonPrimaryText }]}>
-              Save Training Profile
-            </Text>
-          )}
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.saveButton,
+              { backgroundColor: theme.colors.accentDefault },
+              isSaving && styles.buttonDisabled,
+            ]}
+            onPress={handleSave}
+            onPressIn={() => {
+              if (!reduceMotion) {
+                Animated.timing(saveScale, { toValue: 0.97, duration: 100, useNativeDriver: true }).start();
+              }
+            }}
+            onPressOut={() => {
+              Animated.spring(saveScale, { toValue: 1, damping: 15, stiffness: 300, useNativeDriver: true }).start();
+            }}
+            disabled={isSaving}
+            accessibilityRole="button"
+            accessibilityLabel="Save training profile"
+          >
+            {isSaving ? (
+              <ActivityIndicator color={theme.components.buttonPrimaryText} />
+            ) : (
+              <Text style={[styles.saveButtonText, { color: theme.components.buttonPrimaryText }]}>
+                Save Training Profile
+              </Text>
+            )}
+          </TouchableOpacity>
+        </Animated.View>
 
         <View style={styles.bottomPad} />
       </ScrollView>
@@ -537,7 +614,7 @@ const styles = StyleSheet.create({
   container: {
     flexGrow: 1,
     paddingHorizontal: 24,
-    paddingTop: 16,
+    paddingTop: 24,
     paddingBottom: 48,
     gap: 28,
   },
@@ -554,18 +631,18 @@ const styles = StyleSheet.create({
     paddingRight: 12,
   },
   backButtonText: {
-    fontSize: fontSize.bodyMd,    // E-003
+    fontSize: fontSize.bodyMd,
   },
 
   // Screen title
   screenTitle: {
-    fontSize: fontSize.heading2,  // E-003
-    fontWeight: fontWeight.bold,  // E-003
+    fontSize: fontSize.heading2,
+    fontWeight: fontWeight.bold,
     lineHeight: 32,
     marginTop: -8,
   },
   screenSubtitle: {
-    fontSize: fontSize.bodySm,   // E-003
+    fontSize: fontSize.bodySm,
     lineHeight: 20,
     marginTop: -16,
   },
@@ -575,11 +652,11 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   sectionTitle: {
-    fontSize: fontSize.bodyLg,       // E-003
-    fontWeight: fontWeight.semibold, // E-003
+    fontSize: fontSize.bodyLg,
+    fontWeight: fontWeight.semibold,
   },
   sectionSubtitle: {
-    fontSize: fontSize.bodySm,  // E-003
+    fontSize: fontSize.bodySm,
     lineHeight: 20,
     marginTop: -4,
   },
@@ -593,21 +670,22 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     paddingHorizontal: 16,
     paddingVertical: 14,
+    minHeight: 52,
   },
   optionLabelGroup: { flex: 1, gap: 2 },
   optionLabel: {
-    fontSize: fontSize.bodyMd,   // E-003
+    fontSize: fontSize.bodyMd,
   },
   optionSubtitle: {
-    fontSize: fontSize.caption,  // E-003
+    fontSize: fontSize.caption,
     lineHeight: 16,
   },
   optionCheckmark: {
     fontSize: fontSize.bodyMd,
-    fontWeight: fontWeight.bold, // E-003
+    fontWeight: fontWeight.bold,
   },
 
-  // Chips
+  // Chips — minHeight 44 for WCAG 2.5.5
   chipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -623,12 +701,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: 16,
     paddingVertical: 10,
-    minHeight: 40,
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
   },
   chipText: {
-    fontSize: fontSize.bodySm,  // E-003
+    fontSize: fontSize.bodySm,
   },
 
   // Goal weight input
@@ -640,19 +718,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     gap: 8,
+    minHeight: 52,
   },
   weightInput: {
     flex: 1,
-    fontSize: fontSize.bodyLg,     // E-003
-    fontWeight: fontWeight.medium, // E-003
+    fontSize: fontSize.bodyLg,
+    fontWeight: fontWeight.medium,
     minHeight: 36,
   },
   weightUnit: {
-    fontSize: fontSize.bodyMd,     // E-003
+    fontSize: fontSize.bodyMd,
   },
 
   hintText: {
-    fontSize: fontSize.caption,    // E-003
+    fontSize: fontSize.caption,
     lineHeight: 18,
   },
 
@@ -667,8 +746,8 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: { opacity: 0.6 },
   saveButtonText: {
-    fontSize: fontSize.bodyMd,        // E-003
-    fontWeight: fontWeight.semibold,  // E-003
+    fontSize: fontSize.bodyMd,
+    fontWeight: fontWeight.semibold,
   },
 
   bottomPad: { height: 32 },

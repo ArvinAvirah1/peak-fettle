@@ -38,7 +38,7 @@ Captured 2026-05-29: standalone app / shared backend / bundled into paid tier / 
 - **Impact:** gates TICKET-072 → build tickets.
 - **Answer:** **(a)** — confirmed: standalone app, shared backend, bundled into paid tier, light CBT/mindfulness. Sub-questions (name, iOS-first, screen-time approach, launch scope) remain open in `COMPANION_APP_PITCH_2026-05-29.md`.
 
-## Q6 — Push token registration: patchProfile vs /user/push-token endpoint? `OPEN`
+## Q6 — Push token registration: patchProfile vs /user/push-token endpoint? `ANSWERED (2026-06-12)`
 Found in TICKET-064 audit (F-003/F-004). Two competing paths exist:
 - **Active path:** `pushNotifications.ts` calls `patchProfile({ fcm_token: token.data })` — writes to `users.fcm_token` via `PATCH /user/profile`. Works today.
 - **Dead stub:** `pushTokens.ts` declares `registerPushToken` / `unregisterPushToken` pointing to `/user/push-token` — that endpoint **does not exist** on the server. Never called anywhere.
