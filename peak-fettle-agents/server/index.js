@@ -26,6 +26,7 @@ const templateRoutes     = require('./routes/templates');      // PL-1
 const csvImportRoutes    = require('./routes/csvImport');      // PL-2
 const routinesRoutes     = require('./routes/routines');       // TICKET-055/056
 const insightsRoutes     = require('./routes/insights');       // TICKET-engine spec §4
+const backupRoutes       = require('./routes/backup');         // TICKET-094-B §4 Agent F
 const { errorHandler } = require('./middleware/errorHandler');
 const { requireAuth }  = require('./middleware/requireAuth');
 
@@ -46,6 +47,11 @@ if (!allowedOrigin) {
 
 // Security headers, JSON body parsing, CORS for the web mirror
 app.use(helmet());
+// TICKET-094-B: backup route needs its own body-size budget (≤5 MB envelopes).
+// Mount it BEFORE the global 256 kb bodyParser so the 6 MB limit here takes
+// effect first; our route handler then enforces the 5 MB spec cap in software.
+app.use('/user/backup-blob', requireAuth, express.json({ limit: '6mb' }), backupRoutes);
+
 app.use(express.json({ limit: '256kb' }));
 app.use(cors({ origin: allowedOrigin }));
 
