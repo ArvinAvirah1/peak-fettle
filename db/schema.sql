@@ -6773,3 +6773,30 @@ CREATE INDEX IF NOT EXISTS idx_oauth_identities_user
 
 CREATE INDEX IF NOT EXISTS idx_oauth_identities_provider_sub
     ON oauth_identities (provider, provider_sub);
+
+
+-- ===========================================================================
+-- LIFEOS TICKET-111 (2026-06-12) — cross-app whole-person streak marker.
+--
+-- Local-first posture (Q30): the Life OS app's content never reaches the
+-- server. This table stores ONLY a per-day boolean presence marker ("at
+-- least one habit was active on this date") — no habit names, no counts.
+-- The whole-person streak is computed on read in routes/lifeos.js from the
+-- union of workouts.day_key and these rows (deviation from the spec's
+-- stored-counter sketch, recorded in LIFEOS_BUILD_STATUS).
+-- ===========================================================================
+
+CREATE TABLE IF NOT EXISTS lifeos_activity_days (
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    date    DATE NOT NULL,
+    PRIMARY KEY (user_id, date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_lifeos_activity_days_user
+    ON lifeos_activity_days (user_id, date DESC);
+
+-- RLS (repo convention: every per-user table) — review finding 2026-06-12.
+ALTER TABLE lifeos_activity_days ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "lifeos_activity_days_self_only" ON lifeos_activity_days
+    FOR ALL USING (auth.uid() = user_id);

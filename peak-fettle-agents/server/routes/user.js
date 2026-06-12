@@ -22,6 +22,20 @@ const { supabaseAdmin } = require('../lib/supabaseAdmin');
 
 const router = express.Router();
 
+// users has NO stored age_band / is_paid columns — both are derived (see
+// USER_PROFILE_SELECT in auth.js). Selecting them bare crashes with 42703.
+// (Found 2026-06-12 by the LIFEOS review sweep; bug predates the Life OS work
+// — both GDPR export endpoints below were selecting nonexistent columns.)
+const AGE_BAND_SQL = `CASE
+        WHEN birth_date IS NULL THEN NULL
+        WHEN EXTRACT(YEAR FROM AGE(NOW(), birth_date)) < 18 THEN 'under-18'
+        WHEN EXTRACT(YEAR FROM AGE(NOW(), birth_date)) < 25 THEN '18-24'
+        WHEN EXTRACT(YEAR FROM AGE(NOW(), birth_date)) < 35 THEN '25-34'
+        WHEN EXTRACT(YEAR FROM AGE(NOW(), birth_date)) < 45 THEN '35-44'
+        WHEN EXTRACT(YEAR FROM AGE(NOW(), birth_date)) < 55 THEN '45-54'
+        ELSE '55+'
+    END AS age_band`;
+
 // Strict rate limits for these sensitive endpoints.
 const exportLimiter = rateLimit({
     windowMs: 60 * 60 * 1000, // 1 hour
@@ -64,7 +78,7 @@ router.get('/data-export', exportLimiter, async (req, res, next) => {
         ] = await Promise.all([
             pool.query(
                 `SELECT id, email, experience_level, weight_class_kg,
-                        sex, age_band, is_paid, created_at
+                        sex, ${AGE_BAND_SQL}, (tier = 'paid') AS is_paid, created_at
                  FROM users WHERE id = $1`,
                 [uid]
             ),
@@ -595,7 +609,7 @@ router.get('/export', exportLimiter, async (req, res, next) => {
         ] = await Promise.all([
             pool.query(
                 `SELECT id, email, experience_level, weight_class_kg,
-                        sex, age_band, unit_pref, training_goal,
+                        sex, ${AGE_BAND_SQL}, unit_pref, training_goal,
                         sessions_per_week, session_minutes, goal_weight_kg,
                         equipment_profile, season_phase, primary_discipline,
                         created_at
@@ -729,6 +743,32 @@ router.get('/export.csv', exportLimiter, async (req, res, next) => {
         }
 
         res.end();
+    } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// GET /user/profile — core profile + entitlements (LIFEOS TICKET-101 #3).
+//
+// `lifeos_access` is DERIVED server-side from users.tier — never stored, never
+// computed client-side, so a manipulated JWT or client build cannot grant it
+// (pen-test item in LIFEOS TICKET-113). Plumbing stays separable (Q31): a
+// future standalone SKU only changes this derivation.
+// ---------------------------------------------------------------------------
+router.get('/profile', async (req, res, next) => {
+    try {
+        const { rows } = await pool.query(
+            `SELECT id, email, display_name, tier, unit_pref, experience_level
+             FROM users WHERE id = $1 AND deleted_at IS NULL`,
+            [req.user.id]
+        );
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'user_not_found' });
+        }
+        const user = rows[0];
+        res.json({
+            ...user,
+            lifeos_access: user.tier === 'paid',
+        });
     } catch (err) { next(err); }
 });
 

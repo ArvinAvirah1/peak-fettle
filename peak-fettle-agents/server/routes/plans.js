@@ -365,7 +365,19 @@ router.post('/generate', async (req, res, next) => {
 
         // ── 6. Load user profile (extended for engine — new columns from Agent B migration)
         const { rows: profileRows } = await pool.query(
-            `SELECT experience_level, weight_class_kg, sex, age_band,
+            // age_band is DERIVED from birth_date (no stored column — selecting
+            // it bare crashes with 42703; same pattern as USER_PROFILE_SELECT
+            // in auth.js). Found 2026-06-12 by the LIFEOS review sweep.
+            `SELECT experience_level, weight_class_kg, sex,
+                    CASE
+                        WHEN birth_date IS NULL THEN NULL
+                        WHEN EXTRACT(YEAR FROM AGE(NOW(), birth_date)) < 18 THEN 'under-18'
+                        WHEN EXTRACT(YEAR FROM AGE(NOW(), birth_date)) < 25 THEN '18-24'
+                        WHEN EXTRACT(YEAR FROM AGE(NOW(), birth_date)) < 35 THEN '25-34'
+                        WHEN EXTRACT(YEAR FROM AGE(NOW(), birth_date)) < 45 THEN '35-44'
+                        WHEN EXTRACT(YEAR FROM AGE(NOW(), birth_date)) < 55 THEN '45-54'
+                        ELSE '55+'
+                    END AS age_band,
                     training_goal, sessions_per_week, session_minutes,
                     goal_weight_kg, equipment_profile, season_phase,
                     primary_discipline
