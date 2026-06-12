@@ -53,7 +53,6 @@ import { formatWeight, kgToLbs, roundToNearestQuarterLb } from '../constants/uni
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getRoutine } from '../api/routines';
 import { markRoutineCompleted } from '../data/schedule'; // TICKET-097
-import { checkGoalAchieved } from '../data/exerciseGoals'; // WIDGET-002
 import { createWorkout } from '../api/workouts';
 import { toDateKey } from '../utils/dateHelpers';
 import { getExercises } from '../api/exercises';
@@ -61,9 +60,6 @@ import { getPersonalBest, getPersonalBests, PersonalBest } from '../api/sets';
 import { Exercise } from '../types/api';
 import { RoutineSession, RoutineSessionExercise } from './RoutineStrip';
 import { suggestNextExercise, suggestNextExercises, SessionExercise, SuggestCandidate } from '../utils/smartSuggest';
-import PRToast, { PRToastData } from './PRToast';
-import { useRestTimer, REST_TIMER_STEP } from '../hooks/useRestTimer';
-import { epley1Rm } from '../lib/oneRm';
 
 // Dynamic require for alternatives API (Agent 3's file — optional at parse time)
 let getAlternativesApi: ((exerciseId: string, opts?: { avoid?: string; limit?: number }) => Promise<import('../api/alternatives').AlternativesResult>) | null = null;
@@ -237,12 +233,6 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
         .catch(() => {});
       return () => { cancelled = true; };
     }, [stepperExerciseId]);
-
-    // PR toast
-    const [prToast, setPrToast] = useState<PRToastData | null>(null);
-
-    // Rest timer (background-safe, scheduled notification)
-    const restTimer = useRestTimer(120);
 
     // Alternatives sheet
     const [alternativesSheetExerciseId, setAlternativesSheetExerciseId] = useState<string | null>(null);
@@ -541,7 +531,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
         if (!workout?.id || !targetId) return;
         const rirNum = rir != null && rir.trim() !== '' ? parseInt(rir, 10) : undefined;
         try {
-          const logged = await logSet({
+          await logSet({
             kind: 'lift',
             workoutId: workout.id,
             exerciseId: targetId,
@@ -551,53 +541,8 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
             ...(rirNum !== undefined && !Number.isNaN(rirNum) ? { rir: rirNum } : {}),
           });
           haptics.success();
-          // WIDGET-002: a logged set that meets BOTH targets of this exercise's
-          // goal marks it achieved (fire-and-forget; StepperLogger re-reads the
-          // goal row after each set and shows the achieved state).
-          void checkGoalAchieved(
-            targetId,
-            parseFloat(weight) || 0,
-            parseInt(reps, 10) || 0,
-            logged?.id ?? null,
-          ).then((achieved) => {
-            if (achieved) haptics.success();
-          });
-          // PR detection: compute e1RM (Epley, reps capped at 12) and compare
-          // to prior all-time best. Show PRToast if new best.
-          {
-            const w = parseFloat(weight) || 0;
-            const r = Math.min(parseInt(reps, 10) || 0, 12);
-            if (w > 0 && r > 0) {
-              const newE1rm = epley1Rm(w, r);
-              const priorPB = (stepperPB ?? exercisePB);
-              const priorBest = priorPB?.all_time_best;
-              const priorE1rm = priorBest
-                ? epley1Rm(priorBest.weight_kg, Math.min(priorBest.reps, 12))
-                : 0;
-              if (newE1rm > priorE1rm && priorE1rm > 0) {
-                const exName =
-                  routineSession?.exercises[routineSession.currentIndex]?.name ??
-                  selectedExercise?.name ?? '';
-                const unitLabel = unitPref === 'lbs' ? 'lb' : 'kg';
-                const dispE1rm = unitPref === 'lbs'
-                  ? Math.round(newE1rm * 2.20462 * 10) / 10
-                  : Math.round(newE1rm * 10) / 10;
-                const dispPrior = unitPref === 'lbs'
-                  ? Math.round(priorE1rm * 2.20462 * 10) / 10
-                  : Math.round(priorE1rm * 10) / 10;
-                setPrToast({
-                  exerciseName: exName,
-                  e1rm: dispE1rm,
-                  delta: Math.round((dispE1rm - dispPrior) * 10) / 10,
-                  unitLabel,
-                });
-              }
-            }
-          }
           setTimerActive(true);
           setRestSecondsLeft(restDefault);
-          // Also start background-safe timer (schedules local notification)
-          restTimer.start(restDefault);
         } catch (err) {
           console.warn('[PF] WorkoutLoggerHost/handleStepperLogSet:', err instanceof Error ? err.message : String(err));
         }
@@ -877,7 +822,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
               <Text style={{ color: theme.colors.accentDefault, fontSize: fontSize.bodySm, fontWeight: fontWeight.bold }}>+30s</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={() => { setRestSecondsLeft(null); restTimer.cancel(); }}
+              onPress={() => setRestSecondsLeft(null)}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               accessibilityRole="button"
               accessibilityLabel="Dismiss rest timer"
@@ -974,8 +919,6 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
             />
           )}
         </Modal>
-      {/* PR celebration toast */}
-      <PRToast data={prToast} onDismiss={() => setPrToast(null)} />
       </>
     );
   },

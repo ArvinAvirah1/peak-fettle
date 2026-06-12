@@ -16,14 +16,10 @@
  *     notify() that touches a table it cares about. Callers re-run getAll()
  *     themselves after each yield (the sql/params args are accepted only for API
  *     compatibility with the old PowerSync watch signature).
- *
- * Schema migrations (v2+): after v1 base statements are applied, runMigrations()
- * from migrations.ts is called to apply any pending schema versions.
  */
 
 import * as SQLite from 'expo-sqlite';
 import { SCHEMA_STATEMENTS } from './localSchema';
-import { runMigrations } from './migrations';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -71,31 +67,17 @@ function parseAffectedTables(sql: string): string[] {
 }
 
 /**
- * Ensure the DB is open, the v1 schema applied, and migrations run.
- * Idempotent: concurrent callers share a single init promise.
+ * Ensure the DB is open and the schema applied. Idempotent: concurrent callers
+ * share a single init promise.
  */
 async function ensureInit(): Promise<void> {
   if (initPromise) return initPromise;
   initPromise = (async () => {
     const handle = await SQLite.openDatabaseAsync('peak_fettle.db');
-    // Apply base v1 statements (idempotent CREATE TABLE IF NOT EXISTS).
     for (const stmt of SCHEMA_STATEMENTS) {
       await handle.execAsync(stmt);
     }
     dbHandle = handle;
-    // Run pending schema migrations (v2+).
-    // buildBackup is imported lazily to avoid circular deps at module load time.
-    let buildBackup: (() => Promise<string>) | undefined;
-    try {
-      const { buildBackupFromDb } = await import('../data/backup/exportEngine');
-      buildBackup = async () => {
-        const doc = await buildBackupFromDb(localDb);
-        return JSON.stringify(doc);
-      };
-    } catch {
-      // exportEngine unavailable in test stubs — proceed without snapshot.
-    }
-    await runMigrations(localDb, buildBackup);
   })();
   return initPromise;
 }

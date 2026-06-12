@@ -164,9 +164,7 @@ These align with the Bielik 2024 raw-competition top end already cited in v2 (M 
 
 | beg | nov | int | adv | elite | world-class |
 |---|---|---|---|---|---|
-| 12th | 40th | 60th | 85th | 97th | 99.5th |
-
-> **Founder decision D8 (2026-06-12):** beginner anchor tightened from the provisional 20th to the **12th** percentile — the standards' "beginner" loads genuinely sit near the 10–12th percentile of trained lifters and the model's brand is calibrated honesty. Beginner psychology is handled in the display layer (D8-UI below), not the distribution. Constants in `mobile/src/lib/strengthModelV3.ts` re-fit accordingly.
+| 20th | 40th | 60th | 85th | 97th | 99.5th |
 
 Fit lognormal by least squares on `ln(load)` vs `Φ⁻¹(quantile)` across all **six** anchors (vs the 2-point endpoint fit in v2). Verified fit (male, reference BW):
 
@@ -176,7 +174,7 @@ Fit lognormal by least squares on `ln(load)` vs `Φ⁻¹(quantile)` across all *
 | Bench | 4.08 | 0.374 | 0.96 | 59 kg (0.79×BW) |
 | Deadlift | 4.73 | 0.324 | 0.96 | 113 kg (1.51×BW) |
 
-**Resolved (D8, 2026-06-12):** the beginner anchor was tightened to the 12th percentile (was 20th), eliminating the residual at the bottom of the fit. The UI suppresses the raw percentile in the lowest tier band and shows tier + trajectory copy instead (see §9 D8-UI).
+**Caveat (data-pass item):** the fit is clean (R²≈0.95) *except at the beginner anchor* — the standards place "beginner" nearer the ~10th percentile than the mapped 20th, so least squares splits the difference there. Either tighten the map (beginner≈10–12th) or keep the small residual; flag for the first-party re-fit. Novice and up sit on the line.
 
 ### 5.3 Procedure
 1. Convert each standard to an absolute load at BW₀, then (for the overall tier) to a DOTS total.
@@ -214,11 +212,11 @@ For lifts with marginal percentiles `p_i = F_i(x_i)`, the mean `(1/k)Σp_i` is *
 
 **Resolved 2026-06-06** (see §0): D1 DOTS currency · D2 quantile map + World Class anchor · D3 allometric per-lift · D4 provisional partial-total tier · D5 mixture · D6 consolidate lenses + model-derived (no live users).
 
-**Resolved 2026-06-12 (founder decisions D7–D9, presented with steel-manned options):**
+**Genuinely remaining** (data pass / TICKET-053):
 
-1. **D7 — World Class standard values: ACCEPT the §5.1 provisional values now.** The cheap re-confirm against Bielik 2024 (already cited) is folded into the TICKET-053 data pass before test vectors lock — rigor without blocking the on-device port. First-party re-fit later remains planned.
-2. **D8 — Beginner anchor: TIGHTEN to the 12th percentile** (math stays honest) **+ D8-UI hybrid display:** in the lowest tier band the UI suppresses the raw percentile number and shows the tier + trajectory copy instead (e.g. "climbing fast — newbie gains are real"). Implemented in `TierLadderCard`/rankings: suppress raw `overall_pct` display when `overall_pct < 25`.
-3. **D9 — Tier ladder: SPLIT the bottom band, keep the thin prestige top.** Final 9-band ladder (population shares on `overall_pct`): **Iron ≤25 · Stone 25–40 · Bronze 40–60 · Silver 60–75 · Gold 75–88 · Platinum 88–95 · Diamond 95–99 · Elite 99–99.7 · World Class ≥99.7.** Rationale: a typical beginner's newbie gains (~15th→45th pct in months) now yield 2–3 promotions in the first half-year; Diamond+ scarcity preserved. Bands are display-layer; avoid post-launch rebanding (visible demotions).
+1. **Exact World Class standard values** per lift — §5.1 are provisional; confirm against Bielik 2024.
+2. **Beginner-anchor residual** (§5.2) — accept ~10–12th or keep the residual.
+3. **Tier band cutoffs** on `overall_pct`, including the new World Class band (TICKET-053). Proposed starting ladder (population shares): Iron ≤40 · Bronze 40–60 · Silver 60–75 · Gold 75–88 · Platinum 88–95 · Diamond 95–99 · Elite 99–99.7 · **World Class ≥99.7**. Tunable; honest now that the scale is calibrated.
 
 ---
 

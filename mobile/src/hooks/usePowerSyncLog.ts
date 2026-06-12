@@ -38,9 +38,6 @@ import { getSetsForWorkout } from '../api/sets';
 import { db, genId } from '../db/powerSyncClient';
 import { syncEngine } from '../db/syncEngine';
 import { useAuth } from './useAuth';
-import { isLocalFirst } from '../data/backup/tierPolicy';
-import { maybeSendWeeklySignals, getActiveGroupIds } from '../data/groupSignals';
-import { localDb } from '../db/localDb';
 import {
   Workout,
   WorkoutSet,
@@ -194,8 +191,6 @@ export interface UsePowerSyncLogResult {
 export function usePowerSyncLog(): UsePowerSyncLogResult {
   const { user } = useAuth();
   const userId = user?.id ?? '';
-  // Tier gate: free users are local-first — skip personal REST endpoints.
-  const localFirst = isLocalFirst(user);
 
   // Stable today key — doesn't change within a session.
   const todayKey = useMemo(() => getTodayKey(), []);
@@ -221,34 +216,7 @@ export function usePowerSyncLog(): UsePowerSyncLogResult {
     setInitLoading(true);
     setInitError(null);
     try {
-      // ── Online path (Pro): create/upsert the server workout, hydrate local DB ─
-      // Free users are local-first: skip the REST call entirely; workout was
-      // already created locally by useWorkout or a prior session.
-      if (localFirst) {
-        // For free users, read or create today's workout from localDb only.
-        let localRow = await localDb.getFirst<{ id: string; user_id: string; day_key: string; notes: string | null; session_type: string | null; created_at: string; updated_at: string }>(
-          'SELECT * FROM workouts WHERE day_key = ? ORDER BY created_at ASC LIMIT 1',
-          [todayKey]
-        );
-        if (!localRow) {
-          const { genId: makeId } = require('../db/localDb');
-          const newId = makeId();
-          const now   = new Date().toISOString();
-          await localDb.execute(
-            `INSERT INTO workouts (id, user_id, day_key, notes, session_type, created_at, updated_at, synced) VALUES (?, ?, ?, NULL, NULL, ?, ?, 0)`,
-            [newId, userId, todayKey, now, now],
-            { tables: ['workouts'] }
-          );
-          localRow = await localDb.getFirst<{ id: string; user_id: string; day_key: string; notes: string | null; session_type: string | null; created_at: string; updated_at: string }>(
-            'SELECT * FROM workouts WHERE id = ?', [newId]
-          );
-        }
-        if (localRow) {
-          workoutIdRef.current = localRow.id;
-          setWorkout({ id: localRow.id, user_id: localRow.user_id, day_key: localRow.day_key, notes: localRow.notes, session_type: (localRow.session_type ?? null) as import('../types/api').Workout['session_type'], created_at: localRow.created_at, updated_at: localRow.updated_at });
-        }
-        return;
-      }
+      // ── Online path: create/upsert the server workout, then hydrate local DB ─
       const w = await createWorkout(todayKey);
       // Set ref BEFORE triggering re-render so the watch effect always sees a
       // valid workoutId even on the first render triggered by setWorkout().
@@ -458,26 +426,6 @@ export function usePowerSyncLog(): UsePowerSyncLogResult {
 
       // Queue the upload; syncEngine drains the outbox to the API when online.
       await syncEngine.enqueueInsertSet(localId, { ...payload, workoutId: wid });
-
-      // ── Group weekly signal (free + pro, fire-and-forget) ─────────────────
-      // Count workouts logged in this ISO week (including today) so the signal
-      // reflects accurate progress. Errors are fully swallowed in the helper.
-      void (async () => {
-        try {
-          const weekMonday = (() => {
-            const d = new Date();
-            const dow = (d.getDay() + 6) % 7;
-            d.setDate(d.getDate() - dow);
-            return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-          })();
-          const row = await localDb.getFirst<{ cnt: number }>(
-            `SELECT COUNT(*) as cnt FROM workouts WHERE day_key >= ?`,
-            [weekMonday]
-          );
-          await maybeSendWeeklySignals(getActiveGroupIds(), row?.cnt ?? 1);
-        } catch { /* swallow — never block logSet */ }
-      })();
-
       return optimistic;
     },
     [userId]

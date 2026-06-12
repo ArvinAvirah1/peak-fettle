@@ -1,13 +1,10 @@
 /**
  * useHealthMetrics — fetches recent health metrics and manages HealthKit sync.
  *
- * Tier branching (SPEC-094A Agent P):
- *   isLocalFirst(user) → reads from localDb `daily_health_log` table (Agent L
- *                         schema); HealthKit sync still writes locally; never
- *                         calls personal REST health-metrics endpoints.
- *   Pro (syncsToServer) → unchanged existing REST + HealthKit behaviour.
+ * On mount: loads the last 7 days from the server.
+ * sync():   reads HealthKit (iOS), POSTs each day to the server, then refetches.
  *
- * Returns: (unchanged exported API)
+ * Returns:
  *   metrics        — DailyHealthMetric[] sorted descending by date
  *   summary        — 7-day averages (null while loading)
  *   isLoading      — true during initial fetch
@@ -20,9 +17,6 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { useAuth } from './useAuth';
-import { isLocalFirst } from '../data/backup/tierPolicy';
-import { localDb } from '../db/localDb';
 import {
   getHealthMetrics,
   getHealthMetricsSummary,
@@ -36,121 +30,37 @@ import {
   fetchHealthKitData,
 } from '../services/healthKit';
 
-// ---------------------------------------------------------------------------
-// Local DB row type for daily_health_log (Agent L schema)
-// ---------------------------------------------------------------------------
-
-interface HealthLogRow {
-  id: string;
-  user_id: string;
-  date: string;
-  resting_hr_bpm: number | null;
-  hrv_ms: number | null;
-  sleep_hours: number | null;
-  active_kcal: number | null;
-  source: string;
-  created_at: string;
-}
-
-function rowToMetric(row: HealthLogRow): DailyHealthMetric {
-  return {
-    id:              row.id,
-    user_id:         row.user_id,
-    date:            row.date,
-    resting_hr_bpm:  row.resting_hr_bpm,
-    hrv_ms:          row.hrv_ms,
-    sleep_hours:     row.sleep_hours,
-    active_kcal:     row.active_kcal,
-    source:          (row.source ?? 'manual') as DailyHealthMetric['source'],
-    created_at:      row.created_at,
-  };
-}
-
-/** Compute 7-day averages from a set of local rows. */
-function computeSummary(
-  metrics: DailyHealthMetric[],
-  windowDays: number
-): HealthMetricsSummary {
-  const cutoff = new Date();
-  cutoff.setDate(cutoff.getDate() - windowDays);
-  const cut = cutoff.toISOString().slice(0, 10);
-  const window = metrics.filter((m) => m.date >= cut);
-
-  const avg = (vals: (number | null)[]): number | null => {
-    const nums = vals.filter((v): v is number => v !== null);
-    return nums.length > 0 ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
-  };
-
-  return {
-    avg_resting_hr_bpm: avg(window.map((m) => m.resting_hr_bpm)),
-    avg_hrv_ms:         avg(window.map((m) => m.hrv_ms)),
-    avg_sleep_hours:    avg(window.map((m) => m.sleep_hours)),
-    avg_active_kcal:    avg(window.map((m) => m.active_kcal)),
-    days_logged:        window.length,
-    window_days:        windowDays,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Hook return shape (unchanged exported API)
-// ---------------------------------------------------------------------------
-
 export interface UseHealthMetricsResult {
-  metrics:              DailyHealthMetric[];
-  summary:              HealthMetricsSummary | null;
-  isLoading:            boolean;
-  error:                string | null;
-  refetch:              () => Promise<void>;
-  sync:                 () => Promise<void>;
-  isSyncing:            boolean;
-  syncError:            string | null;
+  metrics: DailyHealthMetric[];
+  summary: HealthMetricsSummary | null;
+  isLoading: boolean;
+  error: string | null;
+  refetch: () => Promise<void>;
+  sync: () => Promise<void>;
+  isSyncing: boolean;
+  syncError: string | null;
   isHealthKitAvailable: boolean;
 }
 
-// ---------------------------------------------------------------------------
-// Hook
-// ---------------------------------------------------------------------------
-
 export function useHealthMetrics(): UseHealthMetricsResult {
-  const { user } = useAuth();
-  const localFirst = isLocalFirst(user);
-
-  const [metrics,   setMetrics]   = useState<DailyHealthMetric[]>([]);
-  const [summary,   setSummary]   = useState<HealthMetricsSummary | null>(null);
+  const [metrics, setMetrics] = useState<DailyHealthMetric[]>([]);
+  const [summary, setSummary] = useState<HealthMetricsSummary | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [error,     setError]     = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const [isSyncing,  setIsSyncing]  = useState(false);
-  const [syncError,  setSyncError]  = useState<string | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      if (localFirst) {
-        // ── Free path: localDb daily_health_log ────────────────────────────
-        await localDb.init();
-        const cutoff = new Date();
-        cutoff.setDate(cutoff.getDate() - 14);
-        const isoStr = cutoff.toISOString().slice(0, 10);
-
-        const rows = await localDb.getAll<HealthLogRow>(
-          `SELECT * FROM daily_health_log WHERE date >= ? ORDER BY date DESC`,
-          [isoStr]
-        ).catch(() => [] as HealthLogRow[]); // table may not exist yet (pre-migration)
-
-        const fetchedMetrics = rows.map(rowToMetric);
-        setMetrics(fetchedMetrics);
-        setSummary(computeSummary(fetchedMetrics, 7));
-      } else {
-        // ── Pro path: REST (unchanged) ──────────────────────────────────────
-        const [fetchedMetrics, fetchedSummary] = await Promise.all([
-          getHealthMetrics(14),
-          getHealthMetricsSummary(7),
-        ]);
-        setMetrics(fetchedMetrics);
-        setSummary(fetchedSummary);
-      }
+      const [fetchedMetrics, fetchedSummary] = await Promise.all([
+        getHealthMetrics(14),
+        getHealthMetricsSummary(7),
+      ]);
+      setMetrics(fetchedMetrics);
+      setSummary(fetchedSummary);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Failed to load health metrics'
@@ -158,15 +68,11 @@ export function useHealthMetrics(): UseHealthMetricsResult {
     } finally {
       setIsLoading(false);
     }
-  }, [localFirst]);
+  }, []);
 
   useEffect(() => {
     load();
   }, [load]);
-
-  // ---------------------------------------------------------------------------
-  // HealthKit sync — writes locally for free users; calls REST for Pro
-  // ---------------------------------------------------------------------------
 
   const sync = useCallback(async () => {
     if (!isHealthKitAvailable) return;
@@ -184,48 +90,32 @@ export function useHealthMetrics(): UseHealthMetricsResult {
       }
 
       const samples = await fetchHealthKitData(7);
-      if (samples.length === 0) return;
-
-      if (localFirst) {
-        // ── Free: write into local daily_health_log ─────────────────────────
-        await localDb.init();
-        for (const sample of samples) {
-          // Upsert by date. Use INSERT OR REPLACE keyed on a stable id.
-          const id  = `hk-${user?.id ?? 'anon'}-${sample.date}`;
-          const now = new Date().toISOString();
-          await localDb.execute(
-            `INSERT OR REPLACE INTO daily_health_log
-               (id, user_id, date, resting_hr_bpm, hrv_ms, sleep_hours, active_kcal,
-                source, created_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, 'apple_healthkit', ?)`,
-            [
-              id, user?.id ?? '', sample.date,
-              sample.restingHrBpm ?? null,
-              sample.hrvMs ?? null,
-              sample.sleepHours ?? null,
-              sample.activeKcal ?? null,
-              now,
-            ],
-            { tables: ['daily_health_log'] }
-          ).catch(() => {}); // table may not exist pre-migration — swallow
-        }
-        await load();
-      } else {
-        // ── Pro: POST to server (unchanged) ─────────────────────────────────
-        await Promise.all(
-          samples.map((sample) =>
-            logHealthMetric({
-              date:   sample.date,
-              source: 'apple_healthkit',
-              ...(sample.restingHrBpm !== null ? { restingHrBpm: sample.restingHrBpm } : {}),
-              ...(sample.hrvMs        !== null ? { hrvMs:         sample.hrvMs }        : {}),
-              ...(sample.sleepHours   !== null ? { sleepHours:    sample.sleepHours }   : {}),
-              ...(sample.activeKcal   !== null ? { activeKcal:    sample.activeKcal }   : {}),
-            })
-          )
-        );
-        await load();
+      if (samples.length === 0) {
+        // No data returned (stub or no HealthKit data available)
+        return;
       }
+
+      // POST each day's data to the server (server upserts on user_id + date).
+      await Promise.all(
+        samples.map((sample) =>
+          logHealthMetric({
+            date: sample.date,
+            source: 'apple_healthkit',
+            ...(sample.restingHrBpm !== null
+              ? { restingHrBpm: sample.restingHrBpm }
+              : {}),
+            ...(sample.hrvMs !== null ? { hrvMs: sample.hrvMs } : {}),
+            ...(sample.sleepHours !== null
+              ? { sleepHours: sample.sleepHours }
+              : {}),
+            ...(sample.activeKcal !== null
+              ? { activeKcal: sample.activeKcal }
+              : {}),
+          })
+        )
+      );
+
+      await load();
     } catch (err) {
       setSyncError(
         err instanceof Error ? err.message : 'HealthKit sync failed'
@@ -233,7 +123,7 @@ export function useHealthMetrics(): UseHealthMetricsResult {
     } finally {
       setIsSyncing(false);
     }
-  }, [localFirst, load, user]);
+  }, [load]);
 
   return {
     metrics,

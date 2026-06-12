@@ -73,7 +73,23 @@ const WebBrowser = tryRequireWebBrowser();
 
 // If neither package is available, surface nothing.
 const APPLE_AVAILABLE = AppleAuth !== null;
-const GOOGLE_AVAILABLE = Google !== null;
+
+// Google also needs a per-platform client ID baked into the bundle at build
+// time. Calling useIdTokenAuthRequest with an undefined client ID throws at
+// render ("Client Id property `iosClientId` must be defined…"), which takes
+// down the whole login screen — so treat "package installed but no client ID
+// for this platform" as unavailable and hide the button.
+const GOOGLE_CLIENT_ID_FOR_PLATFORM: string | undefined = Platform.select({
+  ios: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+  android: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
+  default: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+});
+const GOOGLE_AVAILABLE = Google !== null && !!GOOGLE_CLIENT_ID_FOR_PLATFORM;
+if (Google !== null && !GOOGLE_CLIENT_ID_FOR_PLATFORM) {
+  console.warn(
+    `[OAuthButtons] EXPO_PUBLIC_GOOGLE_*_CLIENT_ID not set for ${Platform.OS} — Google sign-in hidden.`,
+  );
+}
 
 // Complete any pending auth session so the popup can close itself.
 if (WebBrowser && typeof (WebBrowser as { maybeCompleteAuthSession?: () => void }).maybeCompleteAuthSession === 'function') {
@@ -120,9 +136,10 @@ function GoogleButton({
 }: GoogleButtonProps): React.ReactElement | null {
   const { loginWithOAuth } = useAuth();
 
-  // Safely destructure the hook factory — if Google module loaded, use it.
+  // Safely destructure the hook factory — only if the Google module loaded
+  // AND this platform has a client ID (the hook throws without one).
   const useIdTokenAuthRequest =
-    Google && typeof (Google as { useIdTokenAuthRequest?: unknown }).useIdTokenAuthRequest === 'function'
+    Google && GOOGLE_CLIENT_ID_FOR_PLATFORM && typeof (Google as { useIdTokenAuthRequest?: unknown }).useIdTokenAuthRequest === 'function'
       ? (Google as { useIdTokenAuthRequest: (opts: Record<string, unknown>) => [unknown, { type?: string; params?: { id_token?: string } } | null, () => Promise<void>] }).useIdTokenAuthRequest
       : null;
 

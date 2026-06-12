@@ -6,10 +6,6 @@
  * Both endpoints are rate-limited server-side:
  *   data-export: 5 requests per hour
  *   account deletion: 3 requests per 15 minutes
- *
- * Training Engine profile fields added 2026-06-11 (spec §5):
- *   training_goal, sessions_per_week, session_minutes, equipment_profile,
- *   goal_weight_kg, season_phase
  */
 
 import { apiClient } from './client';
@@ -55,49 +51,14 @@ export async function deleteAccount(
 }
 
 // ---------------------------------------------------------------------------
-// Training Engine vocabulary types (spec §2, §5)
-// ---------------------------------------------------------------------------
-
-/** Closed set — must match server CHECK constraint. */
-export type TrainingGoal =
-  | 'strength'
-  | 'hypertrophy'
-  | 'endurance'
-  | 'sport_performance'
-  | 'general_fitness';
-
-/** Closed set — must match server CHECK constraint. */
-export type SessionMinutes = 15 | 30 | 45 | 60 | 90;
-
-/** Closed set — spec §2 equipment vocabulary. */
-export type EquipmentItem =
-  | 'barbell'
-  | 'dumbbell'
-  | 'kettlebell'
-  | 'machine'
-  | 'cable'
-  | 'bodyweight'
-  | 'bands'
-  | 'bench'
-  | 'rack'
-  | 'pullup_bar'
-  | 'bike'
-  | 'treadmill'
-  | 'pool'
-  | 'track';
-
-/** Closed set — must match server CHECK constraint. */
-export type SeasonPhase = 'off_season' | 'in_season';
-
-// ---------------------------------------------------------------------------
 // Profile update
 // ---------------------------------------------------------------------------
 
 /**
  * Partial profile update — unit preference, experience level, weight class,
- * 1RM confirmation opt-in, theme preference, and Training Engine survey fields.
+ * 1RM confirmation opt-in, theme preference.
  *
- * Server: PATCH /user/profile  (also accepts /users/profile — both routed)
+ * Server: PATCH /user/profile
  */
 export interface PatchProfilePayload {
   unit_pref?: UnitPref;
@@ -122,22 +83,8 @@ export interface PatchProfilePayload {
   plan_notifications_enabled?: boolean;
   /** TICKET-066: user opted in to seeing their Wilks2 score in the rankings tab. */
   show_wilks?: boolean;
-
-  // ── Training Engine survey fields (spec §2, 2026-06-11) ──────────────────
-  /** Primary training objective. */
-  training_goal?: TrainingGoal;
-  /** Target sessions per week (1–7). */
-  sessions_per_week?: number;
-  /** Target session length in minutes. Allowed: 15, 30, 45, 60, 90. */
-  session_minutes?: SessionMinutes;
-  /** Available equipment — closed vocabulary from spec §2. */
-  equipment_profile?: EquipmentItem[];
-  /** Optional goal body weight in kg. */
-  goal_weight_kg?: number | null;
-  /** Competitive season phase — only relevant for team/mixed-sport disciplines. */
-  season_phase?: SeasonPhase | null;
 }
 
 export async function patchProfile(payload: PatchProfilePayload): Promise<void> {
-  await apiClient.patch('/users/profile', payload);
+  await apiClient.patch('/user/profile', payload);
 }

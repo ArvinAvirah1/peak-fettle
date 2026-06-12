@@ -1,25 +1,21 @@
 /**
- * Plans tab — Training Engine plans.
+ * Plans tab — AI-generated training plans.
  *
  * TICKET-020: full implementation.
- * 2026-06-11: rebranded to Training Engine (spec §5, §7). No "AI" strings.
- *   - UpsellCard copy updated: "evidence-based Training Engine"
- *   - Plan detail shows reasoning prominently + collapsible "Why this plan"
- *     rule_trace list.
- *   - GenerateCTA copy: "Generate my plan — built from published sports science"
- *   - is_ai_generated badge renamed to "Engine"
  *
  * Sections:
  *   A. Free-tier upsell card  — shown when is_paid = false
  *   B. Plan list              — user's saved plans + global templates
- *   C. Generate CTA           — "Generate my plan" for paid users
- *   D. Plan detail modal      — exercises, sets, reps, RPE, reasoning + rule_trace
+ *   C. Generate CTA           — "Generate new plan" for paid users
+ *   D. Plan detail modal      — exercises, sets, reps, RPE, AI reasoning
  *
  * Paid-tier gate:
  *   - UI hides the "Generate" button for free users and shows an upsell card.
  *   - The server enforces the gate regardless (defence-in-depth).
  *
- * Daily limit: 20 plans/day (server-enforced).
+ * AI generation uses Claude Haiku 4.5 (~2.5¢/plan, CTO cost guardrail).
+ * The model is pinned to 'claude-haiku-4-5' on the server; we show it in the
+ * reasoning banner so users know what generated their plan.
  */
 
 import React, { useState, useCallback } from 'react';
@@ -39,8 +35,7 @@ import {
 import { useAuth } from '../../src/hooks/useAuth';
 import { usePlans } from '../../src/hooks/usePlans';
 import { getPlan, activatePlan, regeneratePlan } from '../../src/api/plans';
-import type { EngineGenerateResponse } from '../../src/api/plans';
-import { Plan, PlanWithStructure, PlanExercise, PlanWeek, PlanWeekSession } from '../../src/types/api';
+import { Plan, PlanWithStructure, PlanExercise, PlanWeek, PlanWeekSession, GeneratePlanResponse } from '../../src/types/api';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
 import { haptics } from '../../src/utils/haptics';
@@ -88,26 +83,21 @@ function UpsellCard(): React.ReactElement {
     ]}>
       <View style={styles.upsellIconRow}>
         <Text style={styles.upsellIcon}>⚡</Text>
-        <Text style={[styles.upsellTitle, { color: theme.colors.textPrimary }]}>
-          Training Engine Plans
-        </Text>
+        <Text style={[styles.upsellTitle, { color: theme.colors.textPrimary }]}>AI Training Plans</Text>
       </View>
       <Text style={[styles.upsellBody, { color: theme.colors.textSecondary }]}>
-        Upgrade to Peak Fettle Pro to unlock personalised, evidence-based
-        training plans. Every plan is built from published sports science using
-        your workout history, health metrics, and physical constraints —
-        adapted to you specifically.
+        Upgrade to Peak Fettle Pro to unlock personalised AI-generated training plans.
+        Each plan is built by Claude Haiku using your workout history, health metrics,
+        and physical constraints — adapted to you specifically.
       </Text>
       <View style={styles.upsellFeatureList}>
         <Text style={[styles.upsellFeature, { color: theme.colors.accentHover }]}>✓  Personalised exercises and loading</Text>
         <Text style={[styles.upsellFeature, { color: theme.colors.accentHover }]}>✓  Respects your injury constraints</Text>
         <Text style={[styles.upsellFeature, { color: theme.colors.accentHover }]}>✓  Adapts as you log more sessions</Text>
-        <Text style={[styles.upsellFeature, { color: theme.colors.accentHover }]}>✓  See exactly why each choice was made</Text>
+        <Text style={[styles.upsellFeature, { color: theme.colors.accentHover }]}>✓  AI reasoning — see why each choice was made</Text>
       </View>
       <View style={styles.upsellCTARow}>
-        <Text style={[styles.upsellCTALabel, { color: theme.colors.textTertiary }]}>
-          Built from published sports science
-        </Text>
+        <Text style={[styles.upsellCTALabel, { color: theme.colors.textTertiary }]}>~2.5¢/plan · Claude Haiku 4.5</Text>
       </View>
     </View>
   );
@@ -128,6 +118,7 @@ interface PlanCardProps {
 
 function PlanCard({ plan, onPress, onActivate, isActivating }: PlanCardProps): React.ReactElement {
   const { theme } = useTheme();
+  // Templates and AI-generated plans without persistence aren't activatable.
   const canActivate = !plan.is_template && !!onActivate;
 
   return (
@@ -156,23 +147,17 @@ function PlanCard({ plan, onPress, onActivate, isActivating }: PlanCardProps): R
         <View style={styles.planBadgeRow}>
           {plan.is_active && (
             <View style={[styles.activeBadge, { backgroundColor: theme.colors.accentDefault }]}>
-              <Text style={[styles.activeBadgeText, { color: theme.components.buttonPrimaryText }]}>
-                ACTIVE
-              </Text>
+              <Text style={[styles.activeBadgeText, { color: theme.components.buttonPrimaryText }]}>ACTIVE</Text>
             </View>
           )}
           {plan.is_ai_generated && (
-            <View style={[styles.engineBadge, { backgroundColor: theme.colors.accentSecondary }]}>
-              <Text style={[styles.engineBadgeText, { color: theme.colors.accentHover }]}>
-                Engine
-              </Text>
+            <View style={[styles.aiBadge, { backgroundColor: theme.colors.accentSecondary }]}>
+              <Text style={[styles.aiBadgeText, { color: theme.colors.accentHover }]}>AI</Text>
             </View>
           )}
           {plan.is_template && (
             <View style={[styles.templateBadge, { backgroundColor: theme.colors.bgElevated }]}>
-              <Text style={[styles.templateBadgeText, { color: theme.colors.accentHover }]}>
-                Template
-              </Text>
+              <Text style={[styles.templateBadgeText, { color: theme.colors.accentHover }]}>Template</Text>
             </View>
           )}
         </View>
@@ -181,6 +166,7 @@ function PlanCard({ plan, onPress, onActivate, isActivating }: PlanCardProps): R
         {plan.is_template ? 'Global template' : `Saved ${formatDate(plan.created_at)}`}
       </Text>
 
+      {/* PLANS-001 (2026-05-19): activate affordance for non-template plans */}
       {canActivate && !plan.is_active && (
         <TouchableOpacity
           style={[
@@ -191,6 +177,7 @@ function PlanCard({ plan, onPress, onActivate, isActivating }: PlanCardProps): R
             },
           ]}
           onPress={(e) => {
+            // Stop the card's onPress from also firing.
             e.stopPropagation?.();
             onActivate!(plan);
           }}
@@ -234,77 +221,20 @@ function GenerateCTA({ onPress, isGenerating }: GenerateCTAProps): React.ReactEl
       onPress={onPress}
       disabled={isGenerating}
       accessibilityRole="button"
-      accessibilityLabel="Generate a new training plan"
+      accessibilityLabel="Generate a new AI training plan"
     >
       {isGenerating ? (
         <View style={styles.generateButtonContent}>
           <ActivityIndicator color={theme.components.buttonPrimaryText} size="small" />
-          <Text style={[styles.generateButtonText, { color: theme.components.buttonPrimaryText }]}>
-            Building your plan…
-          </Text>
+          <Text style={[styles.generateButtonText, { color: theme.components.buttonPrimaryText }]}>Generating plan…</Text>
         </View>
       ) : (
         <View style={styles.generateButtonContent}>
           <Text style={styles.generateButtonIcon}>⚡</Text>
-          <View style={styles.generateButtonLabels}>
-            <Text style={[styles.generateButtonText, { color: theme.components.buttonPrimaryText }]}>
-              Generate my plan
-            </Text>
-            <Text style={[styles.generateButtonSub, { color: theme.components.buttonPrimaryText }]}>
-              built from published sports science
-            </Text>
-          </View>
+          <Text style={[styles.generateButtonText, { color: theme.components.buttonPrimaryText }]}>Generate New Plan</Text>
         </View>
       )}
     </TouchableOpacity>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Rule trace collapsible
-// ---------------------------------------------------------------------------
-
-function RuleTraceCollapsible({ ruleTrace }: { ruleTrace: string[] }): React.ReactElement {
-  const { theme } = useTheme();
-  const [expanded, setExpanded] = React.useState(false);
-
-  if (!ruleTrace || ruleTrace.length === 0) return <View />;
-
-  return (
-    <View style={[
-      detailStyles.ruleTraceContainer,
-      { backgroundColor: theme.colors.bgPrimary, borderColor: theme.colors.borderDefault },
-    ]}>
-      <TouchableOpacity
-        style={detailStyles.ruleTraceHeader}
-        onPress={() => setExpanded((v) => !v)}
-        accessibilityRole="button"
-        accessibilityLabel={expanded ? 'Collapse rule trace' : 'Expand rule trace'}
-        accessibilityState={{ expanded }}
-      >
-        <Text style={[detailStyles.ruleTraceTitle, { color: theme.colors.textSecondary }]}>
-          Here's why ›
-        </Text>
-        <Text style={[detailStyles.ruleTraceChevron, { color: theme.colors.textTertiary }]}>
-          {expanded ? '▲' : '▼'}
-        </Text>
-      </TouchableOpacity>
-
-      {expanded && (
-        <View style={detailStyles.ruleTraceList}>
-          {ruleTrace.map((rule, idx) => (
-            <View key={idx} style={detailStyles.ruleTraceRow}>
-              <Text style={[detailStyles.ruleTraceBullet, { color: theme.colors.accentDefault }]}>
-                {'•'}
-              </Text>
-              <Text style={[detailStyles.ruleTraceText, { color: theme.colors.textTertiary }]}>
-                {rule}
-              </Text>
-            </View>
-          ))}
-        </View>
-      )}
-    </View>
   );
 }
 
@@ -364,6 +294,7 @@ function PlanDetailModal({ planId, onClose, onRegenerate }: PlanDetailProps): Re
     }
   }, [planId, loadPlan]);
 
+  // Derive exercises from multi-week structure or legacy single-session
   const hasWeeks = (plan?.structure?.weeks?.length ?? 0) > 0;
   const weeks: PlanWeek[] = plan?.structure?.weeks ?? [];
   const currentWeekSessions: PlanWeekSession[] = weeks[selectedWeek]?.sessions ?? [];
@@ -371,8 +302,7 @@ function PlanDetailModal({ planId, onClose, onRegenerate }: PlanDetailProps): Re
     ? (currentWeekSessions[selectedDay]?.exercises ?? [])
     : (plan?.structure?.session?.exercises ?? []);
   const reasoning = plan?.structure?.reasoning ?? null;
-  // rule_trace — may be in structure or top-level depending on server version
-  const ruleTrace: string[] = (plan?.structure as any)?.rule_trace ?? [];
+  const model = plan?.structure?.model ?? null;
 
   return (
     <Modal
@@ -390,9 +320,9 @@ function PlanDetailModal({ planId, onClose, onRegenerate }: PlanDetailProps): Re
                 <Text style={[detailStyles.title, { color: theme.colors.textPrimary }]} numberOfLines={2}>
                   {plan.name}
                 </Text>
-                {plan.is_ai_generated ? (
-                  <Text style={[detailStyles.engineLabel, { color: theme.colors.textTertiary }]}>
-                    Training Engine — evidence-based
+                {plan.is_ai_generated && model ? (
+                  <Text style={[detailStyles.modelLabel, { color: theme.colors.textTertiary }]}>
+                    Generated by {model}
                   </Text>
                 ) : null}
                 <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodySm, marginTop: spacing.s1 }}>
@@ -428,29 +358,21 @@ function PlanDetailModal({ planId, onClose, onRegenerate }: PlanDetailProps): Re
             contentContainerStyle={detailStyles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            {/* Reasoning banner — shown prominently per spec §5 */}
+            {/* AI Reasoning banner */}
             {reasoning ? (
               <View style={[
                 detailStyles.reasoningCard,
                 { backgroundColor: theme.colors.bgSecondary, borderLeftColor: theme.colors.accentDefault },
               ]}>
                 <View style={detailStyles.reasoningHeader}>
-                  <Text style={detailStyles.reasoningIcon}>📋</Text>
-                  <Text style={[detailStyles.reasoningTitle, { color: theme.colors.accentHover }]}>
-                    Your plan, explained
-                  </Text>
+                  <Text style={detailStyles.reasoningIcon}>🤖</Text>
+                  <Text style={[detailStyles.reasoningTitle, { color: theme.colors.accentHover }]}>Why this plan?</Text>
                 </View>
-                <Text style={[detailStyles.reasoningText, { color: theme.colors.textSecondary }]}>
-                  {reasoning}
-                </Text>
-                {/* Rule trace collapsible — "Why this plan" detail */}
-                {ruleTrace.length > 0 && (
-                  <RuleTraceCollapsible ruleTrace={ruleTrace} />
-                )}
+                <Text style={[detailStyles.reasoningText, { color: theme.colors.textSecondary }]}>{reasoning}</Text>
               </View>
             ) : null}
 
-            {/* Week picker — shown for multi-week plans */}
+            {/* Week picker — shown for multi-week plans (TICKET-058) */}
             {hasWeeks && weeks.length > 1 && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                 <View style={detailStyles.pickerRow}>
@@ -478,7 +400,7 @@ function PlanDetailModal({ planId, onClose, onRegenerate }: PlanDetailProps): Re
               </ScrollView>
             )}
 
-            {/* Day picker */}
+            {/* Day picker — shown when multi-week plan has sessions loaded */}
             {hasWeeks && currentWeekSessions.length > 0 && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                 <View style={detailStyles.pickerRow}>
@@ -516,15 +438,13 @@ function PlanDetailModal({ planId, onClose, onRegenerate }: PlanDetailProps): Re
               </View>
             ) : (
               <View style={detailStyles.centered}>
-                <Text style={[detailStyles.emptyText, { color: theme.colors.textTertiary }]}>
-                  No exercises in this plan.
-                </Text>
+                <Text style={[detailStyles.emptyText, { color: theme.colors.textTertiary }]}>No exercises in this plan.</Text>
               </View>
             )}
           </ScrollView>
         )}
 
-        {/* Footer actions */}
+        {/* Footer actions — shown once plan is loaded */}
         {!isLoading && !error && (
           <View style={{ paddingHorizontal: spacing.s5, paddingBottom: spacing.s5, paddingTop: spacing.s3, gap: spacing.s2 }}>
             <PFButton
@@ -561,6 +481,7 @@ function ExerciseRow({ exercise, index }: ExerciseRowProps): React.ReactElement 
       detailStyles.exerciseCard,
       { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
     ]}>
+      {/* Exercise number + name */}
       <View style={detailStyles.exerciseCardHeader}>
         <View style={[detailStyles.exerciseNumber, { backgroundColor: theme.colors.accentSecondary }]}>
           <Text style={[detailStyles.exerciseNumberText, { color: theme.colors.accentHover }]}>{index + 1}</Text>
@@ -568,6 +489,7 @@ function ExerciseRow({ exercise, index }: ExerciseRowProps): React.ReactElement 
         <Text style={[detailStyles.exerciseName, { color: theme.colors.textPrimary }]}>{exercise.name}</Text>
       </View>
 
+      {/* Stats row */}
       <View style={detailStyles.statsRow}>
         <StatChip label="Sets" value={String(exercise.sets)} />
         <StatChip label="Reps" value={exercise.reps} />
@@ -575,8 +497,12 @@ function ExerciseRow({ exercise, index }: ExerciseRowProps): React.ReactElement 
         <StatChip label="Rest" value={restLabel(exercise.rest_seconds)} />
       </View>
 
+      {/* Coaching note — per-exercise technique / loading intent (spec §6.3) */}
       {!!exercise.coaching_note && (
-        <Text style={[detailStyles.coachingNote, { color: theme.colors.textTertiary }]}>
+        <Text style={[
+          detailStyles.coachingNote,
+          { color: theme.colors.textTertiary },
+        ]}>
           {exercise.coaching_note}
         </Text>
       )}
@@ -626,17 +552,21 @@ export default function PlansScreen(): React.ReactElement {
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
-  const [lastGenerated, setLastGenerated] = useState<EngineGenerateResponse | null>(null);
+  const [lastGenerated, setLastGenerated] = useState<GeneratePlanResponse | null>(null);
+  // PLANS-001 (2026-05-19): activation state — only one request in flight at a
+  // time to avoid the partial unique index racing two concurrent activations.
   const [activatingPlanId, setActivatingPlanId] = useState<string | null>(null);
 
   const handleActivatePlan = useCallback(
     async (plan: Plan) => {
-      if (activatingPlanId) return;
+      if (activatingPlanId) return; // single-flight guard
       setActivatingPlanId(plan.id);
       haptics.medium();
       try {
         await activatePlan(plan.id);
         haptics.success();
+        // Reload so all cards reflect the new is_active state (server is source
+        // of truth — the partial unique index guarantees at most one).
         await refetch();
       } catch (err) {
         haptics.error();
@@ -656,29 +586,36 @@ export default function PlansScreen(): React.ReactElement {
   }, [refetch]);
 
   const handleGenerate = useCallback(async () => {
+    // E-006: medium haptic signals plan generation has started (spec §7).
     haptics.medium();
     try {
       const result = await generate();
-      setLastGenerated(result as EngineGenerateResponse);
+      setLastGenerated(result);
+      // Immediately open the newly generated plan detail.
       setSelectedPlanId(result.plan_id);
+      // E-006: success haptic when the plan lands.
       haptics.success();
     } catch (err) {
+      // generateError is already set in usePlans; show alert for 403
       const msg = err instanceof Error ? err.message : '';
       if (msg.includes('paid_tier_required')) {
         haptics.error();
         Alert.alert(
           'Pro feature',
-          'Training Engine plans are a paid-tier feature. Upgrade to Peak Fettle Pro.'
+          'AI-generated plans are a paid-tier feature. Upgrade to Peak Fettle Pro.'
         );
       }
+      // 502 retryable errors are shown inline via generateError banner.
     }
   }, [generate]);
 
+  // Dismiss generate error on next press
   const handleGeneratePress = useCallback(() => {
     clearGenerateError();
     handleGenerate();
   }, [clearGenerateError, handleGenerate]);
 
+  // Split plans: user plans vs templates
   const userPlans = plans.filter((p) => !p.is_template);
   const templates = plans.filter((p) => p.is_template);
 
@@ -702,6 +639,7 @@ export default function PlansScreen(): React.ReactElement {
         {isPaid && (
           <View style={styles.generateSection}>
             <GenerateCTA onPress={handleGeneratePress} isGenerating={isGenerating} />
+            {/* Generation error banner (502 retryable errors) */}
             {generateError ? (
               <View style={[
                 styles.generateErrorBanner,
@@ -744,6 +682,7 @@ export default function PlansScreen(): React.ReactElement {
           </View>
         ) : (
           <>
+            {/* User's plans */}
             {userPlans.length > 0 ? (
               <View style={styles.section}>
                 <Text style={[styles.sectionHeader, { color: theme.colors.textTertiary }]}>YOUR PLANS</Text>
@@ -764,11 +703,12 @@ export default function PlansScreen(): React.ReactElement {
               ]}>
                 <Text style={[styles.emptyPlansTitle, { color: theme.colors.textPrimary }]}>No plans yet</Text>
                 <Text style={[styles.emptyPlansSubtitle, { color: theme.colors.textTertiary }]}>
-                  Tap "Generate my plan" to create your first evidence-based training plan.
+                  Tap "Generate New Plan" to create your first AI-tailored session.
                 </Text>
               </View>
             ) : null}
 
+            {/* Global templates */}
             {templates.length > 0 ? (
               <View style={styles.section}>
                 <Text style={[styles.sectionHeader, { color: theme.colors.textTertiary }]}>TEMPLATES</Text>
@@ -782,6 +722,7 @@ export default function PlansScreen(): React.ReactElement {
               </View>
             ) : null}
 
+            {/* PL-1: Browse full workout template library */}
             <View style={{ paddingHorizontal: spacing.s4, paddingBottom: spacing.s3 }}>
               <PFButton
                 variant="ghost"
@@ -812,16 +753,19 @@ export default function PlansScreen(): React.ReactElement {
 }
 
 // ---------------------------------------------------------------------------
-// Styles — main screen
+// Styles — main screen — layout only, no color values
 // ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
+  container: {
+    flex: 1,
+  },
   scrollContent: {
     padding: 20,
     gap: 16,
   },
 
+  // Upsell card
   upsellCard: {
     borderRadius: radius.lg,
     borderWidth: 1,
@@ -834,19 +778,21 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   upsellIcon: {
-    fontSize: fontSize.heading2,   // E-003
+    fontSize: fontSize.heading2,  // E-003: was 24
   },
   upsellTitle: {
-    fontSize: fontSize.heading3,   // E-003
-    fontWeight: fontWeight.bold,   // E-003
+    fontSize: fontSize.heading3,  // E-003: was 20
+    fontWeight: fontWeight.bold,  // E-003: was '700'
   },
   upsellBody: {
-    fontSize: fontSize.bodySm,     // E-003
+    fontSize: fontSize.bodySm,  // E-003: was 14
     lineHeight: 22,
   },
-  upsellFeatureList: { gap: 6 },
+  upsellFeatureList: {
+    gap: 6,
+  },
   upsellFeature: {
-    fontSize: fontSize.bodySm,     // E-003
+    fontSize: fontSize.bodySm,  // E-003: was 14
     lineHeight: 20,
   },
   upsellCTARow: {
@@ -854,38 +800,35 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   upsellCTALabel: {
-    fontSize: fontSize.caption,    // E-003
+    fontSize: fontSize.caption,  // E-003: was 12
   },
 
-  generateSection: { gap: 12 },
+  // Generate section
+  generateSection: {
+    gap: 12,
+  },
   generateButton: {
     borderRadius: radius.md,
     paddingVertical: spacing.s4,
     paddingHorizontal: spacing.s6,
     alignItems: 'center',
     justifyContent: 'center',
-    minHeight: 64,
+    minHeight: 56,
   },
-  generateButtonDisabled: { opacity: 0.6 },
+  generateButtonDisabled: {
+    opacity: 0.6,
+  },
   generateButtonContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-  },
-  generateButtonLabels: {
-    alignItems: 'center',
-    gap: 2,
+    gap: 8,
   },
   generateButtonIcon: {
-    fontSize: fontSize.bodyLg,     // E-003
+    fontSize: fontSize.bodyLg,  // E-003: was 18
   },
   generateButtonText: {
-    fontSize: fontSize.bodyMd,     // E-003
-    fontWeight: fontWeight.bold,   // E-003
-  },
-  generateButtonSub: {
-    fontSize: fontSize.caption,    // E-003
-    opacity: 0.8,
+    fontSize: fontSize.bodyMd,  // E-003: was 17
+    fontWeight: fontWeight.bold,  // E-003: was '700'
   },
   generateErrorBanner: {
     borderRadius: radius.md,
@@ -897,7 +840,7 @@ const styles = StyleSheet.create({
   },
   generateErrorText: {
     flex: 1,
-    fontSize: fontSize.bodySm,    // E-003
+    fontSize: fontSize.bodySm,  // E-003: was 14
   },
   generateRetryButton: {
     minWidth: 48,
@@ -906,19 +849,23 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   generateRetryText: {
-    fontSize: fontSize.bodySm,         // E-003
-    fontWeight: fontWeight.semibold,   // E-003
+    fontSize: fontSize.bodySm,  // E-003: was 14
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
   },
 
-  section: { gap: 10 },
+  // Section
+  section: {
+    gap: 10,
+  },
   sectionHeader: {
-    fontSize: fontSize.caption,     // E-003
-    fontWeight: fontWeight.bold,    // E-003
+    fontSize: fontSize.caption,  // E-003: was 12
+    fontWeight: fontWeight.bold,  // E-003: was '700'
     letterSpacing: 1.1,
     textTransform: 'uppercase',
     marginBottom: 2,
   },
 
+  // Plan card
   planCard: {
     borderRadius: radius.md,
     borderWidth: 1,
@@ -932,8 +879,8 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   planCardName: {
-    fontSize: fontSize.bodyMd,        // E-003
-    fontWeight: fontWeight.semibold,  // E-003
+    fontSize: fontSize.bodyMd,  // E-003: was 16
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
     flexShrink: 1,
   },
   planBadgeRow: {
@@ -941,14 +888,14 @@ const styles = StyleSheet.create({
     gap: 6,
     flexWrap: 'wrap',
   },
-  engineBadge: {
+  aiBadge: {
     borderRadius: radius.sm,
     paddingHorizontal: spacing.s2,
     paddingVertical: 2,
   },
-  engineBadgeText: {
-    fontSize: fontSize.caption,   // E-003
-    fontWeight: fontWeight.bold,  // E-003
+  aiBadgeText: {
+    fontSize: fontSize.caption,  // E-003: was 11
+    fontWeight: fontWeight.bold,  // E-003: was '700'
   },
   templateBadge: {
     borderRadius: radius.sm,
@@ -956,9 +903,10 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   templateBadgeText: {
-    fontSize: fontSize.caption,       // E-003
-    fontWeight: fontWeight.semibold,  // E-003
+    fontSize: fontSize.caption,  // E-003: was 11
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
   },
+  // PLANS-001 (2026-05-19): active-plan badge + activate button styling
   activeBadge: {
     borderRadius: radius.sm,
     paddingHorizontal: spacing.s2,
@@ -986,21 +934,22 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
   },
   planCardDate: {
-    fontSize: fontSize.caption,   // E-003
+    fontSize: fontSize.caption,  // E-003: was 12
     marginTop: 2,
   },
   planCardChevron: {
-    fontSize: fontSize.heading3,  // E-003
+    fontSize: fontSize.heading3,  // E-003: was 22
     marginLeft: 10,
   },
 
+  // Loading / error
   centered: {
     paddingVertical: spacing.s12,
     alignItems: 'center',
     gap: 12,
   },
   loadingText: {
-    fontSize: fontSize.bodySm,    // E-003
+    fontSize: fontSize.bodySm,  // E-003: was 14
   },
   errorBanner: {
     borderRadius: radius.md,
@@ -1012,7 +961,7 @@ const styles = StyleSheet.create({
   },
   errorText: {
     flex: 1,
-    fontSize: fontSize.bodySm,    // E-003
+    fontSize: fontSize.bodySm,  // E-003: was 14
   },
   retryButton: {
     borderRadius: radius.sm,
@@ -1020,10 +969,11 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   retryButtonText: {
-    fontSize: fontSize.bodySm,        // E-003
-    fontWeight: fontWeight.semibold,  // E-003
+    fontSize: fontSize.bodySm,  // E-003: was 14
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
   },
 
+  // Empty state
   emptyPlansCard: {
     borderRadius: radius.md,
     borderWidth: 1,
@@ -1032,11 +982,11 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   emptyPlansTitle: {
-    fontSize: fontSize.bodyMd,        // E-003
-    fontWeight: fontWeight.semibold,  // E-003
+    fontSize: fontSize.bodyMd,  // E-003: was 16
+    fontWeight: fontWeight.semibold,  // E-003: was '600'
   },
   emptyPlansSubtitle: {
-    fontSize: fontSize.bodySm,  // E-003
+    fontSize: fontSize.bodySm,  // E-003: was 14
     textAlign: 'center',
     lineHeight: 22,
   },
@@ -1045,11 +995,13 @@ const styles = StyleSheet.create({
 });
 
 // ---------------------------------------------------------------------------
-// Styles — plan detail modal
+// Styles — plan detail modal — layout only, no color values
 // ---------------------------------------------------------------------------
 
 const detailStyles = StyleSheet.create({
-  container: { flex: 1 },
+  container: {
+    flex: 1,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -1064,12 +1016,12 @@ const detailStyles = StyleSheet.create({
     paddingRight: spacing.s4,
   },
   title: {
-    fontSize: fontSize.heading3,  // E-003
-    fontWeight: fontWeight.bold,  // E-003
+    fontSize: fontSize.heading3,  // E-003: was 20
+    fontWeight: fontWeight.bold,  // E-003: was '700'
   },
-  engineLabel: {
-    fontSize: fontSize.bodySm,     // E-003
-    fontWeight: fontWeight.medium, // E-003
+  modelLabel: {
+    fontSize: fontSize.bodySm,  // E-003: was 13
+    fontWeight: fontWeight.medium,  // E-003: was '500'
   },
   closeButton: {
     paddingLeft: spacing.s4,
@@ -1077,7 +1029,7 @@ const detailStyles = StyleSheet.create({
     justifyContent: 'center',
   },
   closeButtonText: {
-    fontSize: fontSize.bodyMd,
+    fontSize: fontSize.bodyMd,  // E-003: was 16
     fontWeight: fontWeight.medium,
   },
   centered: {
@@ -1087,9 +1039,11 @@ const detailStyles = StyleSheet.create({
     gap: 12,
     paddingVertical: spacing.s12,
   },
-  loadingText: { fontSize: fontSize.bodySm },
+  loadingText: {
+    fontSize: fontSize.bodySm,  // E-003: was 14
+  },
   errorText: {
-    fontSize: fontSize.bodySm,
+    fontSize: fontSize.bodySm,  // E-003: was 14
     textAlign: 'center',
     paddingHorizontal: spacing.s5,
   },
@@ -1098,13 +1052,11 @@ const detailStyles = StyleSheet.create({
     gap: spacing.s4,
     paddingBottom: spacing.s12,
   },
-
-  // Reasoning card — prominent per spec §5
   reasoningCard: {
     borderRadius: radius.md,
     padding: spacing.s4,
     gap: spacing.s2,
-    borderLeftWidth: 3,
+    borderLeftWidth: 2,
     borderTopWidth: 0,
     borderRightWidth: 0,
     borderBottomWidth: 0,
@@ -1118,67 +1070,25 @@ const detailStyles = StyleSheet.create({
     fontSize: fontSize.bodyMd,
   },
   reasoningTitle: {
-    fontSize: fontSize.bodyMd,        // E-003 — more prominent than before
-    fontWeight: fontWeight.semibold,  // E-003
+    fontSize: fontSize.bodySm,
+    fontWeight: fontWeight.semibold,
   },
   reasoningText: {
-    fontSize: fontSize.bodySm,  // E-003
+    fontSize: fontSize.bodySm,  // E-003: was 14
     lineHeight: 20,
   },
-
-  // Rule trace collapsible
-  ruleTraceContainer: {
-    marginTop: spacing.s2,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    overflow: 'hidden',
+  exerciseList: {
+    gap: spacing.s3,
   },
-  ruleTraceHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: spacing.s3,
-    paddingVertical: spacing.s2,
-    minHeight: 40,
-  },
-  ruleTraceTitle: {
-    fontSize: fontSize.bodySm,        // E-003
-    fontWeight: fontWeight.semibold,  // E-003
-  },
-  ruleTraceChevron: {
-    fontSize: fontSize.caption,       // E-003
-  },
-  ruleTraceList: {
-    paddingHorizontal: spacing.s3,
-    paddingBottom: spacing.s3,
-    gap: spacing.s2,
-  },
-  ruleTraceRow: {
-    flexDirection: 'row',
-    gap: spacing.s2,
-    alignItems: 'flex-start',
-  },
-  ruleTraceBullet: {
-    fontSize: fontSize.bodySm,   // E-003
-    lineHeight: 20,
-    marginTop: 1,
-  },
-  ruleTraceText: {
-    flex: 1,
-    fontSize: fontSize.caption,  // E-003
-    lineHeight: 18,
-  },
-
-  exerciseList: { gap: spacing.s3 },
   sectionHeader: {
-    fontSize: fontSize.caption,   // E-003
+    fontSize: fontSize.caption,  // E-003: was 12
     fontWeight: fontWeight.bold,
     letterSpacing: 1.1,
     textTransform: 'uppercase',
     marginBottom: 2,
   },
   emptyText: {
-    fontSize: fontSize.bodySm,  // E-003
+    fontSize: fontSize.bodySm,  // E-003: was 14
     textAlign: 'center',
   },
   exerciseCard: {
@@ -1205,7 +1115,7 @@ const detailStyles = StyleSheet.create({
   },
   exerciseName: {
     flex: 1,
-    fontSize: fontSize.bodyMd,        // E-003
+    fontSize: fontSize.bodyMd,  // E-003: was 15
     fontWeight: fontWeight.semibold,
   },
   statsRow: {
@@ -1222,18 +1132,20 @@ const detailStyles = StyleSheet.create({
     minWidth: 56,
   },
   statValue: {
-    fontSize: fontSize.bodyMd,        // E-003
+    fontSize: fontSize.bodyMd,  // E-003: was 15
     fontWeight: fontWeight.semibold,
   },
   statLabel: {
-    fontSize: fontSize.micro,         // E-003
+    fontSize: fontSize.micro,  // E-003: was 11
   },
   coachingNote: {
+    // Per-exercise coaching note — spec §6.3 (technique / loading intent)
     fontSize: fontSize.bodySm,
     fontStyle: 'italic',
     marginTop: spacing.s2,
     lineHeight: fontSize.bodySm * 1.45,
   },
+  // Week/day picker — TICKET-058
   pickerRow: {
     flexDirection: 'row',
     gap: spacing.s2,
