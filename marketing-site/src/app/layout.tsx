@@ -1,22 +1,31 @@
 import type { Metadata, Viewport } from 'next';
-import { Space_Grotesk, Inter } from 'next/font/google';
+import { Fraunces, Schibsted_Grotesk, Spline_Sans_Mono } from 'next/font/google';
 import './globals.css';
 import Nav from '@/components/Nav';
 import Footer from '@/components/Footer';
-import CursorAura from '@/components/CursorAura';
 import JsonLd from '@/components/JsonLd';
 import { SITE } from '@/lib/site';
 
-const display = Space_Grotesk({
+// Type system — serif = the voice, grotesque = the reporting, mono = the
+// measurement. Fraunces carries the editorial register (opsz axis included;
+// WONK/SOFT stay at their 0 defaults — literary, not artisanal).
+const display = Fraunces({
     subsets: ['latin'],
-    weight: ['500', '600', '700'],
+    style: ['normal', 'italic'],
+    axes: ['opsz'],
     variable: '--font-display',
     display: 'swap',
 });
 
-const body = Inter({
+const body = Schibsted_Grotesk({
     subsets: ['latin'],
     variable: '--font-body',
+    display: 'swap',
+});
+
+const mono = Spline_Sans_Mono({
+    subsets: ['latin'],
+    variable: '--font-mono',
     display: 'swap',
 });
 
@@ -96,11 +105,10 @@ const websiteSchema = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
     return (
-        <html lang="en" className={`${display.variable} ${body.variable}`}>
+        <html lang="en" className={`${display.variable} ${body.variable} ${mono.variable}`}>
             <body>
                 <a href="#main" className="skip-link">Skip to content</a>
                 <JsonLd data={[orgSchema, websiteSchema]} />
-                <CursorAura />
                 <Nav />
                 <main id="main">{children}</main>
                 <Footer />

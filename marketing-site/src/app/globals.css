@@ -1,86 +1,95 @@
-/* Peak Fettle — marketing site design system
-   Dark, athletic, turquoise-on-navy. Mirrors the app's "Deep Ocean" theme so
-   brand reads identically across web and app.
-   Fonts are injected by next/font in layout.tsx (--font-display / --font-body). */
+/* Peak Fettle — "The Measured Climb" design system
+   The site is set like a longform data essay: 26 weeks of one lifter's honest
+   training, on Deep Ocean ink. Serif (Fraunces) is the voice, grotesque
+   (Schibsted) is the reporting, mono (Spline Sans Mono) is the measurement.
+   Fonts are injected by next/font in layout.tsx
+   (--font-display / --font-body / --font-mono). */
 
 :root {
-    /* ---- Brand palette ---- */
-    --ink:          #06080F;   /* page background */
-    --ink-2:        #0A0F1E;   /* alt section background */
-    --surface:      #0D1426;   /* cards */
-    --surface-2:    #121B31;   /* sub-cards / inputs */
-    --surface-3:    #18233D;   /* elevated / hover */
+    /* ---- Ink & paper ---- */
+    --ink-0:        #04060B;   /* page ground — deepest night print */
+    --ink:          #04060B;   /* legacy alias (sub-pages) */
+    --ink-2:        #06080F;   /* alternating section ground — brand ink anchor */
+    --surface:      #0C1322;   /* panels, bezels, accordion rows */
+    --surface-2:    #101A2E;   /* inputs, sub-panels */
+    --surface-3:    #16233C;   /* elevated / hover */
+    --paper:        #EFE9DC;   /* the one warm printed page (fettle leaf) */
+    --paper-ink:    #171410;   /* text on paper */
 
-    --accent:       #2DD4BF;   /* turquoise — primary interactive */
-    --accent-hi:    #5EEAD4;   /* lighter (hover / glow) */
-    --accent-lo:    #14B8A6;   /* darker (pressed) */
-    --accent-deep:  #0E5C55;   /* deep teal for fills */
+    /* ---- Brand accent (Deep Ocean anchor — unchanged hue family) ---- */
+    --accent:       #2DD4BF;   /* the climb line at rest; kickers; CTAs */
+    --accent-hi:    #7CE8DA;   /* chart stroke's live edge; hover/focus */
+    --accent-lo:    #14B8A6;   /* pressed */
+    --accent-deep:  #0E5C55;   /* area-under-curve fills, deep washes */
 
-    --text:         #E8F1F8;
+    /* ---- The one secondary accent: sash gold. PR moments ONLY.
+       Budget: exactly three uses on the home page — the wk-19 data point,
+       the PR margin tick, the final-CTA up-tick. A fourth use is a defect. */
+    --sash:         #D9A24B;
+
+    /* ---- Text ---- */
+    --text:         #E9F1F7;
     --text-strong:  #FFFFFF;
-    --muted:        #98ACC4;
-    --muted-2:      #6F86A0;
+    --muted:        #94A9C0;
+    --muted-2:      #65809C;
 
+    /* ---- Rules & hairlines (the page's typographic ruling) ---- */
+    --line-hair:    rgba(154, 174, 197, 0.14);
     --line:         rgba(45, 212, 191, 0.14);
-    --line-2:       rgba(152, 172, 196, 0.12);
+    --line-2:       rgba(154, 174, 197, 0.14);  /* legacy alias of --line-hair */
     --line-strong:  rgba(45, 212, 191, 0.40);
 
     --danger:       #F87171;
     --success:      #34D399;
 
     /* ---- Type ---- */
-    --display: var(--font-display), 'Space Grotesk', system-ui, sans-serif;
-    --body:    var(--font-body), 'Inter', system-ui, sans-serif;
+    --display: var(--font-display), 'Fraunces', Georgia, serif;
+    --body:    var(--font-body), 'Schibsted Grotesk', system-ui, sans-serif;
+    --mono:    var(--font-mono), 'Spline Sans Mono', ui-monospace, monospace;
 
     /* ---- Shape & motion ---- */
-    --r-sm: 10px;
-    --r:    16px;
-    --r-lg: 24px;
-    --r-xl: 32px;
+    --r-sm: 6px;
+    --r:    12px;
+    --r-lg: 16px;
+    --r-xl: 24px;
     --ease: cubic-bezier(.22, .8, .28, 1);
     --ease-out: cubic-bezier(.16, 1, .3, 1);
 
     --shadow:    0 1px 2px rgba(0,0,0,.4), 0 8px 30px rgba(0,0,0,.35);
     --shadow-lg: 0 20px 60px rgba(0,0,0,.5);
-    --glow:      0 0 0 1px var(--line-strong), 0 0 40px rgba(45,212,191,.25);
+    --glow:      0 0 0 1px var(--line-strong), 0 0 40px rgba(45,212,191,.18);
 
-    --nav-h: 68px;
-    --max:   1180px;
+    --nav-h: 64px;
+    --max:   1280px;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 html {
     scroll-behavior: smooth;
-    /* offset anchor targets so they clear the sticky nav */
     scroll-padding-top: calc(var(--nav-h) + 12px);
     -webkit-text-size-adjust: 100%;
 }
 
 body {
-    background: var(--ink);
+    background: var(--ink-0);
     color: var(--text);
     font-family: var(--body);
     font-size: 16px;
     line-height: 1.65;
-    letter-spacing: -0.011em;
+    letter-spacing: -0.008em;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
-    /* subtle top-of-page brand wash */
-    background-image:
-        radial-gradient(60% 50% at 50% -8%, rgba(45,212,191,.10), transparent 70%),
-        radial-gradient(40% 30% at 100% 0%, rgba(30,58,138,.18), transparent 70%);
-    background-attachment: fixed;
-    background-repeat: no-repeat;
 }
 
 h1, h2, h3, h4 {
     font-family: var(--display);
-    font-weight: 700;
-    line-height: 1.05;
-    letter-spacing: -0.03em;
+    font-weight: 550;
+    line-height: 1.04;
+    letter-spacing: -0.015em;
     color: var(--text-strong);
+    font-optical-sizing: auto;
 }
 
 p { text-wrap: pretty; }
@@ -89,51 +98,61 @@ img, svg, video { display: block; max-width: 100%; }
 ul { list-style: none; }
 button { font: inherit; color: inherit; cursor: pointer; background: none; border: none; }
 
-::selection { background: var(--accent); color: var(--ink); }
-:focus-visible { outline: 2px solid var(--accent-hi); outline-offset: 3px; border-radius: 4px; }
+::selection { background: var(--accent); color: var(--ink-0); }
+:focus-visible { outline: 2px solid var(--accent-hi); outline-offset: 3px; border-radius: 2px; }
 
 /* ---- Layout utilities ---- */
 .container {
     width: 100%;
     max-width: var(--max);
     margin-inline: auto;
-    padding-inline: clamp(1.1rem, 5vw, 3rem);
+    padding-inline: clamp(1.25rem, 5vw, 4rem);
 }
 
 .section { padding-block: clamp(4.5rem, 9vw, 8rem); }
 .section-tight { padding-block: clamp(3rem, 6vw, 5rem); }
 
+/* The chapter kicker — mono, tracked, accent. Every section opens with one. */
 .eyebrow {
     display: inline-flex;
     align-items: center;
-    gap: .5rem;
-    font-family: var(--display);
-    font-weight: 600;
-    font-size: .78rem;
+    gap: .65rem;
+    font-family: var(--mono);
+    font-weight: 400;
+    font-size: .72rem;
     letter-spacing: .14em;
     text-transform: uppercase;
-    color: var(--accent-hi);
+    color: var(--accent);
 }
 .eyebrow::before {
     content: '';
-    width: 18px; height: 1px;
+    width: 22px; height: 1px;
     background: var(--accent);
 }
 
-.h1 { font-size: clamp(2.6rem, 6.5vw, 4.6rem); }
-.h2 { font-size: clamp(2rem, 4.4vw, 3.1rem); }
-.h3 { font-size: clamp(1.25rem, 2.2vw, 1.6rem); }
+.h1 { font-size: clamp(3.2rem, 9vw, 7.5rem); font-weight: 420; line-height: .98; }
+.h2 { font-size: clamp(2rem, 4.4vw, 3.2rem); font-weight: 550; }
+.h3 { font-size: clamp(1.25rem, 2.2vw, 1.6rem); font-weight: 550; }
 .lede {
-    font-size: clamp(1.05rem, 1.7vw, 1.3rem);
+    font-size: clamp(1.05rem, 1.6vw, 1.2rem);
     color: var(--muted);
-    line-height: 1.6;
+    line-height: 1.65;
     max-width: 56ch;
 }
 .accent { color: var(--accent); }
 .gradient-text {
-    background: linear-gradient(100deg, var(--text-strong) 10%, var(--accent-hi) 60%, var(--accent) 100%);
-    -webkit-background-clip: text; background-clip: text;
-    -webkit-text-fill-color: transparent; color: transparent;
+    /* legacy utility — now resolves to italic accent serif, the essay's voice */
+    font-style: italic;
+    color: var(--accent);
+}
+
+/* Mono microcopy / figure captions */
+.mono-note {
+    font-family: var(--mono);
+    font-size: .7rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted-2);
 }
 
 /* ---- Buttons ---- */
@@ -142,44 +161,43 @@ button { font: inherit; color: inherit; cursor: pointer; background: none; borde
     align-items: center;
     justify-content: center;
     gap: .55rem;
-    font-family: var(--display);
-    font-weight: 600;
+    font-family: var(--body);
+    font-weight: 500;
     font-size: 1rem;
     line-height: 1;
-    padding: .95rem 1.5rem;
-    border-radius: 999px;
-    transition: transform .25s var(--ease), background .25s var(--ease), box-shadow .25s var(--ease), border-color .25s var(--ease);
-    white-space: nowrap;
+    padding: .9rem 1.4rem;
+    border-radius: var(--r);
+    transition: background .2s var(--ease), color .2s var(--ease), border-color .2s var(--ease), box-shadow .2s var(--ease);
 }
-.btn:active { transform: translateY(1px) scale(.99); }
+.btn:active { transform: translateY(1px); }
 
 .btn-primary {
-    background: linear-gradient(180deg, var(--accent-hi), var(--accent));
-    color: var(--ink);
-    box-shadow: 0 6px 22px rgba(45,212,191,.32);
+    background: var(--accent);
+    color: var(--ink-0);
 }
-.btn-primary:hover { box-shadow: 0 10px 34px rgba(45,212,191,.5); transform: translateY(-2px); }
+.btn-primary:hover { background: var(--accent-hi); }
 
 .btn-ghost {
-    background: rgba(152,172,196,.06);
+    background: transparent;
     color: var(--text);
-    border: 1px solid var(--line-2);
+    border: 1px solid var(--line-hair);
 }
-.btn-ghost:hover { background: rgba(152,172,196,.12); border-color: var(--line-strong); transform: translateY(-2px); }
+.btn-ghost:hover { border-color: var(--line-strong); color: var(--text-strong); }
 
-/* ---- Cards ---- */
+/* ---- Cards → ruled panels ---- */
 .card {
-    background: linear-gradient(180deg, var(--surface), var(--ink-2));
-    border: 1px solid var(--line-2);
+    background: var(--surface);
+    border: 1px solid var(--line-hair);
     border-radius: var(--r-lg);
-    box-shadow: var(--shadow);
+    transition: border-color .3s var(--ease);
 }
+.card:hover { border-color: var(--line-strong); }
 
 /* ---- Scroll-reveal (driven by Reveal.tsx via .is-in) ---- */
 .reveal {
     opacity: 0;
-    transform: translateY(22px);
-    transition: opacity .7s var(--ease-out), transform .7s var(--ease-out);
+    transform: translateY(12px);
+    transition: opacity .5s var(--ease-out), transform .5s var(--ease-out);
     will-change: opacity, transform;
 }
 .reveal.is-in { opacity: 1; transform: none; }
@@ -197,7 +215,7 @@ button { font: inherit; color: inherit; cursor: pointer; background: none; borde
 }
 .skip-link {
     position: fixed; top: -100%; left: 12px; z-index: 200;
-    background: var(--accent); color: var(--ink);
+    background: var(--accent); color: var(--ink-0);
     padding: .65rem 1rem; border-radius: 8px; font-weight: 600;
     transition: top .2s var(--ease);
 }
@@ -212,21 +230,11 @@ button { font: inherit; color: inherit; cursor: pointer; background: none; borde
     to   { opacity: 1; transform: none; }
 }
 
-/* ---- Card hover lift (2026-06-10 aesthetic pass) ---- */
-.card {
-    transition: transform .3s var(--ease), border-color .3s var(--ease), box-shadow .3s var(--ease);
-}
-.card:hover {
-    transform: translateY(-3px);
-    border-color: rgba(45,212,191,.35);
-    box-shadow: 0 14px 40px rgba(0,0,0,.45), 0 0 0 1px rgba(45,212,191,.08);
-}
-
-/* ---- Reduced motion ---- */
+/* ---- Reduced motion: the page is designed to be 100% legible as a frozen
+   print spread. The static state is a first-class artifact, not a fallback. */
 @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
     .page-enter { animation: none; }
-    .card:hover { transform: none; }
     *, *::before, *::after {
         animation-duration: .001ms !important;
         animation-iteration-count: 1 !important;

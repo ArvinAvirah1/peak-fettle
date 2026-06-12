@@ -1,0 +1,67 @@
+/* The ledger spine. Fixed in the true left margin — only rendered where a
+   real margin exists (≥1280px). */
+
+.rail {
+    display: none;
+    position: fixed;
+    top: var(--nav-h);
+    bottom: 0;
+    left: calc((100vw - var(--max)) / 2 * 0.45);
+    width: 1px;
+    z-index: 5;
+    pointer-events: none;
+}
+
+@media (min-width: 1280px) {
+    .rail { display: block; }
+}
+
+.track {
+    position: absolute;
+    inset: 0;
+    background: var(--line-hair);
+}
+
+.fill {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(var(--accent), var(--accent-hi));
+    opacity: .8;
+    transform-origin: top;
+}
+
+/* Scroll-driven fill where supported; complete line everywhere else. */
+@supports (animation-timeline: scroll()) {
+    .fill {
+        animation: spine-grow linear both;
+        animation-timeline: scroll(root);
+    }
+    @keyframes spine-grow {
+        from { transform: scaleY(0); }
+        to   { transform: scaleY(1); }
+    }
+}
+
+.marker {
+    position: absolute;
+    left: 8px;
+    font-family: var(--mono);
+    font-size: .58rem;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+    white-space: nowrap;
+}
+.marker::before {
+    content: '';
+    position: absolute;
+    left: -8px;
+    top: 50%;
+    width: 5px;
+    height: 1px;
+    background: var(--muted-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .fill { animation: none; transform: none; }
+}

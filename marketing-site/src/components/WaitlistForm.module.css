@@ -1,8 +1,13 @@
+/* Waitlist capture, in two registers:
+   card   — the boxed closer in the final CTA section
+   inline — the hero's one-line ledger entry (hairline underline input) */
+
 .wrapper {
-    background: var(--ink-2);
-    border: 1px solid var(--line-strong);
-    border-radius: 20px;
+    background: var(--surface);
+    border: 1px solid var(--line-hair);
+    border-radius: var(--r-lg);
     padding: clamp(1.5rem, 4vw, 2.5rem);
+    text-align: left;
 }
 
 .form {
@@ -12,10 +17,11 @@
 }
 
 .label {
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: var(--white);
-    margin-bottom: 0.25rem;
+    font-family: var(--mono);
+    font-size: 0.7rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted-2);
 }
 
 .inputRow {
@@ -25,22 +31,22 @@
 
 .input {
     flex: 1;
-    background: rgba(255,255,255,0.05);
-    border: 1px solid var(--line-strong);
-    border-radius: 10px;
+    background: var(--surface-2);
+    border: 1px solid var(--line-hair);
+    border-radius: var(--r-sm);
     padding: 0.75rem 1rem;
-    color: var(--white);
+    color: var(--text);
     font-size: 0.95rem;
     font-family: var(--body);
     transition: border-color 0.2s;
     min-width: 0;
 }
 
-.input::placeholder { color: var(--muted); opacity: 0.7; }
+.input::placeholder { color: var(--muted-2); font-family: var(--mono); font-size: .85rem; }
 
 .input:focus {
     outline: none;
-    border-color: var(--turquoise);
+    border-color: var(--accent);
 }
 
 .input:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -50,11 +56,11 @@
     align-items: center;
     justify-content: center;
     padding: 0.75rem 1.5rem;
-    background: var(--turquoise);
-    color: var(--ink);
-    font-weight: 700;
+    background: var(--accent);
+    color: var(--ink-0);
+    font-weight: 600;
     font-size: 0.95rem;
-    border-radius: 10px;
+    border-radius: var(--r-sm);
     white-space: nowrap;
     transition: background 0.2s, opacity 0.2s;
     cursor: pointer;
@@ -62,7 +68,7 @@
 }
 
 .submitBtn:hover:not(:disabled) {
-    background: var(--turquoise-hi);
+    background: var(--accent-hi);
 }
 
 .submitBtn:disabled {
@@ -70,11 +76,64 @@
     cursor: not-allowed;
 }
 
+/* ---- Inline (hero) variant ---- */
+.inlineWrap { min-width: min(420px, 100%); }
+
+.inlineForm {
+    position: relative;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: .65rem;
+}
+
+.inlineInput {
+    flex: 1 1 200px;
+    min-width: 0;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--line-hair);
+    padding: 0.8rem 0.2rem;
+    color: var(--text);
+    font-size: 0.98rem;
+    font-family: var(--body);
+    transition: border-color .2s;
+}
+.inlineInput::placeholder { color: var(--muted-2); font-family: var(--mono); }
+.inlineInput:focus { outline: none; border-bottom-color: var(--accent); }
+.inlineInput:disabled { opacity: .5; }
+
+.inlineSubmit {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.85rem 1.4rem;
+    background: var(--accent);
+    color: var(--ink-0);
+    font-weight: 600;
+    font-size: 0.95rem;
+    border-radius: var(--r);
+    white-space: nowrap;
+    transition: background .2s, opacity .2s;
+}
+.inlineSubmit:hover:not(:disabled) { background: var(--accent-hi); }
+.inlineSubmit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.inlineError { flex-basis: 100%; }
+
+.inlineSuccess {
+    font-family: var(--mono);
+    font-size: .82rem;
+    letter-spacing: .06em;
+    color: var(--success);
+    padding-block: .9rem;
+}
+
 /* Loading spinner */
 .spinner {
     width: 18px; height: 18px;
-    border: 2.5px solid rgba(6, 8, 15, 0.3);
-    border-top-color: var(--ink);
+    border: 2.5px solid rgba(4, 6, 11, 0.3);
+    border-top-color: var(--ink-0);
     border-radius: 50%;
     animation: spin 0.7s linear infinite;
     display: inline-block;
@@ -100,7 +159,7 @@
     line-height: 1.5;
 }
 
-/* Success state */
+/* Success state (card variant) */
 .successCard {
     display: flex;
     flex-direction: column;
@@ -126,8 +185,8 @@
 .successTitle {
     font-family: var(--display);
     font-size: 1.2rem;
-    font-weight: 700;
-    color: var(--white);
+    font-weight: 550;
+    color: var(--text-strong);
 }
 
 .successBody {
@@ -138,7 +197,7 @@
 
 .resetBtn {
     font-size: 0.8rem;
-    color: var(--turquoise);
+    color: var(--accent);
     cursor: pointer;
     background: none;
     border: none;

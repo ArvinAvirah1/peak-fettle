@@ -74,6 +74,7 @@ export default function Nav() {
                         {NAV_LINKS.map((l) => (
                             <li key={l.href}><Link href={l.href}>{l.label}</Link></li>
                         ))}
+                        <li className={styles.stamp} aria-hidden="true">est. wk 01</li>
                         <li>
                             <Link href="/#download" className={styles.cta}>Get the app</Link>
                         </li>
