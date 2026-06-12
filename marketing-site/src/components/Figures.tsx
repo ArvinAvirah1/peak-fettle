@@ -33,6 +33,13 @@ function gaussPath(
 
 const scoreX = (w: number, padX: number, s: number) => padX + (s / 1000) * (w - padX * 2);
 
+/** 81 → "81st", 64 → "64th" — ordinals for percentile captions. */
+const ord = (n: number) => {
+    const v = n % 100;
+    const suffix = v >= 11 && v <= 13 ? 'th' : ({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[n % 10] ?? 'th';
+    return `${n}${suffix}`;
+};
+
 /* ─── Fig. 01 — Estimate: one logged set becomes an e1RM ─────────────────── */
 
 export function FigEstimate() {
@@ -162,7 +169,7 @@ export function FigCohortMultiples() {
                 return (
                     <figure key={c.label} className={`${styles.multiple} ${c.you ? styles.multipleYou : ''}`}>
                         <svg viewBox={`0 0 ${w} ${h}`} role="img"
-                            aria-label={`Cohort ${c.label}: the same score of ${finalScore} lands at the ${c.percentile}th percentile`}>
+                            aria-label={`Cohort ${c.label}: the same score of ${finalScore} lands at the ${ord(c.percentile)} percentile`}>
                             <line x1={padX} y1={baseY} x2={w - padX} y2={baseY} className={styles.axis} />
                             <path d={gaussPath(w, 0, padX, baseY, peak, mean, sd, 1000)} className={styles.curve} />
                             <line x1={mx} y1={baseY} x2={mx} y2={my} className={c.you ? styles.markerLine : styles.markerLineDim} />
@@ -173,7 +180,7 @@ export function FigCohortMultiples() {
                                 fig. 04{letters[i]} — {c.label}{c.you ? ' · A.R.' : ''}
                             </span>
                             <span className={c.you ? styles.multiplePctYou : styles.multiplePct}>
-                                score {finalScore} → {c.percentile}th pct
+                                score {finalScore} → {ord(c.percentile)} pct
                             </span>
                         </figcaption>
                     </figure>
@@ -195,7 +202,7 @@ export function FigProjection() {
             {/* the dashed projection, exiting through an open arrowhead */}
             <path d="M78 74 L 286 34" className={styles.dashed} />
             <path d="M276 26 L 292 33 L 282 46" className={styles.arrowHead} />
-            <text x="208" y="72" className={styles.monoNote}>wk 27 — yours</text>
+            <text x="208" y="72" className={styles.monoNote}>wk {LANDMARKS.nextWeek} — yours</text>
         </svg>
     );
 }

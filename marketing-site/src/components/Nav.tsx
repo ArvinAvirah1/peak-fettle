@@ -59,6 +59,11 @@ export default function Nav() {
         return () => { document.body.style.overflow = ''; };
     }, [open]);
 
+    // role=dialog requires focus to move into the dialog when it opens.
+    useEffect(() => {
+        if (open) menuRef.current?.querySelector<HTMLElement>('a[href]')?.focus();
+    }, [open]);
+
     const close = () => setOpen(false);
 
     return (

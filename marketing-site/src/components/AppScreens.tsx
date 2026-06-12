@@ -7,7 +7,7 @@
 // page's chart visibly continues inside the product (see the data
 // constitution in story.ts).
 
-import { STORY, PLATE_WEEK, PLATE_SETS, PLATE_PERCENTILE, LIFTER } from '@/lib/story';
+import { STORY, PLATE_WEEK, PLATE_SETS, PLATE_PERCENTILE, LIFTER, STREAK_DAYS } from '@/lib/story';
 
 const W = 390;
 const H = 844;
@@ -155,14 +155,17 @@ export function ScreenScore() {
 }
 
 export function ScreenStreak() {
+    // 28-day wall: the last STREAK_DAYS cells are the live run (the wk-23
+    // lapse was bridged by a make-up window); earlier cells are scattered.
     const days = Array.from({ length: 28 });
+    const earlier = new Set([2, 3, 5, 9, 12, 14]);
     return (
         <Frame>
             <text x="24" y="92" fill={MUT} fontSize="14" fontFamily="sans-serif">Consistency</text>
             <text x="24" y="120" fill={TXT} fontSize="26" fontWeight="700" fontFamily="sans-serif">Your streak</text>
 
             <g transform="translate(195 220)">
-                <text y="0" fill={A} fontSize="64" fontWeight="700" textAnchor="middle" fontFamily="sans-serif">12</text>
+                <text y="0" fill={A} fontSize="64" fontWeight="700" textAnchor="middle" fontFamily="sans-serif">{STREAK_DAYS}</text>
                 <text y="34" fill={MUT} fontSize="16" textAnchor="middle" fontFamily="sans-serif">days in a row</text>
             </g>
 
@@ -170,7 +173,7 @@ export function ScreenStreak() {
                 {days.map((_, i) => {
                     const col = i % 7;
                     const row = Math.floor(i / 7);
-                    const on = i > 5 && i < 26 && (i % 9 !== 0);
+                    const on = i >= 28 - STREAK_DAYS || earlier.has(i);
                     return (
                         <rect key={i} x={col * 50} y={row * 50} width="40" height="40" rx="10"
                             fill={on ? A : SUB} opacity={on ? (0.5 + (i / 56)) : 1} />

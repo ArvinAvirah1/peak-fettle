@@ -87,13 +87,13 @@ export default function WaitlistForm({ variant = 'card' }: Props) {
                             disabled={state === 'loading'}
                         >
                             {state === 'loading' ? (
-                                <span className={styles.spinner} aria-hidden="true" />
+                                <>
+                                    <span className={styles.spinner} aria-hidden="true" />
+                                    <span className="sr-only">Sending…</span>
+                                </>
                             ) : (
                                 'Join the waitlist'
                             )}
-                            <span className="sr-only">
-                                {state === 'loading' ? 'Sending…' : 'Join the waitlist'}
-                            </span>
                         </button>
                         {state === 'error' && (
                             <p className={`${styles.errorMsg} ${styles.inlineError}`} role="alert">
@@ -143,13 +143,13 @@ export default function WaitlistForm({ variant = 'card' }: Props) {
                             disabled={state === 'loading' || !email.trim()}
                         >
                             {state === 'loading' ? (
-                                <span className={styles.spinner} aria-hidden="true" />
+                                <>
+                                    <span className={styles.spinner} aria-hidden="true" />
+                                    <span className="sr-only">Sending…</span>
+                                </>
                             ) : (
                                 'Join'
                             )}
-                            <span className="sr-only">
-                                {state === 'loading' ? 'Sending…' : 'Join the waitlist'}
-                            </span>
                         </button>
                     </div>
 

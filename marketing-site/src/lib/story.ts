@@ -56,7 +56,7 @@ export const STORY: StoryWeek[] = [
     { wk: 20, e1rm: 103.5, score: 666 },
     { wk: 21, e1rm: 104.5, score: 668 },
     { wk: 22, e1rm: 105.0, score: 670 },
-    { wk: 23, e1rm: 104.5, score: 671 },
+    { wk: 23, e1rm: 104.5, score: 671, note: 'wk 23 — two sessions missed. make-up window kept the streak.' },
     { wk: 24, e1rm: 105.5, score: 673 },
     { wk: 25, e1rm: 106.0, score: 675 },
     { wk: 26, e1rm: 107.5, score: 678, note: 'wk 26 — e1RM 107.5 kg · score 612 → 678' },
@@ -72,7 +72,12 @@ export const LANDMARKS = {
     gainKg: 23.5,                          // 107.5 − 84.0
     percentileStart: 41,                   // wk 01, within A.R.'s cohort
     percentileEnd: 64,                     // wk 26, within A.R.'s cohort
+    nextWeek: 27,                          // the week the ledger hands the reader
 } as const;
+
+/** A.R.'s current streak at the end of the story (the wk-23 lapse was
+ *  bridged by a make-up window, so the run survives). */
+export const STREAK_DAYS = 12;
 
 /**
  * The week the app-showcase "plates" depict (the fast start chapter).

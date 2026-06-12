@@ -160,7 +160,15 @@ export default function HeroLedger() {
                         </span>
                     ))}
                     {F.xTicks.map((wk) => (
-                        <span key={wk} className={styles.xLabel} style={{ left: pct.x(wk) }}>
+                        <span
+                            key={wk}
+                            className={[
+                                styles.xLabel,
+                                wk === 6 ? styles.xLabelThin : '',
+                                wk === 26 ? styles.xLabelEnd : '',
+                            ].filter(Boolean).join(' ')}
+                            style={{ left: pct.x(wk) }}
+                        >
                             wk {String(wk).padStart(2, '0')}
                         </span>
                     ))}
