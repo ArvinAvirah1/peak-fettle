@@ -5,28 +5,26 @@
  * Appears at the top of the screen for ~3 s then slides away.
  * Themed, no raw 'bold' — uses fontWeight token.
  *
+ * Motion polish (Agent K, 2026-06-11):
+ *   - Entrance: spring slide-up + concurrent opacity fade (ease-out character)
+ *   - Exit: ease-in timing slide-down + opacity fade
+ *   - Reduce Motion: instant opacity cross-fade only, no slide
+ *   - Shadow elevation bumped for visual lift
+ *
  * Usage:
  *   const [prToast, setPrToast] = useState<PRToastData | null>(null);
  *   <PRToast data={prToast} onDismiss={() => setPrToast(null)} />
- *
- * Fire with:
- *   setPrToast({ exerciseName: 'Bench Press', e1rm: 102.5, delta: 2.5, unitLabel: 'kg' });
  */
 
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+import { useReduceMotion } from '../hooks/useReduceMotion';
 
 export interface PRToastData {
   exerciseName: string;
-  /** e1RM value in the user's display unit. */
   e1rm: number;
-  /** Improvement over prior max (always positive). */
   delta: number;
   unitLabel: string;
 }
@@ -34,39 +32,50 @@ export interface PRToastData {
 interface Props {
   data: PRToastData | null;
   onDismiss: () => void;
-  /** Auto-dismiss delay in ms. Default 3000. */
   autoDismissMs?: number;
 }
 
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
-const SLIDE_PX = -80;   // slides up from off-screen top
+const SLIDE_PX = -80;
 
 export default function PRToast({ data, onDismiss, autoDismissMs = 3000 }: Props): React.ReactElement | null {
   const { theme } = useTheme();
   const { colors } = theme;
+  const reduceMotion = useReduceMotion();
   const slideAnim = useRef(new Animated.Value(SLIDE_PX)).current;
+  const opacityAnim = useRef(new Animated.Value(0)).current;
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (data) {
-      // Slide in
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        useNativeDriver: true,
-        tension: 80,
-        friction: 10,
-      }).start();
-
-      // Auto-dismiss
       if (timerRef.current) clearTimeout(timerRef.current);
+
+      if (reduceMotion) {
+        slideAnim.setValue(0);
+        opacityAnim.setValue(1);
+      } else {
+        slideAnim.setValue(SLIDE_PX);
+        opacityAnim.setValue(0);
+        Animated.parallel([
+          Animated.spring(slideAnim, {
+            toValue: 0,
+            useNativeDriver: true,
+            tension: 80,
+            friction: 10,
+          }),
+          Animated.timing(opacityAnim, {
+            toValue: 1,
+            duration: 200,
+            useNativeDriver: true,
+          }),
+        ]).start();
+      }
+
       timerRef.current = setTimeout(() => {
         dismiss();
       }, autoDismissMs);
     } else {
       slideAnim.setValue(SLIDE_PX);
+      opacityAnim.setValue(0);
     }
 
     return () => {
@@ -76,11 +85,26 @@ export default function PRToast({ data, onDismiss, autoDismissMs = 3000 }: Props
   }, [data]);
 
   const dismiss = () => {
-    Animated.timing(slideAnim, {
-      toValue: SLIDE_PX,
-      duration: 220,
-      useNativeDriver: true,
-    }).start(() => onDismiss());
+    if (reduceMotion) {
+      Animated.timing(opacityAnim, {
+        toValue: 0,
+        duration: 120,
+        useNativeDriver: true,
+      }).start(() => onDismiss());
+    } else {
+      Animated.parallel([
+        Animated.timing(slideAnim, {
+          toValue: SLIDE_PX,
+          duration: 220,
+          useNativeDriver: true,
+        }),
+        Animated.timing(opacityAnim, {
+          toValue: 0,
+          duration: 180,
+          useNativeDriver: true,
+        }),
+      ]).start(() => onDismiss());
+    }
   };
 
   if (!data) return null;
@@ -101,6 +125,7 @@ export default function PRToast({ data, onDismiss, autoDismissMs = 3000 }: Props
           paddingHorizontal: spacing.s4,
           paddingVertical: spacing.s3,
           transform: [{ translateY: slideAnim }],
+          opacity: opacityAnim,
         },
       ]}
     >
@@ -111,7 +136,7 @@ export default function PRToast({ data, onDismiss, autoDismissMs = 3000 }: Props
         accessibilityLabel="Dismiss record toast"
         style={styles.inner}
       >
-        <Text style={[styles.emoji]}>🏆</Text>
+        <Text style={styles.emoji}>🏆</Text>
         <Text
           style={[
             styles.text,
@@ -131,10 +156,6 @@ export default function PRToast({ data, onDismiss, autoDismissMs = 3000 }: Props
   );
 }
 
-// ---------------------------------------------------------------------------
-// Styles (non-themed static)
-// ---------------------------------------------------------------------------
-
 const styles = StyleSheet.create({
   container: {
     position: 'absolute',
@@ -142,11 +163,11 @@ const styles = StyleSheet.create({
     left: 16,
     right: 16,
     zIndex: 9999,
-    elevation: 12,
+    elevation: 16,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.32,
+    shadowRadius: 10,
   },
   inner: {
     flexDirection: 'row',

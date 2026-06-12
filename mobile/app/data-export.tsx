@@ -3,21 +3,25 @@
  *
  * Route: /data-export  (navigated from profile.tsx → "Export my data")
  *
- * Two buttons:
- *   • Export JSON — GET /user/export → share sheet
- *   • Export CSV  — GET /user/export.csv → share sheet
+ * Agent K polish (2026-06-11):
+ *   - Staggered entrance: section cards fade-rise in sequence
+ *   - Cloud status line shows skeleton pulse while cloudStatus is null
+ *   - paddingTop bumped to 24 (s6) for consistent screen top spacing
+ *   - Reduce Motion: stagger animations skipped (items appear instantly)
+ *   - All button press targets already 44pt via paddingVertical s4
  *
- * Share sheet: expo-sharing (dynamically required like csv-import.tsx does
- * with expo-document-picker — graceful degradation if absent).
- * File written to expo FileSystem cache dir then shared.
+ * Two buttons:
+ *   Export JSON — GET /user/export → share sheet
+ *   Export CSV  — GET /user/export.csv → share sheet
  *
  * No AI strings. No paid gate (spec §4: "Free tier included").
  * No raw 'bold' — fontWeight token. All colors via useTheme().
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Alert,
+  Animated,
   ScrollView,
   StyleSheet,
   Text,
@@ -27,7 +31,7 @@ import {
 import { useTheme } from '../src/theme/ThemeContext';
 import { ScreenLayout } from '../src/components/ui';
 import { PFCard } from '../src/components/ui';
-import { fontSize, fontWeight, spacing, radius } from '../src/theme/tokens';
+import { fontWeight } from '../src/theme/tokens';
 import { apiClient } from '../src/api/client';
 import { localDb } from '../src/db/localDb';
 import {
@@ -43,13 +47,89 @@ import {
   BackupStatus,
 } from '../src/data/backup/backupManager';
 import { useRouter } from 'expo-router';
+import { useReduceMotion } from '../src/hooks/useReduceMotion';
+
+// ---------------------------------------------------------------------------
+// Stagger helper
+// ---------------------------------------------------------------------------
+
+function useStaggerFade(count: number, enabled: boolean): Animated.Value[] {
+  const anims = useRef(
+    Array.from({ length: count }, () => new Animated.Value(0))
+  ).current;
+
+  useEffect(() => {
+    if (!enabled) {
+      anims.forEach((a) => a.setValue(1));
+      return;
+    }
+    const animations = anims.map((a, i) =>
+      Animated.timing(a, {
+        toValue: 1,
+        duration: 240,
+        delay: i * 60,
+        useNativeDriver: true,
+      })
+    );
+    Animated.stagger(60, animations).start();
+  }, [enabled, anims]);
+
+  return anims;
+}
+
+function staggerStyle(anim: Animated.Value): object {
+  return {
+    opacity: anim,
+    transform: [
+      {
+        translateY: anim.interpolate({
+          inputRange: [0, 1],
+          outputRange: [12, 0],
+        }),
+      },
+    ],
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Skeleton pulse for status line
+// ---------------------------------------------------------------------------
+
+function SkeletonStatusLine(): React.ReactElement {
+  const { theme } = useTheme();
+  const pulse = useRef(new Animated.Value(0.4)).current;
+
+  useEffect(() => {
+    const anim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0.4, duration: 700, useNativeDriver: true }),
+      ])
+    );
+    anim.start();
+    return () => anim.stop();
+  }, [pulse]);
+
+  return (
+    <Animated.View
+      style={{
+        width: '60%',
+        height: 11,
+        borderRadius: 6,
+        backgroundColor: theme.colors.bgTertiary,
+        opacity: pulse,
+        marginBottom: 12,
+      }}
+      accessibilityLabel="Loading backup status"
+    />
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 async function downloadAndShare(url: string, filename: string): Promise<void> {
-  // Dynamic require — same pattern as csv-import.tsx for expo-document-picker.
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const FileSystem = require('expo-file-system');
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -80,6 +160,7 @@ async function downloadAndShare(url: string, filename: string): Promise<void> {
 export default function DataExportScreen(): React.ReactElement {
   const { theme, spacing: sp, fontSize: fs, radius: r } = useTheme();
   const { colors } = theme;
+  const reduceMotion = useReduceMotion();
   const [jsonLoading, setJsonLoading] = useState(false);
   const [csvLoading, setCsvLoading] = useState(false);
   const [backupLoading, setBackupLoading] = useState(false);
@@ -87,15 +168,23 @@ export default function DataExportScreen(): React.ReactElement {
   const [cloudBackupLoading, setCloudBackupLoading] = useState(false);
   const [cloudRestoreLoading, setCloudRestoreLoading] = useState(false);
   const [cloudStatus, setCloudStatus] = useState<BackupStatus | null>(null);
+  const [cloudStatusLoading, setCloudStatusLoading] = useState(true);
   const [recoveryCodeInput, setRecoveryCodeInput] = useState('');
   const [showRecoveryInput, setShowRecoveryInput] = useState(false);
   const router = useRouter();
+
+  // 5 stagger slots: ownership card, export buttons, cloud card, cloud buttons, device card
+  const staggerAnims = useStaggerFade(5, !reduceMotion);
 
   const today = new Date().toISOString().slice(0, 10);
 
   // Load cloud backup status on mount
   React.useEffect(() => {
-    getStatus().then(setCloudStatus).catch(() => {});
+    setCloudStatusLoading(true);
+    getStatus()
+      .then(setCloudStatus)
+      .catch(() => {})
+      .finally(() => setCloudStatusLoading(false));
   }, []);
 
   // ── Cloud backup handlers ─────────────────────────────────────────────────
@@ -109,11 +198,9 @@ export default function DataExportScreen(): React.ReactElement {
         return;
       }
       if ('needsRecoveryAck' in result && result.needsRecoveryAck) {
-        // Navigate to recovery-code screen — pendingRecoveryCode is already stashed.
         router.push('/recovery-code');
         return;
       }
-      // Refresh status after successful backup.
       getStatus().then(setCloudStatus).catch(() => {});
       Alert.alert('Backup complete', 'Your data has been encrypted and backed up.');
     } catch (err) {
@@ -124,7 +211,6 @@ export default function DataExportScreen(): React.ReactElement {
   };
 
   const handleCloudRestore = async () => {
-    // Check if we already have a keychain key; if not, show recovery code input.
     if (showRecoveryInput) {
       if (!recoveryCodeInput.trim()) {
         Alert.alert('Recovery code required', 'Enter your recovery code to restore from the cloud backup.');
@@ -160,13 +246,11 @@ export default function DataExportScreen(): React.ReactElement {
       return;
     }
 
-    // Try keychain path first; show recovery input if no key exists.
     setCloudRestoreLoading(true);
     try {
       const result = await restoreFromCloud({});
       if (!result.ok) {
         if (result.error.includes('recovery code')) {
-          // No keychain key — ask for recovery code.
           setCloudRestoreLoading(false);
           setShowRecoveryInput(true);
           return;
@@ -199,11 +283,6 @@ export default function DataExportScreen(): React.ReactElement {
       setJsonLoading(false);
     }
   };
-
-  // ── Device backup file (TICKET-094 manual transfer path) ─────────────────
-  // Serializes the ON-DEVICE tables via the deterministic export engine.
-  // This is the unencrypted manual slice; the automatic E2E-encrypted blob
-  // backup wraps these same functions in the supervised TICKET-094 build.
 
   const handleExportBackup = async () => {
     setBackupLoading(true);
@@ -332,307 +411,334 @@ export default function DataExportScreen(): React.ReactElement {
           Export my data
         </Text>
 
-        {/* Ownership copy */}
-        <View
-          style={[
-            styles.ownershipCard,
-            {
-              backgroundColor: colors.bgSecondary,
-              borderRadius: r.lg,
-              borderWidth: StyleSheet.hairlineWidth,
-              borderColor: colors.borderDefault,
-              padding: sp.s4,
-              marginBottom: sp.s6,
-            },
-          ]}
-        >
-          <Text style={{ color: colors.textPrimary, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold, marginBottom: sp.s2 }}>
-            Your data, your property
-          </Text>
-          <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, lineHeight: 20 }}>
-            Everything you log in Peak Fettle belongs to you. Export a full copy at any time — workouts, sets, health metrics, plans, and personal bests — in an open format you can use anywhere.
-          </Text>
-          <Text style={{ color: colors.textTertiary, fontSize: fs.caption, marginTop: sp.s2 }}>
-            Exports are available on all plans. No data is shared with third parties without your explicit consent.
-          </Text>
-        </View>
-
-        {/* JSON export */}
-        <TouchableOpacity
-          onPress={handleExportJson}
-          disabled={jsonLoading || csvLoading}
-          accessibilityRole="button"
-          accessibilityLabel="Export full data as JSON"
-          style={[
-            styles.exportBtn,
-            {
-              backgroundColor: colors.accentDefault,
-              borderRadius: r.lg,
-              padding: sp.s4,
-              marginBottom: sp.s3,
-              opacity: jsonLoading ? 0.7 : 1,
-            },
-          ]}
-        >
-          <View style={styles.btnContent}>
-            <View>
-              <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold }}>
-                {jsonLoading ? 'Preparing…' : 'Export JSON'}
-              </Text>
-              <Text style={{ color: theme.components.buttonPrimaryText + 'CC', fontSize: fs.caption, marginTop: 2 }}>
-                Full profile, all workouts, plans, health metrics
-              </Text>
-            </View>
-            <Text style={{ color: theme.components.buttonPrimaryText, fontSize: 22 }}>{ }</Text>
-          </View>
-        </TouchableOpacity>
-
-        {/* CSV export */}
-        <TouchableOpacity
-          onPress={handleExportCsv}
-          disabled={jsonLoading || csvLoading}
-          accessibilityRole="button"
-          accessibilityLabel="Export sets as CSV"
-          style={[
-            styles.exportBtn,
-            {
-              backgroundColor: colors.bgSecondary,
-              borderRadius: r.lg,
-              borderWidth: 1,
-              borderColor: colors.accentDefault,
-              padding: sp.s4,
-              opacity: csvLoading ? 0.7 : 1,
-            },
-          ]}
-        >
-          <View style={styles.btnContent}>
-            <View>
-              <Text style={{ color: colors.accentDefault, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold }}>
-                {csvLoading ? 'Preparing…' : 'Export CSV'}
-              </Text>
-              <Text style={{ color: colors.textSecondary, fontSize: fs.caption, marginTop: 2 }}>
-                Flat set log: date, exercise, weight, reps, RIR
-              </Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-
-        {/* ── Cloud backup card (TICKET-094 E2E encrypted) ─────────────────── */}
-        <View
-          style={[
-            styles.ownershipCard,
-            {
-              backgroundColor: colors.bgSecondary,
-              borderRadius: r.lg,
-              borderWidth: StyleSheet.hairlineWidth,
-              borderColor: colors.borderDefault,
-              padding: sp.s4,
-              marginTop: sp.s6,
-              marginBottom: sp.s4,
-            },
-          ]}
-        >
-          <Text style={{ color: colors.textPrimary, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold, marginBottom: sp.s2 }}>
-            Cloud backup
-          </Text>
-          <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, lineHeight: 20, marginBottom: sp.s2 }}>
-            Encrypted on your phone before upload — we can't read it.
-          </Text>
-          {/* Status line */}
-          {cloudStatus && (
-            <Text
-              style={{
-                color: cloudStatus.stale ? colors.statusWarning : colors.textTertiary,
-                fontSize: fs.caption,
-                marginBottom: sp.s3,
-              }}
-            >
-              {cloudStatus.lastLocalAt
-                ? (cloudStatus.stale
-                  ? 'Last backed up: ' + new Date(cloudStatus.lastLocalAt).toLocaleDateString() + ' — backup is overdue'
-                  : 'Last backed up: ' + new Date(cloudStatus.lastLocalAt).toLocaleDateString())
-                : 'Never backed up'}
-            </Text>
-          )}
-        </View>
-
-        {/* Back up now */}
-        <TouchableOpacity
-          onPress={handleCloudBackup}
-          disabled={cloudBackupLoading || cloudRestoreLoading}
-          accessibilityRole="button"
-          accessibilityLabel="Back up now to cloud"
-          style={[
-            styles.exportBtn,
-            {
-              backgroundColor: colors.accentDefault,
-              borderRadius: r.lg,
-              padding: sp.s4,
-              marginBottom: sp.s3,
-              opacity: cloudBackupLoading ? 0.7 : 1,
-            },
-          ]}
-        >
-          <View style={styles.btnContent}>
-            <View>
-              <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold }}>
-                {cloudBackupLoading ? 'Backing up…' : 'Back up now'}
-              </Text>
-              <Text style={{ color: theme.components.buttonPrimaryText + 'CC', fontSize: fs.caption, marginTop: 2 }}>
-                Encrypted backup sent to your account
-              </Text>
-            </View>
-          </View>
-        </TouchableOpacity>
-
-        {/* Restore from cloud */}
-        {showRecoveryInput && (
-          <View style={{ marginBottom: sp.s3 }}>
-            {/* eslint-disable-next-line @typescript-eslint/no-require-imports */}
-            {React.createElement(require('react-native').TextInput, {
-              value: recoveryCodeInput,
-              onChangeText: setRecoveryCodeInput,
-              placeholder: 'XXXX-XXXX-XXXX-XXXX-XXXX-XXXX',
-              placeholderTextColor: colors.textTertiary,
-              autoCapitalize: 'characters' as const,
-              autoCorrect: false,
-              style: {
-                fontFamily: 'Courier New',
-                fontSize: fs.bodyMd,
-                color: colors.textPrimary,
-                backgroundColor: colors.bgTertiary ?? colors.bgSecondary,
-                borderRadius: r.md,
-                borderWidth: 1,
+        {/* ── Ownership card ── */}
+        <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[0])}>
+          <View
+            style={[
+              styles.ownershipCard,
+              {
+                backgroundColor: colors.bgSecondary,
+                borderRadius: r.lg,
+                borderWidth: StyleSheet.hairlineWidth,
                 borderColor: colors.borderDefault,
-                padding: sp.s3,
-                marginBottom: sp.s2,
+                padding: sp.s4,
+                marginBottom: sp.s6,
               },
-              accessibilityLabel: 'Enter recovery code',
-            })}
-            <Text style={{ color: colors.textTertiary, fontSize: fs.caption, lineHeight: 16 }}>
-              Enter the recovery code you saved when you first backed up.
+            ]}
+          >
+            <Text style={{ color: colors.textPrimary, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold, marginBottom: sp.s2 }}>
+              Your data, your property
+            </Text>
+            <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, lineHeight: 20 }}>
+              Everything you log in Peak Fettle belongs to you. Export a full copy at any time — workouts, sets, health metrics, plans, and personal bests — in an open format you can use anywhere.
+            </Text>
+            <Text style={{ color: colors.textTertiary, fontSize: fs.caption, marginTop: sp.s2 }}>
+              Exports are available on all plans. No data is shared with third parties without your explicit consent.
             </Text>
           </View>
-        )}
-        <TouchableOpacity
-          onPress={handleCloudRestore}
-          disabled={cloudBackupLoading || cloudRestoreLoading}
-          accessibilityRole="button"
-          accessibilityLabel="Restore from cloud backup"
-          style={[
-            styles.exportBtn,
-            {
-              backgroundColor: colors.bgSecondary,
-              borderRadius: r.lg,
-              borderWidth: StyleSheet.hairlineWidth,
-              borderColor: colors.statusDanger,
-              padding: sp.s4,
-              marginBottom: sp.s3,
-              opacity: cloudRestoreLoading ? 0.7 : 1,
-            },
-          ]}
-        >
-          <View style={styles.btnContent}>
-            <View>
-              <Text style={{ color: colors.statusDanger, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold }}>
-                {cloudRestoreLoading ? 'Restoring…' : 'Restore from cloud'}
+        </Animated.View>
+
+        {/* ── Export buttons ── */}
+        <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[1])}>
+          {/* JSON export */}
+          <TouchableOpacity
+            onPress={handleExportJson}
+            disabled={jsonLoading || csvLoading}
+            accessibilityRole="button"
+            accessibilityLabel="Export full data as JSON"
+            style={[
+              styles.exportBtn,
+              {
+                backgroundColor: colors.accentDefault,
+                borderRadius: r.lg,
+                padding: sp.s4,
+                marginBottom: sp.s3,
+                opacity: jsonLoading ? 0.7 : 1,
+                minHeight: 60,
+                justifyContent: 'center',
+              },
+            ]}
+          >
+            <View style={styles.btnContent}>
+              <View>
+                <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold }}>
+                  {jsonLoading ? 'Preparing…' : 'Export JSON'}
+                </Text>
+                <Text style={{ color: theme.components.buttonPrimaryText + 'CC', fontSize: fs.caption, marginTop: 2 }}>
+                  Full profile, all workouts, plans, health metrics
+                </Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+
+          {/* CSV export */}
+          <TouchableOpacity
+            onPress={handleExportCsv}
+            disabled={jsonLoading || csvLoading}
+            accessibilityRole="button"
+            accessibilityLabel="Export sets as CSV"
+            style={[
+              styles.exportBtn,
+              {
+                backgroundColor: colors.bgSecondary,
+                borderRadius: r.lg,
+                borderWidth: 1,
+                borderColor: colors.accentDefault,
+                padding: sp.s4,
+                opacity: csvLoading ? 0.7 : 1,
+                minHeight: 60,
+                justifyContent: 'center',
+              },
+            ]}
+          >
+            <View style={styles.btnContent}>
+              <View>
+                <Text style={{ color: colors.accentDefault, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold }}>
+                  {csvLoading ? 'Preparing…' : 'Export CSV'}
+                </Text>
+                <Text style={{ color: colors.textSecondary, fontSize: fs.caption, marginTop: 2 }}>
+                  Flat set log: date, exercise, weight, reps, RIR
+                </Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </Animated.View>
+
+        {/* ── Cloud backup card ── */}
+        <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[2])}>
+          <View
+            style={[
+              styles.ownershipCard,
+              {
+                backgroundColor: colors.bgSecondary,
+                borderRadius: r.lg,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: colors.borderDefault,
+                padding: sp.s4,
+                marginTop: sp.s6,
+                marginBottom: sp.s4,
+              },
+            ]}
+          >
+            <Text style={{ color: colors.textPrimary, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold, marginBottom: sp.s2 }}>
+              Cloud backup
+            </Text>
+            <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, lineHeight: 20, marginBottom: sp.s2 }}>
+              Encrypted on your phone before upload — we can't read it.
+            </Text>
+            {/* Status line — skeleton while loading */}
+            {cloudStatusLoading ? (
+              <SkeletonStatusLine />
+            ) : cloudStatus ? (
+              <Text
+                style={{
+                  color: cloudStatus.stale ? colors.statusWarning : colors.textTertiary,
+                  fontSize: fs.caption,
+                  marginBottom: sp.s1,
+                }}
+              >
+                {cloudStatus.lastLocalAt
+                  ? (cloudStatus.stale
+                    ? 'Last backed up: ' + new Date(cloudStatus.lastLocalAt).toLocaleDateString() + ' — backup is overdue'
+                    : 'Last backed up: ' + new Date(cloudStatus.lastLocalAt).toLocaleDateString())
+                  : 'Never backed up'}
               </Text>
-              <Text style={{ color: colors.textSecondary, fontSize: fs.caption, marginTop: 2 }}>
-                Replaces this device's data with your cloud backup
+            ) : null}
+          </View>
+        </Animated.View>
+
+        {/* ── Cloud action buttons ── */}
+        <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[3])}>
+          {/* Back up now */}
+          <TouchableOpacity
+            onPress={handleCloudBackup}
+            disabled={cloudBackupLoading || cloudRestoreLoading}
+            accessibilityRole="button"
+            accessibilityLabel="Back up now to cloud"
+            style={[
+              styles.exportBtn,
+              {
+                backgroundColor: colors.accentDefault,
+                borderRadius: r.lg,
+                padding: sp.s4,
+                marginBottom: sp.s3,
+                opacity: cloudBackupLoading ? 0.7 : 1,
+                minHeight: 60,
+                justifyContent: 'center',
+              },
+            ]}
+          >
+            <View style={styles.btnContent}>
+              <View>
+                <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold }}>
+                  {cloudBackupLoading ? 'Backing up…' : 'Back up now'}
+                </Text>
+                <Text style={{ color: theme.components.buttonPrimaryText + 'CC', fontSize: fs.caption, marginTop: 2 }}>
+                  Encrypted backup sent to your account
+                </Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+
+          {/* Restore from cloud */}
+          {showRecoveryInput && (
+            <View style={{ marginBottom: sp.s3 }}>
+              {/* eslint-disable-next-line @typescript-eslint/no-require-imports */}
+              {React.createElement(require('react-native').TextInput, {
+                value: recoveryCodeInput,
+                onChangeText: setRecoveryCodeInput,
+                placeholder: 'XXXX-XXXX-XXXX-XXXX-XXXX-XXXX',
+                placeholderTextColor: colors.textTertiary,
+                autoCapitalize: 'characters' as const,
+                autoCorrect: false,
+                style: {
+                  fontFamily: 'Courier New',
+                  fontSize: fs.bodyMd,
+                  color: colors.textPrimary,
+                  backgroundColor: colors.bgTertiary ?? colors.bgSecondary,
+                  borderRadius: r.md,
+                  borderWidth: 1,
+                  borderColor: colors.borderDefault,
+                  padding: sp.s3,
+                  marginBottom: sp.s2,
+                  minHeight: 44,
+                },
+                accessibilityLabel: 'Enter recovery code',
+              })}
+              <Text style={{ color: colors.textTertiary, fontSize: fs.caption, lineHeight: 16 }}>
+                Enter the recovery code you saved when you first backed up.
               </Text>
             </View>
-          </View>
-        </TouchableOpacity>
+          )}
 
-        {/* Device backup + transfer (TICKET-094 manual path) */}
-        <View
-          style={[
-            styles.ownershipCard,
-            {
-              backgroundColor: colors.bgSecondary,
-              borderRadius: r.lg,
-              borderWidth: StyleSheet.hairlineWidth,
-              borderColor: colors.borderDefault,
-              padding: sp.s4,
-              marginTop: sp.s6,
-              marginBottom: sp.s4,
-            },
-          ]}
-        >
-          <Text style={{ color: colors.textPrimary, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold, marginBottom: sp.s2 }}>
-            Moving to a new phone?
-          </Text>
-          <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, lineHeight: 20 }}>
-            {'1. On this phone: tap "Save backup file" below and store it somewhere you can reach from the new phone (Files, Drive, email to yourself).\n2. On the new phone: install Peak Fettle and sign in to the same account.\n3. Open Profile → Export my data → "Restore from backup file" and pick the file.'}
-          </Text>
-          <Text style={{ color: colors.textTertiary, fontSize: fs.caption, marginTop: sp.s2, lineHeight: 18 }}>
-            Pro members don’t need this — training data syncs to your account automatically. Automatic encrypted backups for all plans are in the works.
-          </Text>
-        </View>
-
-        <TouchableOpacity
-          onPress={handleExportBackup}
-          disabled={backupLoading || restoreLoading}
-          accessibilityRole="button"
-          accessibilityLabel="Save device backup file"
-          style={[
-            styles.exportBtn,
-            {
-              backgroundColor: colors.bgSecondary,
-              borderRadius: r.lg,
-              borderWidth: 1,
-              borderColor: colors.accentDefault,
-              padding: sp.s4,
-              marginBottom: sp.s3,
-              opacity: backupLoading ? 0.7 : 1,
-            },
-          ]}
-        >
-          <View style={styles.btnContent}>
-            <View>
-              <Text style={{ color: colors.accentDefault, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold }}>
-                {backupLoading ? 'Preparing…' : 'Save backup file'}
-              </Text>
-              <Text style={{ color: colors.textSecondary, fontSize: fs.caption, marginTop: 2 }}>
-                Everything stored on this device, one file
-              </Text>
+          <TouchableOpacity
+            onPress={handleCloudRestore}
+            disabled={cloudBackupLoading || cloudRestoreLoading}
+            accessibilityRole="button"
+            accessibilityLabel="Restore from cloud backup"
+            style={[
+              styles.exportBtn,
+              {
+                backgroundColor: colors.bgSecondary,
+                borderRadius: r.lg,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: colors.statusError,
+                padding: sp.s4,
+                marginBottom: sp.s3,
+                opacity: cloudRestoreLoading ? 0.7 : 1,
+                minHeight: 60,
+                justifyContent: 'center',
+              },
+            ]}
+          >
+            <View style={styles.btnContent}>
+              <View>
+                <Text style={{ color: colors.statusError, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold }}>
+                  {cloudRestoreLoading ? 'Restoring…' : 'Restore from cloud'}
+                </Text>
+                <Text style={{ color: colors.textSecondary, fontSize: fs.caption, marginTop: 2 }}>
+                  Replaces this device's data with your cloud backup
+                </Text>
+              </View>
             </View>
-          </View>
-        </TouchableOpacity>
+          </TouchableOpacity>
+        </Animated.View>
 
-        <TouchableOpacity
-          onPress={handleImportBackup}
-          disabled={backupLoading || restoreLoading}
-          accessibilityRole="button"
-          accessibilityLabel="Restore from backup file"
-          style={[
-            styles.exportBtn,
-            {
-              backgroundColor: colors.bgSecondary,
-              borderRadius: r.lg,
-              borderWidth: StyleSheet.hairlineWidth,
-              borderColor: colors.borderDefault,
-              padding: sp.s4,
-              opacity: restoreLoading ? 0.7 : 1,
-            },
-          ]}
-        >
-          <View style={styles.btnContent}>
-            <View>
-              <Text style={{ color: colors.textPrimary, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold }}>
-                {restoreLoading ? 'Opening…' : 'Restore from backup file'}
-              </Text>
-              <Text style={{ color: colors.textSecondary, fontSize: fs.caption, marginTop: 2 }}>
-                Replaces this device’s data with a saved backup
-              </Text>
+        {/* ── Device backup card ── */}
+        <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[4])}>
+          <View
+            style={[
+              styles.ownershipCard,
+              {
+                backgroundColor: colors.bgSecondary,
+                borderRadius: r.lg,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: colors.borderDefault,
+                padding: sp.s4,
+                marginTop: sp.s6,
+                marginBottom: sp.s4,
+              },
+            ]}
+          >
+            <Text style={{ color: colors.textPrimary, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold, marginBottom: sp.s2 }}>
+              Moving to a new phone?
+            </Text>
+            <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, lineHeight: 20 }}>
+              {'1. On this phone: tap "Save backup file" below and store it somewhere you can reach from the new phone (Files, Drive, email to yourself).\n2. On the new phone: install Peak Fettle and sign in to the same account.\n3. Open Profile → Export my data → "Restore from backup file" and pick the file.'}
+            </Text>
+            <Text style={{ color: colors.textTertiary, fontSize: fs.caption, marginTop: sp.s2, lineHeight: 18 }}>
+              Pro members don't need this — training data syncs to your account automatically. Automatic encrypted backups for all plans are in the works.
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            onPress={handleExportBackup}
+            disabled={backupLoading || restoreLoading}
+            accessibilityRole="button"
+            accessibilityLabel="Save device backup file"
+            style={[
+              styles.exportBtn,
+              {
+                backgroundColor: colors.bgSecondary,
+                borderRadius: r.lg,
+                borderWidth: 1,
+                borderColor: colors.accentDefault,
+                padding: sp.s4,
+                marginBottom: sp.s3,
+                opacity: backupLoading ? 0.7 : 1,
+                minHeight: 60,
+                justifyContent: 'center',
+              },
+            ]}
+          >
+            <View style={styles.btnContent}>
+              <View>
+                <Text style={{ color: colors.accentDefault, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold }}>
+                  {backupLoading ? 'Preparing…' : 'Save backup file'}
+                </Text>
+                <Text style={{ color: colors.textSecondary, fontSize: fs.caption, marginTop: 2 }}>
+                  Everything stored on this device, one file
+                </Text>
+              </View>
             </View>
-          </View>
-        </TouchableOpacity>
+          </TouchableOpacity>
 
-        {/* Note about dependencies */}
-        <Text style={{ color: colors.textTertiary, fontSize: fs.micro, textAlign: 'center', marginTop: sp.s5, lineHeight: 16 }}>
-          Requires expo-file-system and expo-sharing (included in EAS builds).
-        </Text>
+          <TouchableOpacity
+            onPress={handleImportBackup}
+            disabled={backupLoading || restoreLoading}
+            accessibilityRole="button"
+            accessibilityLabel="Restore from backup file"
+            style={[
+              styles.exportBtn,
+              {
+                backgroundColor: colors.bgSecondary,
+                borderRadius: r.lg,
+                borderWidth: StyleSheet.hairlineWidth,
+                borderColor: colors.borderDefault,
+                padding: sp.s4,
+                opacity: restoreLoading ? 0.7 : 1,
+                minHeight: 60,
+                justifyContent: 'center',
+              },
+            ]}
+          >
+            <View style={styles.btnContent}>
+              <View>
+                <Text style={{ color: colors.textPrimary, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold }}>
+                  {restoreLoading ? 'Opening…' : 'Restore from backup file'}
+                </Text>
+                <Text style={{ color: colors.textSecondary, fontSize: fs.caption, marginTop: 2 }}>
+                  Replaces this device's data with a saved backup
+                </Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+
+          {/* Note about dependencies */}
+          <Text style={{ color: colors.textTertiary, fontSize: fs.micro, textAlign: 'center', marginTop: sp.s5, lineHeight: 16 }}>
+            Requires expo-file-system and expo-sharing (included in EAS builds).
+          </Text>
+        </Animated.View>
       </ScrollView>
     </ScreenLayout>
   );
@@ -644,7 +750,7 @@ export default function DataExportScreen(): React.ReactElement {
 
 const styles = StyleSheet.create({
   content: {
-    paddingTop: 16,
+    paddingTop: 24,
   },
   title: {},
   ownershipCard: {},

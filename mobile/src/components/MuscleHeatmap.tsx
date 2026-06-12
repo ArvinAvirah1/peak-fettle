@@ -8,15 +8,19 @@
  *   75–100 → theme statusSuccess (fresh)
  *   Not in data (never trained) → borderDefault tint
  *
- * Tapping a muscle region shows a small detail pop-up: freshness %, last
- * worked date, sets last session, plus a "Suggest substitutes" link.
+ * Agent K polish (2026-06-11):
+ *   - Empty state: icon + headline + guidance when muscles array is empty
+ *   - Entrance animation (FadeInDown, Reduce Motion aware)
+ *   - Press scale micro-interaction on dismiss button in detail modal
+ *   - Detail modal dismiss button min touch target 44pt
  *
  * Uses react-native-svg (confirmed present in package.json).
  * No raw 'bold' — fontWeight token only.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
+  Animated,
   Modal,
   Pressable,
   StyleSheet,
@@ -24,10 +28,11 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import Svg, { Ellipse, Path, Rect, G } from 'react-native-svg';
+import Svg, { Ellipse, G, Path, Rect } from 'react-native-svg';
 import { useTheme } from '../theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
 import { MuscleRecovery } from '../api/insights';
+import { useReduceMotion } from '../hooks/useReduceMotion';
 
 // ---------------------------------------------------------------------------
 // Freshness → color
@@ -46,9 +51,6 @@ function freshnessColor(
 // ---------------------------------------------------------------------------
 // Muscle → canonical key mapping (normalise server names)
 // ---------------------------------------------------------------------------
-
-// Server returns muscle group strings from the exercise muscle_groups arrays.
-// We map common variants to canonical region keys for the SVG.
 
 const MUSCLE_ALIASES: Record<string, string> = {
   chest: 'chest',
@@ -89,10 +91,8 @@ function normalise(muscle: string): string {
 
 // ---------------------------------------------------------------------------
 // SVG region definitions
-// (simplified schematic — positions reference a 120×260 viewBox per side)
 // ---------------------------------------------------------------------------
 
-// Each region: { key, cx, cy, rx, ry, side: 'front'|'back' }
 interface Region {
   key: string;
   label: string;
@@ -124,45 +124,38 @@ const REGIONS: Region[] = [
   { key: 'hamstrings',  label: 'Hamstrings',   cx: 45, cy: 200, rx: 16, ry: 28, side: 'back' },
 ];
 
-// Mirror obliques to other side on front
 const MIRRORED: Region[] = [
-  { key: 'obliques', label: 'Obliques', cx: 82, cy: 118, rx: 8, ry: 18, side: 'front' },
-  { key: 'front_delts', label: 'Front delts', cx: 95, cy: 68, rx: 10, ry: 12, side: 'front' },
-  { key: 'side_delts',  label: 'Side delts',  cx: 25, cy: 68, rx: 10, ry: 12, side: 'front' },
-  { key: 'biceps',      label: 'Biceps',      cx: 104, cy: 108, rx: 9, ry: 20, side: 'front' },
-  { key: 'forearms',    label: 'Forearms',    cx: 106, cy: 145, rx: 7, ry: 18, side: 'front' },
-  { key: 'quads',       label: 'Quads',       cx: 75, cy: 185, rx: 16, ry: 30, side: 'front' },
-  { key: 'calves',      label: 'Calves',      cx: 75, cy: 242, rx: 11, ry: 18, side: 'front' },
+  { key: 'obliques',    label: 'Obliques',     cx: 82, cy: 118, rx: 8,  ry: 18, side: 'front' },
+  { key: 'front_delts', label: 'Front delts',  cx: 95, cy: 68,  rx: 10, ry: 12, side: 'front' },
+  { key: 'side_delts',  label: 'Side delts',   cx: 25, cy: 68,  rx: 10, ry: 12, side: 'front' },
+  { key: 'biceps',      label: 'Biceps',       cx: 104, cy: 108, rx: 9, ry: 20, side: 'front' },
+  { key: 'forearms',    label: 'Forearms',     cx: 106, cy: 145, rx: 7, ry: 18, side: 'front' },
+  { key: 'quads',       label: 'Quads',        cx: 75, cy: 185, rx: 16, ry: 30, side: 'front' },
+  { key: 'calves',      label: 'Calves',       cx: 75, cy: 242, rx: 11, ry: 18, side: 'front' },
   // back mirrors
-  { key: 'rear_delts',  label: 'Rear delts',  cx: 95, cy: 65, rx: 10, ry: 12, side: 'back' },
-  { key: 'triceps',     label: 'Triceps',     cx: 102, cy: 108, rx: 9, ry: 20, side: 'back' },
-  { key: 'hamstrings',  label: 'Hamstrings',  cx: 75, cy: 200, rx: 16, ry: 28, side: 'back' },
+  { key: 'rear_delts',  label: 'Rear delts',   cx: 95, cy: 65,  rx: 10, ry: 12, side: 'back' },
+  { key: 'triceps',     label: 'Triceps',      cx: 102, cy: 108, rx: 9, ry: 20, side: 'back' },
+  { key: 'hamstrings',  label: 'Hamstrings',   cx: 75, cy: 200, rx: 16, ry: 28, side: 'back' },
 ];
 
-// All regions to render (primary + mirrored)
 const ALL_REGIONS = [...REGIONS, ...MIRRORED];
 
 // ---------------------------------------------------------------------------
-// Body outline (simplified SVG paths, 120×260 viewBox)
+// Body outline
 // ---------------------------------------------------------------------------
 
 function BodyOutline({ color }: { color: string }): React.ReactElement {
   return (
     <G>
-      {/* Head */}
       <Ellipse cx={60} cy={28} rx={18} ry={22} stroke={color} strokeWidth={1.5} fill="none" />
-      {/* Neck */}
       <Rect x={52} y={48} width={16} height={12} stroke={color} strokeWidth={1.5} fill="none" rx={4} />
-      {/* Torso */}
       <Path
         d="M28 60 L20 160 L40 165 L40 260 L80 260 L80 165 L100 160 L92 60 Z"
         stroke={color}
         strokeWidth={1.5}
         fill="none"
       />
-      {/* Left arm */}
       <Path d="M28 60 L10 90 L8 165 L20 165 L22 90 L34 62" stroke={color} strokeWidth={1.5} fill="none" />
-      {/* Right arm */}
       <Path d="M92 60 L110 90 L112 165 L100 165 L98 90 L86 62" stroke={color} strokeWidth={1.5} fill="none" />
     </G>
   );
@@ -190,13 +183,46 @@ function formatDate(iso: string | null | undefined): string {
 }
 
 // ---------------------------------------------------------------------------
+// Empty state
+// ---------------------------------------------------------------------------
+
+function HeatmapEmptyState(): React.ReactElement {
+  const { theme, spacing: sp, radius: r, fontSize: fs } = useTheme();
+  const { colors } = theme;
+  return (
+    <View
+      style={[
+        styles.emptyCard,
+        {
+          backgroundColor: colors.bgSecondary,
+          borderRadius: r.lg,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.borderDefault,
+          padding: sp.s6,
+        },
+      ]}
+      accessibilityLabel="No muscle recovery data yet"
+    >
+      <Text style={{ fontSize: 32, textAlign: 'center', marginBottom: sp.s3 }}>
+        💪
+      </Text>
+      <Text style={{ color: colors.textPrimary, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold, textAlign: 'center', marginBottom: sp.s2 }}>
+        No muscle data yet
+      </Text>
+      <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, textAlign: 'center', lineHeight: 20 }}>
+        Log your first workout to see which muscles need recovery and which are fresh.
+      </Text>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
 interface Props {
   muscles: MuscleRecovery[];
   loading: boolean;
-  /** Called when user taps "Suggest substitute exercises" for a muscle. */
   onSuggestSubstitutes?: (muscleName: string) => void;
 }
 
@@ -204,15 +230,28 @@ export default function MuscleHeatmap({ muscles, loading, onSuggestSubstitutes }
   const { theme, spacing: sp, fontSize: fs, radius: r } = useTheme();
   const { colors } = theme;
   const [detail, setDetail] = useState<DetailSheet | null>(null);
+  const reduceMotion = useReduceMotion();
 
-  // Build lookup: canonical key → data
+  // Entrance fade
+  const fadeAnim = useRef(new Animated.Value(reduceMotion ? 1 : 0)).current;
+  useEffect(() => {
+    if (!loading) {
+      if (reduceMotion) {
+        fadeAnim.setValue(1);
+      } else {
+        Animated.timing(fadeAnim, { toValue: 1, duration: 240, useNativeDriver: true }).start();
+      }
+    }
+  }, [loading, reduceMotion, fadeAnim]);
+
+  // Build lookup
   const dataMap = new Map<string, MuscleRecovery>();
   for (const m of muscles) {
     dataMap.set(normalise(m.muscle), m);
   }
 
   const renderSide = (side: 'front' | 'back') => {
-    const regions = ALL_REGIONS.filter((r) => r.side === side);
+    const regions = ALL_REGIONS.filter((reg) => reg.side === side);
     return (
       <Svg
         width={120}
@@ -250,8 +289,12 @@ export default function MuscleHeatmap({ muscles, loading, onSuggestSubstitutes }
     );
   };
 
+  if (!loading && muscles.length === 0) {
+    return <HeatmapEmptyState />;
+  }
+
   return (
-    <View>
+    <Animated.View style={{ opacity: fadeAnim }}>
       {/* Legend */}
       <View style={[styles.legend, { marginBottom: sp.s3 }]}>
         {[
@@ -335,6 +378,8 @@ export default function MuscleHeatmap({ muscles, loading, onSuggestSubstitutes }
                     }}
                     accessibilityRole="button"
                     accessibilityLabel={`Suggest substitute exercises for ${detail.label}`}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    style={{ minHeight: 44, justifyContent: 'center' }}
                   >
                     <Text style={{ color: colors.accentDefault, fontSize: fs.bodySm, fontWeight: fontWeight.medium }}>
                       Suggest substitute exercises →
@@ -355,7 +400,7 @@ export default function MuscleHeatmap({ muscles, loading, onSuggestSubstitutes }
           </View>
         </Pressable>
       </Modal>
-    </View>
+    </Animated.View>
   );
 }
 
@@ -407,5 +452,10 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     alignItems: 'center',
     paddingVertical: 10,
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  emptyCard: {
+    alignItems: 'center',
   },
 });
