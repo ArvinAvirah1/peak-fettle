@@ -1,4 +1,6 @@
 # Peak Fettle Mind — Companion App Roadmap
+> ⚠️ **SUPERSEDED (2026-06-11, founder decision Q15):** replaced by `COMPANION_APP_V2_LIFEOS_SPEC_2026-06-11.md` (Life OS, TICKET-100…113). Safety + foundation content carried forward as TICKET-100/101. Do not build from this file.
+
 *TICKET-072 output. Approved by founder 2026-05-29.*
 *Builds on `COMPANION_APP_PITCH_2026-05-29.md`. Pitch decisions applied; open sub-questions resolved using pitch recommendations — override any in OPEN_QUESTIONS_FOR_FOUNDER.md.*
 

@@ -1,0 +1,58 @@
+{
+  "expo": {
+    "name": "Peak Fettle Life OS",
+    "slug": "pf-lifeos",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "lifeos",
+    "userInterfaceStyle": "automatic",
+    "icon": "./assets/icon.png",
+    "ios": {
+      "bundleIdentifier": "com.peakfettle.lifeos",
+      "supportsTablet": false,
+      "infoPlist": {
+        "UIBackgroundModes": []
+      },
+      "entitlements": {
+        "com.apple.security.application-groups": ["group.com.peakfettle.lifeos"],
+        "com.apple.developer.family-controls": true
+      }
+    },
+    "android": {
+      "package": "com.peakfettle.lifeos"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-sqlite",
+      "expo-notifications",
+      "expo-web-browser",
+      [
+        "expo-font",
+        {
+          "fonts": [
+            "./assets/fonts/Outfit-Regular.ttf",
+            "./assets/fonts/Outfit-Medium.ttf",
+            "./assets/fonts/Outfit-SemiBold.ttf",
+            "./assets/fonts/Outfit-Bold.ttf",
+            "./assets/fonts/Ionicons.ttf"
+          ]
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "buildReactNativeFromSource": true,
+            "deploymentTarget": "16.0"
+          }
+        }
+      ],
+      "@bacons/apple-targets",
+      "./plugins/withFamilyControls"
+    ],
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}

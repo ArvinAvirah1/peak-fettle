@@ -53,6 +53,12 @@ if (pathsFlag) {
     path.join(REPO_ROOT, 'mobile', 'app'),
     path.join(REPO_ROOT, 'mobile', 'src'),
     path.join(REPO_ROOT, 'peak-fettle-agents', 'server'),
+    // LIFEOS TICKET-101 #6 — Life OS app surface
+    path.join(REPO_ROOT, 'lifeos', 'app'),
+    path.join(REPO_ROOT, 'lifeos', 'src'),
+    path.join(REPO_ROOT, 'lifeos', 'plugins'),
+    path.join(REPO_ROOT, 'lifeos', 'targets'),
+    path.join(REPO_ROOT, 'lifeos', '__tests__'),
   ];
 }
 

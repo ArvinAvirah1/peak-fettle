@@ -27,6 +27,7 @@ const csvImportRoutes    = require('./routes/csvImport');      // PL-2
 const routinesRoutes     = require('./routes/routines');       // TICKET-055/056
 const insightsRoutes     = require('./routes/insights');       // TICKET-engine spec §4
 const backupRoutes       = require('./routes/backup');         // TICKET-094-B §4 Agent F
+const lifeosRoutes       = require('./routes/lifeos');         // LIFEOS TICKET-111
 const { errorHandler } = require('./middleware/errorHandler');
 const { requireAuth }  = require('./middleware/requireAuth');
 
@@ -130,6 +131,7 @@ app.use('/health-metrics', requireAuth, healthMetricsRoutes);
 
 // Phase C — TICKET-014: GDPR data export + account deletion
 app.use('/user', requireAuth, userRoutes);
+app.use('/lifeos', requireAuth, lifeosRoutes); // LIFEOS TICKET-111 — entitlement re-checked inside
 
 // PL-2: CSV import (Garmin / Strava) — auth required
 app.use('/import', requireAuth, csvImportRoutes);

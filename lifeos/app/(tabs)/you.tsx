@@ -1,0 +1,189 @@
+/**
+ * You tab — weekly recap + correlations (TICKET-109), re-survey entry
+ * (TICKET-107 cadence), theme, data handling, the permanent "Need help?"
+ * crisis link (TICKET-100), sign out (spatially separated, destructive
+ * styling per nav rules).
+ */
+
+import React, { useCallback, useState } from 'react';
+import { Pressable, Text, View } from 'react-native';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useTheme } from '../../src/theme/ThemeContext';
+import { Card, PFButton, ScreenLayout, SectionTitle } from '../../src/components/ui';
+import { Ionicons } from '../../src/components/Icon';
+import { fontFamily, fontSize, HIT_TARGET, spacing } from '../../src/theme/tokens';
+import { useAuth } from '../../src/auth/AuthContext';
+import { buildWeeklyRecap, CorrelationInsight, moodHabitCorrelation, WeeklyRecap } from '../../src/data/insights';
+import { PRODUCT_NAME } from '../../src/config/product';
+
+export default function YouScreen(): React.ReactElement {
+  const { theme, mode, setMode } = useTheme();
+  const c = theme.colors;
+  const router = useRouter();
+  const { profile, logout } = useAuth();
+
+  const [recap, setRecap] = useState<WeeklyRecap | null>(null);
+  const [correlation, setCorrelation] = useState<CorrelationInsight | null>(null);
+  const [correlationDismissed, setCorrelationDismissed] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      void buildWeeklyRecap().then(setRecap);
+      void moodHabitCorrelation().then(setCorrelation);
+    }, [])
+  );
+
+  const linkRow = (icon: string, label: string, onPress: () => void, destructive = false): React.ReactElement => (
+    <Pressable
+      key={label}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      onPress={onPress}
+      style={({ pressed }) => ({
+        flexDirection: 'row',
+        alignItems: 'center',
+        minHeight: HIT_TARGET + 4,
+        opacity: pressed ? 0.7 : 1,
+      })}
+    >
+      <Ionicons name={icon} size={20} color={destructive ? c.statusError : c.accentDefault} />
+      <Text
+        style={{
+          flex: 1,
+          color: destructive ? c.statusError : c.textPrimary,
+          fontFamily: fontFamily.medium,
+          fontSize: fontSize.bodyMd,
+          marginLeft: spacing.s3,
+        }}
+      >
+        {label}
+      </Text>
+      <Ionicons name="chevron-forward-outline" size={16} color={c.textTertiary} />
+    </Pressable>
+  );
+
+  return (
+    <ScreenLayout>
+      <Text style={{ color: c.textSecondary, fontFamily: fontFamily.regular, fontSize: fontSize.bodySm, marginTop: spacing.s3 }}>
+        {profile?.email ?? ''}
+      </Text>
+
+      <SectionTitle>This week</SectionTitle>
+      {recap ? (
+        <Card>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: c.textPrimary, fontFamily: fontFamily.bold, fontSize: fontSize.heading3, fontVariant: ['tabular-nums'] }}>
+                {recap.habitsDone}
+              </Text>
+              <Text style={{ color: c.textTertiary, fontFamily: fontFamily.regular, fontSize: fontSize.caption }}>habits done</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: c.textPrimary, fontFamily: fontFamily.bold, fontSize: fontSize.heading3, fontVariant: ['tabular-nums'] }}>
+                {recap.avgMoodThisWeek != null ? recap.avgMoodThisWeek.toFixed(1) : '—'}
+                {recap.avgMoodThisWeek != null && recap.avgMoodLastWeek != null ? (
+                  <Text style={{ color: c.textTertiary, fontSize: fontSize.bodySm }}>
+                    {'  '}({recap.avgMoodLastWeek.toFixed(1)} last wk)
+                  </Text>
+                ) : null}
+              </Text>
+              <Text style={{ color: c.textTertiary, fontFamily: fontFamily.regular, fontSize: fontSize.caption }}>avg mood</Text>
+            </View>
+          </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.s4 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: c.textPrimary, fontFamily: fontFamily.bold, fontSize: fontSize.heading3, fontVariant: ['tabular-nums'] }}>
+                {recap.exercisesCompleted}
+              </Text>
+              <Text style={{ color: c.textTertiary, fontFamily: fontFamily.regular, fontSize: fontSize.caption }}>exercises</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: c.textPrimary, fontFamily: fontFamily.bold, fontSize: fontSize.heading3, fontVariant: ['tabular-nums'] }}>
+                {recap.blocksHeld}
+              </Text>
+              <Text style={{ color: c.textTertiary, fontFamily: fontFamily.regular, fontSize: fontSize.caption }}>blocks held</Text>
+            </View>
+          </View>
+          {recap.brightSpot ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: spacing.s4 }}>
+              <Ionicons name="sparkles-outline" size={16} color={c.accentDefault} />
+              <Text style={{ flex: 1, color: c.textSecondary, fontFamily: fontFamily.regular, fontSize: fontSize.bodySm, marginLeft: spacing.s2 }}>
+                {recap.brightSpot}
+              </Text>
+            </View>
+          ) : null}
+        </Card>
+      ) : null}
+
+      {correlation && !correlationDismissed ? (
+        <Card>
+          <View style={{ flexDirection: 'row' }}>
+            <Ionicons name="analytics-outline" size={18} color={c.accentDefault} />
+            <Text style={{ flex: 1, color: c.textSecondary, fontFamily: fontFamily.regular, fontSize: fontSize.bodySm, lineHeight: 21, marginLeft: spacing.s2 }}>
+              {correlation.text}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss insight"
+              onPress={() => setCorrelationDismissed(true)}
+              style={{ width: HIT_TARGET, alignItems: 'center' }}
+            >
+              <Ionicons name="close-outline" size={18} color={c.textTertiary} />
+            </Pressable>
+          </View>
+        </Card>
+      ) : null}
+
+      <SectionTitle>Your plan</SectionTitle>
+      <Card>
+        {linkRow('refresh-outline', 'Re-run the survey', () => router.push('/onboarding/survey'))}
+        {linkRow('trail-sign-outline', 'Review plan proposals', () => router.push('/onboarding/plan-reveal'))}
+        {linkRow('calendar-outline', 'Weekly review', () => router.push('/weekly-review'))}
+      </Card>
+
+      <SectionTitle>Appearance</SectionTitle>
+      <Card>
+        <View style={{ flexDirection: 'row' }}>
+          {(['system', 'dark', 'light'] as const).map((m) => (
+            <Pressable
+              key={m}
+              accessibilityRole="button"
+              accessibilityState={{ selected: mode === m }}
+              accessibilityLabel={`Theme ${m}`}
+              onPress={() => setMode(m)}
+              style={{
+                flex: 1,
+                minHeight: HIT_TARGET,
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderWidth: 1,
+                borderColor: mode === m ? c.accentDefault : c.borderDefault,
+                backgroundColor: mode === m ? c.accentMuted : 'transparent',
+                borderRadius: 8,
+                marginRight: m !== 'light' ? spacing.s2 : 0,
+              }}
+            >
+              <Text style={{ color: c.textPrimary, fontFamily: fontFamily.medium, fontSize: fontSize.bodySm, textTransform: 'capitalize' }}>
+                {m}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </Card>
+
+      <SectionTitle>Privacy & support</SectionTitle>
+      <Card>
+        {linkRow('shield-checkmark-outline', 'How we handle your data', () => router.push('/data-handling'))}
+        {linkRow('heart-outline', 'Need help?', () => router.push('/crisis-help'))}
+      </Card>
+
+      <Text style={{ color: c.textTertiary, fontFamily: fontFamily.regular, fontSize: fontSize.caption, marginTop: spacing.s4 }}>
+        {PRODUCT_NAME} · a tool for focus, habits, and direction — not a substitute for professional care.
+      </Text>
+
+      <View style={{ marginTop: spacing.s8, marginBottom: spacing.s8 }}>
+        <PFButton label="Sign out" variant="destructive" onPress={() => void logout()} />
+      </View>
+    </ScreenLayout>
+  );
+}

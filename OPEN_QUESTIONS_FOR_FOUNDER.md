@@ -105,4 +105,61 @@ How does `users.tier` flip to `'paid'` (the gate `requirePaid` enforces)?
   Drives TICKET-074 (build to the screenshots).
 
 ---
-*Add new questions below as Q15, Q16, … — never silently assume an answer.*
+
+# Q15–Q31 — Companion app v2 vision (2026-06-11 founder directive: expansive app — Opal-level blockers, habit stacks, goals, algorithmic life-direction engine)
+
+*All answered 2026-06-11. Spec output: `COMPANION_APP_V2_LIFEOS_SPEC_2026-06-11.md` (TICKET-100…113).*
+
+## Q15 — Supersede or extend the approved 2026-05-29 roadmap? `ANSWERED (2026-06-11)`
+- **Answer:** **(a) supersede.** New spec replaces M-phase TICKET-075…081 scope; safety-scaffolding and foundation content carries forward (re-issued as TICKET-100/101 to avoid numbering collisions with fitness tickets).
+
+## Q16 — Product identity & name direction `ANSWERED (2026-06-11, extends Q7)`
+- **Answer:** **Life-OS positioning.** Do **not** describe or market it as a mental-health app — it improves mental health *indirectly* by providing direction and removing dopamine spirals. Standalone app on the shared backend confirmed. Name brief (Q7 still open) re-aimed at "ascent/direction", not "calm/mind".
+
+## Q17 — Priority vs fitness backlog `ANSWERED (2026-06-11)`
+- **Answer:** **Spec now.** Build sequenced after the 094 local-first base is stable (the new app reuses it).
+
+## Q18 — iOS FamilyControls entitlement `ANSWERED (2026-06-11)`
+- **Answer:** **(a)** — apply for the FamilyControls distribution entitlement immediately; build the rest in parallel; blockers ship behind a flag when granted. Native Swift extensions + custom dev client accepted.
+
+## Q19 — Unlock-friction mechanics `ANSWERED (2026-06-11)`
+- **Answer:** Per rec — **wait timer (escalating) + breathing gate + daily snooze budget in v1; opt-in strict "Deep Focus" mode v1.1; no money stakes.**
+
+## Q20 — Blocking scope `ANSWERED (2026-06-11)`
+- **Answer:** Per rec — **scheduled sessions + always-on per-app/category daily limits + one-tap focus-now in v1; website blocking P2.**
+
+## Q21 — Android blocker timeline `ANSWERED (2026-06-11)`
+- **Answer:** **Defer.** Architecture must keep iOS-only code isolated so Android can follow.
+
+## Q22 — Habit-stack model `ANSWERED (2026-06-11)`
+- **Answer:** Per rec — stack = ordered habit group with time/event anchor, per-step check-off, partial completion counts, guided stack player. One shared data model.
+
+## Q23 — Streak philosophy `ANSWERED (2026-06-11)`
+- **Answer:** Per rec — forgiving streaks everywhere; milestone badges on top; never punitive.
+
+## Q24 — Goal taxonomy & structure `ANSWERED (2026-06-11)`
+- **Answer:** Per rec — 6 fixed domains (Health/Fitness, Professional, Personal growth/Learning, Interpersonal, Financial, Mind/Wellbeing); outcome goal → milestones → linked process habits/stacks; weekly review is a core ritual screen.
+
+## Q25 — Direction engine: runtime LLM or encoded algorithm? `ANSWERED (2026-06-11)`
+- **Answer:** **No runtime AI.** Offline research distilled into a deterministic, versioned, on-device ruleset (`directionModel.v1.ts` + derivation doc), mirroring the strength-model practice.
+
+## Q26 — Survey depth & variables `ANSWERED (2026-06-11)`
+- **Answer:** Per rec — 5–7 min onboarding survey, progressive per-domain deepening, monthly micro-re-check, quarterly full re-survey.
+
+## Q27 — Research scope & liability boundaries `ANSWERED (2026-06-11)`
+- **Answer:** Per rec — cover focus/productivity, skill acquisition, career, sleep, relationships, finance, CBT/wellbeing, encoded strictly as **behavioral protocols** — never financial advice or therapy directives. CONTENT_SAFETY.md extended.
+
+## Q28 — Engine prescriptiveness `ANSWERED (2026-06-11)`
+- **Answer:** Per rec — engine generates per-domain protocols (stacks + milestones + blocker config + content); **proposes, never auto-enrolls**.
+
+## Q29 — CBT depth & safety scaffolding `ANSWERED (2026-06-11)`
+- **Answer:** Per rec — confirmed. Safety scaffolding (crisis resources, disclaimer, content rules) ships first, non-clinical positioning unchanged.
+
+## Q30 — Local-first from day one? `ANSWERED (2026-06-11)`
+- **Answer:** **Yes.** Reuse 094 local-DB + E2E-backup architecture; server stores only auth/entitlement + opaque encrypted blobs. Supersedes Q10's server-side-encryption answer for this app.
+
+## Q31 — Monetization `ANSWERED (2026-06-11)`
+- **Answer:** Per rec — **(c)** bundled into the paid tier at launch; entitlement plumbing kept separable for a future standalone SKU.
+
+---
+*Add new questions below as Q32, Q33, … — never silently assume an answer.*
