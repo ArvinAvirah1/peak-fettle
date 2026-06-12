@@ -18,18 +18,47 @@
  *
  * The encrypted-blob wrapper, automatic triggers, recovery code, and device-to-
  * device transfer are intentionally NOT here — see the ticket.
+ *
+ * v2 (SPEC-094A, 2026-06-12): BACKUP_SCHEMA_VERSION bumped 1→2; BACKUP_TABLES
+ * extended with all local-first personal-data tables added by Agent L. A v1→v2
+ * up-migration ensures that a v1 backup restores cleanly on a v2 app (missing
+ * tables are filled in as empty arrays).
  */
 
 // Bumped whenever the on-device logical schema changes shape. Additive changes
 // stay backward/forward compatible; a breaking change needs an up-migration in
 // MIGRATIONS below.
-export const BACKUP_SCHEMA_VERSION = 1;
+export const BACKUP_SCHEMA_VERSION = 2;
 
-// The on-device logical tables that hold personal data and exist TODAY. As the
-// TICKET-094 data-layer move lands more tables (plans, routines, streaks, …),
-// append them here — the engine serializes whatever is registered.
-// `outbox` is sync bookkeeping, not user data, so it is intentionally excluded.
-export const BACKUP_TABLES: string[] = ['workouts', 'sets', 'schedule', 'avatar', 'bodyweight', 'exercise_prefs', 'exercise_goals'];
+// The on-device logical tables that hold personal data. `outbox` is sync
+// bookkeeping, not user data, and is intentionally excluded. `migration_snapshots`
+// is internal bookkeeping, also excluded. workout_templates / template_sessions /
+// template_exercises are global library data (no user rows to back up), excluded.
+export const BACKUP_TABLES: string[] = [
+  // v1 tables
+  'workouts',
+  'sets',
+  'schedule',
+  'avatar',
+  'bodyweight',
+  'exercise_prefs',
+  'exercise_goals',
+  // v2 tables (SPEC-094A local-first personal data)
+  'plans',
+  'routines',
+  'streaks',
+  'streak_overrides',
+  'daily_health_log',
+  'daily_health_metrics',
+  'habits',
+  'user_weekly_goals',
+  'user_constraints',
+  'exercise_prs',
+  'user_confirmed_1rm',
+  'user_cosmetics',
+  'user_equipped_cosmetics',
+  'user_profile',
+];
 
 export type Row = Record<string, unknown>;
 export type TableMap = Record<string, Row[]>;
@@ -41,11 +70,39 @@ export interface ExportDoc {
   tables: TableMap;
 }
 
-// Forward up-migrations keyed by the version they upgrade FROM. None needed yet
-// (all changes so far are additive). Example for a future breaking change:
-//   MIGRATIONS[1] = (t) => { /* reshape t.someTable */ return t; };
+// Forward up-migrations keyed by the version they upgrade FROM.
+// v1→v2: a v1 backup is missing the v2 tables — fill them in as empty arrays.
+// The restore path will simply INSERT nothing for those tables, leaving the
+// on-device tables untouched (a v1 restore is effectively a partial restore).
 type Migration = (tables: TableMap) => TableMap;
-const MIGRATIONS: Record<number, Migration> = {};
+const MIGRATIONS: Record<number, Migration> = {
+  1: (tables: TableMap): TableMap => {
+    // v2 tables that a v1 backup won't have — initialize as empty arrays.
+    const v2Tables = [
+      'plans',
+      'routines',
+      'streaks',
+      'streak_overrides',
+      'daily_health_log',
+      'daily_health_metrics',
+      'habits',
+      'user_weekly_goals',
+      'user_constraints',
+      'exercise_prs',
+      'user_confirmed_1rm',
+      'user_cosmetics',
+      'user_equipped_cosmetics',
+      'user_profile',
+    ];
+    const upgraded = { ...tables };
+    for (const t of v2Tables) {
+      if (!Array.isArray(upgraded[t])) {
+        upgraded[t] = [];
+      }
+    }
+    return upgraded;
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Pure: build + canonicalize + parse

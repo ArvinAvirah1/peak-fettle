@@ -105,6 +105,15 @@ app.use('/sets',       requireAuth, setsRoutes);
 app.use('/plans',      requireAuth, plansRoutes);
 app.use('/percentile', requireAuth, percentileRoutes);
 
+// 2026-06-12 (Agent O, SPEC_094A): percentile batch cron DISABLED.
+// Percentile computation has moved on-device (strengthModelV3, Agent N).
+// The external cron/percentile.js script must NOT be scheduled any more.
+// The cron file is retained for reference but has an early-exit guard.
+// The /percentile REST endpoint above is kept until Pro clients are verified
+// to be using on-device values exclusively (remove after device-test gate).
+// To fully remove: apply 20260612_drop_percentile_rankings.sql (founder-gated),
+// then delete routes/percentile.js and the app.use line above.
+
 // Group Streak Credits — all three prefixes are auth-protected
 app.use('/groups',  requireAuth, groupsRouter);
 app.use('/credits', requireAuth, creditsRouter);

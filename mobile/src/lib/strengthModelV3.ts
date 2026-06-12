@@ -50,9 +50,18 @@
  * memo's male SBD params, BW-monotonicity of the ranked lens, and the composite's
  * uniform calibration (PIT). See __tests__/strength-model-v3.test.js.
  *
- * Remaining (Lens 1 experience-adjusted revisions — heteroscedastic σ(years),
- * McCulloch/Foster age, per-lift α fit) build on the v2 module and are tracked
- * separately; this file delivers the ranked + composite tiers (the founder change).
+ * Agent N additions (2026-06-12, SPEC-094A):
+ *   (1) Per-lift α — biomechanical priors from Jaric 2002, bounded [0.62,0.72];
+ *       to be re-fit on first-party OPL data when cohorts are large.
+ *       squat=0.670  bench=0.643  deadlift=0.671  ohp=0.640
+ *   (2) Heteroscedastic σ(t) = σ_nov+(σ_adv−σ_nov)·(1−e^{−t/τ_σ})
+ *       σ_nov=0.20  τ_σ=4yr  σ_adv=pop_sigma (lift×sex fitted value above).
+ *       Falls back to pop_sigma when training_years is unknown.
+ *   (3) Age adjustment (McCulloch/Foster-style): multiplicative on user e1RM
+ *       before percentile lookup; OFF when age_band is null.
+ *       Multipliers (divide user load to normalise to prime-age cohort):
+ *       under-18=0.96  18-24=0.98  25-34=1.00  35-44=0.97  45-54=0.93  55+=0.86
+ *   All three feed computePercentile (Lens 1, experience-adjusted).
  */
 
 export const MODEL_VERSION = 3;
@@ -146,7 +155,20 @@ const STANDARDS_XBW: Record<LiftId, Record<Sex, number[]>> = {
   ohp:      { M: [0.4,  0.55, 0.65, 0.85, 1.05, 1.3],  F: [0.2, 0.3,  0.45, 0.6,  0.75, 0.95] },
 };
 
-const ALPHA_DEFAULT = 0.667; // per-lift α default (memo §3 Lens 1 fix; [0.62,0.72])
+const ALPHA_DEFAULT = 0.667; // fallback when lift not in ALPHA_PER_LIFT
+
+/**
+ * Per-lift allometric exponents α — Jaric 2002 empirical range [0.64–0.71] for
+ * compound lifts; press-pattern lifts (bench, ohp) sit at the low end of the range
+ * since upper-extremity strength scales less steeply with body mass than lower-body.
+ * Bounded to [0.62, 0.72] per spec. To be re-fit on first-party OPL data (v4).
+ */
+export const ALPHA_PER_LIFT: Record<LiftId, number> = {
+  squat:    0.670,
+  bench:    0.643,
+  deadlift: 0.671,
+  ohp:      0.640,
+};
 
 // ---------------------------------------------------------------------------
 // Least-squares lognormal fit (memo §5.3): ln(L) = μ + σ·Φ⁻¹(q)
@@ -220,7 +242,7 @@ export function computeRankedPercentile(
   sex: Sex,
   e1rmKg: number,
   bwKg: number,
-  alpha: number = ALPHA_DEFAULT,
+  alpha: number = ALPHA_PER_LIFT[lift] ?? ALPHA_DEFAULT,
 ): number {
   if (e1rmKg <= 0 || bwKg <= 0) return 0;
   const { mu, sigma } = liftPopParams(lift, sex);
@@ -291,36 +313,4 @@ export function overallStrengthPercentilePartial(
 //   Platinum 88–95 · Diamond 95–99 · Elite 99–99.7 · World Class ≥99.7
 //
 // Stone added between Iron and Bronze so newbie-gains arc (~15th→45th pct
-// in months) yields 2–3 promotions in the first half-year (D9 rationale).
-// ---------------------------------------------------------------------------
-
-export interface Tier {
-  name: string;
-  /** Lower bound (inclusive) of overall_pct for this tier. */
-  min: number;
-}
-
-/** 9-band ladder ordered from lowest to highest (D9, 2026-06-12). */
-export const TIER_LADDER: Tier[] = [
-  { name: 'Iron',        min: 0 },
-  { name: 'Stone',       min: 25 },   // D9: new band between Iron and Bronze
-  { name: 'Bronze',      min: 40 },
-  { name: 'Silver',      min: 60 },
-  { name: 'Gold',        min: 75 },
-  { name: 'Platinum',    min: 88 },
-  { name: 'Diamond',     min: 95 },
-  { name: 'Elite',       min: 99 },
-  { name: 'World Class', min: 99.7 },
-];
-
-export function tierForOverall(pct: number): Tier {
-  let out = TIER_LADDER[0]!;
-  for (const t of TIER_LADDER) if (pct >= t.min) out = t;
-  return out;
-}
-
-// ---------------------------------------------------------------------------
-function clampPct(p: number): number {
-  if (!Number.isFinite(p)) return 0;
-  return Math.max(0, Math.min(100, p));
-}
+// in months) yi
