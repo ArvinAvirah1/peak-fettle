@@ -75,10 +75,10 @@
 .multiple {
     border-bottom: 1px solid var(--line-hair);
     padding-bottom: .5rem;
-    opacity: .72;
 }
-.multipleYou { opacity: 1; }
-.multiple svg { width: 100%; height: auto; }
+/* dim only the chart art — captions keep full contrast (WCAG) */
+.multiple svg { width: 100%; height: auto; opacity: .72; }
+.multipleYou svg { opacity: 1; }
 
 .multipleCaption {
     display: flex;

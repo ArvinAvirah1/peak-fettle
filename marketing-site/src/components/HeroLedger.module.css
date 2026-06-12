@@ -175,6 +175,8 @@
     bottom: 2px;
     transform: translateX(-50%);
 }
+/* the wk-26 tick sits at the right bleed edge — pull it inboard */
+.xLabelEnd { transform: translateX(calc(-100% + 4px)); }
 
 /* ---- Landmark dots ---- */
 .dot {
@@ -215,16 +217,27 @@
 .notePr      { animation-delay: 1.7s; transform: translate(calc(-100% - 14px), -130%); text-align: right; color: var(--sash); }
 .noteEnd     { animation-delay: 2s;   transform: translate(calc(-100% - 4px), 22px); text-align: right; }
 
-/* ---- Crosshair ---- */
+/* ---- Crosshair ----
+   The wrapper spans the FULL plot height so the dot's percentage `top`
+   resolves in the same coordinate space as the chart; only the visible
+   line (::before) stops short of the x-axis labels. */
 .crosshair {
     position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 1px;
+    pointer-events: none;
+    opacity: 0;
+    animation: note-in .5s var(--ease-out) 2.2s forwards;
+}
+.crosshair::before {
+    content: '';
+    position: absolute;
+    left: 0;
     top: 0;
     bottom: 24px;
     width: 1px;
     background: rgba(124, 232, 218, 0.4);
-    pointer-events: none;
-    opacity: 0;
-    animation: note-in .5s var(--ease-out) 2.2s forwards;
 }
 .crosshairDot {
     position: absolute;
@@ -294,9 +307,10 @@
     /* annotation budget: three notes max at phone widths */
     .noteStart, .notePlateau { display: none; }
     .note { font-size: .68rem; max-width: 20ch; }
-    .xLabel:nth-of-type(2) { display: none; } /* thin the tick row */
+    .xLabelThin { display: none; } /* thin the tick row */
     .headline { font-size: clamp(2.9rem, 13vw, 3.6rem); }
     .baseline { display: none; }
+    .readoutHint { display: none; } /* the readout alone fits 375px */
 }
 
 /* ---- Reduced motion: the finished print — line drawn, PR lit, no draw ---- */

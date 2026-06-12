@@ -41,7 +41,7 @@ export default function Footer() {
                     </nav>
                 </div>
 
-                <p className={styles.ledgerStamp} aria-label="The story in one line: 26 weeks, 23.5 kilograms gained, one plateau, one deload, one PR">
+                <p className={styles.ledgerStamp}>
                     26 wks · +23.5 kg e1rm · 1 plateau · 1 deload · 1 pr
                 </p>
 

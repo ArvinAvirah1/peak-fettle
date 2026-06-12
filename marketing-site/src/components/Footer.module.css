@@ -85,7 +85,6 @@
     letter-spacing: .12em;
     text-transform: uppercase;
     color: var(--muted-2);
-    opacity: .8;
 }
 
 @media (max-width: 760px) {

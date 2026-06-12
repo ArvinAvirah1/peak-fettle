@@ -153,6 +153,7 @@ export default function Home() {
                 <div className="container">
                     <Reveal className={styles.sectionHead} as="header">
                         <p className="eyebrow">wk 09–13 · the plateau — what gets measured</p>
+                        <h2 className="sr-only">What gets measured</h2>
                         <blockquote className={styles.pullQuote}>
                             Weeks nine to thirteen: 96.5, 96.0, 96.5, 97.0, 96.5.{' '}
                             <em>Nobody posts this part.</em>
@@ -257,7 +258,7 @@ export default function Home() {
                     <span className={styles.paperRule} aria-hidden="true" />
                     <span className={styles.paperNo}>No. 26</span>
                     <Reveal className={styles.defWrap}>
-                        <p className={styles.defWord}>fettle</p>
+                        <h2 className={styles.defWord}>fettle</h2>
                         <p className={styles.defMeta}>/ˈfɛt(ə)l/ · noun · from Old English <em>fetel</em>, a belt or girdle</p>
                         <p className={styles.defSense}>
                             The condition you arrive in. The shape you choose to be in.

@@ -14,7 +14,9 @@
 import { useEffect, useRef } from 'react';
 import styles from './EchoField.module.css';
 
-// oldest ghost = wk 0 (the start), counting up toward you
+// oldest ghost = wk 0 (the start), counting up toward you. The wk 0/1/2
+// labels are founder-specified narrative ("the weeks behind you"), not
+// citations of the STORY dataset — exempt from the data constitution.
 const GHOSTS = [
     { ago: 4200, opacity: 0.16, label: 'wk 0' },
     { ago: 2800, opacity: 0.30, label: 'wk 1' },
@@ -85,18 +87,30 @@ export default function EchoField() {
         const pts: { x: number; y: number; t: number }[] = [];
         let raf = 0;
         let running = false;
+        // WCAG 2.2.2: auto-started motion must stop within 5s. The idle drift
+        // settles to rest after this window; any pointer movement wakes it.
+        const IDLE_REST_MS = 5000;
+        let lastActive = performance.now();
 
         const onMove = (e: PointerEvent) => {
             const r = layer.getBoundingClientRect();
             tx = e.clientX - r.left;
             ty = Math.min(clampY, e.clientY - r.top);
             hover = true;
+            lastActive = performance.now();
+            wake();
         };
-        const onLeave = () => { hover = false; };
+        const onLeave = () => { hover = false; lastActive = performance.now(); };
 
         const frame = () => {
             t += 0.006;
-            if (!hover) {
+            const resting = !hover && performance.now() - lastActive > IDLE_REST_MS;
+            if (resting) {
+                // ease to a designed rest and stop the loop once settled
+                tx = W * 0.62;
+                ty = clampY * 0.5;
+                if (Math.abs(tx - mx) + Math.abs(ty - my) < 0.5) { stop(); return; }
+            } else if (!hover) {
                 // idle drift keeps the hero alive, biased to the open right side
                 tx = W * (0.62 + 0.25 * Math.sin(t * 0.8));
                 ty = clampY * (0.55 + 0.38 * Math.sin(t * 1.5 + 1.2) + 0.07 * Math.sin(t * 3.1));
@@ -134,11 +148,21 @@ export default function EchoField() {
         const start = () => { if (!running) { running = true; raf = requestAnimationFrame(frame); } };
         const stop = () => { if (running) { running = false; cancelAnimationFrame(raf); } };
 
+        // Two gates AND together: run only while the hero is in view AND the
+        // tab is visible (a visibility flip must never override the IO gate).
+        let inView = false;
+        const sync = () => { (inView && !document.hidden) ? start() : stop(); };
+        const wake = () => { lastActive = performance.now(); sync(); };
+
         const ro = new ResizeObserver(measure);
         ro.observe(layer);
-        const io = new IntersectionObserver(([en]) => (en.isIntersecting ? start() : stop()));
+        const io = new IntersectionObserver((entries) => {
+            // last entry = current state when the browser batches fast scrolls
+            inView = entries[entries.length - 1].isIntersecting;
+            sync();
+        });
         io.observe(section);
-        const onVis = () => (document.hidden ? stop() : start());
+        const onVis = () => sync();
         document.addEventListener('visibilitychange', onVis);
 
         if (fine) {
