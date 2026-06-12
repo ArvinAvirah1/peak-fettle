@@ -41,6 +41,10 @@ export default function Footer() {
                     </nav>
                 </div>
 
+                <p className={styles.ledgerStamp} aria-label="The story in one line: 26 weeks, 23.5 kilograms gained, one plateau, one deload, one PR">
+                    26 wks · +23.5 kg e1rm · 1 plateau · 1 deload · 1 pr
+                </p>
+
                 <div className={styles.bottom}>
                     <p>© {year} {SITE.name}. All rights reserved.</p>
                     <p className={styles.fineprint}>
@@ -48,6 +52,10 @@ export default function Footer() {
                         professional before starting a new program.
                     </p>
                 </div>
+                <p className={styles.colophon}>
+                    set in fraunces, schibsted grotesk &amp; spline sans mono · a.r. is a
+                    composite lifter — the math is real
+                </p>
             </div>
         </footer>
     );

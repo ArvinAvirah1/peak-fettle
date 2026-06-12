@@ -8,7 +8,12 @@ import styles from './WaitlistForm.module.css';
 
 type FormState = 'idle' | 'loading' | 'success' | 'error';
 
-export default function WaitlistForm() {
+type Props = {
+    /** 'card' = the boxed footer capture; 'inline' = the hero's one-line form */
+    variant?: 'card' | 'inline';
+};
+
+export default function WaitlistForm({ variant = 'card' }: Props) {
     const [email, setEmail] = useState('');
     const [state, setState] = useState<FormState>('idle');
     const [message, setMessage] = useState('');
@@ -51,6 +56,54 @@ export default function WaitlistForm() {
             setState('error');
             setMessage('Network error. Please check your connection and try again.');
         }
+    }
+
+    if (variant === 'inline') {
+        return (
+            <div className={styles.inlineWrap}>
+                {state === 'success' ? (
+                    <p className={styles.inlineSuccess} role="status">
+                        ✓ on the list — we&rsquo;ll email you at launch.
+                    </p>
+                ) : (
+                    <form onSubmit={handleSubmit} className={styles.inlineForm}>
+                        <label htmlFor="waitlist-email-hero" className="sr-only">
+                            Email address
+                        </label>
+                        <input
+                            id="waitlist-email-hero"
+                            type="email"
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
+                            placeholder="you@…"
+                            className={styles.inlineInput}
+                            disabled={state === 'loading'}
+                            required
+                            autoComplete="email"
+                        />
+                        <button
+                            type="submit"
+                            className={styles.inlineSubmit}
+                            disabled={state === 'loading'}
+                        >
+                            {state === 'loading' ? (
+                                <span className={styles.spinner} aria-hidden="true" />
+                            ) : (
+                                'Join the waitlist'
+                            )}
+                            <span className="sr-only">
+                                {state === 'loading' ? 'Sending…' : 'Join the waitlist'}
+                            </span>
+                        </button>
+                        {state === 'error' && (
+                            <p className={`${styles.errorMsg} ${styles.inlineError}`} role="alert">
+                                {message}
+                            </p>
+                        )}
+                    </form>
+                )}
+            </div>
+        );
     }
 
     return (

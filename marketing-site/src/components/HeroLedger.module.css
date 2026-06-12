@@ -1,0 +1,307 @@
+/* The cover. Top band carries the type; bottom band is the full-bleed
+   instrument. The headline's second line fuses to the chart's top reference
+   rule — type and data sit on the same measured baseline. */
+
+.hero {
+    position: relative;
+    min-height: 100vh;
+    min-height: 100svh;
+    margin-top: calc(var(--nav-h) * -1);
+    padding-top: calc(var(--nav-h) + clamp(2.5rem, 6vh, 5rem));
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: clamp(1.5rem, 4vh, 3rem);
+    overflow: hidden;
+}
+
+/* ---- Top band ---- */
+.copy { position: relative; z-index: 2; }
+
+.overline {
+    font-family: var(--mono);
+    font-size: .72rem;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent);
+}
+
+.headline {
+    margin-top: 1.2rem;
+    font-weight: 420;
+    font-size: clamp(3.4rem, 9.5vw, 8.6rem);
+    line-height: .98;
+    letter-spacing: -0.015em;
+}
+.line1 { display: block; color: var(--text-strong); }
+.line2 { display: flex; align-items: baseline; gap: 1.4rem; }
+.measured {
+    font-style: italic;
+    font-weight: 440;
+    color: var(--accent);
+}
+
+/* The baseline rule: runs from the period to the right viewport edge.
+   Negative margin cancels the container padding so it truly bleeds. */
+.baseline {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: .8rem;
+    min-width: 0;
+    margin-right: calc(-1 * clamp(1.25rem, 5vw, 4rem));
+}
+.baselineRule {
+    flex: 1;
+    height: 1px;
+    background: var(--accent);
+    opacity: .55;
+}
+.baselineLabel {
+    font-family: var(--mono);
+    font-weight: 400;
+    font-size: .68rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+    white-space: nowrap;
+    padding-right: clamp(1.25rem, 5vw, 4rem);
+}
+
+.deck {
+    margin-top: 1.6rem;
+    max-width: 52ch;
+    font-size: clamp(1.02rem, 1.5vw, 1.15rem);
+    line-height: 1.65;
+    color: var(--muted);
+}
+
+.actions {
+    margin-top: 1.8rem;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: .9rem 1rem;
+}
+.method { white-space: nowrap; }
+
+.meta {
+    margin-top: 1rem;
+    font-family: var(--mono);
+    font-size: .7rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+}
+
+/* ---- Bottom band: the instrument ---- */
+.chartWrap { position: relative; z-index: 1; }
+
+.readoutRow {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    margin-bottom: .5rem;
+}
+.readout {
+    font-family: var(--mono);
+    font-size: .8rem;
+    letter-spacing: .1em;
+    color: var(--accent-hi);
+    white-space: pre; /* fixed-slot digits — zero layout shift */
+}
+.readoutHint {
+    font-family: var(--mono);
+    font-size: .66rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+}
+
+.plot {
+    position: relative;
+    width: 100%;
+    height: clamp(250px, 36vh, 400px);
+    touch-action: pan-y; /* the scrub never fights vertical scroll */
+    cursor: crosshair;
+}
+.plot:focus-visible { outline-offset: -2px; }
+
+.svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+}
+
+.gridline { stroke: var(--line-hair); stroke-width: 1; }
+
+.area {
+    fill: url(#climb-fill);
+    opacity: 0;
+    animation: area-in 1s var(--ease-out) 1.4s forwards;
+}
+@keyframes area-in { to { opacity: 1; } }
+
+.lineDraw {
+    fill: none;
+    stroke: var(--accent-hi);
+    stroke-width: 2;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+    filter: drop-shadow(0 0 12px rgba(45, 212, 191, 0.30));
+    stroke-dasharray: 1;
+    stroke-dashoffset: 1;
+    animation: line-draw 1.8s var(--ease-out) .2s forwards;
+}
+@keyframes line-draw { to { stroke-dashoffset: 0; } }
+
+/* ---- Axis labels (HTML layer — never distorts) ---- */
+.yLabel,
+.xLabel {
+    position: absolute;
+    font-family: var(--mono);
+    font-size: .66rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+    pointer-events: none;
+}
+.yLabel {
+    left: clamp(1.25rem, 5vw, 4rem);
+    transform: translateY(-50%);
+}
+.xLabel {
+    bottom: 2px;
+    transform: translateX(-50%);
+}
+
+/* ---- Landmark dots ---- */
+.dot {
+    position: absolute;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--accent-hi);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    opacity: 0;
+    animation: note-in .4s var(--ease-out) 2s forwards;
+}
+.dotPr {
+    width: 9px; height: 9px;
+    background: var(--sash); /* gold use 1 of 3 — the PR */
+    box-shadow: 0 0 0 6px rgba(217, 162, 75, 0.22);
+}
+
+/* ---- Editorial annotations ---- */
+.note {
+    position: absolute;
+    width: max-content;
+    max-width: 26ch;
+    font-family: var(--mono);
+    font-size: .74rem;
+    line-height: 1.45;
+    color: rgba(233, 241, 247, 0.9);
+    pointer-events: none;
+    opacity: 0;
+    animation: note-in .5s var(--ease-out) forwards;
+}
+@keyframes note-in { to { opacity: 1; } }
+
+/* leader ticks drawn with a border; offsets place each note off its point */
+.noteStart   { animation-delay: .6s;  transform: translate(12px, -165%); }
+.notePlateau { animation-delay: 1.1s; transform: translate(-58%, calc(-100% - 22px)); border-bottom: 1px solid var(--line-hair); padding-bottom: .4rem; text-align: center; }
+.noteDeload  { animation-delay: 1.3s; transform: translate(-30%, 40px); border-top: 1px solid var(--line-hair); padding-top: .4rem; }
+.notePr      { animation-delay: 1.7s; transform: translate(calc(-100% - 14px), -130%); text-align: right; color: var(--sash); }
+.noteEnd     { animation-delay: 2s;   transform: translate(calc(-100% - 4px), 22px); text-align: right; }
+
+/* ---- Crosshair ---- */
+.crosshair {
+    position: absolute;
+    top: 0;
+    bottom: 24px;
+    width: 1px;
+    background: rgba(124, 232, 218, 0.4);
+    pointer-events: none;
+    opacity: 0;
+    animation: note-in .5s var(--ease-out) 2.2s forwards;
+}
+.crosshairDot {
+    position: absolute;
+    left: 0;
+    width: 11px; height: 11px;
+    border-radius: 50%;
+    border: 1.5px solid var(--accent-hi);
+    background: var(--ink-0);
+    transform: translate(-50%, -50%);
+}
+
+/* ---- Captions under the chart ---- */
+.figRow {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: .35rem 2rem;
+    padding-top: .6rem;
+    padding-bottom: clamp(1rem, 3vh, 2rem);
+}
+.figCaption,
+.honesty {
+    font-family: var(--mono);
+    font-size: .66rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+}
+
+/* ---- Scroll hint ---- */
+.scrollHint {
+    position: absolute;
+    bottom: 1.2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 2;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    gap: .45rem;
+    font-family: var(--mono);
+    font-size: .62rem;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+}
+.scrollLine {
+    width: 1px; height: 30px;
+    background: linear-gradient(var(--accent), transparent);
+    animation: pulse 2s var(--ease) infinite;
+}
+@keyframes pulse {
+    0%, 100% { transform: scaleY(.5); opacity: .4; transform-origin: top; }
+    50%      { transform: scaleY(1);  opacity: 1;  transform-origin: top; }
+}
+
+/* ---- Responsive ---- */
+@media (min-height: 860px) and (min-width: 900px) {
+    .scrollHint { display: flex; }
+}
+
+@media (max-width: 900px) {
+    .baselineLabel { display: none; }
+}
+
+@media (max-width: 640px) {
+    /* annotation budget: three notes max at phone widths */
+    .noteStart, .notePlateau { display: none; }
+    .note { font-size: .68rem; max-width: 20ch; }
+    .xLabel:nth-of-type(2) { display: none; } /* thin the tick row */
+    .headline { font-size: clamp(2.9rem, 13vw, 3.6rem); }
+    .baseline { display: none; }
+}
+
+/* ---- Reduced motion: the finished print — line drawn, PR lit, no draw ---- */
+@media (prefers-reduced-motion: reduce) {
+    .lineDraw { animation: none; stroke-dashoffset: 0; }
+    .area, .note, .dot, .crosshair { animation: none; opacity: 1; }
+    .scrollLine { animation: none; }
+}

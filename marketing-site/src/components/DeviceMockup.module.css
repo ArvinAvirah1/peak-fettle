@@ -2,14 +2,14 @@
     position: relative;
     width: 100%;
     max-width: 290px;
+    margin-inline: auto;
     aspect-ratio: 390 / 844;
     border-radius: 44px;
     padding: 12px;
-    background: linear-gradient(155deg, #1b2436, #070a12);
+    background: var(--surface);
     box-shadow:
-        0 0 0 2px rgba(45,212,191,.12),
-        var(--shadow-lg),
-        0 30px 80px rgba(0,0,0,.55);
+        0 0 0 1px var(--line-hair),
+        var(--shadow-lg);
 }
 
 .screen {

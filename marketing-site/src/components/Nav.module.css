@@ -9,10 +9,10 @@
     border-bottom: 1px solid transparent;
 }
 .scrolled {
-    background: rgba(6, 8, 15, 0.72);
-    backdrop-filter: saturate(160%) blur(14px);
-    -webkit-backdrop-filter: saturate(160%) blur(14px);
-    border-bottom-color: var(--line-2);
+    background: rgba(4, 6, 11, 0.88);
+    backdrop-filter: saturate(140%) blur(12px);
+    -webkit-backdrop-filter: saturate(140%) blur(12px);
+    border-bottom-color: var(--line-hair);
 }
 
 .inner {
@@ -27,9 +27,9 @@
     align-items: center;
     gap: .6rem;
     font-family: var(--display);
-    font-weight: 700;
+    font-weight: 550;
     font-size: 1.18rem;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.01em;
     color: var(--text-strong);
 }
 .logoMark { width: 26px; height: 26px; }
@@ -37,24 +37,35 @@
 .desktopLinks {
     display: flex;
     align-items: center;
-    gap: 2rem;
-    font-family: var(--display);
+    gap: 1.9rem;
+    font-family: var(--body);
     font-weight: 500;
-    font-size: .98rem;
+    font-size: .9rem;
 }
 .desktopLinks a { color: var(--muted); transition: color .2s var(--ease); }
 .desktopLinks a:hover { color: var(--text-strong); }
 
-.cta {
-    color: var(--ink) !important;
-    background: linear-gradient(180deg, var(--accent-hi), var(--accent));
-    padding: .6rem 1.15rem;
-    border-radius: 999px;
-    font-weight: 600;
-    box-shadow: 0 4px 16px rgba(45,212,191,.28);
-    transition: transform .2s var(--ease), box-shadow .2s var(--ease);
+/* the masthead's ledger stamp */
+.stamp {
+    font-family: var(--mono);
+    font-size: .62rem;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+    border: 1px solid var(--line-hair);
+    border-radius: 3px;
+    padding: .3rem .55rem;
 }
-.cta:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(45,212,191,.45); }
+
+.cta {
+    color: var(--ink-0) !important;
+    background: var(--accent);
+    padding: .6rem 1.1rem;
+    border-radius: var(--r);
+    font-weight: 600;
+    transition: background .2s var(--ease);
+}
+.cta:hover { background: var(--accent-hi); }
 
 /* ---- Hamburger ---- */
 .hamburger {
@@ -106,10 +117,10 @@
 .mobileLinkCta {
     margin-top: 1rem;
     text-align: center;
-    color: var(--ink);
-    background: linear-gradient(180deg, var(--accent-hi), var(--accent));
+    color: var(--ink-0);
+    background: var(--accent);
     border: none;
-    border-radius: 999px;
+    border-radius: var(--r);
 }
 
 .backdrop {
@@ -123,6 +134,9 @@
 }
 .backdropVisible { opacity: 1; visibility: visible; }
 
+@media (max-width: 980px) {
+    .stamp { display: none; }
+}
 @media (max-width: 760px) {
     .desktopLinks { display: none; }
     .hamburger { display: block; }

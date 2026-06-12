@@ -2,6 +2,12 @@
 // device mockups until real screenshots are exported to /public/screens.
 // Colors match the app's "Deep Ocean" theme (navy #0A0E1A + accent #00D4C8).
 // Each screen is a 390×844 (logical iPhone) viewBox so it fills a phone frame.
+//
+// Every number shown is A.R.'s week-6 reading from src/lib/story.ts — the
+// page's chart visibly continues inside the product (see the data
+// constitution in story.ts).
+
+import { STORY, PLATE_WEEK, PLATE_SETS, PLATE_PERCENTILE, LIFTER } from '@/lib/story';
 
 const W = 390;
 const H = 844;
@@ -21,22 +27,19 @@ const MUT = '#94A3B8';
 const CARD = '#0F1629';
 const SUB = '#151D35';
 
+const fmtKg = (v: number) => (Number.isInteger(v) ? `${v} kg` : `${v.toFixed(1)} kg`);
+
 export function ScreenLog() {
-    const sets = [
-        { n: 1, w: '100 kg', r: '× 5', pr: true },
-        { n: 2, w: '95 kg', r: '× 6', pr: false },
-        { n: 3, w: '90 kg', r: '× 8', pr: false },
-    ];
     return (
         <Frame>
-            <text x="24" y="92" fill={MUT} fontSize="14" fontFamily="sans-serif">Today · Push day</text>
+            <text x="24" y="92" fill={MUT} fontSize="14" fontFamily="sans-serif">Week 6 · Push day</text>
             <text x="24" y="120" fill={TXT} fontSize="26" fontWeight="700" fontFamily="sans-serif">Bench Press</text>
-            {sets.map((s, i) => (
-                <g key={s.n} transform={`translate(24 ${150 + i * 76})`}>
+            {PLATE_SETS.map((s, i) => (
+                <g key={i} transform={`translate(24 ${150 + i * 76})`}>
                     <rect width="342" height="62" rx="14" fill={CARD} />
-                    <text x="20" y="38" fill={MUT} fontSize="15" fontFamily="sans-serif">Set {s.n}</text>
-                    <text x="120" y="38" fill={TXT} fontSize="18" fontWeight="600" fontFamily="sans-serif">{s.w}</text>
-                    <text x="220" y="38" fill={MUT} fontSize="16" fontFamily="sans-serif">{s.r}</text>
+                    <text x="20" y="38" fill={MUT} fontSize="15" fontFamily="sans-serif">Set {i + 1}</text>
+                    <text x="110" y="38" fill={TXT} fontSize="18" fontWeight="600" fontFamily="sans-serif">{fmtKg(s.weightKg)}</text>
+                    <text x="220" y="38" fill={MUT} fontSize="16" fontFamily="sans-serif">× {s.reps}</text>
                     {s.pr && (
                         <g transform="translate(270 16)">
                             <rect width="52" height="30" rx="15" fill="#00D4C8" opacity="0.16" />
@@ -54,11 +57,11 @@ export function ScreenLog() {
             <g transform="translate(24 480)">
                 <rect width="342" height="120" rx="18" fill={CARD} />
                 <text x="20" y="40" fill={MUT} fontSize="13" fontFamily="sans-serif">ESTIMATED 1RM</text>
-                <text x="20" y="76" fill={TXT} fontSize="30" fontWeight="700" fontFamily="sans-serif">117 kg</text>
+                <text x="20" y="76" fill={TXT} fontSize="30" fontWeight="700" fontFamily="sans-serif">{PLATE_WEEK.e1rm.toFixed(1)} kg</text>
                 <text x="200" y="40" fill={MUT} fontSize="13" fontFamily="sans-serif">STRENGTH SCORE</text>
-                <text x="200" y="76" fill={A} fontSize="30" fontWeight="700" fontFamily="sans-serif">671</text>
+                <text x="200" y="76" fill={A} fontSize="30" fontWeight="700" fontFamily="sans-serif">{PLATE_WEEK.score}</text>
                 <rect x="20" y="92" width="302" height="6" rx="3" fill={SUB} />
-                <rect x="20" y="92" width="200" height="6" rx="3" fill={A} />
+                <rect x="20" y="92" width={302 * PLATE_WEEK.score / 1000} height="6" rx="3" fill={A} />
             </g>
             {/* tab bar */}
             <TabBar active={0} />
@@ -71,10 +74,12 @@ export function ScreenRank() {
     const pts: string[] = [];
     for (let i = 0; i <= 60; i++) {
         const x = 24 + (i / 60) * 342;
-        const t = (i - 38) / 12;
+        const t = (i - 32) / 13;
         const y = 360 - Math.exp(-t * t) * 150;
         pts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
     }
+    // PLATE_PERCENTILE of the curve's width — just left of the bulge's centre
+    const ux = 24 + 0.47 * 342;
     return (
         <Frame>
             <text x="24" y="92" fill={MUT} fontSize="14" fontFamily="sans-serif">Bench Press · your cohort</text>
@@ -83,12 +88,12 @@ export function ScreenRank() {
             <g transform="translate(0 60)">
                 <polyline points={pts.join(' ')} fill="none" stroke={MUT} strokeOpacity="0.4" strokeWidth="2" />
                 <polygon points={`24,360 ${pts.join(' ')} 366,360`} fill="#00D4C8" opacity="0.08" />
-                {/* user marker near the top */}
-                <line x1="300" y1="150" x2="300" y2="360" stroke={A} strokeWidth="2" />
-                <circle cx="300" cy="150" r="6" fill={A} />
-                <g transform="translate(244 96)">
-                    <rect width="112" height="40" rx="10" fill={A} />
-                    <text x="56" y="26" fill="#06121A" fontSize="16" fontWeight="700" textAnchor="middle" fontFamily="sans-serif">Top 9%</text>
+                {/* user marker */}
+                <line x1={ux} y1="190" x2={ux} y2="360" stroke={A} strokeWidth="2" />
+                <circle cx={ux} cy="190" r="6" fill={A} />
+                <g transform={`translate(${ux - 60} 136)`}>
+                    <rect width="120" height="40" rx="10" fill={A} />
+                    <text x="60" y="26" fill="#06121A" fontSize="16" fontWeight="700" textAnchor="middle" fontFamily="sans-serif">{PLATE_PERCENTILE}th pct</text>
                 </g>
             </g>
 
@@ -96,8 +101,8 @@ export function ScreenRank() {
                 <rect width="342" height="150" rx="18" fill={CARD} />
                 <text x="20" y="38" fill={MUT} fontSize="13" fontFamily="sans-serif">MATCHED ON</text>
                 <Tag x={20} y={54} label="Male" />
-                <Tag x={92} y={54} label="Age 25–29" />
-                <Tag x={206} y={54} label="3 yrs trained" />
+                <Tag x={92} y={54} label="Age 25–34" />
+                <Tag x={206} y={54} label={`${LIFTER.yearsTrained} yrs trained`} />
                 <text x="20" y="128" fill={TXT} fontSize="15" fontFamily="sans-serif">Honest comparisons — never vs. veterans.</text>
             </g>
             <TabBar active={1} />
@@ -106,12 +111,19 @@ export function ScreenRank() {
 }
 
 export function ScreenScore() {
-    const pts: string[] = [];
-    for (let i = 0; i <= 40; i++) {
-        const x = 24 + (i / 40) * 342;
-        const y = 420 - (Math.log(i + 1) / Math.log(41)) * 230 - Math.sin(i / 3) * 6;
-        pts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
-    }
+    // The in-app trend chart draws the page's own dataset, weeks 1–6 —
+    // the essay's line continues inside the product.
+    const crop = STORY.slice(0, 6);
+    const lo = 82, hi = 95;
+    const pts = crop
+        .map((p, i) => {
+            const x = 40 + (i / (crop.length - 1)) * 310;
+            const y = 470 - ((p.e1rm - lo) / (hi - lo)) * 90;
+            return `${x.toFixed(1)},${y.toFixed(1)}`;
+        })
+        .join(' ');
+    const ring = 578; // 2πr, r=92
+    const offset = ring * (1 - PLATE_WEEK.score / 1000);
     return (
         <Frame>
             <text x="24" y="92" fill={MUT} fontSize="14" fontFamily="sans-serif">Overall</text>
@@ -120,22 +132,22 @@ export function ScreenScore() {
             <g transform="translate(195 250)">
                 <circle r="92" fill="none" stroke={SUB} strokeWidth="14" />
                 <circle r="92" fill="none" stroke={A} strokeWidth="14" strokeLinecap="round"
-                    strokeDasharray="578" strokeDashoffset="186" transform="rotate(-90)" />
-                <text y="2" fill={TXT} fontSize="56" fontWeight="700" textAnchor="middle" fontFamily="sans-serif">781</text>
+                    strokeDasharray={ring} strokeDashoffset={offset.toFixed(0)} transform="rotate(-90)" />
+                <text y="2" fill={TXT} fontSize="56" fontWeight="700" textAnchor="middle" fontFamily="sans-serif">{PLATE_WEEK.score}</text>
                 <text y="34" fill={MUT} fontSize="15" textAnchor="middle" fontFamily="sans-serif">/ 1000</text>
             </g>
 
-            <g transform="translate(0 30)">
-                <polyline points={pts.join(' ')} fill="none" stroke={A} strokeWidth="3" />
-            </g>
-            <text x="24" y="470" fill={MUT} fontSize="14" fontFamily="sans-serif">+38 over the last 8 weeks</text>
+            <polyline points={pts} fill="none" stroke={A} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+            <text x="24" y="498" fill={MUT} fontSize="14" fontFamily="sans-serif">
+                +{(PLATE_WEEK.e1rm - STORY[0].e1rm).toFixed(1)} kg over six weeks
+            </text>
 
-            <g transform="translate(24 500)">
-                <rect width="342" height="150" rx="18" fill={CARD} />
-                <text x="20" y="40" fill={MUT} fontSize="13" fontFamily="sans-serif">METHOD</text>
-                <text x="20" y="72" fill={TXT} fontSize="18" fontWeight="600" fontFamily="sans-serif">Peak Fettle score</text>
-                <text x="20" y="100" fill={MUT} fontSize="14" fontFamily="sans-serif">Volume · overload · consistency</text>
-                <text x="20" y="128" fill={A} fontSize="14" fontFamily="sans-serif">Switch to DOTS / Wilks →</text>
+            <g transform="translate(24 520)">
+                <rect width="342" height="140" rx="18" fill={CARD} />
+                <text x="20" y="38" fill={MUT} fontSize="13" fontFamily="sans-serif">METHOD</text>
+                <text x="20" y="68" fill={TXT} fontSize="18" fontWeight="600" fontFamily="sans-serif">Peak Fettle score</text>
+                <text x="20" y="94" fill={MUT} fontSize="14" fontFamily="sans-serif">Volume · overload · consistency</text>
+                <text x="20" y="120" fill={A} fontSize="14" fontFamily="sans-serif">Switch to DOTS / Wilks →</text>
             </g>
             <TabBar active={2} />
         </Frame>

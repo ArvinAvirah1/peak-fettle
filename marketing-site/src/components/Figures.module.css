@@ -1,0 +1,117 @@
+/* Shared styling for the essay's numbered figures. */
+
+.fig { width: 100%; height: auto; }
+
+/* ---- Strokes & fills ---- */
+.panel {
+    fill: var(--surface);
+    stroke: var(--line-hair);
+    stroke-width: 1;
+}
+.axis { stroke: var(--line-hair); stroke-width: 1; }
+.grid { stroke: var(--line-hair); stroke-width: 1; }
+.leader { stroke: var(--line-hair); stroke-width: 1; fill: none; }
+
+.curve {
+    stroke: var(--accent-hi);
+    stroke-width: 1.5;
+    fill: none;
+    opacity: .85;
+}
+.cropLine {
+    stroke: var(--accent-hi);
+    stroke-width: 2;
+    stroke-linejoin: round;
+    stroke-linecap: round;
+    fill: none;
+}
+
+.markerLine { stroke: var(--accent); stroke-width: 1.5; }
+.markerLineDim { stroke: var(--muted-2); stroke-width: 1; opacity: .6; }
+.markerDot { fill: var(--accent); }
+.markerDotDim { fill: var(--muted-2); }
+
+/* ---- SVG type ---- */
+.tinyMuted {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: .08em;
+    fill: var(--muted-2);
+}
+.monoStrong {
+    font-family: var(--mono);
+    font-size: 17px;
+    fill: var(--text);
+}
+.monoAccent {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    fill: var(--accent);
+}
+.monoNote {
+    font-family: var(--mono);
+    font-size: 12.5px;
+    fill: rgba(233, 241, 247, 0.9);
+}
+.accentBig {
+    font-family: var(--mono);
+    font-size: 24px;
+    fill: var(--accent);
+}
+.formula {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    fill: var(--muted-2);
+}
+
+/* ---- Fig. 04 small multiples ---- */
+.multiples {
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+}
+.multiple {
+    border-bottom: 1px solid var(--line-hair);
+    padding-bottom: .5rem;
+    opacity: .72;
+}
+.multipleYou { opacity: 1; }
+.multiple svg { width: 100%; height: auto; }
+
+.multipleCaption {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+.multipleLabel,
+.multiplePct,
+.multiplePctYou {
+    font-family: var(--mono);
+    font-size: .66rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+}
+.multiplePctYou { color: var(--accent); }
+
+/* ---- Terminal projection ---- */
+.projection { width: min(340px, 80vw); height: auto; margin-inline: auto; }
+
+.spineSolid { stroke: var(--accent); stroke-width: 1.5; fill: none; }
+.tickGold { stroke: var(--sash); stroke-width: 2; fill: none; stroke-linecap: round; }
+.dashed {
+    stroke: var(--accent);
+    stroke-width: 1.5;
+    fill: none;
+    stroke-dasharray: 6 7;
+    opacity: .8;
+}
+.arrowHead {
+    stroke: var(--accent);
+    stroke-width: 1.5;
+    fill: none;
+    stroke-linejoin: round;
+}
