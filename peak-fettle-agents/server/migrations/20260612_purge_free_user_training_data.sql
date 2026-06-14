@@ -45,33 +45,42 @@ BEGIN
   RAISE NOTICE 'Purging training data for % free users: % sets, % workouts (+ derived rows).',
     n_users, n_sets, n_workouts;
 
-  -- Optional guardrail: refuse to run if it would wipe an implausibly large share
-  -- of ALL data (e.g. tier column never populated -> everyone looks "free").
-  IF (SELECT count(*) FROM users WHERE tier = 'paid') = 0
-     AND (SELECT count(*) FROM users) > 0 THEN
-    RAISE EXCEPTION 'Aborting: zero paid users found. Verify users.tier is populated before purging.';
-  END IF;
+  -- Guardrail intentionally REMOVED (founder decision 2026-06-13): there are no
+  -- paid users yet and the founder accepts wiping ALL server-side training data.
+  -- With zero paid users, `tier <> 'paid'` matches every user, so this purges
+  -- the entire training dataset. The server copy is being discarded knowingly.
 END $$;
 
 -- Free-user id set, materialized once.
 CREATE TEMP TABLE _free_uids ON COMMIT DROP AS
   SELECT id FROM users WHERE tier <> 'paid' OR tier IS NULL;
 
--- Delete children first where there is no ON DELETE CASCADE chain we can rely on.
--- sets cascade from workouts, but delete explicitly to be unambiguous.
-DELETE FROM sets                     WHERE user_id IN (SELECT id FROM _free_uids);
-DELETE FROM exercise_prs             WHERE user_id IN (SELECT id FROM _free_uids);
-DELETE FROM user_confirmed_1rm       WHERE user_id IN (SELECT id FROM _free_uids);
-DELETE FROM user_percentile_rankings WHERE user_id IN (SELECT id FROM _free_uids);
-DELETE FROM daily_health_metrics     WHERE user_id IN (SELECT id FROM _free_uids);
-DELETE FROM daily_health_log         WHERE user_id IN (SELECT id FROM _free_uids);
-DELETE FROM user_weekly_goals        WHERE user_id IN (SELECT id FROM _free_uids);
-DELETE FROM user_constraints         WHERE user_id IN (SELECT id FROM _free_uids);
-DELETE FROM streak_overrides         WHERE user_id IN (SELECT id FROM _free_uids);
-DELETE FROM streaks                  WHERE user_id IN (SELECT id FROM _free_uids);
-DELETE FROM plans                    WHERE user_id IN (SELECT id FROM _free_uids);
--- workouts last (sets already gone; routine_id FK is SET NULL so safe).
-DELETE FROM workouts                 WHERE user_id IN (SELECT id FROM _free_uids);
+-- Delete children first, parents last. Each table is purged only if it EXISTS
+-- in this database — prod has drifted (e.g. user_percentile_rankings was already
+-- dropped), so to_regclass() guards every statement and silently skips absentees.
+DO $purge$
+DECLARE
+  tbl  TEXT;
+  tbls TEXT[] := ARRAY[
+    'sets', 'exercise_prs', 'user_confirmed_1rm', 'user_percentile_rankings',
+    'daily_health_metrics', 'daily_health_log', 'user_weekly_goals',
+    'user_constraints', 'streak_overrides', 'streaks', 'plans',
+    'workouts'  -- last: children already gone; routine_id FK is SET NULL
+  ];
+  n BIGINT;
+BEGIN
+  FOREACH tbl IN ARRAY tbls LOOP
+    IF to_regclass(tbl) IS NOT NULL THEN
+      EXECUTE format(
+        'DELETE FROM %I WHERE user_id IN (SELECT id FROM _free_uids)', tbl
+      );
+      GET DIAGNOSTICS n = ROW_COUNT;
+      RAISE NOTICE '  purged % rows from %', n, tbl;
+    ELSE
+      RAISE NOTICE '  skipped % (table does not exist)', tbl;
+    END IF;
+  END LOOP;
+END $purge$;
 
 COMMIT;
 
