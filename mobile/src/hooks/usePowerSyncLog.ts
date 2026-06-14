@@ -38,6 +38,9 @@ import { getSetsForWorkout } from '../api/sets';
 import { db, genId } from '../db/powerSyncClient';
 import { syncEngine } from '../db/syncEngine';
 import { useAuth } from './useAuth';
+import { isLocalFirst } from '../data/backup/tierPolicy';
+import { maybeSendWeeklySignals, getActiveGroupIds } from '../data/groupSignals';
+import { localDb } from '../db/localDb';
 import {
   Workout,
   WorkoutSet,
@@ -71,7 +74,8 @@ interface SetRow {
   set_index: number;
   // lift
   reps: number | null;
-  weight_raw: number | null; // INTEGER = kg × 8; decode before returning
+  weight_raw: number | null; // INTEGER = kg × 8; legacy, decode before returning
+  weight_kg: number | null;  // REAL exact kg (v3); preferred over weight_raw
   rir: number | null;
   // TYPE-001 fix (2026-05-16): `e1rm_kg` removed — column dropped server-side
   // in 20260505_sets_weight_raw.sql; local SQLite column (if still present
@@ -94,7 +98,7 @@ function rowToSet(row: SetRow): WorkoutSet {
       kind: 'lift',
       set_index: row.set_index,
       reps: row.reps ?? 0,
-      weight_kg: row.weight_raw != null ? row.weight_raw / 8 : 0,
+      weight_kg: row.weight_kg != null ? row.weight_kg : (row.weight_raw != null ? row.weight_raw / 8 : 0),
       rir: row.rir,
       logged_at: row.logged_at,
     };
@@ -137,23 +141,23 @@ async function hydrateLocalSets(
   );
   const COLS =
     `(id, server_id, workout_id, user_id, exercise_id, kind, set_index, ` +
-    `reps, weight_raw, rir, duration_sec, distance_m, avg_pace_sec_per_km, ` +
+    `reps, weight_raw, weight_kg, rir, duration_sec, distance_m, avg_pace_sec_per_km, ` +
     `logged_at, synced)`;
   for (const s of serverSets) {
     if (s.kind === 'lift') {
       await db.execute(
         `INSERT OR REPLACE INTO sets ${COLS}
-         VALUES (?, ?, ?, ?, ?, 'lift', ?, ?, ?, ?, NULL, NULL, NULL, ?, 1)`,
+         VALUES (?, ?, ?, ?, ?, 'lift', ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, 1)`,
         [
           s.id, s.id, s.workout_id, s.user_id, s.exercise_id, s.set_index,
-          s.reps, encodeWeightRaw(s.weight_kg), s.rir, s.logged_at,
+          s.reps, encodeWeightRaw(s.weight_kg), s.weight_kg, s.rir, s.logged_at,
         ],
         { tables: ['sets'] }
       );
     } else {
       await db.execute(
         `INSERT OR REPLACE INTO sets ${COLS}
-         VALUES (?, ?, ?, ?, ?, 'cardio', ?, NULL, NULL, NULL, ?, ?, ?, ?, 1)`,
+         VALUES (?, ?, ?, ?, ?, 'cardio', ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, 1)`,
         [
           s.id, s.id, s.workout_id, s.user_id, s.exercise_id, s.set_index,
           s.duration_sec, s.distance_m, s.avg_pace_sec_per_km, s.logged_at,
@@ -191,6 +195,8 @@ export interface UsePowerSyncLogResult {
 export function usePowerSyncLog(): UsePowerSyncLogResult {
   const { user } = useAuth();
   const userId = user?.id ?? '';
+  // Tier gate: free users are local-first — skip personal REST endpoints.
+  const localFirst = isLocalFirst(user);
 
   // Stable today key — doesn't change within a session.
   const todayKey = useMemo(() => getTodayKey(), []);
@@ -216,7 +222,34 @@ export function usePowerSyncLog(): UsePowerSyncLogResult {
     setInitLoading(true);
     setInitError(null);
     try {
-      // ── Online path: create/upsert the server workout, then hydrate local DB ─
+      // ── Online path (Pro): create/upsert the server workout, hydrate local DB ─
+      // Free users are local-first: skip the REST call entirely; workout was
+      // already created locally by useWorkout or a prior session.
+      if (localFirst) {
+        // For free users, read or create today's workout from localDb only.
+        let localRow = await localDb.getFirst<{ id: string; user_id: string; day_key: string; notes: string | null; session_type: string | null; created_at: string; updated_at: string }>(
+          'SELECT * FROM workouts WHERE day_key = ? ORDER BY created_at ASC LIMIT 1',
+          [todayKey]
+        );
+        if (!localRow) {
+          const { genId: makeId } = require('../db/localDb');
+          const newId = makeId();
+          const now   = new Date().toISOString();
+          await localDb.execute(
+            `INSERT INTO workouts (id, user_id, day_key, notes, session_type, created_at, updated_at, synced) VALUES (?, ?, ?, NULL, NULL, ?, ?, 0)`,
+            [newId, userId, todayKey, now, now],
+            { tables: ['workouts'] }
+          );
+          localRow = await localDb.getFirst<{ id: string; user_id: string; day_key: string; notes: string | null; session_type: string | null; created_at: string; updated_at: string }>(
+            'SELECT * FROM workouts WHERE id = ?', [newId]
+          );
+        }
+        if (localRow) {
+          workoutIdRef.current = localRow.id;
+          setWorkout({ id: localRow.id, user_id: localRow.user_id, day_key: localRow.day_key, notes: localRow.notes, session_type: (localRow.session_type ?? null) as import('../types/api').Workout['session_type'], created_at: localRow.created_at, updated_at: localRow.updated_at });
+        }
+        return;
+      }
       const w = await createWorkout(todayKey);
       // Set ref BEFORE triggering re-render so the watch effect always sees a
       // valid workoutId even on the first render triggered by setWorkout().
@@ -381,17 +414,20 @@ export function usePowerSyncLog(): UsePowerSyncLogResult {
       const loggedAt = new Date().toISOString();
       const COLS =
         `(id, server_id, workout_id, user_id, exercise_id, kind, set_index, ` +
-        `reps, weight_raw, rir, duration_sec, distance_m, avg_pace_sec_per_km, ` +
+        `reps, weight_raw, weight_kg, rir, duration_sec, distance_m, avg_pace_sec_per_km, ` +
         `logged_at, synced)`;
 
       let optimistic: WorkoutSet;
       if (payload.kind === 'lift') {
         await db.execute(
+          // weight_kg stores the EXACT kilograms entered (full precision) — this
+          // is the source of truth for display/edit. weight_raw (kg×8) is kept
+          // derived for backward-compat and the on-device percentile path.
           `INSERT INTO sets ${COLS}
-           VALUES (?, NULL, ?, ?, ?, 'lift', ?, ?, ?, ?, NULL, NULL, NULL, ?, 0)`,
+           VALUES (?, NULL, ?, ?, ?, 'lift', ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, 0)`,
           [
             localId, wid, userId, payload.exerciseId, payload.setIndex,
-            payload.reps, encodeWeightRaw(payload.weightKg),
+            payload.reps, encodeWeightRaw(payload.weightKg), payload.weightKg,
             payload.rir ?? null, loggedAt,
           ],
           { tables: ['sets'] }
@@ -406,7 +442,7 @@ export function usePowerSyncLog(): UsePowerSyncLogResult {
       } else {
         await db.execute(
           `INSERT INTO sets ${COLS}
-           VALUES (?, NULL, ?, ?, ?, 'cardio', ?, NULL, NULL, NULL, ?, ?, ?, ?, 0)`,
+           VALUES (?, NULL, ?, ?, ?, 'cardio', ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, 0)`,
           [
             localId, wid, userId, payload.exerciseId, payload.setIndex,
             payload.durationSec, payload.distanceM ?? null,
@@ -425,10 +461,35 @@ export function usePowerSyncLog(): UsePowerSyncLogResult {
       }
 
       // Queue the upload; syncEngine drains the outbox to the API when online.
-      await syncEngine.enqueueInsertSet(localId, { ...payload, workoutId: wid });
+      // FREE users are local-first: the local write above is the source of truth,
+      // and `wid` is a local-only id the server never saw — enqueuing it would
+      // 400 on every flush and permanently jam the outbox. Skip the server path.
+      if (!localFirst) {
+        await syncEngine.enqueueInsertSet(localId, { ...payload, workoutId: wid });
+      }
+
+      // ── Group weekly signal (free + pro, fire-and-forget) ─────────────────
+      // Count workouts logged in this ISO week (including today) so the signal
+      // reflects accurate progress. Errors are fully swallowed in the helper.
+      void (async () => {
+        try {
+          const weekMonday = (() => {
+            const d = new Date();
+            const dow = (d.getDay() + 6) % 7;
+            d.setDate(d.getDate() - dow);
+            return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+          })();
+          const row = await localDb.getFirst<{ cnt: number }>(
+            `SELECT COUNT(*) as cnt FROM workouts WHERE day_key >= ?`,
+            [weekMonday]
+          );
+          await maybeSendWeeklySignals(getActiveGroupIds(), row?.cnt ?? 1);
+        } catch { /* swallow — never block logSet */ }
+      })();
+
       return optimistic;
     },
-    [userId]
+    [userId, localFirst]
   );
 
   /**
@@ -442,8 +503,12 @@ export function usePowerSyncLog(): UsePowerSyncLogResult {
       [id]
     );
     await db.execute('DELETE FROM sets WHERE id = ?', [id], { tables: ['sets'] });
-    await syncEngine.enqueueDeleteSet(id, row?.server_id ?? null);
-  }, []);
+    // Free users are local-first — the local DELETE above is sufficient; no
+    // server delete to enqueue (the row never went to the server).
+    if (!localFirst) {
+      await syncEngine.enqueueDeleteSet(id, row?.server_id ?? null);
+    }
+  }, [localFirst]);
 
   // ── Refetch (retry after offline init failure) ──────────────────────────
 

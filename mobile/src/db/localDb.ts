@@ -16,10 +16,14 @@
  *     notify() that touches a table it cares about. Callers re-run getAll()
  *     themselves after each yield (the sql/params args are accepted only for API
  *     compatibility with the old PowerSync watch signature).
+ *
+ * Schema migrations (v2+): after v1 base statements are applied, runMigrations()
+ * from migrations.ts is called to apply any pending schema versions.
  */
 
 import * as SQLite from 'expo-sqlite';
 import { SCHEMA_STATEMENTS } from './localSchema';
+import { runMigrations } from './migrations';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -67,19 +71,62 @@ function parseAffectedTables(sql: string): string[] {
 }
 
 /**
- * Ensure the DB is open and the schema applied. Idempotent: concurrent callers
- * share a single init promise.
+ * Ensure the DB is open, the v1 schema applied, and migrations run.
+ * Idempotent: concurrent callers share a single init promise.
+ *
+ * A rejected init is NOT cached: initPromise is reset to null on failure so a
+ * later call can retry (one transient SQLite open/DDL error must not brick all
+ * local data until app restart).
  */
 async function ensureInit(): Promise<void> {
   if (initPromise) return initPromise;
-  initPromise = (async () => {
-    const handle = await SQLite.openDatabaseAsync('peak_fettle.db');
-    for (const stmt of SCHEMA_STATEMENTS) {
-      await handle.execAsync(stmt);
-    }
-    dbHandle = handle;
-  })();
+  initPromise = doInit().catch((err) => {
+    initPromise = null;
+    throw err;
+  });
   return initPromise;
+}
+
+async function doInit(): Promise<void> {
+  const handle = await SQLite.openDatabaseAsync('peak_fettle.db');
+  // Apply base v1 statements (idempotent CREATE TABLE IF NOT EXISTS).
+  for (const stmt of SCHEMA_STATEMENTS) {
+    await handle.execAsync(stmt);
+  }
+  dbHandle = handle;
+
+  // CRITICAL: the pre-migration snapshot and the migration runner must NOT be
+  // routed through the public `localDb` singleton. Every localDb method awaits
+  // ensureInit(), which is still pending here, so passing `localDb` re-enters
+  // this same unsettled initPromise and deadlocks forever (a hang, not a
+  // rejection — so the "best-effort, never blocks" guards never fire). Pass a
+  // thin handle-bound shim instead; dbHandle is already set above.
+  const rawDb = {
+    getAll: <T = unknown>(sql: string, params: unknown[] = []): Promise<T[]> =>
+      handle.getAllAsync<T>(sql, params as SQLite.SQLiteBindValue[]),
+    getFirst: <T = unknown>(
+      sql: string,
+      params: unknown[] = []
+    ): Promise<T | null> =>
+      handle.getFirstAsync<T>(sql, params as SQLite.SQLiteBindValue[]),
+    execute: async (sql: string, params: unknown[] = []): Promise<void> => {
+      await handle.runAsync(sql, params as SQLite.SQLiteBindValue[]);
+    },
+  };
+
+  // Run pending schema migrations (v2+).
+  // buildBackup is imported lazily to avoid circular deps at module load time.
+  let buildBackup: (() => Promise<string>) | undefined;
+  try {
+    const { buildBackupFromDb } = await import('../data/backup/exportEngine');
+    buildBackup = async () => {
+      const doc = await buildBackupFromDb(rawDb);
+      return JSON.stringify(doc);
+    };
+  } catch {
+    // exportEngine unavailable in test stubs — proceed without snapshot.
+  }
+  await runMigrations(rawDb, buildBackup);
 }
 
 function getHandle(): SQLite.SQLiteDatabase {

@@ -55,7 +55,8 @@ import {
   deleteConstraint,
   UserConstraint,
 } from '../../src/api/constraints';
-import { fetchDataExport, deleteAccount, patchProfile } from '../../src/api/user';
+import { fetchDataExport, deleteAccount } from '../../src/api/user';
+import { saveProfile } from '../../src/data/profile';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { ThemeSelectorModal } from '../../src/components/ThemeSelector';
 import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
@@ -320,7 +321,7 @@ function AddConstraintModal({
 
             <ScrollView contentContainerStyle={addConstraintStyles.scrollContent} keyboardShouldPersistTaps="handled">
               <Text style={[addConstraintStyles.note, { color: theme.colors.textTertiary }]}>
-                These restrictions are used by the AI planner to avoid exercises
+                These restrictions are used by the Training Engine to avoid exercises
                 that could aggravate your conditions.
               </Text>
 
@@ -474,20 +475,21 @@ export default function ProfileScreen(): React.ReactElement {
 
   const handleUnitChange = useCallback(
     async (pref: 'kg' | 'lbs') => {
-      if (pref === unitPref) return;
+      const prev = unitPref;
+      if (pref === prev) return;
       setUnitPref(pref); // optimistic
       setIsUpdatingUnit(true);
       try {
-        await patchProfile({ unit_pref: pref });
-        updateUser?.({ unit_pref: pref });
+        // Tier-branched: free → local user_profile, Pro → PATCH /user/profile.
+        await saveProfile(user, { unit_pref: pref }, updateUser);
       } catch (err) {
-        // Revert optimistic update and tell the user what went wrong.
-        setUnitPref(user?.unit_pref ?? 'kg');
+        // Revert optimistic update and tell the user what went wrong (D-3).
+        setUnitPref(prev);
         const msg =
           err != null && typeof err === 'object' && 'response' in err
             ? ((err as { response?: { data?: { message?: string; error?: string } } }).response?.data?.message ??
                (err as { response?: { data?: { error?: string } } }).response?.data?.error ??
-               'Server error — could not save unit preference')
+               'Could not save unit preference')
             : err instanceof Error
             ? err.message
             : 'Could not save unit preference';
@@ -506,16 +508,54 @@ export default function ProfileScreen(): React.ReactElement {
       setUse1rmConfirmation(value); // optimistic
       setIsUpdating1rm(true);
       try {
-        await patchProfile({ use_1rm_confirmation: value });
-        updateUser?.({ use_1rm_confirmation: value });
-      } catch {
-        // Revert on failure
+        await saveProfile(user, { use_1rm_confirmation: value }, updateUser);
+      } catch (err) {
+        // Revert on failure and surface a real error (D-3).
         setUse1rmConfirmation(!value);
+        Alert.alert(
+          'Could not save preference',
+          err instanceof Error ? err.message : 'Could not save your setting'
+        );
       } finally {
         setIsUpdating1rm(false);
       }
     },
-    [updateUser]
+    [user, updateUser]
+  );
+
+  // ── B3. Notification toggles ─────────────────────────────────────────────
+
+  const handleStreakNotifToggle = useCallback(
+    async (value: boolean) => {
+      setStreakNotifEnabled(value); // optimistic
+      try {
+        await saveProfile(user, { streak_notifications_enabled: value }, updateUser);
+      } catch (err) {
+        // Revert + surface failure (D-3) — never leave a toggle looking saved.
+        setStreakNotifEnabled(!value);
+        Alert.alert(
+          'Could not save preference',
+          err instanceof Error ? err.message : 'Could not save your notification setting'
+        );
+      }
+    },
+    [user, updateUser]
+  );
+
+  const handlePlanNotifToggle = useCallback(
+    async (value: boolean) => {
+      setPlanNotifEnabled(value); // optimistic
+      try {
+        await saveProfile(user, { plan_notifications_enabled: value }, updateUser);
+      } catch (err) {
+        setPlanNotifEnabled(!value);
+        Alert.alert(
+          'Could not save preference',
+          err instanceof Error ? err.message : 'Could not save your notification setting'
+        );
+      }
+    },
+    [user, updateUser]
   );
 
   // ── C. Constraints ───────────────────────────────────────────────────────
@@ -699,6 +739,66 @@ export default function ProfileScreen(): React.ReactElement {
         </View>
       </View>
 
+
+      {/* ── Training ── */}
+      <View style={styles.section}>
+        <SectionHeader label="TRAINING" />
+        <View style={[
+          styles.settingsCard,
+          { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
+        ]}>
+          {/* Training profile — survey for Training Engine */}
+          <TouchableOpacity
+            style={styles.settingRow}
+            onPress={() => router.push('/training-survey')}
+            accessibilityRole="button"
+            accessibilityLabel="Edit training profile"
+          >
+            <View style={styles.settingLabelGroup}>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Training profile</Text>
+              <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
+                Goal, schedule, equipment & season
+              </Text>
+            </View>
+            <Text style={[styles.settingChevron, { color: theme.colors.textTertiary }]}>›</Text>
+          </TouchableOpacity>
+
+          {/* Readiness & recovery — Agent D screen */}
+          <TouchableOpacity
+            style={[styles.settingRow, styles.settingRowBordered, styles.settingRowTop,
+              { borderTopColor: theme.colors.borderDefault, borderBottomColor: theme.colors.borderDefault }]}
+            onPress={() => router.push('/insights')}
+            accessibilityRole="button"
+            accessibilityLabel="View readiness and recovery"
+          >
+            <View style={styles.settingLabelGroup}>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Readiness &amp; recovery</Text>
+              <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
+                Daily readiness score, muscle freshness &amp; deload alerts
+              </Text>
+            </View>
+            <Text style={[styles.settingChevron, { color: theme.colors.textTertiary }]}>›</Text>
+          </TouchableOpacity>
+
+          {/* Export my data — Agent D screen */}
+          <TouchableOpacity
+            style={[styles.settingRow, styles.settingRowBordered, styles.settingRowTop,
+              { borderTopColor: theme.colors.borderDefault, borderBottomColor: theme.colors.borderDefault }]}
+            onPress={() => router.push('/data-export')}
+            accessibilityRole="button"
+            accessibilityLabel="Export my data"
+          >
+            <View style={styles.settingLabelGroup}>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Export my data</Text>
+              <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
+                Download your full workout history as JSON or CSV
+              </Text>
+            </View>
+            <Text style={[styles.settingChevron, { color: theme.colors.textTertiary }]}>›</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
       {/* ── Appearance ── */}
       <View style={styles.section}>
         <SectionHeader label="APPEARANCE" />
@@ -727,7 +827,7 @@ export default function ProfileScreen(): React.ReactElement {
       <View style={styles.section}>
         <SectionHeader label="PHYSICAL RESTRICTIONS" />
         <Text style={[styles.sectionNote, { color: theme.colors.textTertiary }]}>
-          These constraints are shared with the AI planner to avoid incompatible exercises.
+          These constraints are shared with the Training Engine to avoid incompatible exercises.
         </Text>
 
         {constraintsLoading ? (
@@ -810,10 +910,7 @@ export default function ProfileScreen(): React.ReactElement {
             </View>
             <Switch
               value={streakNotifEnabled}
-              onValueChange={(val) => {
-                setStreakNotifEnabled(val);
-                patchProfile({ streak_notifications_enabled: val }).catch(() => {});
-              }}
+              onValueChange={handleStreakNotifToggle}
               trackColor={{ false: theme.colors.borderDefault, true: theme.colors.accentDefault }}
               thumbColor={streakNotifEnabled ? theme.colors.accentDefault : theme.colors.textTertiary}
               accessibilityLabel="Streak milestone notifications"
@@ -830,15 +927,12 @@ export default function ProfileScreen(): React.ReactElement {
             <View style={styles.settingLabelGroup}>
               <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Plan notifications</Text>
               <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
-                Notify when your AI plan is ready
+                Notify when your plan is ready
               </Text>
             </View>
             <Switch
               value={planNotifEnabled}
-              onValueChange={(val) => {
-                setPlanNotifEnabled(val);
-                patchProfile({ plan_notifications_enabled: val }).catch(() => {});
-              }}
+              onValueChange={handlePlanNotifToggle}
               trackColor={{ false: theme.colors.borderDefault, true: theme.colors.accentDefault }}
               thumbColor={planNotifEnabled ? theme.colors.accentDefault : theme.colors.textTertiary}
               accessibilityLabel="Plan ready notifications"
@@ -881,7 +975,7 @@ export default function ProfileScreen(): React.ReactElement {
           {/* Data category rows */}
           {[
             { label: 'Workouts', description: 'Session logs, sets, reps, weights' },
-            { label: 'Plans', description: 'AI-generated training plans' },
+            { label: 'Plans', description: 'Evidence-based training plans' },
             { label: 'Health Metrics', description: 'HealthKit data and manual entries' },
             { label: 'Profile', description: 'Account info and preferences' },
           ].map((category, i) => (
@@ -1024,7 +1118,7 @@ export default function ProfileScreen(): React.ReactElement {
       </TouchableOpacity>
 
       {/* App version note */}
-      <Text style={[styles.appVersion, { color: theme.colors.borderDefault }]}>Peak Fettle · Claude Haiku 4.5</Text>
+      <Text style={[styles.appVersion, { color: theme.colors.borderDefault }]}>Peak Fettle</Text>
 
       <View style={styles.bottomPad} />
 

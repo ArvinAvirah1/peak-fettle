@@ -1,0 +1,159 @@
+/**
+ * migrations.ts — schema migration runner for the on-device SQLite store.
+ *
+ * Each migration version is an ordered list of SQL statements. The runner:
+ *   1. Reads PRAGMA user_version from the DB.
+ *   2. Applies any pending migrations in a transaction (where possible).
+ *   3. Sets PRAGMA user_version to the new version.
+ *
+ * Pre-migration snapshot:
+ *   Before applying a migration, the runner attempts to snapshot the DB via
+ *   expo-file-system (dynamic require) into documentDirectory as
+ *   pf_premigration_v<N>.json. If FS is unavailable, the snapshot payload is
+ *   written into migration_snapshots (best-effort, never blocks migration).
+ *
+ * Wire-up: localDb.init() calls runMigrations(db) after the base SCHEMA_STATEMENTS.
+ *
+ * SPEC-094A Agent L, 2026-06-12.
+ */
+
+import { SCHEMA_V2_STATEMENTS, SCHEMA_V3_STATEMENTS } from './localSchema';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface MigrationDb {
+  getAll<T = unknown>(sql: string, params?: unknown[]): Promise<T[]>;
+  getFirst<T = unknown>(sql: string, params?: unknown[]): Promise<T | null>;
+  execute(sql: string, params?: unknown[], opts?: { tables?: string[] }): Promise<void>;
+}
+
+export interface MigrationVersion {
+  v: number;
+  statements: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Best-effort pre-migration snapshot. Tries expo-file-system first (device),
+ * falls back to the migration_snapshots table (testable in node).
+ */
+async function snapshotBeforeMigration(
+  db: MigrationDb,
+  version: number,
+  buildBackup: (() => Promise<string>) | null,
+): Promise<void> {
+  const payload = buildBackup ? await buildBackup().catch(() => '{}') : '{}';
+  const createdAt = new Date().toISOString();
+
+  // Try expo-file-system via dynamic require (no hard import — bundle-safe).
+  let fsWritten = false;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const FS = require('expo-file-system') as {
+      documentDirectory: string | null;
+      writeAsStringAsync(uri: string, contents: string): Promise<void>;
+    };
+    if (FS.documentDirectory) {
+      const uri = `${FS.documentDirectory}pf_premigration_v${version}.json`;
+      await FS.writeAsStringAsync(uri, payload);
+      fsWritten = true;
+    }
+  } catch {
+    // expo-file-system not available (e.g. node test environment) — fall through.
+  }
+
+  if (!fsWritten) {
+    // Ensure the snapshots table exists (best-effort: won't throw if CREATE fails).
+    await db
+      .execute(
+        `CREATE TABLE IF NOT EXISTS migration_snapshots (
+          version INTEGER NOT NULL,
+          created_at TEXT NOT NULL,
+          payload TEXT NOT NULL
+        )`,
+        [],
+        { tables: ['migration_snapshots'] },
+      )
+      .catch(() => undefined);
+
+    await db
+      .execute(
+        `INSERT INTO migration_snapshots (version, created_at, payload) VALUES (?, ?, ?)`,
+        [version, createdAt, payload],
+        { tables: ['migration_snapshots'] },
+      )
+      .catch(() => undefined);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Migration definitions
+// ---------------------------------------------------------------------------
+
+// v2: adds all local-first personal-data tables (plans, routines, streaks,
+// daily_health_log, daily_health_metrics, habits, user_weekly_goals,
+// user_constraints, exercise_prs, user_confirmed_1rm, user_cosmetics,
+// user_equipped_cosmetics, user_profile, workout_templates, template_sessions,
+// template_exercises, and their indexes).
+const MIGRATION_V2: MigrationVersion = {
+  v: 2,
+  statements: SCHEMA_V2_STATEMENTS,
+};
+
+// v3: exact-precision weight storage (adds sets.weight_kg REAL + backfill).
+const MIGRATION_V3: MigrationVersion = {
+  v: 3,
+  statements: SCHEMA_V3_STATEMENTS,
+};
+
+export const MIGRATIONS: MigrationVersion[] = [MIGRATION_V2, MIGRATION_V3];
+
+// ---------------------------------------------------------------------------
+// Runner
+// ---------------------------------------------------------------------------
+
+/**
+ * Run all pending migrations against the given DB handle.
+ *
+ * @param db         - minimal DB interface (same shape as localDb)
+ * @param buildBackup - optional async fn that returns a JSON string snapshot of
+ *                      current DB state (passed from exportEngine.buildBackupFromDb).
+ *                      Called BEFORE each migration for the pre-migration snapshot.
+ */
+export async function runMigrations(
+  db: MigrationDb,
+  buildBackup?: () => Promise<string>,
+): Promise<void> {
+  // Read the current schema version from SQLite.
+  const row = await db
+    .getFirst<{ user_version: number }>('PRAGMA user_version')
+    .catch(() => null);
+  let currentVersion = row?.user_version ?? 0;
+
+  for (const migration of MIGRATIONS) {
+    if (migration.v <= currentVersion) {
+      continue; // already applied
+    }
+
+    // Pre-migration snapshot (best-effort).
+    await snapshotBeforeMigration(db, migration.v, buildBackup ?? null).catch(
+      () => undefined,
+    );
+
+    // Apply each statement. SQLite on expo-sqlite doesn't support explicit
+    // BEGIN/COMMIT via execAsync in all versions, so we apply statements
+    // individually. Each CREATE TABLE IF NOT EXISTS is already idempotent.
+    for (const stmt of migration.statements) {
+      await db.execute(stmt, [], { tables: [] });
+    }
+
+    // Advance the version.
+    await db.execute(`PRAGMA user_version = ${migration.v}`, [], { tables: [] });
+    currentVersion = migration.v;
+  }
+}

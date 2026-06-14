@@ -25,8 +25,8 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { getExercises, searchExercises, createExercise } from '../api/exercises';
 import { Exercise, ExerciseCategory, ExerciseLibrary } from '../types/api';
 import { useTheme } from '../theme/ThemeContext';
@@ -253,7 +253,7 @@ export function ExercisePicker({
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.bgPrimary }]}>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.bgPrimary }]} edges={['top', 'bottom']}>
         <KeyboardAvoidingView
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}

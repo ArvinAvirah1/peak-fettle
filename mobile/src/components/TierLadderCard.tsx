@@ -40,6 +40,8 @@ const LIFT_ID_TO_MODEL: Record<string, 'squat' | 'bench' | 'deadlift'> = {
 // Tier accent colors are brand data (metallics), not theme tokens.
 const TIER_COLORS: Record<string, string> = {
   'Iron': '#8a8d93',
+  // D9: Stone sits between Iron and Bronze — tone interpolated from the two metal hues.
+  'Stone': '#a87550',
   'Bronze': '#cd7f32',
   'Silver': '#c0c4cc',
   'Gold': '#e6b84c',
@@ -48,6 +50,13 @@ const TIER_COLORS: Record<string, string> = {
   'Elite': '#c084fc',
   'World Class': '#ff6b6b',
 };
+
+// D8-UI copy bank -- warm, never condescending. Rotated by pct bucket for context.
+function tierCopyForPct(pct: number): string {
+  if (pct < 8)  return 'Everyone starts here. Most lifters climb out within months.';
+  if (pct < 16) return 'Log consistently and watch this move.';
+  return 'Climbing fast — newbie gains are real.';
+}
 
 function normalizeSex(raw: string | null | undefined): Sex | null {
   if (!raw) return null;
@@ -193,9 +202,21 @@ export function TierLadderCard({
         ) : null}
       </View>
 
-      <Text style={[styles.pct, { color: theme.colors.textSecondary }]}>
-        Stronger than {result.pct.toFixed(result.pct >= 99 ? 1 : 0)}% of same-sex trainees
-      </Text>
+      {/* D8-UI: suppress raw percentile in Iron band (overall_pct < 25).
+           Show tier + warm trajectory copy + upward-trend icon instead.
+           The tier name, ladder, and drill-in detail are never suppressed. */}
+      {result.pct < 25 ? (
+        <View style={styles.trajectoryRow}>
+          <Text style={[styles.trajectoryIcon, { color: theme.colors.statusSuccess }]}>↑</Text>
+          <Text style={[styles.trajectoryText, { color: theme.colors.textSecondary }]}>
+            {tierCopyForPct(result.pct)}
+          </Text>
+        </View>
+      ) : (
+        <Text style={[styles.pct, { color: theme.colors.textSecondary }]}>
+          Stronger than {result.pct.toFixed(result.pct >= 99 ? 1 : 0)}% of same-sex trainees
+        </Text>
+      )}
 
       {nextTier ? (
         <Text style={[styles.next, { color: theme.colors.textTertiary }]}>
@@ -262,5 +283,22 @@ const styles = StyleSheet.create({
   note: {
     fontSize: fontSize.caption,
     marginTop: spacing.s3,
+  },
+  // D8-UI: Iron-band trajectory affordance
+  trajectoryRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.s2,
+    marginTop: spacing.s1,
+  },
+  trajectoryIcon: {
+    fontSize: fontSize.bodyLg,
+    fontWeight: fontWeight.bold,
+    lineHeight: 22,
+  },
+  trajectoryText: {
+    flex: 1,
+    fontSize: fontSize.bodySm,
+    lineHeight: 20,
   },
 });

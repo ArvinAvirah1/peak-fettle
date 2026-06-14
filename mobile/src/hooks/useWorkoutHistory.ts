@@ -2,33 +2,31 @@
  * useWorkoutHistory — fetches the last 30 days of workouts + their sets,
  * computes PR flags (client-side, approximate), and derives the week streak.
  *
+ * Tier branching (SPEC-094A Agent P):
+ *   isLocalFirst(user) → reads from localDb (on-device SQLite); no REST calls.
+ *   Pro (syncsToServer) → unchanged existing REST behaviour.
+ *
  * Returns:
  *   history  — array of { workout, sets (with is_pr), liftNames }
  *   streak   — consecutive-week count (see useStreak)
  *   isLoading
  *   error
  *   refetch
- *
- * PR detection note: a LiftSet is flagged is_pr = true if its weight_kg is
- * the highest seen for that (exercise_id, reps) pair within the 30-day
- * fetch window. This is approximate — sets before the window are not
- * considered.
- *
- * TODO: replace PR detection with GET /prs once backend endpoint ships
- *
- * All API call sites: TODO(TICKET-027): swap for PowerSync hook
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { useAuth } from './useAuth';
+import { isLocalFirst } from '../data/backup/tierPolicy';
+import { localDb } from '../db/localDb';
 import { getWorkouts } from '../api/workouts';
 import { getSetsForWorkout } from '../api/sets';
 import { getExercises } from '../api/exercises';
-import { Workout, WorkoutSet, LiftSet, Exercise } from '../types/api';
+import { Workout, WorkoutSet, LiftSet, CardioSet, Exercise } from '../types/api';
 import { computeStreak } from './useStreak';
 import { toDateKey, daysAgo } from '../utils/dateHelpers';
 
 // ---------------------------------------------------------------------------
-// Extended types
+// Extended types (unchanged public API)
 // ---------------------------------------------------------------------------
 
 export interface LiftSetWithPR extends LiftSet {
@@ -55,36 +53,72 @@ export interface UseWorkoutHistoryResult {
 }
 
 // ---------------------------------------------------------------------------
-// PR computation
+// PR computation (unchanged)
 // ---------------------------------------------------------------------------
 
-/**
- * Given a flat list of all lift sets, returns a Set of set IDs that are PRs.
- *
- * Algorithm: for each (exercise_id, reps) bucket, the set(s) with the
- * highest weight_kg are flagged. Ties both get the flag.
- *
- * TODO: replace with GET /prs once backend endpoint ships
- */
 function computePRIds(allLiftSets: LiftSet[]): Set<string> {
-  // Map: `${exercise_id}:${reps}` → best weight seen
   const bestWeight = new Map<string, number>();
-
   for (const s of allLiftSets) {
     const key = `${s.exercise_id}:${s.reps}`;
     const current = bestWeight.get(key) ?? -Infinity;
     if (s.weight_kg > current) bestWeight.set(key, s.weight_kg);
   }
-
   const prIds = new Set<string>();
   for (const s of allLiftSets) {
     const key = `${s.exercise_id}:${s.reps}`;
-    if (s.weight_kg >= (bestWeight.get(key) ?? -Infinity)) {
-      prIds.add(s.id);
-    }
+    if (s.weight_kg >= (bestWeight.get(key) ?? -Infinity)) prIds.add(s.id);
   }
-
   return prIds;
+}
+
+// ---------------------------------------------------------------------------
+// Local DB row types
+// ---------------------------------------------------------------------------
+
+interface WorkoutRow {
+  id: string;
+  user_id: string;
+  day_key: string;
+  notes: string | null;
+  session_type: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface SetRow {
+  id: string;
+  workout_id: string;
+  user_id: string;
+  exercise_id: string;
+  kind: string;
+  set_index: number;
+  reps: number | null;
+  weight_raw: number | null;
+  weight_kg: number | null;  // REAL exact kg (v3); preferred over weight_raw
+  rir: number | null;
+  duration_sec: number | null;
+  distance_m: number | null;
+  avg_pace_sec_per_km: number | null;
+  logged_at: string;
+}
+
+function rowToSet(row: SetRow): WorkoutSet {
+  if (row.kind === 'lift') {
+    return {
+      id: row.id, workout_id: row.workout_id, user_id: row.user_id,
+      exercise_id: row.exercise_id, kind: 'lift',
+      set_index: row.set_index, reps: row.reps ?? 0,
+      weight_kg: row.weight_kg != null ? row.weight_kg : (row.weight_raw != null ? row.weight_raw / 8 : 0),
+      rir: row.rir, logged_at: row.logged_at,
+    } as LiftSet;
+  }
+  return {
+    id: row.id, workout_id: row.workout_id, user_id: row.user_id,
+    exercise_id: row.exercise_id, kind: 'cardio',
+    set_index: row.set_index, duration_sec: row.duration_sec ?? 0,
+    distance_m: row.distance_m, avg_pace_sec_per_km: row.avg_pace_sec_per_km,
+    logged_at: row.logged_at,
+  } as CardioSet;
 }
 
 // ---------------------------------------------------------------------------
@@ -92,46 +126,111 @@ function computePRIds(allLiftSets: LiftSet[]): Set<string> {
 // ---------------------------------------------------------------------------
 
 export function useWorkoutHistory(): UseWorkoutHistoryResult {
+  const { user } = useAuth();
+  const localFirst = isLocalFirst(user);
+
   const [history, setHistory] = useState<WorkoutHistoryEntry[]>([]);
   const [exerciseNames, setExerciseNames] = useState<Map<string, string>>(new Map());
   const [streak, setStreak] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // TODO(TICKET-027): swap for PowerSync hook
   const load = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
     try {
       const today = new Date();
-      const from = daysAgo(30, today);
-      const to = toDateKey(today);
+      const from  = daysAgo(30, today);
+      const to    = toDateKey(today);
 
-      // TODO(TICKET-027): swap for PowerSync hook
+      if (localFirst) {
+        // ── Free path: localDb ──────────────────────────────────────────────
+        await localDb.init();
+
+        const localWorkouts = await localDb.getAll<WorkoutRow>(
+          `SELECT * FROM workouts WHERE day_key >= ? AND day_key <= ?
+           ORDER BY day_key DESC`,
+          [from, to]
+        );
+
+        const domainWorkouts: Workout[] = localWorkouts.map((w) => ({
+          id: w.id, user_id: w.user_id, day_key: w.day_key, notes: w.notes,
+          session_type: (w.session_type ?? null) as Workout['session_type'],
+          created_at: w.created_at, updated_at: w.updated_at,
+        }));
+
+        // Best-effort exercise name map from exercise_prefs (id→id fallback).
+        const prefRows = await localDb.getAll<{ exercise_id: string }>(
+          'SELECT exercise_id FROM exercise_prefs'
+        );
+        const exerciseMap = new Map<string, string>();
+        prefRows.forEach((r) => exerciseMap.set(r.exercise_id, r.exercise_id));
+
+        // Fetch sets per workout.
+        const setsArrays: WorkoutSet[][] = await Promise.all(
+          domainWorkouts.map(async (w) => {
+            const rows = await localDb.getAll<SetRow>(
+              'SELECT * FROM sets WHERE workout_id = ? ORDER BY set_index ASC',
+              [w.id]
+            );
+            return rows.map(rowToSet);
+          })
+        );
+
+        const allLiftSets: LiftSet[] = [];
+        for (const sets of setsArrays) {
+          for (const s of sets) {
+            if (s.kind === 'lift') allLiftSets.push(s as LiftSet);
+          }
+        }
+        const prIds = computePRIds(allLiftSets);
+
+        const entries: WorkoutHistoryEntry[] = domainWorkouts.map((workout, idx) => {
+          const rawSets = setsArrays[idx] ?? [];
+          const setsWithPR: WorkoutSetWithPR[] = rawSets.map((s) => {
+            if (s.kind === 'lift') {
+              return { ...(s as LiftSet), is_pr: prIds.has(s.id) };
+            }
+            return s;
+          });
+          const seen = new Set<string>();
+          const liftNames: string[] = [];
+          for (const s of rawSets) {
+            if (s.kind === 'lift') {
+              const liftSet = s as LiftSet;
+              if (!liftSet.exercise_id) continue;
+              const name = exerciseMap.get(liftSet.exercise_id) ?? liftSet.exercise_id;
+              if (!seen.has(name)) { seen.add(name); liftNames.push(name); }
+            }
+          }
+          return { workout, sets: setsWithPR, liftNames };
+        });
+
+        setExerciseNames(exerciseMap);
+        setHistory(entries);
+        setStreak(computeStreak(domainWorkouts));
+        return;
+      }
+
+      // ── Pro path: REST (unchanged) ────────────────────────────────────────
       const [workouts, exerciseLibrary] = await Promise.all([
         getWorkouts(from, to),
         getExercises(),
       ]);
 
-      // Build a flat exercise name map keyed by exercise_id.
       const exerciseMap = new Map<string, string>();
       for (const category of Object.values(exerciseLibrary.exercises)) {
         for (const ex of category as Exercise[]) {
           exerciseMap.set(ex.id, ex.name);
         }
       }
-      // TICKET-091: publish the id→name map so callers (Trends) can label lifts
-      // by exercise_id instead of guessing from per-day liftNames ordering.
       setExerciseNames(exerciseMap);
 
-      // Fetch sets for all workouts in parallel.
-      // TODO(TICKET-027): swap for PowerSync hook
       const setsArrays = await Promise.all(
         workouts.map((w) => getSetsForWorkout(w.id))
       );
 
-      // Collect all lift sets across the window for PR computation.
       const allLiftSets: LiftSet[] = [];
       for (const sets of setsArrays) {
         for (const s of sets) {
@@ -141,9 +240,7 @@ export function useWorkoutHistory(): UseWorkoutHistoryResult {
 
       const prIds = computePRIds(allLiftSets);
 
-      // Build history entries.
       const entries: WorkoutHistoryEntry[] = workouts.map((workout, idx) => {
-        // Guard: a fetch that returned fewer arrays than workouts must not crash the map.
         const rawSets = setsArrays[idx] ?? [];
         const setsWithPR: WorkoutSetWithPR[] = rawSets.map((s) => {
           if (s.kind === 'lift') {
@@ -151,14 +248,12 @@ export function useWorkoutHistory(): UseWorkoutHistoryResult {
           }
           return s;
         });
-
-        // Unique lift names in logged order.
         const seen = new Set<string>();
         const liftNames: string[] = [];
         for (const s of rawSets) {
           if (s.kind === 'lift') {
             const liftSet = s as LiftSet;
-            if (!liftSet.exercise_id) continue; // guard: skip sets with missing exercise_id
+            if (!liftSet.exercise_id) continue;
             const name = exerciseMap.get(liftSet.exercise_id) ?? liftSet.exercise_id;
             if (!seen.has(name)) {
               seen.add(name);
@@ -166,11 +261,9 @@ export function useWorkoutHistory(): UseWorkoutHistoryResult {
             }
           }
         }
-
         return { workout, sets: setsWithPR, liftNames };
       });
 
-      // Sort descending by day_key (most recent first).
       entries.sort((a, b) => b.workout.day_key.localeCompare(a.workout.day_key));
 
       setHistory(entries);
@@ -182,7 +275,7 @@ export function useWorkoutHistory(): UseWorkoutHistoryResult {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [localFirst]);
 
   useEffect(() => {
     load();

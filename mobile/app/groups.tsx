@@ -51,6 +51,7 @@ import Animated, {
   useAnimatedStyle,
   withSpring,
 } from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { useGroups } from '../src/hooks/useGroups';
 import { Group, WeeklyGoal, UpdateMemberGoalPayload } from '../src/types/api';
@@ -273,8 +274,9 @@ function CreateGroupModal({
     <Modal visible={visible} animationType="none" presentationStyle="pageSheet">
       {/* P2-007: Animated.View wraps the entire sheet for spring entry */}
       <Animated.View style={[{ flex: 1 }, sheetAnimStyle]}>
+       <SafeAreaView style={[styles.modalContainer, { backgroundColor: theme.colors.bgPrimary }]} edges={['top', 'bottom']}>
         <KeyboardAvoidingView
-          style={[styles.modalContainer, { backgroundColor: theme.colors.bgPrimary }]}
+          style={styles.modalContainer}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <View style={[styles.modalHandle, { backgroundColor: theme.colors.borderDefault }]} />
@@ -326,6 +328,7 @@ function CreateGroupModal({
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
+       </SafeAreaView>
       </Animated.View>
     </Modal>
   );
@@ -386,8 +389,9 @@ function JoinGroupModal({
     <Modal visible={visible} animationType="none" presentationStyle="pageSheet">
       {/* P2-007: Animated.View wraps the entire sheet for spring entry */}
       <Animated.View style={[{ flex: 1 }, sheetAnimStyle]}>
+       <SafeAreaView style={[styles.modalContainer, { backgroundColor: theme.colors.bgPrimary }]} edges={['top', 'bottom']}>
         <KeyboardAvoidingView
-          style={[styles.modalContainer, { backgroundColor: theme.colors.bgPrimary }]}
+          style={styles.modalContainer}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <View style={[styles.modalHandle, { backgroundColor: theme.colors.borderDefault }]} />
@@ -441,6 +445,7 @@ function JoinGroupModal({
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
+       </SafeAreaView>
       </Animated.View>
     </Modal>
   );

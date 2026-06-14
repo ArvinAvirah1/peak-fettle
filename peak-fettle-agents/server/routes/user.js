@@ -567,13 +567,25 @@ router.patch('/profile', async (req, res, next) => {
             });
         }
 
+        // SERVER-2 (2026-06-13): build the RETURNING list from ONLY the columns
+        // actually being updated (derived from the dynamic SET clause) plus id.
+        // Previously this RETURNed a fixed superset of optional survey columns,
+        // so on an account whose schema predates one of them (before the
+        // ensure-everything migration runs) a single unrelated field update —
+        // e.g. PATCH { unit_pref } — would 500 with 42703 because RETURNING
+        // referenced a column that does not exist. Returning only the touched
+        // columns means a missing optional column can never break an update
+        // that does not involve it. `id` and `unit_pref` are always included so
+        // the response always carries the user's unit preference.
+        const updatedColumns = setClauses.map((clause) => clause.split('=')[0].trim());
+        const returningSet = new Set(['id', 'unit_pref', ...updatedColumns]);
+        const returningList = [...returningSet].join(', ');
+
         const { rows } = await pool.query(
             `UPDATE users
              SET ${setClauses.join(', ')}
              WHERE id = $1
-             RETURNING id, unit_pref, experience_level, weight_class_kg, show_wilks,
-                       sex, primary_discipline, training_goal, sessions_per_week,
-                       session_minutes, goal_weight_kg, equipment_profile, season_phase`,
+             RETURNING ${returningList}`,
             params
         );
 

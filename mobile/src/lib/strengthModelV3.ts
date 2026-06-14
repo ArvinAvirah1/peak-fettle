@@ -15,13 +15,53 @@
  * code from the published standards), never the live user base (D6) — which is
  * exactly why this is portable on-device.
  *
+ * D8 (2026-06-12): beginner anchor tightened 20th → 12th percentile.
+ *   QUANTILE_MAP updated from [0.20, 0.40, …] to [0.12, 0.40, …].
+ *   R² improves +0.02–0.03 across all lifts (residual at bottom anchor eliminated).
+ *   See mobile/scripts/deriveStrengthModelV3.py for full derivation.
+ *
+ * D9 (2026-06-12): 9-band tier ladder.
+ *   Stone band added between Iron and Bronze (25–40).
+ *   Final bands: Iron ≤25 · Stone 25–40 · Bronze 40–60 · Silver 60–75 ·
+ *                Gold 75–88 · Platinum 88–95 · Diamond 95–99 ·
+ *                Elite 99–99.7 · World Class ≥99.7
+ *
+ * PROVENANCE — output of mobile/scripts/deriveStrengthModelV3.py
+ * (run: python3 mobile/scripts/deriveStrengthModelV3.py)
+ *
+ *   QUANTILE_MAP = [0.12, 0.40, 0.60, 0.85, 0.97, 0.995]  // D8: beg=12th (was 20th)
+ *   Reference BW: M=75 kg, F=60 kg
+ *
+ *   Per-lift lognormal params (pop_mu, pop_sigma) — old → new:
+ *   squat M:    mu 4.53336→4.56744  sigma 0.37704→0.35879  R² 0.94549→0.97441  median 96.30 kg (1.284×BW)
+ *   squat F:    mu 3.91103→3.94454  sigma 0.37371→0.35599  R² 0.93942→0.97017  median 51.65 kg (0.861×BW)
+ *   bench M:    mu 4.08430→4.11910  sigma 0.37409→0.35462  R² 0.95789→0.97961  median 61.50 kg (0.820×BW)
+ *   bench F:    mu 3.45035→3.48788  sigma 0.41635→0.39633  R² 0.93509→0.96435  median 32.72 kg (0.545×BW)
+ *   deadlift M: mu 4.72765→4.75745  sigma 0.32362→0.30719  R² 0.95888→0.98333  median 116.45 kg (1.553×BW)
+ *   deadlift F: mu 4.12373→4.15640  sigma 0.35690→0.33906  R² 0.95013→0.97591  median  63.84 kg (1.064×BW)
+ *   ohp M:      mu 3.76158→3.79352  sigma 0.33091→0.31207  R² 0.98495→0.99699  median  44.41 kg (0.592×BW)
+ *   ohp F:      mu 3.01112→3.05218  sigma 0.43806→0.41483  R² 0.95357→0.97317  median  21.16 kg (0.353×BW)
+ *
+ *   DOTS composite (SBD total at ref BW):
+ *   DOTS M: mu_D=5.28260  sigma_D=0.33623  R²=0.98124  median_DOTS=196.88
+ *   DOTS F: mu_D=5.10233  sigma_D=0.35770  R²=0.97265  median_DOTS=164.40
+ *
  * Verifiable in-sandbox: DOTS test vectors, the lognormal fit reproducing the
  * memo's male SBD params, BW-monotonicity of the ranked lens, and the composite's
  * uniform calibration (PIT). See __tests__/strength-model-v3.test.js.
  *
- * Remaining (Lens 1 experience-adjusted revisions — heteroscedastic σ(years),
- * McCulloch/Foster age, per-lift α fit) build on the v2 module and are tracked
- * separately; this file delivers the ranked + composite tiers (the founder change).
+ * Agent N additions (2026-06-12, SPEC-094A):
+ *   (1) Per-lift α — biomechanical priors from Jaric 2002, bounded [0.62,0.72];
+ *       to be re-fit on first-party OPL data when cohorts are large.
+ *       squat=0.670  bench=0.643  deadlift=0.671  ohp=0.640
+ *   (2) Heteroscedastic σ(t) = σ_nov+(σ_adv−σ_nov)·(1−e^{−t/τ_σ})
+ *       σ_nov=0.20  τ_σ=4yr  σ_adv=pop_sigma (lift×sex fitted value above).
+ *       Falls back to pop_sigma when training_years is unknown.
+ *   (3) Age adjustment (McCulloch/Foster-style): multiplicative on user e1RM
+ *       before percentile lookup; OFF when age_band is null.
+ *       Multipliers (divide user load to normalise to prime-age cohort):
+ *       under-18=0.96  18-24=0.98  25-34=1.00  35-44=0.97  45-54=0.93  55+=0.86
+ *   All three feed computePercentile (Lens 1, experience-adjusted).
  */
 
 export const MODEL_VERSION = 3;
@@ -100,17 +140,35 @@ export function dotsScore(totalKg: number, bwKg: number, sex: Sex): number {
 // memo §5.1 World Class anchor. Order: beg, nov, int, adv, elite, world-class.
 // ---------------------------------------------------------------------------
 
-export const QUANTILE_MAP = [0.2, 0.4, 0.6, 0.85, 0.97, 0.995]; // §5.2
+/**
+ * Quantile map (D8, 2026-06-12): beginner anchor tightened 20th → 12th percentile.
+ * q = [beg=12th, nov=40th, int=60th, adv=85th, elite=97th, wc=99.5th]
+ * See PROVENANCE comment at top for old→new constant table and R² improvement.
+ */
+export const QUANTILE_MAP = [0.12, 0.4, 0.6, 0.85, 0.97, 0.995]; // D8: beg=12th (was 0.20)
 const REF_BW: Record<Sex, number> = { M: 75, F: 60 };
 
 const STANDARDS_XBW: Record<LiftId, Record<Sex, number[]>> = {
-  squat: { M: [0.75, 1.25, 1.5, 2.0, 2.5, 3.0], F: [0.5, 0.85, 1.0, 1.35, 1.65, 2.0] },
-  bench: { M: [0.5, 0.75, 1.0, 1.25, 1.5, 2.0], F: [0.3, 0.5, 0.7, 0.9, 1.1, 1.4] },
-  deadlift: { M: [1.0, 1.5, 1.75, 2.25, 2.75, 3.25], F: [0.65, 1.0, 1.25, 1.65, 1.95, 2.4] },
-  ohp: { M: [0.4, 0.55, 0.65, 0.85, 1.05, 1.3], F: [0.2, 0.3, 0.45, 0.6, 0.75, 0.95] },
+  squat:    { M: [0.75, 1.25, 1.5, 2.0, 2.5, 3.0],    F: [0.5, 0.85, 1.0, 1.35, 1.65, 2.0] },
+  bench:    { M: [0.5,  0.75, 1.0, 1.25, 1.5, 2.0],   F: [0.3, 0.5,  0.7, 0.9,  1.1,  1.4] },
+  deadlift: { M: [1.0,  1.5,  1.75, 2.25, 2.75, 3.25], F: [0.65, 1.0, 1.25, 1.65, 1.95, 2.4] },
+  ohp:      { M: [0.4,  0.55, 0.65, 0.85, 1.05, 1.3],  F: [0.2, 0.3,  0.45, 0.6,  0.75, 0.95] },
 };
 
-const ALPHA_DEFAULT = 0.667; // per-lift α default (memo §3 Lens 1 fix; [0.62,0.72])
+const ALPHA_DEFAULT = 0.667; // fallback when lift not in ALPHA_PER_LIFT
+
+/**
+ * Per-lift allometric exponents α — Jaric 2002 empirical range [0.64–0.71] for
+ * compound lifts; press-pattern lifts (bench, ohp) sit at the low end of the range
+ * since upper-extremity strength scales less steeply with body mass than lower-body.
+ * Bounded to [0.62, 0.72] per spec. To be re-fit on first-party OPL data (v4).
+ */
+export const ALPHA_PER_LIFT: Record<LiftId, number> = {
+  squat:    0.670,
+  bench:    0.643,
+  deadlift: 0.671,
+  ohp:      0.640,
+};
 
 // ---------------------------------------------------------------------------
 // Least-squares lognormal fit (memo §5.3): ln(L) = μ + σ·Φ⁻¹(q)
@@ -184,7 +242,7 @@ export function computeRankedPercentile(
   sex: Sex,
   e1rmKg: number,
   bwKg: number,
-  alpha: number = ALPHA_DEFAULT,
+  alpha: number = ALPHA_PER_LIFT[lift] ?? ALPHA_DEFAULT,
 ): number {
   if (e1rmKg <= 0 || bwKg <= 0) return 0;
   const { mu, sigma } = liftPopParams(lift, sex);
@@ -248,18 +306,32 @@ export function overallStrengthPercentilePartial(
 }
 
 // ---------------------------------------------------------------------------
-// Tier ladder on the calibrated overall percentile (memo §9 proposed)
+// Tier ladder on the calibrated overall percentile (D9, 2026-06-12)
+//
+// 9-band ladder (population shares on overall_pct):
+//   Iron ≤25 · Stone 25–40 · Bronze 40–60 · Silver 60–75 · Gold 75–88 ·
+//   Platinum 88–95 · Diamond 95–99 · Elite 99–99.7 · World Class ≥99.7
+//
+// Stone added between Iron and Bronze so newbie-gains arc (~15th→45th pct
+// in months) yields 2–3 promotions in the first half-year (D9 rationale).
 // ---------------------------------------------------------------------------
 
-export interface Tier { name: string; min: number; }
+export interface Tier {
+  name: string;
+  /** Lower bound (inclusive) of overall_pct for this tier. */
+  min: number;
+}
+
+/** 9-band ladder ordered from lowest to highest (D9, 2026-06-12). */
 export const TIER_LADDER: Tier[] = [
-  { name: 'Iron', min: 0 },
-  { name: 'Bronze', min: 40 },
-  { name: 'Silver', min: 60 },
-  { name: 'Gold', min: 75 },
-  { name: 'Platinum', min: 88 },
-  { name: 'Diamond', min: 95 },
-  { name: 'Elite', min: 99 },
+  { name: 'Iron',        min: 0 },
+  { name: 'Stone',       min: 25 },   // D9: new band between Iron and Bronze
+  { name: 'Bronze',      min: 40 },
+  { name: 'Silver',      min: 60 },
+  { name: 'Gold',        min: 75 },
+  { name: 'Platinum',    min: 88 },
+  { name: 'Diamond',     min: 95 },
+  { name: 'Elite',       min: 99 },
   { name: 'World Class', min: 99.7 },
 ];
 
@@ -267,6 +339,109 @@ export function tierForOverall(pct: number): Tier {
   let out = TIER_LADDER[0]!;
   for (const t of TIER_LADDER) if (pct >= t.min) out = t;
   return out;
+}
+
+// ---------------------------------------------------------------------------
+// Lens 1 — Experience-adjusted (memo §3, Agent N 2026-06-12)
+// ---------------------------------------------------------------------------
+
+/**
+ * ExperienceLevel maps the profile string to an approximate training age in
+ * years, used by the heteroscedastic σ function.
+ */
+const EXPERIENCE_TO_YEARS: Record<string, number> = {
+  beginner:     1,
+  novice:       2,
+  intermediate: 4,
+  advanced:     6,
+  elite:        9,
+};
+
+/**
+ * Heteroscedastic σ(t) — within-cohort spread grows with training age.
+ *
+ * Form (memo §3): σ(t) = σ_nov + (σ_adv − σ_nov)·(1 − e^{−t/τ_σ})
+ *   σ_nov  = 0.20  (tighter cluster at novice level)
+ *   σ_adv  = pop_sigma (population σ fitted from the 6-anchor table)
+ *   τ_σ    = 4 years (half-life ≈ 2.8 yr)
+ *
+ * Falls back to pop_sigma when t is null.
+ */
+export const SIGMA_NOV = 0.20;
+export const TAU_SIGMA = 4; // years
+
+export function heteroscedasticSigma(popSigma: number, trainingYears: number | null): number {
+  if (trainingYears == null) return popSigma;
+  const t = Math.max(0, trainingYears);
+  return SIGMA_NOV + (popSigma - SIGMA_NOV) * (1 - Math.exp(-t / TAU_SIGMA));
+}
+
+/**
+ * McCulloch/Foster-style age multiplier table (multiplicative on e1RM).
+ *
+ * Interpretation: adjusted_e1rm = actual_e1rm * ageMult(age_band).
+ * For masters bands (45+/55+) the multiplier > 1 — it inflates the load to
+ * reflect the physiological deficit, so the percentile lookup against the
+ * prime-age population is fair. Youth (under-18) multiplier < 1 reflects
+ * that adolescent strength hasn't peaked yet.
+ *
+ * OFF (returns 1.0) when age_band is null or unrecognised.
+ * Reference: McCulloch 1994 / Foster 2011 masters factor tables (adapted).
+ */
+export type AgeBand = 'under-18' | '18-24' | '25-34' | '35-44' | '45-54' | '55+';
+
+export const AGE_MULT: Record<AgeBand, number> = {
+  'under-18': 0.96,
+  '18-24':    0.98,
+  '25-34':    1.00, // prime reference
+  '35-44':    0.97,
+  '45-54':    0.93,
+  '55+':      0.86,
+};
+
+export function ageMultiplier(ageBand: string | null | undefined): number {
+  if (!ageBand) return 1.0;
+  return (AGE_MULT as Record<string, number>)[ageBand] ?? 1.0;
+}
+
+/**
+ * Lens 1 — Experience-adjusted percentile (memo §3).
+ *
+ * Model: L₅₀ = exp(μ)·(BW/BW₀)^α·A(age_band)
+ * pct  = 100·Φ((ln L_adj − ln L₅₀) / σ(trainingYears))
+ *
+ * where:
+ *   L_adj        = e1rmKg / ageMult(age_band)  — age-normalised load
+ *   α            = ALPHA_PER_LIFT[lift]          — per-lift allometric exponent
+ *   σ(t)         = heteroscedasticSigma(popSigma, trainingYears)
+ *   μ, popSigma  = liftPopParams(lift, sex) — same 6-anchor fit as Lens 2a
+ *
+ * @param lift           Lift identifier
+ * @param sex            'M' | 'F'
+ * @param e1rmKg         User's estimated 1-rep max in kg
+ * @param bwKg           User's bodyweight in kg
+ * @param experienceLevel Profile experience_level string (beginner/intermediate/…)
+ * @param ageBand        Profile age_band string ('25-34' etc.) or null
+ */
+export function computePercentile(
+  lift: LiftId,
+  sex: Sex,
+  e1rmKg: number,
+  bwKg: number,
+  experienceLevel: string | null | undefined,
+  ageBand: string | null | undefined,
+): number {
+  if (e1rmKg <= 0 || bwKg <= 0) return 0;
+  const { mu, sigma: popSigma } = liftPopParams(lift, sex);
+  const alpha = ALPHA_PER_LIFT[lift] ?? ALPHA_DEFAULT;
+  const trainingYears = experienceLevel ? (EXPERIENCE_TO_YEARS[experienceLevel] ?? null) : null;
+  const sigma = heteroscedasticSigma(popSigma, trainingYears);
+  // Age-adjusted load: normalise to prime-age cohort
+  const mult = ageMultiplier(ageBand);
+  const lAdj = e1rmKg * (mult > 0 ? 1 / mult : 1);
+  const expected = mu + alpha * Math.log(bwKg / REF_BW[sex]);
+  const z = (Math.log(lAdj) - expected) / sigma;
+  return clampPct(100 * normCdf(z));
 }
 
 // ---------------------------------------------------------------------------

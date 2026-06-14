@@ -57,6 +57,7 @@ interface SetRow {
   // the Postgres sets.weight_raw SMALLINT column synced by PowerSync.
   // Decode: weight_raw / 8 → weight_kg (float) before returning to callers.
   weight_raw: number | null;
+  weight_kg: number | null;  // REAL exact kg (v3); preferred over weight_raw
   rir: number | null;
   // TYPE-001 fix (2026-05-16): e1rm_kg dropped — column gone server-side.
   // cardio columns
@@ -92,8 +93,8 @@ function rowToSet(row: SetRow): WorkoutSet {
       kind: 'lift',
       set_index: row.set_index,
       reps: row.reps ?? 0,
-      // Decode weight_raw (kg × 8 INTEGER) back to kg float.
-      weight_kg: row.weight_raw != null ? row.weight_raw / 8 : 0,
+      // Prefer the exact weight_kg (v3); fall back to legacy weight_raw/8.
+      weight_kg: row.weight_kg != null ? row.weight_kg : (row.weight_raw != null ? row.weight_raw / 8 : 0),
       rir: row.rir,
       logged_at: row.logged_at,
     };

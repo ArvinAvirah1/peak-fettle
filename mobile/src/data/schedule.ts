@@ -44,6 +44,13 @@ export interface Schedule {
   position: number;
   /** 7 entries, index 0=Sun … 6=Sat, for 'weekly' mode. null = rest/unset. */
   weekly: (ScheduleSlot | null)[];
+  /**
+   * Preferred time of day to train, as "HH:MM" 24-hour, or null for "no set
+   * time". Drives the optional reminder; widgets (Phase 2) can also surface it.
+   */
+  timeOfDay: string | null;
+  /** When true, schedule a local reminder at `timeOfDay` on training days. */
+  reminderEnabled: boolean;
   updatedAt: string;
 }
 
@@ -66,8 +73,23 @@ export function emptySchedule(mode: ScheduleMode = 'cycle'): Schedule {
     cycle: [],
     position: 0,
     weekly: [null, null, null, null, null, null, null],
+    timeOfDay: null,
+    reminderEnabled: false,
     updatedAt: new Date().toISOString(),
   };
+}
+
+/** Validate/normalize a "HH:MM" 24-hour string; returns null if unparseable. */
+function normalizeTimeOfDay(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(raw.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (!Number.isInteger(h) || !Number.isInteger(min) || h < 0 || h > 23 || min < 0 || min > 59) {
+    return null;
+  }
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
 }
 
 /** Normalize a parsed/partial object into a complete Schedule (defensive). */
@@ -85,11 +107,15 @@ export function normalizeSchedule(raw: Partial<Schedule> | null | undefined): Sc
     }
   }
   const position = Number.isInteger(raw.position) ? (raw.position as number) : 0;
+  const timeOfDay = normalizeTimeOfDay(raw.timeOfDay);
   return {
     mode: raw.mode === 'weekly' ? 'weekly' : 'cycle',
     cycle,
     position: cycle.length > 0 ? ((position % cycle.length) + cycle.length) % cycle.length : 0,
     weekly,
+    timeOfDay,
+    // A reminder only makes sense when a time is set.
+    reminderEnabled: timeOfDay != null && raw.reminderEnabled === true,
     updatedAt: raw.updatedAt ?? new Date().toISOString(),
   };
 }

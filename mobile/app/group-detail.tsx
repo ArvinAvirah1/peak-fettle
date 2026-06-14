@@ -39,6 +39,7 @@ import {
   Platform,
   Modal,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '../src/components/Icon';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useGroupDetail, useGroups } from '../src/hooks/useGroups';
@@ -537,7 +538,7 @@ function GoalChangeModal({
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
-      <View style={[styles.modalContainer, { backgroundColor: theme.colors.bgPrimary }]}>
+      <SafeAreaView style={[styles.modalContainer, { backgroundColor: theme.colors.bgPrimary }]} edges={['top', 'bottom']}>
         {/* Drag handle */}
         <View style={[styles.modalHandle, { backgroundColor: theme.colors.borderDefault }]} />
 
@@ -618,14 +619,11 @@ function GoalChangeModal({
           )}
         </ScrollView>
 
-        {/* Footer */}
+        {/* Footer — SafeAreaView bottom edge clears the home indicator */}
         <View
           style={[
             styles.modalFooter,
-            {
-              borderTopColor: theme.colors.borderDefault,
-              paddingBottom: Platform.OS === 'ios' ? 36 : 20,
-            },
+            { borderTopColor: theme.colors.borderDefault },
           ]}
         >
           <PFButton
@@ -636,7 +634,7 @@ function GoalChangeModal({
             accessibilityLabel="Confirm goal change"
           />
         </View>
-      </View>
+      </SafeAreaView>
     </Modal>
   );
 }

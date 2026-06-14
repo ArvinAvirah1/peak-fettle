@@ -53,6 +53,10 @@ export async function getTemplates(opts?: {
 
 /** Fetch a single template with its full session + exercise list. */
 export async function getTemplate(id: string): Promise<WorkoutTemplate> {
-  const res = await apiClient.get<WorkoutTemplate>(`/templates/${id}`);
-  return res.data;
+  // Server returns { template: {...} } (routes/templates.js) — unwrap it, the
+  // same way getTemplates() unwraps { templates }. Returning res.data raw left
+  // .sessions/.name undefined → starter-split duplicate POSTed { name: undefined }
+  // (zod min(1) → 400) and the start sheet showed "No exercises in this session".
+  const res = await apiClient.get<{ template: WorkoutTemplate }>(`/templates/${id}`);
+  return res.data.template;
 }
