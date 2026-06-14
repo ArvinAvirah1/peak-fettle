@@ -1,0 +1,715 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Peak Fettle — Set-tracking redesign options</title>
+<style>
+:root{--ink:#16202E;--ink2:#52617A;--ink3:#8B97AC;--line:#E2E7EF;--bg:#F7F9FC;--card:#FFFFFF;--teal:#0E9E76;--tealbg:#E3F6EF;--warn:#B4541B;--warnbg:#FBEFE6;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;line-height:1.6}
+.wrap{max-width:1000px;margin:0 auto;padding:48px 28px 80px}
+h1{font-size:30px;font-weight:600;margin:0 0 6px}
+.lede{color:var(--ink2);font-size:17px;max-width:680px;margin:0 0 8px}
+.meta{color:var(--ink3);font-size:13px;margin-bottom:36px}
+.legend{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:var(--ink2);margin-bottom:40px;padding:14px 18px;background:var(--card);border:1px solid var(--line);border-radius:12px}
+.legend b{color:var(--ink)}
+.opt{display:grid;grid-template-columns:300px 1fr;gap:28px;align-items:start;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px;margin-bottom:24px}
+.opt-figs{display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;justify-content:center}
+.optnum{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:var(--tealbg);color:var(--teal);font-weight:600;font-size:14px;flex:0 0 30px}
+.opt-head{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.opt-head h2{font-size:20px;font-weight:600;margin:0}
+.tag{font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;letter-spacing:.3px}
+.tag-p0{background:#FBE6E6;color:#B42323}.tag-p1{background:#FBEFE6;color:#B4541B}.tag-p2{background:#EAF1FB;color:#2D5B9E}.tag-add{background:#E3F6EF;color:#0E9E76}
+.opt p{margin:0 0 10px;font-size:15px;color:var(--ink)}
+.opt .why{color:var(--ink2);font-size:14px}
+.kv{font-size:13px;color:var(--ink3);margin-top:8px}
+.kv b{color:var(--ink2);font-weight:600}
+.figcap{font-size:11px;color:var(--ink3);text-align:center;margin-top:6px;text-transform:uppercase;letter-spacing:.6px}
+/* dark phone mockup */
+.ph{width:200px;background:#0A0F1A;border:5px solid #1C2433;border-radius:26px;overflow:hidden;font-size:12px}
+.ph.sm{width:188px}
+.ph-sb{height:24px;display:flex;align-items:center;justify-content:space-between;padding:7px 14px 0;font-size:10px;color:#E6EAF2;font-weight:500}
+.ph-hd{display:flex;align-items:center;gap:7px;padding:9px 12px;border-bottom:.5px solid #1C2433}
+.ph-hd .t{color:#E6EAF2;font-size:12px;font-weight:500;flex:1}
+.ph-bd{padding:11px 12px 14px;min-height:150px}
+.mut{color:#7C8699}.tealtx{color:#16C79A}.white{color:#E6EAF2}
+.card{background:#111A2B;border:.5px solid #1F2A3D;border-radius:10px;padding:9px 11px;margin-bottom:8px}
+.big{color:#E6EAF2;font-size:22px;font-weight:500;font-variant-numeric:tabular-nums}
+.pill{display:inline-block;background:#0F3D33;color:#3FE0B5;font-size:9px;font-weight:500;padding:2px 8px;border-radius:14px}
+.bar{height:4px;background:#1F2A3D;border-radius:3px;overflow:hidden;margin:5px 0}.bar>span{display:block;height:100%;background:#16C79A}
+.cta{background:#16C79A;color:#04221B;text-align:center;font-weight:600;font-size:13px;padding:10px;border-radius:10px}
+.cta2{border:.5px solid #2A3850;color:#C5CCDA;text-align:center;font-weight:500;font-size:12px;padding:9px;border-radius:9px}
+.ring{width:24px;height:24px;border-radius:50%;border:3px solid #16C79A;border-right-color:#1F2A3D;flex:0 0 24px}
+.chip{display:inline-block;background:#111A2B;border:.5px solid #1F2A3D;color:#C5CCDA;font-size:10px;padding:5px 9px;border-radius:8px;margin:0 4px 4px 0}
+.chip.on{border-color:#16C79A;color:#3FE0B5}
+.step{display:flex;align-items:center;justify-content:space-between;background:#0F1726;border:.5px solid #1F2A3D;border-radius:9px;padding:7px 9px}
+.sqbtn{width:30px;height:30px;border-radius:8px;background:#16C79A;color:#04221B;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:600}
+.sqbtn.ghost{background:#111A2B;border:.5px solid #2A3850;color:#C5CCDA}
+.toast{background:#1A2336;border:.5px solid #2A3850;border-radius:9px;padding:8px 10px;color:#E6EAF2;font-size:11px;display:flex;justify-content:space-between;align-items:center}
+.badbox{border:1px solid #5A2330;background:#1A0F14;border-radius:9px;padding:9px;color:#E89AA6;font-size:11px}
+</style></head><body><div class="wrap">
+
+<h1>Set-tracking redesign — 14 options</h1>
+<p class="lede">The set-logging screen is the most-used surface in Peak Fettle. Each option below is independent — approve, cut, or defer any of them. "Before" panels show the current behaviour; "After" shows the proposal.</p>
+<p class="meta">Peak Fettle · UI decision doc · 2026-06-12 · surface 1 of 3 (Set-tracking)</p>
+<div class="legend"><span><b>Tags:</b></span><span><span class="tag tag-p0">P0</span> fixes a broken/blocking issue</span><span><span class="tag tag-p1">P1</span> fixes a real defect</span><span><span class="tag tag-p2">P2</span> UX quality</span><span><span class="tag tag-add">NEW</span> additive feature</span></div>
+
+<!-- ① Safe-area header -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-bd" style="padding-top:2px">
+          <div class="mut" style="font-size:10px;margin-bottom:4px">header starts at y≈12pt</div>
+          <div style="display:flex;align-items:center;gap:6px;padding:2px 0">
+            <span class="mut" style="font-size:14px">⌄</span>
+            <span class="white" style="font-size:12px;font-weight:500">Push day · wk3</span>
+            <span class="mut" style="margin-left:auto;font-size:11px">2/6</span>
+          </div>
+          <div style="margin-top:6px;background:#1F2A3D;height:1px"></div>
+          <div class="badbox" style="margin-top:8px;font-size:10px">⚠ Close button lands inside Dynamic Island zone — iOS intercepts taps</div>
+        </div>
+      </div>
+      <div class="figcap">Before</div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd">
+          <span class="mut" style="font-size:14px">⌄</span>
+          <span class="t">Push day · wk3</span>
+          <span class="mut" style="font-size:11px">2/6</span>
+        </div>
+        <div class="ph-bd">
+          <div class="bar"><span style="width:33%"></span></div>
+          <div class="mut" style="font-size:10px;margin-top:4px">safe-area inset applied ✓</div>
+        </div>
+      </div>
+      <div class="figcap">After</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">1</span><h2>Safe-area header</h2><span class="tag tag-p1">P1</span></div>
+    <p>Wrap the logger in a safe-area container so the close control and progress bar sit below the status bar and Dynamic Island on modern iPhones.</p>
+    <p class="why"><b>The problem:</b> the screen is a full-screen modal whose header starts at y≈12pt — the close chevron lands inside the Dynamic Island zone where iOS intercepts taps, so users can get stuck mid-session. <b>The change:</b> apply <code>SafeAreaView</code> with edges top+bottom; offset the header row by the reported inset value.</p>
+    <p class="kv"><b>Addresses:</b> finding stepper-logger-no-top-inset · <b>Effort:</b> S · <b>Risk:</b> low</p>
+  </div>
+</div>
+
+<!-- ② 56pt steppers + decimal keypad -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd"><span class="t">Bench press</span><span class="mut">set 3</span></div>
+        <div class="ph-bd">
+          <div class="mut" style="font-size:10px;margin-bottom:6px">small touch targets + number keyboard</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;background:#0F1726;border:.5px solid #1F2A3D;border-radius:9px;padding:5px 7px">
+            <div style="width:22px;height:22px;border-radius:6px;background:#16C79A;color:#04221B;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600">−</div>
+            <span class="white" style="font-size:16px;font-variant-numeric:tabular-nums">82.5</span>
+            <div style="width:22px;height:22px;border-radius:6px;background:#16C79A;color:#04221B;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600">+</div>
+          </div>
+          <div class="mut" style="font-size:9px;text-align:center;margin-top:4px">22×22pt targets · generic numpad</div>
+        </div>
+      </div>
+      <div class="figcap">Before</div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd"><span class="t">Bench press</span><span class="mut">set 3</span></div>
+        <div class="ph-bd">
+          <div class="mut" style="font-size:10px;margin-bottom:6px">56pt targets + decimal keypad</div>
+          <div class="step">
+            <div class="sqbtn">−</div>
+            <span class="big">82.5</span>
+            <div class="sqbtn">+</div>
+          </div>
+          <div class="mut" style="font-size:9px;text-align:center;margin-top:4px">inputMode="decimal" · 56pt targets ✓</div>
+        </div>
+      </div>
+      <div class="figcap">After</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">2</span><h2>56pt steppers + decimal keypad</h2><span class="tag tag-p2">P2</span></div>
+    <p>Enlarge the weight and reps stepper buttons to a minimum 56pt touch target and switch the keyboard to the decimal type so fractional weights (82.5 kg) can be entered without extra taps.</p>
+    <p class="why"><b>The problem:</b> the current −/+ controls are ~22pt, well below Apple's 44pt minimum, causing frequent mis-taps. The keyboard is a plain number pad which lacks a decimal point, so users can't input fractional plates without a workaround. <b>The change:</b> resize buttons to 56×56pt, set <code>inputMode="decimal"</code> on the weight field, and apply a 2.5 kg / 1 rep increment on hold.</p>
+    <p class="kv"><b>Effort:</b> S · <b>Risk:</b> low · <b>Ships best with:</b> option 3 (tabular display) and option 10 (unit pref)</p>
+  </div>
+</div>
+
+<!-- ③ Large tabular set numbers -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd"><span class="t">Bench press</span><span class="mut">set 3</span></div>
+        <div class="ph-bd">
+          <div class="mut" style="font-size:10px;margin-bottom:6px">small values, layout shift on increment</div>
+          <div class="card">
+            <div style="color:#E6EAF2;font-size:14px;font-variant-numeric:tabular-nums">82.5 kg × 5 reps</div>
+            <div class="mut" style="font-size:9px;margin-top:2px">← jitters when digits change width</div>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">Before</div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd"><span class="t">Bench press</span><span class="mut">set 3</span></div>
+        <div class="ph-bd">
+          <div class="mut" style="font-size:10px;margin-bottom:6px">heading-size, tabular-nums</div>
+          <div class="card" style="text-align:center;padding:12px 11px">
+            <div class="big" style="font-size:28px;letter-spacing:-0.5px">82.5 kg × 5</div>
+            <div class="mut" style="font-size:10px;margin-top:3px">font-variant-numeric: tabular-nums ✓</div>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">After</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">3</span><h2>Large tabular set numbers</h2><span class="tag tag-p2">P2</span></div>
+    <p>Render the current weight × reps value at heading size (≥24pt) using <code>font-variant-numeric: tabular-nums</code> so the readout is legible at a glance and does not jitter horizontally as digits change.</p>
+    <p class="why"><b>The problem:</b> the active set display is small (~14pt) and uses proportional figures, so incrementing from 9→10 reps shifts the layout. Athletes glance at this screen between sets in loud, dim gyms — the number must be instantly readable. <b>The change:</b> promote the weight×reps to a prominent, centred display using tabular numerals; keep secondary metadata (set count, RPE) in the subtitle row.</p>
+    <p class="kv"><b>Effort:</b> S · <b>Risk:</b> low · <b>Ships best with:</b> option 2 (bigger steppers) and option 10 (unit pref)</p>
+  </div>
+</div>
+
+<!-- ④ Inline rest-timer ring -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd"><span class="t">Bench press</span><span class="mut">set 3 ✓</span></div>
+        <div class="ph-bd">
+          <div class="mut" style="font-size:10px;margin-bottom:6px">no rest feedback after logging</div>
+          <div class="card">
+            <div class="tealtx" style="font-size:11px">Set logged ✓</div>
+            <div class="mut" style="font-size:10px;margin-top:4px">… nothing else happens</div>
+          </div>
+          <div style="margin-top:8px;opacity:.4" class="cta">Log set</div>
+        </div>
+      </div>
+      <div class="figcap">Before</div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd"><span class="t">Bench press</span><span class="mut">set 3 ✓</span></div>
+        <div class="ph-bd">
+          <div class="mut" style="font-size:10px;margin-bottom:6px">rest countdown auto-starts</div>
+          <div class="card">
+            <div style="display:flex;align-items:center;gap:10px">
+              <div class="ring"></div>
+              <div>
+                <div class="white" style="font-size:13px;font-weight:500;font-variant-numeric:tabular-nums">1:30</div>
+                <div class="mut" style="font-size:10px">rest · tap to skip</div>
+              </div>
+              <div style="margin-left:auto;color:#16C79A;font-size:11px;font-weight:600;cursor:pointer">skip →</div>
+            </div>
+          </div>
+          <div style="margin-top:8px" class="cta2">Log next set early</div>
+        </div>
+      </div>
+      <div class="figcap">After</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">4</span><h2>Inline rest-timer ring</h2><span class="tag tag-add">NEW</span></div>
+    <p>Auto-start a rest countdown inside the logger immediately after the user taps "Log set". A circular progress ring counts down the rest period; tapping anywhere on it skips to the next set.</p>
+    <p class="why"><b>The opportunity:</b> <code>useRestTimer</code> already exists in the codebase but is never rendered anywhere visible. Athletes need a rest cue between sets — without one they either wait too long (cold) or rush (underrecovered). <b>The change:</b> show a ring + countdown row after each logged set; allow skip; ring auto-hides when time elapses. Rest duration comes from the plan's rest_seconds value, defaulting to 90 s.</p>
+    <p class="kv"><b>Effort:</b> M · <b>Risk:</b> low (hook already exists) · <b>Dependency:</b> none</p>
+  </div>
+</div>
+
+<!-- ⑤ "last: 80×5" ghost + copy -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd"><span class="t">Bench press</span><span class="mut">set 1</span></div>
+        <div class="ph-bd">
+          <div class="mut" style="font-size:10px;margin-bottom:6px">no reference to prior session</div>
+          <div class="step">
+            <div class="sqbtn ghost">−</div>
+            <span class="white" style="font-size:18px;font-variant-numeric:tabular-nums">0.0</span>
+            <div class="sqbtn">+</div>
+          </div>
+          <div class="mut" style="font-size:9px;text-align:center;margin-top:4px">user must recall last week's numbers</div>
+        </div>
+      </div>
+      <div class="figcap">Before</div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd"><span class="t">Bench press</span><span class="mut">set 1</span></div>
+        <div class="ph-bd">
+          <div style="font-size:10px;color:#3A4D63;text-align:right;margin-bottom:3px">last: 80 kg × 5 · tap to copy</div>
+          <div class="step">
+            <div class="sqbtn ghost">−</div>
+            <span class="white" style="font-size:18px;font-variant-numeric:tabular-nums">0.0</span>
+            <div class="sqbtn">+</div>
+          </div>
+          <div style="font-size:9px;text-align:center;margin-top:4px;color:#3A4D63">ghost fades once user edits</div>
+        </div>
+      </div>
+      <div class="figcap">After</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">5</span><h2>"Last: 80×5" ghost + copy</h2><span class="tag tag-add">NEW</span></div>
+    <p>Show a faded reference line above the weight stepper displaying the weight and reps logged for this exercise in the most recent previous session. One tap copies both values into the fields.</p>
+    <p class="why"><b>The opportunity:</b> progressive overload requires remembering last week's numbers. Currently users rely on memory or leave the app to check history. The reference is already in the DB (via <code>useWorkoutHistory</code>); this surfaces it in context where it matters. <b>The change:</b> query the previous session's set data for the current exercise on screen mount; render a muted reference row above the stepper; "tap to copy" fills both weight and rep fields; ghost disappears after the first manual edit.</p>
+    <p class="kv"><b>Effort:</b> M · <b>Risk:</b> low · <b>Dependency:</b> useWorkoutHistory hook</p>
+  </div>
+</div>
+
+<!-- ⑥ Plate-math icon -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd"><span class="t">Bench press</span><span class="mut">set 1</span></div>
+        <div class="ph-bd">
+          <div class="mut" style="font-size:10px;margin-bottom:6px">calculator buried in settings</div>
+          <div class="card">
+            <div class="mut" style="font-size:10px">weight</div>
+            <div class="step" style="margin-top:5px">
+              <div class="sqbtn ghost">−</div>
+              <span class="big" style="font-size:20px">82.5</span>
+              <div class="sqbtn">+</div>
+            </div>
+          </div>
+          <div class="mut" style="font-size:9px;text-align:center;margin-top:2px">no path to plate calculator from here</div>
+        </div>
+      </div>
+      <div class="figcap">Before</div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd"><span class="t">Bench press</span><span class="mut">set 1</span></div>
+        <div class="ph-bd">
+          <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span class="mut" style="font-size:10px">weight</span>
+              <span style="font-size:11px;color:#16C79A;font-weight:600">⊞ plates</span>
+            </div>
+            <div class="step" style="margin-top:5px">
+              <div class="sqbtn ghost">−</div>
+              <span class="big" style="font-size:20px">82.5</span>
+              <div class="sqbtn">+</div>
+            </div>
+          </div>
+          <div class="mut" style="font-size:9px;text-align:center;margin-top:2px">tap "⊞ plates" → PlateCalculatorSheet opens</div>
+        </div>
+      </div>
+      <div class="figcap">After</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">6</span><h2>Plate-math icon</h2><span class="tag tag-p2">P2</span></div>
+    <p>Add a small barbell/plate icon (labelled "plates") in the top-right corner of the weight card that opens the existing <code>PlateCalculatorSheet</code> as a bottom drawer.</p>
+    <p class="why"><b>The problem:</b> <code>PlateCalculatorSheet</code> is fully built but only reachable from a settings sub-page. Athletes who need to figure out which plates to load must leave the session, do the math, then return and re-enter the weight. <b>The change:</b> a single tappable label in the weight card triggers <code>PlateCalculatorSheet</code> with the current weight pre-filled. No new component needed — only a new entry point.</p>
+    <p class="kv"><b>Effort:</b> S · <b>Risk:</b> low · <b>Dependency:</b> PlateCalculatorSheet (already built)</p>
+  </div>
+</div>
+
+<!-- ⑦ Slim animated progress bar -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd">
+          <span class="t">Push day · wk3</span>
+        </div>
+        <div class="ph-bd">
+          <div class="mut" style="font-size:10px;margin-bottom:6px">dot indicators, breaks past 6</div>
+          <div style="display:flex;gap:4px;justify-content:center;margin-bottom:8px">
+            <div style="width:8px;height:8px;border-radius:50%;background:#16C79A"></div>
+            <div style="width:8px;height:8px;border-radius:50%;background:#16C79A"></div>
+            <div style="width:8px;height:8px;border-radius:50%;background:#1F2A3D"></div>
+            <div style="width:8px;height:8px;border-radius:50%;background:#1F2A3D"></div>
+            <div style="width:8px;height:8px;border-radius:50%;background:#1F2A3D"></div>
+            <div style="width:8px;height:8px;border-radius:50%;background:#1F2A3D"></div>
+            <div style="width:8px;height:8px;border-radius:50%;background:#1F2A3D"></div>
+            <div style="width:8px;height:8px;border-radius:50%;background:#1F2A3D"></div>
+            <div style="width:8px;height:8px;border-radius:50%;background:#1F2A3D"></div>
+          </div>
+          <div class="mut" style="font-size:9px;text-align:center">dots overflow at ≥7 exercises</div>
+        </div>
+      </div>
+      <div class="figcap">Before</div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd">
+          <span class="t">Push day · wk3</span>
+          <span class="mut" style="font-size:11px">2 / 9</span>
+        </div>
+        <div class="ph-bd">
+          <div class="mut" style="font-size:10px;margin-bottom:5px">thin progress bar + fraction label</div>
+          <div class="bar"><span style="width:22%"></span></div>
+          <div class="mut" style="font-size:9px;margin-top:3px;text-align:center">animates on exercise change · scales to any count</div>
+        </div>
+      </div>
+      <div class="figcap">After</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">7</span><h2>Slim animated progress bar</h2><span class="tag tag-p2">P2</span></div>
+    <p>Replace the dot-based exercise indicator with a 4pt determinate progress bar (exercise i of n) that animates on exercise change and an "i / n" fraction label in the header.</p>
+    <p class="why"><b>The problem:</b> dot indicators overflow and become unreadable for sessions with seven or more exercises, which is a common plan structure. The fraction label "2/6" is already present but small. <b>The change:</b> remove the dots; render a full-width teal bar below the header using <code>width: (current/total * 100)%</code> with a 300ms ease animation; keep the "i / n" fraction in the header trailing slot.</p>
+    <p class="kv"><b>Effort:</b> S · <b>Risk:</b> low · <b>Dependency:</b> none</p>
+  </div>
+</div>
+
+<!-- ⑧ Swipe between exercises -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd"><span class="t">Bench press</span><span class="mut">2/6</span></div>
+        <div class="ph-bd">
+          <div class="mut" style="font-size:10px;margin-bottom:6px">button-only navigation</div>
+          <div style="display:flex;gap:6px;margin-top:8px">
+            <div class="cta2" style="flex:1;font-size:11px;padding:8px">← Prev</div>
+            <div class="cta2" style="flex:1;font-size:11px;padding:8px">Next →</div>
+          </div>
+          <div class="mut" style="font-size:9px;text-align:center;margin-top:4px">no swipe gesture available</div>
+        </div>
+      </div>
+      <div class="figcap">Before</div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd"><span class="t">Bench press</span><span class="mut">2/6</span></div>
+        <div class="ph-bd">
+          <div class="mut" style="font-size:10px;margin-bottom:4px">horizontal pager + buttons retained</div>
+          <div style="display:flex;align-items:center;gap:6px;margin:6px 0">
+            <span class="tealtx" style="font-size:16px">‹</span>
+            <div style="flex:1;background:#111A2B;border:.5px solid #1F2A3D;border-radius:8px;padding:8px;text-align:center">
+              <div class="white" style="font-size:12px;font-weight:500">Bench press</div>
+              <div class="mut" style="font-size:9px">swipe ← → to navigate</div>
+            </div>
+            <span class="tealtx" style="font-size:16px">›</span>
+          </div>
+          <div style="display:flex;justify-content:center;gap:5px;margin:4px 0">
+            <div style="width:5px;height:5px;border-radius:50%;background:#16C79A"></div>
+            <div style="width:5px;height:5px;border-radius:50%;background:#1F2A3D"></div>
+            <div style="width:5px;height:5px;border-radius:50%;background:#1F2A3D"></div>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">After</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">8</span><h2>Swipe between exercises</h2><span class="tag tag-add">NEW</span></div>
+    <p>Wrap the exercise content in a horizontal pager so users can swipe left/right to move between exercises within the session, while keeping the existing prev/next buttons as visible fallback controls.</p>
+    <p class="why"><b>The opportunity:</b> swipe navigation is the muscle-memory interaction model for adjacent content on mobile. The current button-only approach forces two-handed use or precise tapping while holding a barbell. <b>The change:</b> use <code>FlatList</code> in horizontal paginated mode or <code>PagerView</code>; keep the ‹/› chevron buttons flanking the content as explicit affordances; animate pager dots (max 5 shown, scrolling). The prev/next buttons remain for accessibility.</p>
+    <p class="kv"><b>Effort:</b> M · <b>Risk:</b> medium (gesture conflict with scroll) · <b>Dependency:</b> none</p>
+  </div>
+</div>
+
+<!-- ⑨ RIR/RPE chip row -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd"><span class="t">Squat</span><span class="mut">set 2</span></div>
+        <div class="ph-bd">
+          <div class="mut" style="font-size:10px;margin-bottom:6px">RPE is a free text field</div>
+          <div class="card">
+            <div class="mut" style="font-size:10px">RPE / effort</div>
+            <div style="background:#0A0F1A;border:.5px solid #1F2A3D;border-radius:7px;padding:6px 9px;margin-top:5px;color:#7C8699;font-size:12px">
+              type a number…
+            </div>
+          </div>
+          <div class="mut" style="font-size:9px;text-align:center;margin-top:4px">users skip it — too much friction</div>
+        </div>
+      </div>
+      <div class="figcap">Before</div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd"><span class="t">Squat</span><span class="mut">set 2</span></div>
+        <div class="ph-bd">
+          <div class="mut" style="font-size:10px;margin-bottom:6px">4-tap chip row</div>
+          <div style="margin-top:4px">
+            <div class="mut" style="font-size:10px;margin-bottom:4px">how did it feel?</div>
+            <div>
+              <span class="chip">easy</span>
+              <span class="chip">2 RIR</span>
+              <span class="chip on">1 RIR</span>
+              <span class="chip">fail</span>
+            </div>
+          </div>
+          <div class="mut" style="font-size:9px;margin-top:6px">single tap · no keyboard · optional</div>
+        </div>
+      </div>
+      <div class="figcap">After</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">9</span><h2>RIR/RPE chip row</h2><span class="tag tag-p2">P2</span></div>
+    <p>Replace the free-text effort field with a horizontal chip row of four options — Easy / 2 RIR / 1 RIR / Fail — that maps to RPE 6/8/9/10. One tap selects; tapping again deselects (optional field).</p>
+    <p class="why"><b>The problem:</b> a free numeric entry for RPE adds keyboard friction and most users skip it entirely, meaning effort data is absent from the history view and the strength model. A tap-select chip row has near-zero cost for the user. <b>The change:</b> render four chips below the set controls; map to <code>rpe</code> values 6, 8, 9, 10; persist with the set row. Label copy can be adjusted — "2 RIR" and "1 RIR" are meaningful to intermediate lifters but could be simplified to "moderate / hard / very hard / maxed out" for broader audiences (founder's call).</p>
+    <p class="kv"><b>Effort:</b> S · <b>Risk:</b> low · <b>Dependency:</b> none (adds new optional column)</p>
+  </div>
+</div>
+
+<!-- ⑩ Unit-aware weights -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd"><span class="t">Overhead press</span><span class="mut">set 1</span></div>
+        <div class="ph-bd">
+          <div class="mut" style="font-size:10px;margin-bottom:6px">hardcoded kg, no toggle</div>
+          <div class="step">
+            <div class="sqbtn ghost">−</div>
+            <span class="big" style="font-size:20px">135</span>
+            <div class="sqbtn">+</div>
+          </div>
+          <div style="background:#1A0F14;border:.5px solid #5A2330;border-radius:7px;padding:6px 9px;margin-top:6px">
+            <div style="color:#E89AA6;font-size:10px">⚠ lb users see 135 as kg — impossible load</div>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">Before</div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd"><span class="t">Overhead press</span><span class="mut">set 1</span></div>
+        <div class="ph-bd">
+          <div class="mut" style="font-size:10px;margin-bottom:6px">reads unit_pref, shows unit inline</div>
+          <div class="step">
+            <div class="sqbtn ghost">−</div>
+            <div style="text-align:center">
+              <div class="big" style="font-size:20px">82.5</div>
+              <div style="font-size:9px;color:#16C79A;font-weight:600;letter-spacing:.5px">KG</div>
+            </div>
+            <div class="sqbtn">+</div>
+          </div>
+          <div style="display:flex;gap:0;margin-top:6px;border-radius:7px;overflow:hidden;border:.5px solid #2A3850">
+            <div style="flex:1;background:#0F3D33;color:#3FE0B5;text-align:center;font-size:10px;font-weight:600;padding:5px">kg</div>
+            <div style="flex:1;background:#111A2B;color:#7C8699;text-align:center;font-size:10px;font-weight:500;padding:5px">lb</div>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">After</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">10</span><h2>Unit-aware weights</h2><span class="tag tag-p1">P1</span></div>
+    <p>Read the user's <code>unit_pref</code> (kg / lb) from profile and display all weights in the logger with the correct unit suffix. A compact kg|lb toggle in the weight card lets the user flip on the fly.</p>
+    <p class="why"><b>The problem:</b> the logger assumes kg throughout. US-based users logging in pounds see their input treated as kilograms downstream — the strength model, percentiles, and history graphs all become wrong. <b>The change:</b> pull <code>unit_pref</code> from local profile; multiply/divide when reading and writing set rows; show a "KG" or "LB" label beneath the big number; add a compact segmented toggle. The increment step should also respect units (2.5 kg ≈ 5 lb).</p>
+    <p class="kv"><b>Addresses:</b> finding units · <b>Effort:</b> S · <b>Risk:</b> medium (data migration for existing lb users) · <b>Ships best with:</b> options 2 and 3</p>
+  </div>
+</div>
+
+<!-- ⑪ Log confirmation micro-animation + haptic -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd"><span class="t">Deadlift</span><span class="mut">set 2</span></div>
+        <div class="ph-bd">
+          <div class="mut" style="font-size:10px;margin-bottom:10px">no feedback after tapping "Log set"</div>
+          <div class="cta">Log set</div>
+          <div class="mut" style="font-size:9px;text-align:center;margin-top:6px">silent — did it save? users tap again</div>
+        </div>
+      </div>
+      <div class="figcap">Before</div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd"><span class="t">Deadlift</span><span class="mut">set 2 ✓</span></div>
+        <div class="ph-bd">
+          <div class="mut" style="font-size:10px;margin-bottom:10px">150ms scale + check, light haptic</div>
+          <div style="background:#16C79A;color:#04221B;text-align:center;font-weight:600;font-size:13px;padding:10px;border-radius:10px;display:flex;align-items:center;justify-content:center;gap:6px">
+            <span style="font-size:16px">✓</span>
+            <span>Set logged!</span>
+          </div>
+          <div class="mut" style="font-size:9px;text-align:center;margin-top:6px">button scales 1→1.06→1 · Haptics.impactAsync(LIGHT)</div>
+        </div>
+      </div>
+      <div class="figcap">After</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">11</span><h2>Log confirmation micro-animation + haptic</h2><span class="tag tag-p2">P2</span></div>
+    <p>After a successful set save, briefly animate the "Log set" button (scale pulse + checkmark swap, 150 ms) and trigger a light haptic to give clear physical confirmation that the set was recorded.</p>
+    <p class="why"><b>The problem:</b> the current UI gives no feedback after tapping "Log set" — the button stays static. Users frequently double-tap because they can't tell if the save worked, creating duplicate set entries. <b>The change:</b> on save success, run a <code>Animated.sequence</code> scale pulse (1 → 1.06 → 1) and swap the label to "✓ Set logged!" for 800 ms; call <code>Haptics.impactAsync(ImpactFeedbackStyle.Light)</code>. On save failure, skip the animation and show option 14 (retry toast) instead.</p>
+    <p class="kv"><b>Effort:</b> S · <b>Risk:</b> low · <b>Dependency:</b> expo-haptics (already in package.json)</p>
+  </div>
+</div>
+
+<!-- ⑫ Sticky bottom action bar -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd"><span class="t">Squat</span><span class="mut">set 3</span></div>
+        <div class="ph-bd" style="min-height:190px;position:relative">
+          <div class="mut" style="font-size:10px;margin-bottom:6px">actions scroll with content</div>
+          <div class="card" style="margin-bottom:6px"><div class="white" style="font-size:11px">set details…</div></div>
+          <div class="card" style="margin-bottom:6px"><div class="white" style="font-size:11px">RPE chips…</div></div>
+          <div class="card" style="margin-bottom:6px"><div class="white" style="font-size:11px">notes…</div></div>
+          <div style="margin-top:4px">
+            <div class="cta" style="margin-bottom:5px">Log set</div>
+            <div class="cta2">Finish workout</div>
+          </div>
+          <div class="mut" style="font-size:9px;text-align:center;margin-top:3px">scrolls away, sits under home indicator</div>
+        </div>
+      </div>
+      <div class="figcap">Before</div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd"><span class="t">Squat</span><span class="mut">set 3</span></div>
+        <div class="ph-bd" style="min-height:190px;display:flex;flex-direction:column;padding-bottom:0">
+          <div class="mut" style="font-size:10px;margin-bottom:6px">content scrolls freely</div>
+          <div style="flex:1;overflow:hidden">
+            <div class="card" style="margin-bottom:4px"><div class="white" style="font-size:10px">set details…</div></div>
+            <div class="card"><div class="white" style="font-size:10px">RPE chips…</div></div>
+          </div>
+          <div style="border-top:.5px solid #1C2433;padding:8px 0 4px;margin-top:6px">
+            <div class="cta" style="margin-bottom:5px">Log set</div>
+            <div class="cta2">Finish workout</div>
+            <div class="mut" style="font-size:8px;text-align:center;margin-top:3px">pinned above home indicator</div>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">After</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">12</span><h2>Sticky bottom action bar</h2><span class="tag tag-p1">P1</span></div>
+    <p>Pin "Log set" (primary) and "Finish workout" (secondary) in a fixed action bar at the bottom of the screen, above the home indicator inset, so they are always reachable regardless of scroll position.</p>
+    <p class="why"><b>The problem:</b> the action buttons scroll with the page content. On devices with longer content (notes field, RIR chips, previous-set history rows) the primary action disappears below the fold — or worse, sits directly over the home indicator where iOS intercepts taps. This is especially bad mid-set when a user has gloves on. <b>The change:</b> extract the two action buttons into an absolutely-positioned (or <code>KeyboardAvoidingView</code>-aware) bar pinned to the bottom safe area; the scrollable content stops at the bar's top edge.</p>
+    <p class="kv"><b>Effort:</b> S · <b>Risk:</b> low · <b>Dependency:</b> pairs well with option 1 (top inset)</p>
+  </div>
+</div>
+
+<!-- ⑬ "Add exercise" empty state -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd"><span class="t">Today's session</span></div>
+        <div class="ph-bd">
+          <div class="mut" style="font-size:10px;margin-bottom:8px">0 exercises, blank sheet</div>
+          <div style="min-height:100px;display:flex;align-items:center;justify-content:center">
+            <span class="mut" style="font-size:11px;text-align:center">No exercises<br>in this session</span>
+          </div>
+          <div class="badbox" style="margin-top:4px;font-size:10px">⚠ No action — user is stuck</div>
+        </div>
+      </div>
+      <div class="figcap">Before</div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd"><span class="t">Today's session</span></div>
+        <div class="ph-bd">
+          <div class="mut" style="font-size:10px;margin-bottom:8px">empty state with clear CTA</div>
+          <div style="text-align:center;padding:16px 8px">
+            <div style="font-size:24px;margin-bottom:6px">🏋️</div>
+            <div class="white" style="font-size:12px;font-weight:500;margin-bottom:4px">No exercises yet</div>
+            <div class="mut" style="font-size:10px;margin-bottom:10px">Add lifts to start logging your session</div>
+            <div class="cta" style="font-size:12px;padding:9px">+ Add exercise</div>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">After</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">13</span><h2>"Add exercise" empty state</h2><span class="tag tag-p0">P0</span></div>
+    <p>Replace the blank "No exercises in this session" text with a purposeful empty state that includes an icon, a one-sentence explainer, and a prominent "+ Add exercise" CTA button.</p>
+    <p class="why"><b>The problem:</b> when a session loads with zero exercises (triggered by a data-side template-unwrap mismatch, now fixed, but also possible for free-form sessions) the user sees a blank sheet with dead-end text and no path forward. <b>The change:</b> detect <code>exercises.length === 0</code> and render an empty-state panel instead of the logger stepper. The CTA navigates to the exercise-library picker. This is a P0 because users are left stuck with no recovery action — even after the data fix, free-form sessions legitimately start empty.</p>
+    <p class="kv"><b>Addresses:</b> finding gettemplate-unwrap-mismatch (UX side) · <b>Effort:</b> S · <b>Risk:</b> low</p>
+  </div>
+</div>
+
+<!-- ⑭ Save-failure retry toast -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd"><span class="t">Bench press</span><span class="mut">set 4</span></div>
+        <div class="ph-bd">
+          <div class="mut" style="font-size:10px;margin-bottom:8px">save error — nothing shown</div>
+          <div class="cta" style="margin-bottom:6px;opacity:.7">Log set</div>
+          <div class="mut" style="font-size:11px;text-align:center">…</div>
+          <div class="badbox" style="margin-top:8px;font-size:10px">⚠ Set silently dropped — no feedback, no retry</div>
+        </div>
+      </div>
+      <div class="figcap">Before</div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>4:35</span><span>5G</span></div>
+        <div class="ph-hd"><span class="t">Bench press</span><span class="mut">set 4</span></div>
+        <div class="ph-bd">
+          <div class="mut" style="font-size:10px;margin-bottom:8px">non-blocking toast with retry</div>
+          <div class="cta" style="margin-bottom:10px">Log set</div>
+          <div class="toast">
+            <div>
+              <div style="color:#E89AA6;font-size:11px;font-weight:500">Couldn't save set</div>
+              <div class="mut" style="font-size:9px">tap Retry to try again</div>
+            </div>
+            <div class="tealtx" style="font-size:11px;font-weight:600;padding-left:10px">Retry</div>
+          </div>
+          <div class="mut" style="font-size:9px;text-align:center;margin-top:4px">auto-dismisses after 6 s</div>
+        </div>
+      </div>
+      <div class="figcap">After</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">14</span><h2>Save-failure retry toast</h2><span class="tag tag-p2">P2</span></div>
+    <p>When a set save fails (network error, DB write error), show a non-blocking toast at the bottom of the screen with "Couldn't save set" and a tappable "Retry" action. Auto-dismiss after 6 seconds.</p>
+    <p class="why"><b>The problem:</b> the current error path silently drops the set — the user has no indication the data was lost and no way to recover without re-entering values. In a local-first architecture a write failure is rare but possible (sync conflict, storage full). <b>The change:</b> catch the rejected promise from the set-save call; hold the failed set payload in state; render a <code>toast</code> overlay (not a blocking modal); the Retry button replays the save call with the preserved payload. Dismiss on success or after 6 s.</p>
+    <p class="kv"><b>Effort:</b> S · <b>Risk:</b> low · <b>Dependency:</b> pairs with option 11 (success animation)</p>
+  </div>
+</div>
+
+<!-- ★ Recommendation note -->
+<div class="opt" style="grid-template-columns:1fr;background:var(--tealbg);border-color:var(--teal)">
+  <div>
+    <div class="opt-head" style="margin-bottom:14px">
+      <span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:var(--teal);color:#fff;font-weight:600;font-size:14px;flex:0 0 30px">★</span>
+      <h2 style="color:var(--teal)">Recommended build order</h2>
+    </div>
+    <p style="color:var(--ink);font-size:15px;margin-bottom:10px"><b>Core six (ship first):</b> options <b>1, 4, 7, 11, 12, 13</b> form the highest-impact, lowest-risk batch. Together they fix the three known blocking issues (safe area, sticky actions, empty state), add the most-requested missing feature (rest timer), and make the screen feel complete with a progress bar and set confirmation. None has external dependencies; none risks data integrity. This batch can ship in a single sprint.</p>
+    <p style="color:var(--ink);font-size:15px;margin-bottom:10px"><b>Numbers + units pass (second batch):</b> options <b>2, 3, and 10</b> should ship together because they each touch the weight display and input layer. Doing them as a combined pass avoids touching those components three separate times and ensures the decimal keyboard, tabular display, and unit conversion all behave consistently.</p>
+    <p style="color:var(--ink2);font-size:14px;margin-bottom:10px"><b>Remainder:</b> options 5 (last-session ghost), 6 (plate-math icon), 8 (swipe navigation), 9 (RIR chips), and 14 (retry toast) are individually small — each is an S-effort item — and can be tackled opportunistically or batched as a "polish sprint" after the core six land.</p>
+    <p style="color:var(--ink3);font-size:13px;margin:0"><b>Option 8</b> (swipe) carries the only medium-risk flag due to gesture conflicts with vertical scroll; consider a brief spike to validate the gesture coexistence before committing it to the sprint.</p>
+  </div>
+</div>
+
+</div></body></html>

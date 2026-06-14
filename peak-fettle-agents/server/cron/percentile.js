@@ -30,6 +30,14 @@
 // Environment:
 //   Reads DATABASE_URL (or PG* env vars) from .env via dotenv.
 
+// 2026-06-12 (Agent O, SPEC_094A): DISABLED -- percentile computation moved on-device.
+// This file is retained for reference. Do NOT schedule it.
+// Remove after 20260612_drop_percentile_rankings.sql is applied (founder-gated).
+if (require.main === module) {
+    console.log('[percentile-cron] DISABLED: computation moved on-device (SPEC_094A). Exiting.');
+    process.exit(0);
+}
+
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const { pool } = require('../db');
 

@@ -16,6 +16,7 @@ import {
   Pressable,
   StyleSheet,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '../Icon';
 import { useTheme } from '../../theme/ThemeContext';
 import { fontSize, spacing, radius } from '../../theme/tokens';
@@ -66,7 +67,7 @@ export default function AvatarCustomizer({ visible, initial, onClose, onSaved }:
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={[styles.root, { backgroundColor: c.bgPrimary }]}>
+      <SafeAreaView style={[styles.root, { backgroundColor: c.bgPrimary }]} edges={['top', 'bottom']}>
         {/* Header */}
         <View style={[styles.header, { borderBottomColor: c.borderDefault }]}>
           <TouchableOpacity onPress={onClose} accessibilityRole="button" accessibilityLabel="Close avatar editor">
@@ -159,7 +160,7 @@ export default function AvatarCustomizer({ visible, initial, onClose, onSaved }:
             );
           })}
         </ScrollView>
-      </View>
+      </SafeAreaView>
     </Modal>
   );
 }

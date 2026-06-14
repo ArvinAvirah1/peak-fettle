@@ -34,13 +34,18 @@ import { listBeginnerPrograms, BundledProgram, bundledExerciseName } from '../sr
 
 interface TemplateSession {
   id: string;
-  name: string;
-  order: number;
+  // Server (`/templates/:id`) and src/api/templates.ts both use snake_case
+  // `session_name` / per-exercise `exercise_name` + `reps` + `rest_seconds`.
+  // The old `name` / `reps_range` / `rest_s` shape here matched nothing, so the
+  // session list rendered "Day N: undefined" and "undefined ×undefined".
+  day_number: number;
+  session_name: string;
+  notes?: string;
   exercises: Array<{
-    name: string;
+    exercise_name: string;
     sets: number;
-    reps_range: string;
-    rest_s?: number;
+    reps: string;
+    rest_seconds?: number;
   }>;
 }
 
@@ -324,7 +329,7 @@ export default function TemplatesScreen(): React.ReactElement {
       const firstSession = selected.sessions[0];
       await apiClient.post('/workouts', {
         template_id: selected.id,
-        session_name: firstSession.name,
+        session_name: firstSession.session_name,
         exercises: firstSession.exercises,
       });
       setSelected(null);
@@ -619,11 +624,11 @@ export default function TemplatesScreen(): React.ReactElement {
                     ]}
                   >
                     <Text style={{ fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold, color: colors.textPrimary, marginBottom: 4 }}>
-                      {`Day ${idx + 1}: ${session.name}`}
+                      {`Day ${idx + 1}: ${session.session_name}`}
                     </Text>
                     {session.exercises.map((ex, ei) => (
                       <Text key={ei} style={{ fontSize: fontSize.caption, color: colors.textSecondary }}>
-                        {`• ${ex.name}  ${ex.sets}×${ex.reps_range}${ex.rest_s ? `  ${ex.rest_s}s rest` : ''}`}
+                        {`• ${ex.exercise_name}  ${ex.sets}×${ex.reps}${ex.rest_seconds ? `  ${ex.rest_seconds}s rest` : ''}`}
                       </Text>
                     ))}
                   </View>

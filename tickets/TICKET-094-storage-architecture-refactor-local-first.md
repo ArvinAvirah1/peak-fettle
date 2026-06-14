@@ -100,3 +100,20 @@ Table-by-table mapping (all 32 tables) is in `LOCAL_FIRST_MIGRATION_PLAN_2026-06
 
 - Founder-intent rule (TICKET-071): the open items above are calls to confirm, not guess.
 - "Reviewed manually" is not verification (PUSH-002): the parse-sweep, the delete→reinstall→restore integration test, and the ciphertext assertion are the definition of done.
+
+---
+
+## Status update — 2026-06-12 (SPEC-094A Agent Q run)
+
+**Workstream B (backup subsystem):** shipped commit `57b19a7` — blobCrypto, keyStore, server blob endpoints, backup manager, restore/recovery UX.
+
+**Workstream A (data-layer move) — this run:**
+- `db/schema.sql`: folded `20260611_engine_profile_fields.sql` (users survey cols), `20260611_exercise_tagging.sql` (exercises movement_pattern + equipment + 500+ seed UPDATEs), and new `20260612_oauth_identities.sql` (oauth_identities table). All three sections appended idempotently, schema ends well-formed.
+- New migration file `peak-fettle-agents/server/migrations/20260612_oauth_identities.sql` created (standalone, idempotent).
+- `mobile/src/components/auth/OAuthButtons.tsx`: rewritten — zero top-level imports of `expo-apple-authentication` / `expo-auth-session`; both required lazily inside guarded try/catch; component returns null with console.warn if packages uninstalled. Bundle-safe today, lights up after founder installs deps.
+- `mobile/app/(auth)/login.tsx` + `register.tsx`: OAuthButtons import added; `<OAuthButtons />` mounted below the submit button with an "or" divider (inside the component).
+- Parse-sweep: all three mobile files pass `@babel/parser` (jsx + typescript). No new dependencies. `mobile/package.json` untouched.
+
+**Drop-file (`20260612_drop_percentile_rankings.sql`):** authored by Agent O. Founder-gated — apply only after device-test verification. Do NOT fold into schema.sql.
+
+**Remaining Workstream A items** (Agents L, M, N, O, P): localSchema v2 migration runner, engine/insights on-device port, strengthModelV3 heteroscedastic updates, sync-rules tier gating, data-hook branching — tracked in SPEC-094A ownership matrix.

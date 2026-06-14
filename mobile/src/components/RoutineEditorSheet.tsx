@@ -3,14 +3,19 @@
  *
  * Replaces the old name-only "Edit" modal on the Routines page. Lets the user:
  *   • rename the routine
- *   • add exercises (via the shared ExercisePicker)
+ *   • add exercises inline (via the shared ExercisePicker — option 10)
  *   • remove exercises (trash button)
- *   • reorder exercises (up/down chevrons — no drag library; array swap)
- *   • edit each exercise's target sets (numeric) and target reps (string, e.g. "8-12")
- *   • Save → PUT full replace via updateRoutine()
+ *   • reorder exercises (long-press up/down chevrons — option 9; no drag library
+ *     is used here because this is a fullScreen Modal where a nested gesture
+ *     root is fragile, and the chevrons are already robust + accessible)
+ *   • edit each exercise's target sets (numeric) and target reps (string)
+ *   • Save → full replace via the tier-branched data module (local-first for
+ *     free users — instant on-device persist with a subtle "Saved" state, no
+ *     network; REST for Pro). Option 8/11.
  *
- * Visual style matches StepperLogger / routines.tsx (dark cards, teal accent)
- * using the shared stepperPalette + spacing/radius/typography tokens.
+ * Layout: SafeAreaView header + a sticky Save bar pinned above the bottom inset.
+ *
+ * Visual style matches StepperLogger / routines.tsx (dark cards, teal accent).
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -26,11 +31,12 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  SafeAreaView,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from './Icon';
 import { stepperPalette, fontFamily, fontSize, spacing, radius } from '../theme/tokens';
-import { Routine, RoutineExercise, updateRoutine } from '../api/routines';
+import { Routine, RoutineExercise, updateRoutine } from '../data/routines';
+import { useAuth } from '../hooks/useAuth';
 import { ExercisePicker } from './ExercisePicker';
 import { Exercise } from '../types/api';
 
@@ -51,21 +57,25 @@ export default function RoutineEditorSheet({
   onClose,
   onSaved,
 }: Props): React.ReactElement {
+  const { user } = useAuth();
+  const insets = useSafeAreaInsets();
   const [name, setName] = useState<string>(routine?.name ?? '');
   const [items, setItems] = useState<RoutineExercise[]>(routine?.exercises ?? []);
   const [pickerVisible, setPickerVisible] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Option 11: subtle "Saved" affirmation after a successful local-first save.
+  const [savedFlash, setSavedFlash] = useState(false);
 
   // Re-seed local state whenever the target routine changes (e.g. tapping Edit
   // on a different routine, or reopening after a save).
   useEffect(() => {
     setName(routine?.name ?? '');
     setItems(routine?.exercises ?? []);
+    setSavedFlash(false);
   }, [routine]);
 
   // ── Per-exercise field edits ─────────────────────────────────────────────
   const updateSets = useCallback((index: number, text: string) => {
-    // empty → undefined; otherwise parse to a non-negative int
     const trimmed = text.trim();
     const parsed = trimmed === '' ? undefined : parseInt(trimmed, 10);
     const next = trimmed === '' || Number.isNaN(parsed) ? undefined : parsed;
@@ -104,11 +114,12 @@ export default function RoutineEditorSheet({
     setItems((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
-  // ── Add (from ExercisePicker) ────────────────────────────────────────────
+  // ── Add (from ExercisePicker — inline, without leaving the editor) ────────
   const handlePicked = useCallback((ex: Exercise) => {
     setItems((prev) => {
-      // Guard against duplicate exercise_id.
-      if (prev.some((it) => it.exercise_id === ex.id)) return prev;
+      // de-dupe by id, but only when ids are truthy (template exercises carry
+      // an undefined exercise_id — never treat two of those as duplicates).
+      if (ex.id && prev.some((it) => it.exercise_id === ex.id)) return prev;
       return [
         ...prev,
         { exercise_id: ex.id, name: ex.name, target_sets: 3, target_reps: '8-12' },
@@ -124,15 +135,21 @@ export default function RoutineEditorSheet({
     if (!trimmed) return; // Save blocked while name empty (button also disabled)
     setSaving(true);
     try {
-      const updated = await updateRoutine(routine.id, { name: trimmed, exercises: items });
+      const updated = await updateRoutine(user, routine.id, { name: trimmed, exercises: items });
       onSaved(updated);
-      onClose();
+      // Brief "Saved" affirmation (option 11). Close shortly after so the user
+      // sees the on-device persist confirmation without a network spinner.
+      setSavedFlash(true);
+      setTimeout(() => {
+        setSavedFlash(false);
+        onClose();
+      }, 450);
     } catch (err) {
       Alert.alert('Error', err instanceof Error ? err.message : 'Could not save routine');
     } finally {
       setSaving(false);
     }
-  }, [routine, name, items, onSaved, onClose]);
+  }, [routine, name, items, user, onSaved, onClose]);
 
   const saveDisabled = saving || name.trim().length === 0;
 
@@ -143,12 +160,12 @@ export default function RoutineEditorSheet({
       presentationStyle="fullScreen"
       onRequestClose={onClose}
     >
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['top']}>
         <KeyboardAvoidingView
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-          {/* ── Header ──────────────────────────────────────────────────── */}
+          {/* ── Header (within the safe-area top inset) ─────────────────── */}
           <View style={styles.header}>
             <TouchableOpacity
               onPress={onClose}
@@ -159,19 +176,14 @@ export default function RoutineEditorSheet({
               <Ionicons name="chevron-down" size={22} color={stepperPalette.muted} />
             </TouchableOpacity>
             <Text style={styles.headerTitle} numberOfLines={1}>Edit routine</Text>
-            <TouchableOpacity
-              onPress={handleSave}
-              disabled={saveDisabled}
-              style={[styles.saveBtn, saveDisabled && styles.saveBtnDisabled]}
-              accessibilityRole="button"
-              accessibilityLabel="Save routine"
-            >
-              {saving ? (
-                <ActivityIndicator size="small" color={stepperPalette.accentInk} />
-              ) : (
-                <Text style={styles.saveLabel}>Save</Text>
-              )}
-            </TouchableOpacity>
+            {savedFlash ? (
+              <View style={styles.savedBadge}>
+                <Ionicons name="checkmark-circle" size={16} color={stepperPalette.accent} />
+                <Text style={styles.savedBadgeText}>Saved</Text>
+              </View>
+            ) : (
+              <View style={styles.headerBtn} />
+            )}
           </View>
 
           <ScrollView
@@ -275,7 +287,7 @@ export default function RoutineEditorSheet({
               ))
             )}
 
-            {/* ── Add exercise ──────────────────────────────────────────── */}
+            {/* ── Add exercise (inline picker — option 10) ──────────────── */}
             <TouchableOpacity
               style={styles.addBtn}
               onPress={() => setPickerVisible(true)}
@@ -285,10 +297,27 @@ export default function RoutineEditorSheet({
               <Text style={styles.addLabel}>＋ Add exercise</Text>
             </TouchableOpacity>
           </ScrollView>
+
+          {/* ── Sticky Save bar (above the bottom inset — option 8) ──────── */}
+          <View style={[styles.saveBar, { paddingBottom: Math.max(insets.bottom, spacing.s3) }]}>
+            <TouchableOpacity
+              onPress={handleSave}
+              disabled={saveDisabled}
+              style={[styles.saveBtn, saveDisabled && styles.saveBtnDisabled]}
+              accessibilityRole="button"
+              accessibilityLabel="Save routine"
+            >
+              {saving ? (
+                <ActivityIndicator size="small" color={stepperPalette.accentInk} />
+              ) : (
+                <Text style={styles.saveLabel}>Save routine</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
 
-      {/* ── Exercise picker ───────────────────────────────────────────────── */}
+      {/* ── Exercise picker (opens over the editor — stays in context) ─────── */}
       <ExercisePicker
         visible={pickerVisible}
         onSelect={handlePicked}
@@ -316,32 +345,29 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: stepperPalette.line,
   },
-  headerBtn: { padding: spacing.s1 },
+  headerBtn: { padding: spacing.s1, minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   headerTitle: {
     flex: 1,
     fontFamily: fontFamily.bold,
     fontSize: fontSize.bodyLg,
     color: stepperPalette.text,
   },
-  saveBtn: {
-    backgroundColor: stepperPalette.accent,
-    borderRadius: radius.full,
-    paddingHorizontal: spacing.s4,
-    paddingVertical: spacing.s2,
-    minWidth: 64,
+  savedBadge: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    gap: spacing.s1,
+    paddingHorizontal: spacing.s2,
+    minHeight: 44,
   },
-  saveBtnDisabled: { opacity: 0.4 },
-  saveLabel: {
-    fontFamily: fontFamily.bold,
+  savedBadgeText: {
+    fontFamily: fontFamily.semiBold,
     fontSize: fontSize.bodySm,
-    color: stepperPalette.accentInk,
+    color: stepperPalette.accent,
   },
   scroll: { flex: 1 },
   scrollContent: {
     padding: spacing.s4,
-    paddingBottom: spacing.s12,
+    paddingBottom: spacing.s8,
   },
   fieldLabel: {
     fontFamily: fontFamily.bold,
@@ -428,8 +454,8 @@ const styles = StyleSheet.create({
     gap: spacing.s2,
   },
   reorderBtn: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: stepperPalette.line,
@@ -438,7 +464,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   reorderBtnDisabled: { opacity: 0.3 },
-  iconBtn: { padding: spacing.s1 },
+  iconBtn: { padding: spacing.s1, minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   addBtn: {
     backgroundColor: stepperPalette.card,
     borderWidth: 1,
@@ -452,5 +478,27 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.bold,
     fontSize: fontSize.bodySm,
     color: stepperPalette.accent,
+  },
+  // Sticky Save bar
+  saveBar: {
+    borderTopWidth: 1,
+    borderTopColor: stepperPalette.line,
+    backgroundColor: stepperPalette.bg,
+    paddingHorizontal: spacing.s4,
+    paddingTop: spacing.s3,
+  },
+  saveBtn: {
+    backgroundColor: stepperPalette.accent,
+    borderRadius: radius.md,
+    paddingVertical: spacing.s4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  saveBtnDisabled: { opacity: 0.4 },
+  saveLabel: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSize.bodyMd,
+    color: stepperPalette.accentInk,
   },
 });

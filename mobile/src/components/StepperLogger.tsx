@@ -20,7 +20,7 @@
  * screen matches the two-field (WEIGHT / REPS) mock.
  */
 
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -31,7 +31,10 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  PanResponder,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Circle } from 'react-native-svg';
 import { Ionicons } from './Icon';
 import {
   stepperPalette,
@@ -44,9 +47,35 @@ import { RoutineSession, RoutineSessionExercise } from './RoutineStrip';
 import ExerciseSwitcherSheet from './ExerciseSwitcherSheet';
 import { SuggestCandidate } from '../utils/smartSuggest';
 import PlateCalculatorSheet from './PlateCalculatorSheet';
-import Animated, { FadeIn, FadeInDown, useReducedMotion } from 'react-native-reanimated';
+import Animated, {
+  FadeIn,
+  FadeInDown,
+  useReducedMotion,
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSequence,
+} from 'react-native-reanimated';
 import { computeWarmupPlan, WARMUP_SET_CHOICES } from '../lib/warmup';
 import { getExercisePrefs, setExercisePrefs } from '../data/exercisePrefs';
+import { getExerciseGoal, setExerciseGoal, clearExerciseGoal, ExerciseGoal } from '../data/exerciseGoals'; // WIDGET-002
+import { REST_TIMER_DEFAULT } from '../hooks/useRestTimer';
+import { displayToKg, kgToInputValue } from '../constants/units';
+
+// expo-haptics is wrapped in utils/haptics with a platform guard; import the
+// wrapper so a missing native module never throws (option 11 / log confirmation).
+let haptics: { success: () => void; light: () => void } | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  haptics = require('../utils/haptics').haptics;
+} catch {
+  haptics = null;
+}
+
+// Step sizes for the -/+ steppers (display units; lbs steps bigger).
+const WEIGHT_STEP_KG = 2.5;
+const WEIGHT_STEP_LB = 5;
+const REPS_STEP = 1;
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -105,13 +134,13 @@ interface Props {
    * `rir` is the optional Reps-in-Reserve string (TICKET-074); undefined/''
    * means "not recorded" and the parent should send rir = -1 to the server.
    */
-  onLogSet: (exerciseId: string, weight: string, reps: string, rir?: string) => void;
+  onLogSet: (exerciseId: string, weight: string, reps: string, rir?: string) => void | Promise<void>;
   /**
    * Called when the user taps a logged LIFT-set chip and saves a correction
    * (e.g. a mistyped weight). `setIndex` is 0-based within the current exercise.
    * Undefined = chips are not editable.
    */
-  onUpdateSet?: (exerciseId: string, setIndex: number, weight: string, reps: string, rir?: string) => void;
+  onUpdateSet?: (exerciseId: string, setIndex: number, weight: string, reps: string, rir?: string) => void | Promise<void>;
   /**
    * Called when user logs a CARDIO set. The parent should build the LogCardioSetPayload.
    * Separated from onLogSet to keep the lift path unchanged (TICKET-080 §2).
@@ -121,7 +150,7 @@ interface Props {
     durationSec: number,
     distanceM?: number,
     avgPaceSecPerKm?: number,
-  ) => void;
+  ) => void | Promise<void>;
   /** Called when user advances to a specific index (Continue or switcher tap) */
   onAdvance: (toIndex: number) => void;
   /** Called when user finishes the last exercise */
@@ -189,6 +218,16 @@ interface Props {
    * as "· wk N" when present and > 0; omitted cleanly when undefined/NaN.
    */
   weekNumber?: number | null;
+  /**
+   * Default rest duration (seconds) for the inline rest-timer ring shown after
+   * a set is logged. Falls back to REST_TIMER_DEFAULT when not provided.
+   */
+  restSeconds?: number | null;
+  /**
+   * Empty-state CTA (option 13): called when the session has zero exercises and
+   * the user taps "Add exercise". Falls back to onBrowseLibrary when undefined.
+   */
+  onAddExercise?: () => void;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -270,6 +309,155 @@ function topSetLabel(sets: LoggedSet[]): string {
   return `${sets.length} set${sets.length !== 1 ? 's' : ''} · top ${best.weight}×${best.reps}`;
 }
 
+// ── Inline rest-timer ring (option 4) ────────────────────────────────────────
+// Small SVG progress ring with a centred mm:ss countdown; whole pill is
+// tap-to-skip. Purely visual/local — the background-safe notification timer is
+// still owned by the parent (WorkoutLoggerHost), so this never double-schedules.
+
+function RestRing({
+  secondsLeft,
+  total,
+  onSkip,
+  onAdd,
+  reducedMotion,
+}: {
+  secondsLeft: number;
+  total: number;
+  onSkip: () => void;
+  onAdd: () => void;
+  reducedMotion: boolean;
+}): React.ReactElement {
+  const size = 44;
+  const stroke = 4;
+  const r = (size - stroke) / 2;
+  const circ = 2 * Math.PI * r;
+  const frac = total > 0 ? Math.max(0, Math.min(1, secondsLeft / total)) : 0;
+  const mm = Math.floor(secondsLeft / 60);
+  const ss = secondsLeft % 60;
+  const label = `${mm}:${String(ss).padStart(2, '0')}`;
+  // Ring drains as the countdown elapses; offset grows as `frac` shrinks.
+  const dashOffset = circ * (1 - frac);
+  return (
+    <Animated.View
+      entering={reducedMotion ? undefined : FadeInDown.duration(180)}
+      style={restRingStyles.wrap}
+    >
+      <TouchableOpacity
+        style={restRingStyles.pill}
+        onPress={onSkip}
+        accessibilityRole="button"
+        accessibilityLabel={`Resting, ${label} left. Tap to skip.`}
+      >
+        <View style={{ width: size, height: size }}>
+          <Svg width={size} height={size}>
+            <Circle
+              cx={size / 2}
+              cy={size / 2}
+              r={r}
+              stroke={stepperPalette.line}
+              strokeWidth={stroke}
+              fill="none"
+            />
+            <Circle
+              cx={size / 2}
+              cy={size / 2}
+              r={r}
+              stroke={stepperPalette.accent}
+              strokeWidth={stroke}
+              fill="none"
+              strokeLinecap="round"
+              strokeDasharray={circ}
+              strokeDashoffset={dashOffset}
+              // Rotate so the ring drains from 12 o'clock.
+              transform={`rotate(-90 ${size / 2} ${size / 2})`}
+            />
+          </Svg>
+          <View style={restRingStyles.center} pointerEvents="none">
+            <Ionicons name="pause" size={14} color={stepperPalette.accent} />
+          </View>
+        </View>
+        <View style={restRingStyles.textCol}>
+          <Text style={restRingStyles.label}>Rest {label}</Text>
+          <Text style={restRingStyles.sub}>tap to skip</Text>
+        </View>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={restRingStyles.addBtn}
+        onPress={onAdd}
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        accessibilityRole="button"
+        accessibilityLabel="Add 30 seconds of rest"
+      >
+        <Text style={restRingStyles.addLabel}>+30s</Text>
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+// ── Big -/+ stepper control (option 2) ───────────────────────────────────────
+
+function StepperControl({
+  label,
+  value,
+  onChangeText,
+  onStep,
+  keyboardType,
+  placeholder,
+  accessibilityLabel,
+  rightAccessory,
+  unitSuffix,
+}: {
+  label: string;
+  value: string;
+  onChangeText: (t: string) => void;
+  onStep: (dir: 1 | -1) => void;
+  keyboardType: 'decimal-pad' | 'number-pad';
+  placeholder: string;
+  accessibilityLabel: string;
+  rightAccessory?: React.ReactNode;
+  unitSuffix?: string | null;
+}): React.ReactElement {
+  return (
+    <View style={styles.inputGroup}>
+      <View style={wuStyles.weightLabelRow}>
+        <Text style={styles.inputLabel}>{label}</Text>
+        {rightAccessory ?? null}
+      </View>
+      <View style={stepperCtl.row}>
+        <TouchableOpacity
+          style={stepperCtl.btn}
+          onPress={() => onStep(-1)}
+          accessibilityRole="button"
+          accessibilityLabel={`Decrease ${accessibilityLabel}`}
+        >
+          <Ionicons name="remove" size={22} color={stepperPalette.text} />
+        </TouchableOpacity>
+        <View style={stepperCtl.fieldWrap}>
+          <TextInput
+            style={stepperCtl.field}
+            value={value}
+            onChangeText={onChangeText}
+            keyboardType={keyboardType}
+            placeholder={placeholder}
+            placeholderTextColor={stepperPalette.muted}
+            selectTextOnFocus
+            accessibilityLabel={accessibilityLabel}
+          />
+          {unitSuffix ? <Text style={stepperCtl.unit}>{unitSuffix}</Text> : null}
+        </View>
+        <TouchableOpacity
+          style={stepperCtl.btn}
+          onPress={() => onStep(1)}
+          accessibilityRole="button"
+          accessibilityLabel={`Increase ${accessibilityLabel}`}
+        >
+          <Ionicons name="add" size={22} color={stepperPalette.text} />
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function StepperLogger({
@@ -296,9 +484,12 @@ export default function StepperLogger({
   unitPref = 'kg',
   onChooseAlternative,
   weekNumber,
+  restSeconds,
+  onAddExercise,
 }: Props): React.ReactElement {
   const { exercises, currentIndex, name: routineName } = routineSession;
   const reducedMotion = useReducedMotion(); // 2026-06-10 aesthetic pass
+  const insets = useSafeAreaInsets();
   const currentEx: RoutineSessionExercise | undefined = exercises[currentIndex];
   const nextEx: RoutineSessionExercise | undefined = exercises[currentIndex + 1];
   const isLast = currentIndex === exercises.length - 1;
@@ -320,6 +511,46 @@ export default function StepperLogger({
   const [cardioDurationMm, setCardioDurationMm] = useState('');
   const [cardioDurationSs, setCardioDurationSs] = useState('');
   const [cardioDistance, setCardioDistance] = useState('');
+
+  // ── Inline rest-timer ring (option 4) ─────────────────────────────────────
+  // Local, visual-only countdown started on each logged set. The background
+  // notification timer remains owned by the parent (no double-scheduling).
+  const restTotal = useMemo(
+    () => (restSeconds != null && restSeconds > 0 ? restSeconds : REST_TIMER_DEFAULT),
+    [restSeconds],
+  );
+  const [restLeft, setRestLeft] = useState<number | null>(null);
+  useEffect(() => {
+    if (restLeft === null) return;
+    if (restLeft <= 0) { setRestLeft(null); return; }
+    const t = setTimeout(() => setRestLeft((s) => (s == null ? null : s - 1)), 1000);
+    return () => clearTimeout(t);
+  }, [restLeft]);
+
+  // ── Log-confirmation micro-animation (option 11) ──────────────────────────
+  // 150ms scale+check on the Log button; reduced-motion users get no scale.
+  const logScale = useSharedValue(1);
+  const logBtnStyle = useAnimatedStyle(() => ({ transform: [{ scale: logScale.value }] }));
+  const [justLoggedTick, setJustLoggedTick] = useState(false);
+  const playLogConfirm = useCallback(() => {
+    if (!reducedMotion) {
+      logScale.value = withSequence(
+        withTiming(0.94, { duration: 75 }),
+        withTiming(1, { duration: 75 }),
+      );
+    }
+    setJustLoggedTick(true);
+    setTimeout(() => setJustLoggedTick(false), 600);
+    haptics?.success?.();
+  }, [reducedMotion, logScale]);
+
+  // ── Save-failure retry toast (option 14) ──────────────────────────────────
+  // onLogSet/onUpdateSet are fire-and-forget in the parent; we can't observe a
+  // throw across that boundary, so the parent reports failures by returning a
+  // rejected promise OR we surface our own optimistic-failure toast when the
+  // local handler itself throws. The retry re-submits the last payload.
+  const lastPayloadRef = useRef<null | { weight: string; reps: string; rir?: string }>(null);
+  const [retryToast, setRetryToast] = useState(false);
 
   // ── Plate calculator + per-exercise warm-up prefs (founder 2026-06-10) ───
   const [plateCalcVisible, setPlateCalcVisible] = useState(false);
@@ -349,6 +580,46 @@ export default function StepperLogger({
     if (id) setExercisePrefs(id, { warmup_enabled: enabled, warmup_sets: sets }).catch(() => {});
   }, [currentEx?.exerciseId]);
 
+  // ── Per-exercise goal (WIDGET-002, founder 2026-06-11): one weight x reps
+  // target. Reloaded after every logged set (currentExerciseSets.length dep)
+  // so the achieved state appears as soon as WorkoutLoggerHost marks it.
+  const [goal, setGoal] = useState<ExerciseGoal | null>(null);
+  const [goalEditing, setGoalEditing] = useState(false);
+  const [goalWeight, setGoalWeight] = useState('');
+  const [goalReps, setGoalReps] = useState('');
+  useEffect(() => {
+    const id = currentEx?.exerciseId;
+    setGoalEditing(false);
+    if (!id) { setGoal(null); return; }
+    let cancelled = false;
+    getExerciseGoal(id)
+      .then((g) => { if (!cancelled) setGoal(g); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [currentEx?.exerciseId, currentExerciseSets.length]);
+
+  const handleSaveGoal = useCallback(() => {
+    const id = currentEx?.exerciseId;
+    const wDisp = parseFloat(goalWeight);
+    const r = parseInt(goalReps, 10);
+    if (!id || !Number.isFinite(wDisp) || wDisp <= 0 || !Number.isInteger(r) || r <= 0) return;
+    // Goals store kg (sets.weight_kg convention) — convert the display-unit input.
+    const wKg = displayToKg(wDisp, unitPref);
+    setGoalEditing(false);
+    setExerciseGoal(id, wKg, r, currentEx?.name ?? null)
+      .then(() => getExerciseGoal(id))
+      .then((g) => setGoal(g))
+      .catch(() => {});
+  }, [currentEx?.exerciseId, currentEx?.name, goalWeight, goalReps, unitPref]);
+
+  const handleRemoveGoal = useCallback(() => {
+    const id = currentEx?.exerciseId;
+    if (!id) return;
+    setGoalEditing(false);
+    setGoal(null);
+    clearExerciseGoal(id).catch(() => {});
+  }, [currentEx?.exerciseId]);
+
   const [switcherVisible, setSwitcherVisible] = useState(false);
   const [offRoutinePrompt, setOffRoutinePrompt] = useState<OffRoutinePrompt | null>(null);
   const [promptPlacement, setPromptPlacement] = useState<OffRoutinePlacement>('after_current');
@@ -369,11 +640,74 @@ export default function StepperLogger({
   const isOffRoutine =
     routineSession.source === 'routine' && (currentEx?.exerciseId ?? '') === '';
 
-  // Progress dots (max 7 shown)
-  const dotsToShow = Math.min(exercises.length, 7);
+  // Progress dots (max 6 shown) — for >6 exercises we use the slim progress bar.
+  const dotsToShow = Math.min(exercises.length, 6);
+  const useProgressBar = exercises.length > 6;
   const progressDots = useMemo(
     () => Array.from({ length: dotsToShow }, (_, i) => i <= currentIndex),
     [dotsToShow, currentIndex],
+  );
+  const progressFrac = exercises.length > 0 ? (currentIndex + 1) / exercises.length : 0;
+
+  // Slim animated progress bar (option 7) — determinate current/total.
+  const barWidth = useSharedValue(progressFrac);
+  useEffect(() => {
+    barWidth.value = reducedMotion ? progressFrac : withTiming(progressFrac, { duration: 260 });
+  }, [progressFrac, reducedMotion, barWidth]);
+  const barStyle = useAnimatedStyle(() => ({ width: `${Math.max(0, Math.min(1, barWidth.value)) * 100}%` }));
+
+  // ── Last-session ghost (option 5) — "last: 80 × 5" with one-tap copy. ──────
+  const unitLabel = unitPref === 'lbs' ? 'lb' : 'kg';
+  const ghostLast = useMemo(() => {
+    if (isCardio || !lastTopSetDisplay) return null;
+    const w = lastTopSetDisplay.weight;
+    return { weightStr: kgToInputValue(displayToKg(w, unitPref), unitPref), reps: lastTopSetDisplay.reps, w };
+  }, [isCardio, lastTopSetDisplay, unitPref]);
+  const copyLastSet = useCallback(() => {
+    if (!ghostLast) return;
+    setWeight(ghostLast.weightStr);
+    setReps(String(ghostLast.reps));
+    haptics?.light?.();
+  }, [ghostLast]);
+
+  // ── Big-stepper increment/decrement (option 2) ────────────────────────────
+  const stepWeight = useCallback((dir: 1 | -1) => {
+    const step = unitPref === 'lbs' ? WEIGHT_STEP_LB : WEIGHT_STEP_KG;
+    const cur = parseFloat(weight);
+    const base = Number.isFinite(cur) ? cur : 0;
+    const next = Math.max(0, Math.round((base + dir * step) * 100) / 100);
+    setWeight(next === 0 && dir < 0 ? '' : String(next));
+    haptics?.light?.();
+  }, [weight, unitPref]);
+  const stepReps = useCallback((dir: 1 | -1) => {
+    const cur = parseInt(reps, 10);
+    const base = Number.isFinite(cur) ? cur : 0;
+    const next = Math.max(0, base + dir * REPS_STEP);
+    setReps(next === 0 ? '' : String(next));
+    haptics?.light?.();
+  }, [reps]);
+
+  // ── Swipe between exercises (option 8) — keeps the existing buttons. ───────
+  const swipeResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_evt, g) =>
+          Math.abs(g.dx) > 24 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
+        onPanResponderRelease: (_evt, g) => {
+          if (g.dx <= -48 && currentIndex < exercises.length - 1) {
+            setEditingIndex(null);
+            setWeight('');
+            setReps('');
+            onAdvance(currentIndex + 1);
+          } else if (g.dx >= 48 && currentIndex > 0) {
+            setEditingIndex(null);
+            setWeight('');
+            setReps('');
+            onAdvance(currentIndex - 1);
+          }
+        },
+      }),
+    [currentIndex, exercises.length, onAdvance],
   );
 
   // ── Handlers ─────────────────────────────────────────────────────────────
@@ -397,34 +731,60 @@ export default function StepperLogger({
       const distanceM = cardioDistance.trim() ? distanceToMetres(cardioDistance, unitPref) ?? undefined : undefined;
       const avgPace = durationSec > 0 && distanceM ? paceFromDurationAndDistance(durationSec, distanceM) : undefined;
       if (onLogCardioSet) {
-        onLogCardioSet(currentEx?.exerciseId ?? '', durationSec, distanceM, avgPace);
+        Promise.resolve(
+          onLogCardioSet(currentEx?.exerciseId ?? '', durationSec, distanceM, avgPace) as unknown,
+        ).catch(() => setRetryToast(true));
       }
       setCardioDurationMm('');
       setCardioDurationSs('');
       setCardioDistance('');
+      playLogConfirm();
+      setRestLeft(restTotal);
     } else {
       // Lift path
       if (!weight.trim() && !reps.trim()) return;
+      const w = weight.trim();
+      const r = reps.trim();
+      const rr = rir.trim() || undefined;
       if (editingIndex != null) {
         // Saving a correction to an already-logged set (e.g. a mistyped weight).
-        onUpdateSet?.(currentEx?.exerciseId ?? '', editingIndex, weight.trim(), reps.trim(), rir.trim() || undefined);
+        Promise.resolve(
+          onUpdateSet?.(currentEx?.exerciseId ?? '', editingIndex, w, r, rr) as unknown,
+        ).catch(() => setRetryToast(true));
         setEditingIndex(null);
         setWeight('');
         setReps('');
         setRir('');
+        playLogConfirm();
         return; // an edit must not trigger the off-routine prompt
       }
-      onLogSet(currentEx?.exerciseId ?? '', weight.trim(), reps.trim(), rir.trim() || undefined);
+      lastPayloadRef.current = { weight: w, reps: r, rir: rr };
+      setRetryToast(false);
+      Promise.resolve(
+        onLogSet(currentEx?.exerciseId ?? '', w, r, rr) as unknown,
+      ).catch(() => setRetryToast(true));
       setReps('');
       setRir('');
       // Keep weight pre-filled for the next set.
+      playLogConfirm();
+      setRestLeft(restTotal);
     }
     afterLogSet();
   }, [
     isCardio, cardioDurationMm, cardioDurationSs, cardioDistance, unitPref,
     onLogCardioSet, currentEx, weight, reps, rir, onLogSet, afterLogSet,
-    editingIndex, onUpdateSet,
+    editingIndex, onUpdateSet, playLogConfirm, restTotal,
   ]);
+
+  // Retry the last failed lift save (option 14).
+  const handleRetrySave = useCallback(() => {
+    const p = lastPayloadRef.current;
+    if (!p) { setRetryToast(false); return; }
+    setRetryToast(false);
+    Promise.resolve(
+      onLogSet(currentEx?.exerciseId ?? '', p.weight, p.reps, p.rir) as unknown,
+    ).catch(() => setRetryToast(true));
+  }, [onLogSet, currentEx]);
 
   // Tap a logged lift-set chip to pull it back up into the inputs for correction.
   const handleEditChip = useCallback((index: number) => {
@@ -488,7 +848,43 @@ export default function StepperLogger({
     setReps('');
   }, [activeSug, onAcceptSuggestion, onFinish]);
 
-  if (!currentEx) return <View style={styles.root} />;
+  // ── Empty state (option 13): session has no exercises yet. ─────────────────
+  if (!currentEx || exercises.length === 0) {
+    return (
+      <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
+        <View style={styles.header}>
+          <TouchableOpacity
+            onPress={onClose}
+            style={styles.closeBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Close stepper"
+          >
+            <Ionicons name="chevron-down" size={20} color={stepperPalette.muted} />
+          </TouchableOpacity>
+          <Text style={styles.routineName} numberOfLines={1}>
+            {isFreeLike ? 'Free session' : routineName}
+          </Text>
+        </View>
+        <View style={styles.emptyState}>
+          <View style={styles.emptyIcon}>
+            <Ionicons name="barbell-outline" size={32} color={stepperPalette.accent} />
+          </View>
+          <Text style={styles.emptyTitle}>No exercises yet</Text>
+          <Text style={styles.emptySub}>
+            Add your first exercise to start logging sets for this session.
+          </Text>
+          <TouchableOpacity
+            style={styles.emptyCta}
+            onPress={onAddExercise ?? onBrowseLibrary}
+            accessibilityRole="button"
+            accessibilityLabel="Add exercise"
+          >
+            <Text style={styles.emptyCtaLabel}>＋ Add exercise</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   const kicker = isFreeLike
     ? `EXERCISE ${currentIndex + 1} · NO ROUTINE`
@@ -499,10 +895,12 @@ export default function StepperLogger({
   const showInterstitial = variant === 'smart' && showSuggest;
 
   return (
+    <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
     <KeyboardAvoidingView
-      style={styles.root}
+      style={styles.flex}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
+      {...swipeResponder.panHandlers}
     >
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <View style={styles.header}>
@@ -529,11 +927,17 @@ export default function StepperLogger({
             <Text style={styles.routineName} numberOfLines={1}>
               {routineName}{weekNumber != null && !isNaN(weekNumber) && weekNumber > 0 ? ` · wk ${weekNumber}` : ''}
             </Text>
-            <View style={styles.dotsRow}>
-              {progressDots.map((done, i) => (
-                <View key={i} style={[styles.dot, done && styles.dotDone]} />
-              ))}
-            </View>
+            {useProgressBar ? (
+              <View style={styles.progressBarTrack} accessible accessibilityLabel={`Exercise ${currentIndex + 1} of ${exercises.length}`}>
+                <Animated.View style={[styles.progressBarFill, barStyle]} />
+              </View>
+            ) : (
+              <View style={styles.dotsRow}>
+                {progressDots.map((done, i) => (
+                  <View key={i} style={[styles.dot, done && styles.dotDone]} />
+                ))}
+              </View>
+            )}
             <Text style={styles.progressLabel}>
               {currentIndex + 1} / {exercises.length}
             </Text>
@@ -632,6 +1036,95 @@ export default function StepperLogger({
                   <Text style={wuStyles.lastSessionText}>Last session: {lastSessionLabel}</Text>
                 ) : null}
               </View>
+            )}
+
+            {/* ── Per-exercise goal (WIDGET-002): single weight x reps target.
+                Tap to edit; shows the trophy state once a logged set meets both
+                targets. Hidden for cardio and off-routine placeholder slots. */}
+            {!isCardio && (currentEx.exerciseId ?? '') !== '' && (
+              goalEditing ? (
+                <View style={goalStyles.card}>
+                  <Text style={goalStyles.title}>GOAL — WEIGHT × REPS</Text>
+                  <View style={goalStyles.editRow}>
+                    <TextInput
+                      style={goalStyles.input}
+                      value={goalWeight}
+                      onChangeText={setGoalWeight}
+                      keyboardType="decimal-pad"
+                      placeholder="weight"
+                      placeholderTextColor={stepperPalette.muted}
+                      accessibilityLabel="Goal weight"
+                    />
+                    <Text style={goalStyles.times}>×</Text>
+                    <TextInput
+                      style={goalStyles.input}
+                      value={goalReps}
+                      onChangeText={setGoalReps}
+                      keyboardType="number-pad"
+                      placeholder="reps"
+                      placeholderTextColor={stepperPalette.muted}
+                      accessibilityLabel="Goal reps"
+                    />
+                    <TouchableOpacity
+                      onPress={handleSaveGoal}
+                      accessibilityRole="button"
+                      accessibilityLabel="Save goal"
+                    >
+                      <Text style={goalStyles.saveLabel}>Save</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={goalStyles.editActions}>
+                    {goal ? (
+                      <TouchableOpacity
+                        onPress={handleRemoveGoal}
+                        accessibilityRole="button"
+                        accessibilityLabel="Remove goal"
+                      >
+                        <Text style={goalStyles.removeLabel}>Remove goal</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                    <TouchableOpacity
+                      onPress={() => setGoalEditing(false)}
+                      accessibilityRole="button"
+                      accessibilityLabel="Cancel goal editing"
+                    >
+                      <Text style={goalStyles.cancelLabel}>Cancel</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : goal ? (
+                <TouchableOpacity
+                  style={goalStyles.row}
+                  onPress={() => {
+                    // Prefill the edit field in DISPLAY units (stable round-trip).
+                    setGoalWeight(kgToInputValue(goal.target_weight_kg, unitPref));
+                    setGoalReps(String(goal.target_reps));
+                    setGoalEditing(true);
+                  }}
+                  accessibilityRole="button"
+                  accessibilityLabel={
+                    goal.achieved_at
+                      ? `Goal achieved: ${kgToInputValue(goal.target_weight_kg, unitPref)} ${unitLabel} for ${goal.target_reps} reps. Tap to set a new goal.`
+                      : `Goal: ${kgToInputValue(goal.target_weight_kg, unitPref)} ${unitLabel} for ${goal.target_reps} reps. Tap to edit.`
+                  }
+                >
+                  <Text style={goal.achieved_at ? goalStyles.achievedText : goalStyles.rowText}>
+                    {goal.achieved_at
+                      ? `🏆 Goal achieved — ${kgToInputValue(goal.target_weight_kg, unitPref)} ${unitLabel} × ${goal.target_reps}`
+                      : `🎯 Goal ${kgToInputValue(goal.target_weight_kg, unitPref)} ${unitLabel} × ${goal.target_reps}`}
+                  </Text>
+                  <Text style={goalStyles.editLabel}>{goal.achieved_at ? 'set new' : 'edit'}</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  onPress={() => { setGoalWeight(''); setGoalReps(''); setGoalEditing(true); }}
+                  style={wuStyles.enableLink}
+                  accessibilityRole="button"
+                  accessibilityLabel="Set a weight and rep goal for this exercise"
+                >
+                  <Text style={wuStyles.enableLabel}>＋ Goal (optional)</Text>
+                </TouchableOpacity>
+              )
             )}
 
             {/* ── Warm-up ramp (founder 2026-06-10): per-exercise opt-in; weights/
@@ -773,63 +1266,88 @@ export default function StepperLogger({
                 </View>
               </>
             ) : (
-              /* ── Lift inputs: Weight / Reps (+ optional RIR, tucked) ─────── */
+              /* ── Lift inputs: large set readout + steppers (+ optional RIR) ── */
               <>
-                <View style={styles.inputRow}>
-                  <View style={styles.inputGroup}>
-                    <View style={wuStyles.weightLabelRow}>
-                      <Text style={styles.inputLabel}>WEIGHT</Text>
-                      <TouchableOpacity
-                        onPress={() => setPlateCalcVisible(true)}
-                        accessibilityRole="button"
-                        accessibilityLabel="Open plate and load calculator"
-                      >
-                        <Text style={wuStyles.plateLink}>plates / machine</Text>
-                      </TouchableOpacity>
-                    </View>
-                    <TextInput
-                      style={styles.input}
-                      value={weight}
-                      onChangeText={setWeight}
-                      keyboardType="decimal-pad"
-                      placeholder={isBodyweightExercise(currentEx?.name) ? 'Your bodyweight' : '—'}
-                      placeholderTextColor={stepperPalette.muted}
-                      selectTextOnFocus
-                      accessibilityLabel="Weight"
-                    />
-                  </View>
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>REPS</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={reps}
-                      onChangeText={setReps}
-                      keyboardType="number-pad"
-                      placeholder="—"
-                      placeholderTextColor={stepperPalette.muted}
-                      selectTextOnFocus
-                      accessibilityLabel="Reps"
-                    />
-                  </View>
-                  {showRir && (
-                    <View style={styles.rirGroup}>
-                      <Text style={styles.inputLabel}>RIR</Text>
-                      <TextInput
-                        style={styles.input}
-                        value={rir}
-                        onChangeText={setRir}
-                        keyboardType="number-pad"
-                        placeholder="–"
-                        placeholderTextColor={stepperPalette.muted}
-                        selectTextOnFocus
-                        accessibilityLabel="Reps in reserve (optional)"
-                      />
-                    </View>
+                {/* Large tabular working weight × reps (option 3) */}
+                <View style={styles.bigReadoutRow}>
+                  <Text style={styles.bigReadout} numberOfLines={1} adjustsFontSizeToFit>
+                    {weight.trim() || '—'}
+                    <Text style={styles.bigReadoutUnit}> {unitLabel} </Text>
+                    <Text style={styles.bigReadoutTimes}>×</Text>
+                    {' '}{reps.trim() || '—'}
+                  </Text>
+                </View>
+
+                {/* Last-session ghost + one-tap copy (option 5) */}
+                <View style={styles.ghostRow}>
+                  {ghostLast ? (
+                    <TouchableOpacity
+                      onPress={copyLastSet}
+                      style={styles.ghostBtn}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Copy last session ${ghostLast.weightStr} ${unitLabel} for ${ghostLast.reps} reps`}
+                    >
+                      <Text style={styles.ghostText}>
+                        last: {ghostLast.weightStr} {unitLabel} × {ghostLast.reps}
+                      </Text>
+                      <Ionicons name="copy-outline" size={13} color={stepperPalette.muted} />
+                    </TouchableOpacity>
+                  ) : (
+                    <Text style={styles.ghostTextEmpty}>last: —</Text>
                   )}
                 </View>
 
+                <View style={styles.inputRow}>
+                  <StepperControl
+                    label="WEIGHT"
+                    value={weight}
+                    onChangeText={setWeight}
+                    onStep={stepWeight}
+                    keyboardType="decimal-pad"
+                    placeholder={isBodyweightExercise(currentEx?.name) ? 'BW' : '—'}
+                    accessibilityLabel="Weight"
+                    unitSuffix={unitLabel}
+                    rightAccessory={
+                      <TouchableOpacity
+                        onPress={() => setPlateCalcVisible(true)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        accessibilityRole="button"
+                        accessibilityLabel="Open plate and load calculator"
+                      >
+                        <Ionicons name="calculator-outline" size={16} color={stepperPalette.accent} />
+                      </TouchableOpacity>
+                    }
+                  />
+                  <StepperControl
+                    label="REPS"
+                    value={reps}
+                    onChangeText={setReps}
+                    onStep={stepReps}
+                    keyboardType="number-pad"
+                    placeholder="—"
+                    accessibilityLabel="Reps"
+                  />
+                </View>
+
                 {showRir ? (
-                  <Text style={styles.rirHint}>RIR optional · 0 = to failure</Text>
+                  <>
+                    <View style={styles.inputRow}>
+                      <View style={styles.rirGroup}>
+                        <Text style={styles.inputLabel}>RIR</Text>
+                        <TextInput
+                          style={styles.input}
+                          value={rir}
+                          onChangeText={setRir}
+                          keyboardType="number-pad"
+                          placeholder="–"
+                          placeholderTextColor={stepperPalette.muted}
+                          selectTextOnFocus
+                          accessibilityLabel="Reps in reserve (optional)"
+                        />
+                      </View>
+                    </View>
+                    <Text style={styles.rirHint}>RIR optional · 0 = to failure</Text>
+                  </>
                 ) : (
                   <TouchableOpacity
                     onPress={() => setShowRir(true)}
@@ -855,16 +1373,25 @@ export default function StepperLogger({
               </TouchableOpacity>
             ) : null}
 
-            <TouchableOpacity
-              style={styles.logSetBtn}
-              onPress={handleLogSet}
-              accessibilityRole="button"
-              accessibilityLabel={editingIndex != null ? `Save set ${editingIndex + 1}` : `Log set ${setNumber}`}
-            >
-              <Text style={styles.logSetLabel}>
-                {editingIndex != null ? `Save set ${editingIndex + 1}` : `Log set ${setNumber}`}
-              </Text>
-            </TouchableOpacity>
+            <Animated.View style={logBtnStyle}>
+              <TouchableOpacity
+                style={styles.logSetBtn}
+                onPress={handleLogSet}
+                accessibilityRole="button"
+                accessibilityLabel={editingIndex != null ? `Save set ${editingIndex + 1}` : `Log set ${setNumber}`}
+              >
+                {justLoggedTick ? (
+                  <View style={styles.logSetConfirm}>
+                    <Ionicons name="checkmark" size={18} color={stepperPalette.accentInk} />
+                    <Text style={styles.logSetLabel}>Logged</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.logSetLabel}>
+                    {editingIndex != null ? `Save set ${editingIndex + 1}` : `Log set ${setNumber}`}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </Animated.View>
             {editingIndex != null && (
               <TouchableOpacity
                 onPress={() => { setEditingIndex(null); setWeight(''); setReps(''); setRir(''); }}
@@ -879,8 +1406,47 @@ export default function StepperLogger({
         )}
       </ScrollView>
 
-      {/* ── Bottom action bar — varies by variant / sub-state ──────────────── */}
-      <View style={styles.actionBar}>
+      {/* ── Inline rest-timer ring (option 4) + retry toast (option 14) ─────── */}
+      {(restLeft !== null && restLeft > 0) || retryToast ? (
+        <View style={styles.transientRow}>
+          {restLeft !== null && restLeft > 0 ? (
+            <RestRing
+              secondsLeft={restLeft}
+              total={restTotal}
+              onSkip={() => setRestLeft(null)}
+              onAdd={() => setRestLeft((s) => (s == null ? s : s + 30))}
+              reducedMotion={reducedMotion}
+            />
+          ) : null}
+          {retryToast ? (
+            <Animated.View
+              entering={reducedMotion ? undefined : FadeInDown.duration(180)}
+              style={styles.retryToast}
+            >
+              <Text style={styles.retryToastText} numberOfLines={1}>Couldn&apos;t save</Text>
+              <TouchableOpacity
+                onPress={handleRetrySave}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Retry saving the set"
+              >
+                <Text style={styles.retryToastBtn}>Retry</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setRetryToast(false)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Dismiss"
+              >
+                <Text style={styles.retryToastDismiss}>×</Text>
+              </TouchableOpacity>
+            </Animated.View>
+          ) : null}
+        </View>
+      ) : null}
+
+      {/* ── Bottom action bar — varies by variant / sub-state (sticky, option 12) ── */}
+      <View style={[styles.actionBar, { paddingBottom: Math.max(insets.bottom, spacing.s4) + spacing.s2 }]}>
         {variant === 'free' ? (
           <>
             <TouchableOpacity
@@ -1078,8 +1644,97 @@ export default function StepperLogger({
         onUseWeight={(w) => setWeight(String(w))}
       />
     </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
+
+// ── Goal styles (WIDGET-002) ─────────────────────────────────────────────────
+
+const goalStyles = StyleSheet.create({
+  card: {
+    backgroundColor: stepperPalette.card,
+    borderWidth: 1,
+    borderColor: stepperPalette.line,
+    borderRadius: radius.md,
+    padding: spacing.s3,
+    marginBottom: spacing.s3,
+  },
+  title: {
+    color: stepperPalette.muted,
+    fontSize: fontSize.micro,
+    fontWeight: '600',
+    letterSpacing: 1,
+    marginBottom: spacing.s2,
+  },
+  editRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s2,
+  },
+  input: {
+    flex: 1,
+    color: stepperPalette.text,
+    fontSize: fontSize.bodyMd,
+    borderWidth: 1,
+    borderColor: stepperPalette.line,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.s2,
+    paddingVertical: spacing.s2,
+    minHeight: 44,
+  },
+  times: {
+    color: stepperPalette.muted,
+    fontSize: fontSize.bodyMd,
+  },
+  saveLabel: {
+    color: stepperPalette.accent,
+    fontSize: fontSize.bodySm,
+    fontWeight: '600',
+    paddingHorizontal: spacing.s2,
+    paddingVertical: spacing.s2,
+  },
+  editActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.s4,
+    marginTop: spacing.s2,
+  },
+  removeLabel: {
+    color: stepperPalette.muted,
+    fontSize: fontSize.caption,
+  },
+  cancelLabel: {
+    color: stepperPalette.muted,
+    fontSize: fontSize.caption,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: stepperPalette.card,
+    borderWidth: 1,
+    borderColor: stepperPalette.line,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.s3,
+    paddingVertical: spacing.s2,
+    marginBottom: spacing.s3,
+    minHeight: 44,
+  },
+  rowText: {
+    color: stepperPalette.text,
+    fontSize: fontSize.bodySm,
+    fontWeight: '600',
+  },
+  achievedText: {
+    color: stepperPalette.accent,
+    fontSize: fontSize.bodySm,
+    fontWeight: '600',
+  },
+  editLabel: {
+    color: stepperPalette.muted,
+    fontSize: fontSize.caption,
+  },
+});
 
 // ── Warm-up / plate-calc styles ──────────────────────────────────────────────
 
@@ -1173,13 +1828,158 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: stepperPalette.bg,
   },
+  flex: {
+    flex: 1,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: spacing.s4,
-    paddingTop: spacing.s4,
+    paddingTop: spacing.s3,
     paddingBottom: spacing.s3,
     gap: spacing.s3,
+  },
+  progressBarTrack: {
+    flex: 1,
+    height: 4,
+    borderRadius: radius.full,
+    backgroundColor: stepperPalette.line,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: 4,
+    borderRadius: radius.full,
+    backgroundColor: stepperPalette.accent,
+  },
+  // Empty state (option 13)
+  emptyState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: spacing.s6,
+    gap: spacing.s3,
+  },
+  emptyIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: radius.full,
+    backgroundColor: stepperPalette.accentSurface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.s2,
+  },
+  emptyTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSize.heading3,
+    color: stepperPalette.text,
+  },
+  emptySub: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSize.bodySm,
+    color: stepperPalette.muted,
+    textAlign: 'center',
+    marginBottom: spacing.s3,
+  },
+  emptyCta: {
+    backgroundColor: stepperPalette.accent,
+    borderRadius: radius.md,
+    paddingVertical: spacing.s3,
+    paddingHorizontal: spacing.s6,
+    minHeight: 48,
+    justifyContent: 'center',
+  },
+  emptyCtaLabel: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSize.bodySm,
+    color: stepperPalette.accentInk,
+  },
+  // Large tabular set readout (option 3)
+  bigReadoutRow: {
+    alignItems: 'center',
+    marginBottom: spacing.s1,
+  },
+  bigReadout: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSize.display,
+    color: stepperPalette.text,
+    fontVariant: ['tabular-nums'],
+    textAlign: 'center',
+  },
+  bigReadoutUnit: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: fontSize.heading3,
+    color: stepperPalette.muted,
+  },
+  bigReadoutTimes: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSize.heading2,
+    color: stepperPalette.muted,
+  },
+  // Last-session ghost (option 5)
+  ghostRow: {
+    alignItems: 'center',
+    marginBottom: spacing.s3,
+    minHeight: 28,
+  },
+  ghostBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s2,
+    paddingVertical: spacing.s1,
+    paddingHorizontal: spacing.s2,
+  },
+  ghostText: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSize.bodySm,
+    color: stepperPalette.muted,
+    opacity: 0.85,
+    fontVariant: ['tabular-nums'],
+  },
+  ghostTextEmpty: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSize.bodySm,
+    color: stepperPalette.muted,
+    opacity: 0.5,
+  },
+  // Transient row above the action bar (rest ring + retry toast)
+  transientRow: {
+    paddingHorizontal: spacing.s4,
+    paddingBottom: spacing.s2,
+    gap: spacing.s2,
+  },
+  retryToast: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s3,
+    backgroundColor: stepperPalette.card,
+    borderWidth: 1,
+    borderColor: stepperPalette.line,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.s3,
+    paddingVertical: spacing.s2,
+    minHeight: 44,
+  },
+  retryToastText: {
+    flex: 1,
+    fontFamily: fontFamily.semiBold,
+    fontSize: fontSize.bodySm,
+    color: stepperPalette.text,
+  },
+  retryToastBtn: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSize.bodySm,
+    color: stepperPalette.accent,
+  },
+  retryToastDismiss: {
+    fontFamily: fontFamily.regular,
+    fontSize: 20,
+    lineHeight: 22,
+    color: stepperPalette.muted,
+  },
+  logSetConfirm: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s2,
   },
   closeBtn: {
     padding: spacing.s1,
@@ -1625,5 +2425,104 @@ const chipStyles = StyleSheet.create({
   },
   labelEditing: {
     color: stepperPalette.accentInk,
+  },
+});
+
+// ── Inline rest-timer ring styles (option 4) ─────────────────────────────────
+
+const restRingStyles = StyleSheet.create({
+  wrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s3,
+    backgroundColor: stepperPalette.card,
+    borderWidth: 1,
+    borderColor: stepperPalette.accentLine,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.s3,
+    paddingVertical: spacing.s2,
+    minHeight: 56,
+  },
+  pill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s3,
+  },
+  center: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  textCol: {
+    justifyContent: 'center',
+  },
+  label: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSize.bodySm,
+    color: stepperPalette.text,
+    fontVariant: ['tabular-nums'],
+  },
+  sub: {
+    fontFamily: fontFamily.regular,
+    fontSize: fontSize.micro,
+    color: stepperPalette.muted,
+  },
+  addBtn: {
+    paddingHorizontal: spacing.s2,
+    paddingVertical: spacing.s1,
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  addLabel: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSize.bodySm,
+    color: stepperPalette.accent,
+  },
+});
+
+// ── Big -/+ stepper control styles (option 2) ────────────────────────────────
+
+const stepperCtl = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s2,
+  },
+  btn: {
+    width: 56,
+    height: 56,
+    borderRadius: radius.md,
+    backgroundColor: stepperPalette.card,
+    borderWidth: 1,
+    borderColor: stepperPalette.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fieldWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: stepperPalette.frame,
+    borderWidth: 1,
+    borderColor: stepperPalette.line,
+    borderRadius: radius.md,
+    minHeight: 56,
+    paddingHorizontal: spacing.s2,
+  },
+  field: {
+    flex: 1,
+    fontFamily: fontFamily.bold,
+    fontSize: 22,
+    color: stepperPalette.text,
+    textAlign: 'center',
+    padding: 0,
+  },
+  unit: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: fontSize.bodySm,
+    color: stepperPalette.muted,
+    paddingRight: spacing.s1,
   },
 });

@@ -12,9 +12,8 @@ import {
   Pressable,
   ScrollView,
   Dimensions,
-  SafeAreaView,
-  Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../src/theme/ThemeContext';
 
@@ -75,7 +74,7 @@ export default function IntroScreen(): React.ReactElement {
   const isLast = step === SLIDES.length - 1;
 
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: colors.bgPrimary }]}>
+    <SafeAreaView style={[styles.root, { backgroundColor: colors.bgPrimary }]} edges={['top', 'bottom']}>
       {/* Progress dots */}
       <View style={styles.dotsRow}>
         {SLIDES.map((_, i) => (
@@ -235,7 +234,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingTop: Platform.OS === 'android' ? 16 : 8,
+    // SafeAreaView (edges top) clears the status bar; this is just breathing room.
+    paddingTop: 8,
     paddingBottom: 8,
     gap: 6,
   },
@@ -266,7 +266,8 @@ const styles = StyleSheet.create({
     lineHeight: 28,
   },
   footer: {
-    paddingBottom: Platform.OS === 'android' ? 24 : 16,
+    // SafeAreaView (edges bottom) clears the home indicator; this is breathing room.
+    paddingBottom: 16,
   },
   primaryButton: {
     width: '100%',

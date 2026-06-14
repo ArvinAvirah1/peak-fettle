@@ -17,6 +17,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { setActiveGroupIds } from '../data/groupSignals'; // 094-A weekly-signal registry
 import {
   getGroups,
   getCreditBalance,
@@ -93,6 +94,8 @@ export function useGroups(): UseGroupsResult {
         getCreditBalance(),
       ]);
       setGroups(groupsData);
+      // 094-A: register group ids so the workout-save path can fire weekly signals.
+      try { setActiveGroupIds(groupsData.map((g) => g.id)); } catch { /* non-fatal */ }
       setCreditBalance(balanceData);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Failed to load groups';

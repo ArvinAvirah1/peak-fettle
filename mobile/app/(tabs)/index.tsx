@@ -42,6 +42,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../src/hooks/useAuth';
 import { useWorkout } from '../../src/hooks/useWorkout';
 import { useWorkoutHistory } from '../../src/hooks/useWorkoutHistory';
+import { useLocalStreak } from '../../src/hooks/useStreak';
 import { SyncStatusIndicator } from '../../src/components/SyncStatusIndicator';
 import { formatWeight } from '../../src/constants/units';
 import { formatWorkoutLabel, toDateKey } from '../../src/utils/dateHelpers';
@@ -329,12 +330,31 @@ function StatCard({ label, value }: { label: string; value: string }): React.Rea
 export default function HomeScreen(): React.ReactElement {
   const router = useRouter();
   const { user } = useAuth();
-  const { sets: todaySets, isLoading: todayLoading } = useWorkout();
-  const { history, streak, isLoading: historyLoading, refetch } = useWorkoutHistory();
+  const { sets: todaySets, isLoading: todayLoadingRaw } = useWorkout();
+  const { history, streak: historyStreak, isLoading: historyLoadingRaw, refetch } = useWorkoutHistory();
   const { theme, fontSize, fontWeight, radius, spacing: sp } = useTheme();
   const loggerRef = useRef<WorkoutLoggerRef>(null);
 
   const unitPref = user?.unit_pref ?? 'kg';
+
+  // ── Workstream B (SPEC-094A): hang-proof loading ──────────────────────────
+  // Free/local-first users have no PowerSync/server to wait on. If a local read
+  // ever stalls, the section loaders below must still resolve to data OR an
+  // empty/error state — never an infinite ActivityIndicator. We arm a one-shot
+  // deadline (~1s) after which any still-pending loader is treated as resolved,
+  // so the empty state renders instead of a forever-spinner.
+  const LOAD_DEADLINE_MS = 1000;
+  const [loadTimedOut, setLoadTimedOut] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setLoadTimedOut(true), LOAD_DEADLINE_MS);
+    return () => clearTimeout(t);
+  }, []);
+  const todayLoading = todayLoadingRaw && !loadTimedOut;
+  const historyLoading = historyLoadingRaw && !loadTimedOut;
+
+  // STREAK reads from on-device data for local-first users (never blocks on the
+  // server); Pro keeps the server-derived value from useWorkoutHistory.
+  const { streak } = useLocalStreak(historyStreak, historyLoadingRaw);
 
   // Today's stats
   const todayKey = toDateKey(new Date());
@@ -1049,9 +1069,38 @@ export default function HomeScreen(): React.ReactElement {
       {historyLoading ? (
         <ActivityIndicator color={theme.colors.textTertiary} style={styles.historyLoader} />
       ) : recentDays.length === 0 ? (
-        <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.textTertiary, textAlign: 'center', marginTop: 12 }}>
-          No workouts in the last 7 days
-        </Text>
+        // SPEC-094A: a true first-run (no history at all) gets a CTA empty state;
+        // an established user with a recent gap keeps the lighter "last 7 days"
+        // copy. Either way this is a resolved state — never a spinner.
+        history.length === 0 ? (
+          <View style={[styles.emptyActivity, {
+            backgroundColor: theme.colors.bgSecondary,
+            borderColor: theme.colors.borderDefault,
+            borderRadius: radius.lg,
+          }]}>
+            <Text style={{ fontSize: fontSize.bodyMd, color: theme.colors.textSecondary, textAlign: 'center' }}>
+              No sessions yet — start your first workout.
+            </Text>
+            <TouchableOpacity
+              style={[styles.ctaButton, {
+                backgroundColor: theme.colors.accentDefault,
+                borderRadius: radius.md,
+              }]}
+              onPress={() => loggerRef.current?.startWorkout()}
+              activeOpacity={0.75}
+              accessibilityRole="button"
+              accessibilityLabel="Start your first workout"
+            >
+              <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold }}>
+                Start workout →
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.textTertiary, textAlign: 'center', marginTop: 12 }}>
+            No workouts in the last 7 days
+          </Text>
+        )
       ) : (
         <View style={styles.historyList}>
           {recentDays.map((entry) => {
@@ -1250,6 +1299,14 @@ const styles = StyleSheet.create({
   // History
   historyLoader: {
     marginTop: 20,
+  },
+  // SPEC-094A: first-run "no sessions yet" empty state for Recent Activity
+  emptyActivity: {
+    borderWidth: 1,
+    padding: 16,
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 4,
   },
   historyList: {
     gap: 8,

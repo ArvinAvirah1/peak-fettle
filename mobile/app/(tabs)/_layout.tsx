@@ -23,6 +23,7 @@
 import React from 'react';
 import { TouchableOpacity } from 'react-native';
 import { Redirect, Tabs, useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '../../src/components/Icon';
 import Animated, {
   useAnimatedStyle,
@@ -31,6 +32,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useAuth } from '../../src/hooks/useAuth';
 import { useTheme } from '../../src/theme/ThemeContext';
+import { useAutoBackup } from '../../src/hooks/useAutoBackup';
 
 // ---------------------------------------------------------------------------
 // AnimatedTabIcon — scale spring on focus, per spec §7 (P1-012)
@@ -69,6 +71,8 @@ export default function TabsLayout(): React.ReactElement {
   const { theme, fontWeight } = useTheme();
   const { colors } = theme;
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+  useAutoBackup();
 
   // Don't render anything while the cold-start auth check is running —
   // the root layout is already showing a spinner.
@@ -89,7 +93,11 @@ export default function TabsLayout(): React.ReactElement {
         tabBarActiveTintColor: colors.accentDefault,
         tabBarInactiveTintColor: colors.textTertiary,
         tabBarStyle: {
-          height: 56,
+          // Add the bottom safe-area inset so icons aren't squashed on
+          // home-indicator iPhones (and gesture-nav Android). The 56pt fixed
+          // height is the content area; insets.bottom is reserved by the OS.
+          height: 56 + insets.bottom,
+          paddingBottom: insets.bottom,
           backgroundColor: colors.bgSecondary,
           borderTopColor: colors.borderDefault,
           borderTopWidth: 1,

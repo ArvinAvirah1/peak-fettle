@@ -1,0 +1,696 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Peak Fettle — Scheduling redesign options</title>
+<style>
+:root{--ink:#16202E;--ink2:#52617A;--ink3:#8B97AC;--line:#E2E7EF;--bg:#F7F9FC;--card:#FFFFFF;--teal:#0E9E76;--tealbg:#E3F6EF;--warn:#B4541B;--warnbg:#FBEFE6;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;line-height:1.6}
+.wrap{max-width:1000px;margin:0 auto;padding:48px 28px 80px}
+h1{font-size:30px;font-weight:600;margin:0 0 6px}
+.lede{color:var(--ink2);font-size:17px;max-width:680px;margin:0 0 8px}
+.meta{color:var(--ink3);font-size:13px;margin-bottom:36px}
+.legend{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:var(--ink2);margin-bottom:40px;padding:14px 18px;background:var(--card);border:1px solid var(--line);border-radius:12px}
+.legend b{color:var(--ink)}
+.opt{display:grid;grid-template-columns:300px 1fr;gap:28px;align-items:start;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px;margin-bottom:24px}
+.opt-figs{display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;justify-content:center}
+.optnum{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:var(--tealbg);color:var(--teal);font-weight:600;font-size:14px;flex:0 0 30px}
+.opt-head{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.opt-head h2{font-size:20px;font-weight:600;margin:0}
+.tag{font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;letter-spacing:.3px}
+.tag-p0{background:#FBE6E6;color:#B42323}.tag-p1{background:#FBEFE6;color:#B4541B}.tag-p2{background:#EAF1FB;color:#2D5B9E}.tag-add{background:#E3F6EF;color:#0E9E76}
+.opt p{margin:0 0 10px;font-size:15px;color:var(--ink)}
+.opt .why{color:var(--ink2);font-size:14px}
+.kv{font-size:13px;color:var(--ink3);margin-top:8px}
+.kv b{color:var(--ink2);font-weight:600}
+.figcap{font-size:11px;color:var(--ink3);text-align:center;margin-top:6px;text-transform:uppercase;letter-spacing:.6px}
+.ph{width:200px;background:#0A0F1A;border:5px solid #1C2433;border-radius:26px;overflow:hidden;font-size:12px}
+.ph-sb{height:24px;display:flex;align-items:center;justify-content:space-between;padding:7px 14px 0;font-size:10px;color:#E6EAF2;font-weight:500}
+.ph-hd{display:flex;align-items:center;gap:7px;padding:9px 12px;border-bottom:.5px solid #1C2433}
+.ph-hd .t{color:#E6EAF2;font-size:12px;font-weight:500;flex:1}
+.ph-bd{padding:11px 12px 14px;min-height:150px}
+.mut{color:#7C8699}.tealtx{color:#16C79A}.white{color:#E6EAF2}
+.card{background:#111A2B;border:.5px solid #1F2A3D;border-radius:10px;padding:9px 11px;margin-bottom:8px}
+.cap{color:#6B7486;font-size:9px;letter-spacing:1px;font-weight:600;margin:0 0 6px}
+.pill{display:inline-block;background:#0F3D33;color:#3FE0B5;font-size:9px;font-weight:500;padding:2px 8px;border-radius:14px}
+.cta{background:#16C79A;color:#04221B;text-align:center;font-weight:600;font-size:13px;padding:10px;border-radius:10px}
+.cta2{border:.5px solid #2A3850;color:#C5CCDA;text-align:center;font-weight:500;font-size:12px;padding:9px;border-radius:9px}
+.cta.dis{background:#15241F;color:#4E7A6C}
+.chip{display:inline-block;background:#111A2B;border:.5px solid #1F2A3D;color:#C5CCDA;font-size:10px;padding:5px 9px;border-radius:8px;margin:0 4px 4px 0}
+.chip.on{border-color:#16C79A;color:#3FE0B5}
+.seg{display:flex;background:#0F1726;border:.5px solid #1F2A3D;border-radius:9px;padding:3px;gap:3px}.seg>div{flex:1;text-align:center;font-size:11px;padding:6px;border-radius:7px;color:#7C8699;font-weight:500}.seg>div.on{background:#16C79A;color:#04221B}
+.days{display:flex;gap:4px;justify-content:space-between}.days>div{width:24px;height:24px;border-radius:50%;border:.5px solid #2A3850;color:#7C8699;font-size:10px;display:flex;align-items:center;justify-content:center}.days>div.on{background:#16C79A;color:#04221B;border-color:#16C79A}
+.rowcard{background:#111A2B;border:.5px solid #1F2A3D;border-radius:10px;padding:8px 11px;margin-bottom:7px;display:flex;justify-content:space-between;align-items:center}
+.spin{width:26px;height:26px;border-radius:50%;border:3px solid #1F2A3D;border-top-color:#16C79A;margin:40px auto}
+.dialog{background:#1A2336;border:.5px solid #2A3850;border-radius:11px;padding:13px;color:#E6EAF2;font-size:11px}
+.errtx{color:#E89AA6;font-size:10px}
+</style></head><body><div class="wrap">
+
+<h1>Schedule builder redesign — 14 options</h1>
+<p class="lede">This is the "Create schedule" sheet from your bug report — its header rendered under the status bar and the body spun forever (the localDb deadlock, now fixed). Beyond the fix, these 14 options make it a real schedule builder. Each is independent.</p>
+<p class="meta">Peak Fettle · UI decision doc · 2026-06-12 · surface 3 of 3 (Scheduling)</p>
+<div class="legend"><span><b>Tags:</b></span><span><span class="tag tag-p0">P0</span> fixes a broken/blocking issue</span><span><span class="tag tag-p1">P1</span> fixes a real defect</span><span><span class="tag tag-p2">P2</span> UX quality</span><span><span class="tag tag-add">NEW</span> additive feature</span></div>
+
+<!-- ── Option 1: Safe-area header ── -->
+<div class="opt">
+  <div class="opt-figs">
+    <!-- BEFORE -->
+    <div>
+      <div class="ph" style="position:relative;">
+        <!-- status bar overlapping header — no safe area offset -->
+        <div style="background:#0A0F1A;height:44px;display:flex;align-items:flex-end;justify-content:space-between;padding:0 14px 6px;font-size:10px;color:#E6EAF2;font-weight:500;">
+          <span>9:41</span><span>&#9679;&#9679;&#9679;</span>
+        </div>
+        <!-- header rendered at y=0, clock overlaps it -->
+        <div style="display:flex;align-items:center;gap:7px;padding:6px 12px;border-bottom:.5px solid #1C2433;background:#0E1622;position:relative;top:-24px;margin-bottom:-24px;">
+          <span class="mut" style="font-size:13px;">✕</span>
+          <span class="white" style="font-size:12px;font-weight:500;flex:1;">Create schedule</span>
+          <span class="tealtx" style="font-size:12px;font-weight:600;">Save</span>
+        </div>
+        <div class="ph-bd">
+          <div class="card">
+            <div class="cap">SCHEDULE NAME</div>
+            <div class="mut" style="font-size:11px;">e.g. Push / Pull / Legs</div>
+          </div>
+          <div class="card" style="margin-top:6px;">
+            <div class="cap">FREQUENCY</div>
+            <div class="seg"><div class="on">Day of week</div><div>Repeating cycle</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">Before — header under status bar</div>
+    </div>
+    <!-- AFTER -->
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+        <div class="ph-hd">
+          <span class="mut" style="font-size:13px;">✕</span>
+          <span class="t">Create schedule</span>
+          <span class="tealtx" style="font-size:12px;font-weight:600;">Save</span>
+        </div>
+        <div class="ph-bd">
+          <div class="card">
+            <div class="cap">SCHEDULE NAME</div>
+            <div class="mut" style="font-size:11px;">e.g. Push / Pull / Legs</div>
+          </div>
+          <div class="card" style="margin-top:6px;">
+            <div class="cap">FREQUENCY</div>
+            <div class="seg"><div class="on">Day of week</div><div>Repeating cycle</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">After — safe area respected</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">1</span><h2>Safe-area header</h2><span class="tag tag-p1">P1</span></div>
+    <p>The sheet header (✕ · "Create schedule" · Save) renders behind the iOS status bar and Dynamic Island. On iPhone 14 Pro and later the close button and title are completely obscured.</p>
+    <p class="why"><b>The problem:</b> <code>ScheduleEditorSheet</code> opens inside a bottom sheet that does not propagate <code>SafeAreaView</code> insets to its internal header — the modal container starts at y=0 of the screen, so the header rows sit directly under the status bar.&nbsp; <b>The change:</b> Wrap the sheet header row with <code>SafeAreaView edges={['top']}</code> (or apply the top inset value via <code>useSafeAreaInsets()</code> as a <code>paddingTop</code> on the header container). No layout changes needed below the header.</p>
+    <p class="kv"><b>Addresses:</b> schedule-editor-header-under-status-bar &nbsp;·&nbsp; <b>Effort:</b> S (1–2 lines) &nbsp;·&nbsp; <b>Risk:</b> Low</p>
+  </div>
+</div>
+
+<!-- ── Option 2: Kill the infinite spinner ── -->
+<div class="opt">
+  <div class="opt-figs">
+    <!-- BEFORE -->
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+        <div class="ph-hd">
+          <span class="mut" style="font-size:13px;">✕</span>
+          <span class="t">Create schedule</span>
+          <span class="tealtx" style="font-size:12px;font-weight:600;">Save</span>
+        </div>
+        <div class="ph-bd" style="display:flex;align-items:center;justify-content:center;min-height:180px;">
+          <div>
+            <div class="spin"></div>
+            <div class="mut" style="font-size:10px;text-align:center;margin-top:8px;">Loading…</div>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">Before — infinite spinner</div>
+    </div>
+    <!-- AFTER -->
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+        <div class="ph-hd">
+          <span class="mut" style="font-size:13px;">✕</span>
+          <span class="t">Create schedule</span>
+          <span class="tealtx" style="font-size:12px;font-weight:600;">Save</span>
+        </div>
+        <div class="ph-bd">
+          <div class="card">
+            <div class="cap">SCHEDULE NAME</div>
+            <div style="background:#0F1726;border:.5px solid #1F2A3D;border-radius:7px;padding:7px 9px;color:#E6EAF2;font-size:11px;">Summer push / pull</div>
+          </div>
+          <div class="card" style="margin-top:6px;">
+            <div class="cap">FREQUENCY</div>
+            <div class="seg"><div class="on">Day of week</div><div>Repeating cycle</div></div>
+          </div>
+          <div class="card" style="margin-top:6px;">
+            <div class="cap">ACTIVE DAYS</div>
+            <div class="days"><div>S</div><div class="on">M</div><div class="on">T</div><div>W</div><div class="on">T</div><div class="on">F</div><div>S</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">After — content loads immediately</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">2</span><h2>Kill the infinite spinner</h2><span class="tag tag-p0">P0</span></div>
+    <p>Opening the schedule editor produces a spinner that never resolves. The sheet body remains blank indefinitely — the form is completely unusable.</p>
+    <p class="why"><b>The problem:</b> The sheet's <code>useEffect</code> calls <code>localDb.getSchedules()</code> on mount. That call acquires an exclusive write lock on the SQLite connection. A concurrent migration check (triggered by the same mount cycle) holds an identical lock, so both tasks wait on each other — a classic self-deadlock. Neither the read nor the migration ever completes, and the loading state never resolves.&nbsp; <b>The change:</b> Serialise migration and query startup through a single boot promise so the migration always finishes before query hooks are allowed to run. The fix is already merged to <code>localDb.ts</code>; this option tracks the UI-side confirmation that the spinner is gone.</p>
+    <p class="kv"><b>Addresses:</b> localdb-migration-snapshot-deadlock &nbsp;·&nbsp; <b>Effort:</b> S (fix already in localDb.ts) &nbsp;·&nbsp; <b>Risk:</b> Low</p>
+  </div>
+</div>
+
+<!-- ── Option 3: Segmented control with thumb ── -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+        <div class="ph-hd">
+          <span class="mut" style="font-size:13px;">✕</span>
+          <span class="t">Create schedule</span>
+          <span class="tealtx" style="font-size:12px;font-weight:600;">Save</span>
+        </div>
+        <div class="ph-bd">
+          <div class="cap">FREQUENCY TYPE</div>
+          <div class="seg" style="margin-bottom:10px;"><div class="on">Day of week</div><div>Repeating cycle</div></div>
+          <div class="card">
+            <div class="cap">DESCRIPTION</div>
+            <div class="mut" style="font-size:10px;">Train on the same days each week — e.g. Mon / Wed / Fri.</div>
+          </div>
+          <div class="card" style="margin-top:6px;">
+            <div class="cap">ACTIVE DAYS</div>
+            <div class="days"><div>S</div><div class="on">M</div><div>W</div><div class="on">T</div><div class="on">F</div><div>S</div><div>S</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">After — iOS-style segment</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">3</span><h2>Segmented control with animated thumb</h2><span class="tag tag-p2">P2</span></div>
+    <p>The "Day of week / Repeating cycle" toggle is rendered as two plain tappable text labels with no visual distinction between selected and unselected states. There is no animated transition, making it hard to confirm a selection happened.</p>
+    <p class="why"><b>The problem:</b> The current implementation uses two sibling <code>Pressable</code> elements with inline style changes on press — no shared background, no thumb animation, and hit targets that depend on font size.&nbsp; <b>The change:</b> Replace with a properly styled segmented control: a pill-shaped outer track, a sliding white/teal thumb that animates between segments via <code>Animated.spring</code>, and each segment label rendered at a fixed height with a comfortable tap target. When "Repeating cycle" is selected the day-of-week picker fades out and the cycle stepper (option 5) fades in.</p>
+    <p class="kv"><b>Addresses:</b> schedule-editor-segmented-control &nbsp;·&nbsp; <b>Effort:</b> S &nbsp;·&nbsp; <b>Risk:</b> Low</p>
+  </div>
+</div>
+
+<!-- ── Option 4: Day-of-week chips ── -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+        <div class="ph-hd">
+          <span class="mut" style="font-size:13px;">✕</span>
+          <span class="t">Create schedule</span>
+          <span class="tealtx" style="font-size:12px;font-weight:600;">Save</span>
+        </div>
+        <div class="ph-bd">
+          <div class="cap">ACTIVE DAYS</div>
+          <div class="days" style="margin-bottom:12px;">
+            <div>S</div><div class="on">M</div><div class="on">T</div><div>W</div><div class="on">T</div><div class="on">F</div><div>S</div>
+          </div>
+          <div class="mut" style="font-size:10px;margin-bottom:10px;">4 days selected · tap to toggle</div>
+          <div class="card">
+            <div class="cap">SELECTED</div>
+            <span class="chip on">Mon</span><span class="chip on">Tue</span><span class="chip on">Thu</span><span class="chip on">Fri</span>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">After — round day chips</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">4</span><h2>Day-of-week chips</h2><span class="tag tag-p2">P2</span></div>
+    <p>The existing day-of-week picker uses small text labels in a horizontal list. Tap targets are too narrow for one-handed use, and there is no feedback summary showing which days are currently active.</p>
+    <p class="why"><b>The problem:</b> Each day label is a <code>Text</code> with a <code>Pressable</code> wrapper sized to the character width — approximately 16px — well under Apple's 44pt minimum recommended touch target. On small screens adjacent days are easy to mis-tap.&nbsp; <b>The change:</b> Replace with 7 circular chips, each 36×36dp, that toggle on tap with a teal fill animation. Below the chips show a live summary count ("4 days selected") and a row of selected-day name chips. The circular layout matches the calendar metaphor users already know from native iOS.</p>
+    <p class="kv"><b>Addresses:</b> schedule-editor-day-tap-targets &nbsp;·&nbsp; <b>Effort:</b> S &nbsp;·&nbsp; <b>Risk:</b> Low</p>
+  </div>
+</div>
+
+<!-- ── Option 5: Repeating-cycle stepper ── -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+        <div class="ph-hd">
+          <span class="mut" style="font-size:13px;">✕</span>
+          <span class="t">Create schedule</span>
+          <span class="tealtx" style="font-size:12px;font-weight:600;">Save</span>
+        </div>
+        <div class="ph-bd">
+          <div class="seg" style="margin-bottom:10px;"><div>Day of week</div><div class="on">Repeating cycle</div></div>
+          <div class="card">
+            <div class="cap">TRAIN DAYS</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+              <div style="background:#0F1726;border:.5px solid #2A3850;border-radius:8px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;color:#E6EAF2;font-size:16px;">−</div>
+              <span class="white" style="font-size:18px;font-weight:600;">3</span>
+              <div style="background:#0F1726;border:.5px solid #2A3850;border-radius:8px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;color:#E6EAF2;font-size:16px;">+</div>
+            </div>
+          </div>
+          <div class="card" style="margin-top:6px;">
+            <div class="cap">REST DAYS</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+              <div style="background:#0F1726;border:.5px solid #2A3850;border-radius:8px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;color:#E6EAF2;font-size:16px;">−</div>
+              <span class="white" style="font-size:18px;font-weight:600;">1</span>
+              <div style="background:#0F1726;border:.5px solid #2A3850;border-radius:8px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;color:#E6EAF2;font-size:16px;">+</div>
+            </div>
+          </div>
+          <div class="card" style="margin-top:6px;">
+            <div class="cap">CYCLE PREVIEW</div>
+            <div style="font-size:10px;color:#6B7486;">Train · Train · Train · <span style="color:#E89AA6;">Rest</span> · Train · Train · Train · <span style="color:#E89AA6;">Rest</span> · …</div>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">After — cycle stepper</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">5</span><h2>Repeating-cycle stepper</h2><span class="tag tag-add">NEW</span></div>
+    <p>When "Repeating cycle" is selected in the frequency toggle, there is currently no control to configure the cycle length. The mode exists in the data model but has no usable UI.</p>
+    <p class="why"><b>The problem:</b> The repeating cycle path in <code>ScheduleEditorSheet</code> renders an empty container — the mode is effectively dead in the UI even though the schema supports it.&nbsp; <b>The change:</b> Show two steppers: "Train days" (1–7) and "Rest days" (1–4), defaulting to 3 train / 1 rest. Below the steppers render a text-based cycle preview ("Train · Train · Train · Rest · …") so the user sees the pattern before saving. The cycle is stored as <code>{trainDays: number, restDays: number}</code> on the schedule record.</p>
+    <p class="kv"><b>Addresses:</b> repeating-cycle-no-ui &nbsp;·&nbsp; <b>Effort:</b> M &nbsp;·&nbsp; <b>Risk:</b> Low</p>
+  </div>
+</div>
+
+<!-- ── Option 6: Routine-per-slot picker ── -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+        <div class="ph-hd">
+          <span class="mut" style="font-size:13px;">✕</span>
+          <span class="t">Create schedule</span>
+          <span class="tealtx" style="font-size:12px;font-weight:600;">Save</span>
+        </div>
+        <div class="ph-bd">
+          <div class="cap">ASSIGN ROUTINES</div>
+          <div class="rowcard">
+            <span class="white" style="font-size:11px;">Mon</span>
+            <span class="chip on">Upper body</span>
+          </div>
+          <div class="rowcard">
+            <span class="white" style="font-size:11px;">Tue</span>
+            <span class="chip on">Lower body</span>
+          </div>
+          <div class="rowcard">
+            <span class="white" style="font-size:11px;">Thu</span>
+            <span class="chip on">Push</span>
+          </div>
+          <div class="rowcard">
+            <span class="white" style="font-size:11px;">Fri</span>
+            <span class="chip" style="color:#E89AA6;border-color:#4A2A2A;">Rest</span>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">After — routine per day slot</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">6</span><h2>Routine-per-slot picker</h2><span class="tag tag-add">NEW</span></div>
+    <p>The schedule builder lets you choose which days to train, but there is no way to say what to train on each day. A "Mon / Wed / Fri" schedule is meaningless without specifying the workout for each slot.</p>
+    <p class="why"><b>The problem:</b> Schedule records store selected days but have no <code>routine_id</code> field per slot. The user has to mentally cross-reference their schedule with their routine list every session.&nbsp; <b>The change:</b> After days are selected, show an "Assign routines" section — one row per active day. Each row has the day name and a picker chip that opens a bottom sheet of the user's saved routines. "Rest" is always available as a first-class option (rendered in a muted red chip). This requires a <code>schedule_slots</code> join table (<code>schedule_id</code>, <code>day_index</code>, <code>routine_id</code> nullable).</p>
+    <p class="kv"><b>Addresses:</b> schedule-no-routine-assignment &nbsp;·&nbsp; <b>Effort:</b> M &nbsp;·&nbsp; <b>Risk:</b> Med (schema change)</p>
+  </div>
+</div>
+
+<!-- ── Option 7: Live 2-week preview ── -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+        <div class="ph-hd">
+          <span class="mut" style="font-size:13px;">✕</span>
+          <span class="t">Create schedule</span>
+          <span class="tealtx" style="font-size:12px;font-weight:600;">Save</span>
+        </div>
+        <div class="ph-bd">
+          <div class="cap">ACTIVE DAYS</div>
+          <div class="days" style="margin-bottom:10px;">
+            <div>S</div><div class="on">M</div><div class="on">T</div><div>W</div><div class="on">T</div><div class="on">F</div><div>S</div>
+          </div>
+          <div class="card">
+            <div class="cap">NEXT 2 WEEKS</div>
+            <!-- week 1 -->
+            <div style="font-size:9px;color:#6B7486;margin-bottom:4px;">Week 1</div>
+            <div class="days" style="margin-bottom:6px;">
+              <div>S</div><div class="on">M</div><div class="on">T</div><div>W</div><div class="on">T</div><div class="on">F</div><div>S</div>
+            </div>
+            <!-- week 2 -->
+            <div style="font-size:9px;color:#6B7486;margin-bottom:4px;">Week 2</div>
+            <div class="days">
+              <div>S</div><div class="on">M</div><div class="on">T</div><div>W</div><div class="on">T</div><div class="on">F</div><div>S</div>
+            </div>
+          </div>
+          <div class="mut" style="font-size:10px;margin-top:8px;">8 sessions in the next 14 days</div>
+        </div>
+      </div>
+      <div class="figcap">After — 2-week preview</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">7</span><h2>Live 2-week preview</h2><span class="tag tag-add">NEW</span></div>
+    <p>There is no preview of what a schedule will look like in practice. The user has to save and navigate to the calendar before they can see the pattern they have built.</p>
+    <p class="why"><b>The problem:</b> The editor is a pure input form with no output feedback. Users cannot see if their selected days result in back-to-back training days or awkward gaps until after saving.&nbsp; <b>The change:</b> Below the day picker render a live 2-week mini-grid that redraws as days are toggled. Each training day is filled teal; rest days are muted. A summary line ("8 sessions in the next 14 days") gives an at-a-glance volume check. For repeating cycle mode the preview projects the cycle forward from today. Pure derived state — no network calls.</p>
+    <p class="kv"><b>Addresses:</b> schedule-no-preview &nbsp;·&nbsp; <b>Effort:</b> M &nbsp;·&nbsp; <b>Risk:</b> Low</p>
+  </div>
+</div>
+
+<!-- ── Option 8: Sticky Save ── -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+        <div class="ph-hd">
+          <span class="mut" style="font-size:13px;">✕</span>
+          <span class="t">Create schedule</span>
+          <span style="color:#4E7A6C;font-size:12px;font-weight:600;">Save</span>
+        </div>
+        <div class="ph-bd">
+          <div class="card" style="margin-bottom:8px;">
+            <div class="cap">SCHEDULE NAME</div>
+            <div class="mut" style="font-size:11px;">Name is required</div>
+          </div>
+          <div class="card">
+            <div class="cap">ACTIVE DAYS</div>
+            <div class="days">
+              <div>S</div><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div>
+            </div>
+          </div>
+        </div>
+        <!-- sticky save bar at bottom of phone -->
+        <div style="padding:8px 12px 10px;border-top:.5px solid #1C2433;background:#0E1622;">
+          <div class="cta dis" style="margin-bottom:6px;">Save schedule</div>
+          <div class="errtx" style="text-align:center;">Name required · pick at least 1 day</div>
+        </div>
+      </div>
+      <div class="figcap">After — sticky save + reason</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">8</span><h2>Sticky Save with validation reason</h2><span class="tag tag-p2">P2</span></div>
+    <p>The Save button lives in the navigation header and is trivially easy to miss. When the form is invalid Save is grayed out but there is no explanation of what is missing, leaving the user stuck.</p>
+    <p class="why"><b>The problem:</b> A header-bar Save is common in older iOS patterns but performs poorly on large phones — it is physically far from the content and hard to reach one-handed. The silent disabled state gives users no recovery path.&nbsp; <b>The change:</b> Add a sticky footer bar that pins to the bottom safe area (above the home indicator). The bar contains a full-width primary CTA ("Save schedule") that is disabled (muted teal) when the form is invalid, with a short comma-separated reason line below it ("Name required · pick at least 1 day"). The header Save remains as a secondary shortcut for familiarity. On valid forms the CTA becomes fully teal.</p>
+    <p class="kv"><b>Addresses:</b> schedule-editor-save-discoverability &nbsp;·&nbsp; <b>Effort:</b> S &nbsp;·&nbsp; <b>Risk:</b> Low</p>
+  </div>
+</div>
+
+<!-- ── Option 9: Time-of-day + reminder ── -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+        <div class="ph-hd">
+          <span class="mut" style="font-size:13px;">✕</span>
+          <span class="t">Create schedule</span>
+          <span class="tealtx" style="font-size:12px;font-weight:600;">Save</span>
+        </div>
+        <div class="ph-bd">
+          <div class="rowcard" style="margin-bottom:7px;">
+            <span class="white" style="font-size:11px;">Workout time</span>
+            <span class="tealtx" style="font-size:12px;font-weight:600;">6:30 AM</span>
+          </div>
+          <div class="rowcard">
+            <div>
+              <div class="white" style="font-size:11px;">Reminder</div>
+              <div class="mut" style="font-size:9px;">15 min before · Mon Tue Thu Fri</div>
+            </div>
+            <div style="width:34px;height:20px;background:#16C79A;border-radius:10px;position:relative;">
+              <div style="width:16px;height:16px;background:#fff;border-radius:50%;position:absolute;right:2px;top:2px;"></div>
+            </div>
+          </div>
+          <div class="card" style="margin-top:8px;">
+            <div class="cap">NEXT REMINDER</div>
+            <div class="white" style="font-size:10px;">Mon 16 Jun · 6:15 AM</div>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">After — time + reminder toggle</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">9</span><h2>Time-of-day and push reminder</h2><span class="tag tag-add">NEW</span></div>
+    <p>Schedules have no concept of time. There is no way to set when you plan to train, and no push notification reminder tied to the schedule. Users rely on calendar alerts outside the app.</p>
+    <p class="why"><b>The problem:</b> A schedule without a time is an intention without a trigger. The absence of in-app reminders is a primary reason users abandon habit loops within the first two weeks.&nbsp; <b>The change:</b> Add an optional "Workout time" row (tapping opens a wheel time picker, stored on the schedule record). Below it add a "Reminder" toggle (off by default). When toggled on, the user is prompted for notification permission and a <code>15 min before</code> local notification is scheduled for each active training day using <code>expo-notifications</code>. A "Next reminder" preview row updates live. The offset (15 min) is hardcoded in v1; a stepper for offset can follow in a later iteration.</p>
+    <p class="kv"><b>Addresses:</b> schedule-no-reminder &nbsp;·&nbsp; <b>Effort:</b> M &nbsp;·&nbsp; <b>Risk:</b> Med (notification permissions flow)</p>
+  </div>
+</div>
+
+<!-- ── Option 10: Confirm-on-dismiss ── -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+        <div class="ph-hd">
+          <span class="mut" style="font-size:13px;">✕</span>
+          <span class="t">Create schedule</span>
+          <span style="color:#4E7A6C;font-size:12px;font-weight:600;">Save</span>
+        </div>
+        <div class="ph-bd" style="position:relative;">
+          <!-- dimmed background -->
+          <div style="position:absolute;inset:0;background:rgba(0,0,0,.55);border-radius:4px;display:flex;align-items:center;justify-content:center;padding:16px;">
+            <div class="dialog">
+              <div style="font-size:13px;font-weight:600;margin-bottom:6px;">Discard changes?</div>
+              <div style="color:#8B97AC;font-size:11px;margin-bottom:12px;">Your edits to this schedule will be lost.</div>
+              <div style="display:flex;gap:8px;">
+                <div class="cta2" style="flex:1;padding:7px;">Keep editing</div>
+                <div style="flex:1;background:#3A1A1A;border:.5px solid #6B2A2A;color:#E89AA6;text-align:center;font-size:11px;font-weight:600;padding:7px;border-radius:8px;">Discard</div>
+              </div>
+            </div>
+          </div>
+          <!-- content behind -->
+          <div class="card" style="opacity:.3;">
+            <div class="cap">SCHEDULE NAME</div>
+            <div style="font-size:11px;color:#E6EAF2;">Summer push / pull</div>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">After — discard confirmation</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">10</span><h2>Confirm-on-dismiss</h2><span class="tag tag-p2">P2</span></div>
+    <p>Tapping ✕ (or swiping down on the sheet) immediately dismisses the editor and silently discards any unsaved changes. There is no warning or recovery path.</p>
+    <p class="why"><b>The problem:</b> The bottom sheet uses <code>onDismiss</code> with no guard. Even after the user has typed a name, selected days, and assigned routines, a stray downward swipe destroys all input without feedback.&nbsp; <b>The change:</b> Track a <code>isDirty</code> boolean (set to true as soon as any field changes from its initial value). If <code>isDirty</code> is true when ✕ is pressed or the sheet is dragged to dismiss, intercept the gesture and show a modal action sheet ("Discard changes? / Keep editing · Discard"). Only "Discard" proceeds with dismissal. If the form is untouched, dismiss immediately as before — no friction for a clean exit.</p>
+    <p class="kv"><b>Addresses:</b> schedule-editor-silent-discard &nbsp;·&nbsp; <b>Effort:</b> S &nbsp;·&nbsp; <b>Risk:</b> Low</p>
+  </div>
+</div>
+
+<!-- ── Option 11: Slide-in motion ── -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+        <!-- partial sheet sliding up from bottom — illustrate with offset -->
+        <div style="position:relative;min-height:240px;background:#0A0F1A;">
+          <!-- content behind (plans screen) -->
+          <div style="padding:10px 12px;opacity:.5;">
+            <div class="cap">MY SCHEDULES</div>
+            <div class="rowcard"><span class="white" style="font-size:10px;">Push / Pull / Legs</span><span class="pill">Active</span></div>
+            <div class="rowcard"><span class="white" style="font-size:10px;">5-day upper lower</span><span class="mut" style="font-size:9px;">Draft</span></div>
+          </div>
+          <!-- sheet sliding up, partially visible at bottom -->
+          <div style="position:absolute;bottom:0;left:0;right:0;background:#0E1622;border-top-left-radius:16px;border-top-right-radius:16px;border-top:.5px solid #1C2433;padding:10px 12px;">
+            <div style="width:36px;height:3px;background:#2A3850;border-radius:2px;margin:0 auto 8px;"></div>
+            <div style="display:flex;align-items:center;gap:7px;padding-bottom:8px;border-bottom:.5px solid #1C2433;">
+              <span class="mut" style="font-size:13px;">✕</span>
+              <span class="white" style="font-size:12px;font-weight:500;flex:1;">Create schedule</span>
+              <span class="tealtx" style="font-size:12px;font-weight:600;">Save</span>
+            </div>
+            <div style="font-size:10px;color:#6B7486;padding-top:8px;">Slide up to expand…</div>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">After — slide-in with spatial context</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">11</span><h2>Slide-in sheet motion</h2><span class="tag tag-p2">P2</span></div>
+    <p>The schedule editor sheet appears instantly — it cuts onto screen with no entrance transition. The content origin is ambiguous: is it a new screen, a modal, or a panel layered over the current page?</p>
+    <p class="why"><b>The problem:</b> The sheet uses the default <code>BottomSheetModal</code> with <code>animateOnMount={false}</code> (set to avoid a jank at open time). This eliminates the animation that communicates the spatial relationship between the trigger and the editor.&nbsp; <b>The change:</b> Re-enable <code>animateOnMount</code> and configure a spring-based entrance: the sheet slides up from below the trigger point and fades in simultaneously (<code>opacity: 0→1</code>, <code>translateY: 60→0</code>, spring tension 120 / friction 20). The underlying plans screen scales down very slightly (0.97→1.0) to reinforce depth. Closing reverses the animation. Total duration ≈ 220ms — fast enough to feel snappy, slow enough to convey origin.</p>
+    <p class="kv"><b>Addresses:</b> schedule-editor-no-entrance-animation &nbsp;·&nbsp; <b>Effort:</b> S &nbsp;·&nbsp; <b>Risk:</b> Low</p>
+  </div>
+</div>
+
+<!-- ── Option 12: First-time explainer ── -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+        <div class="ph-hd">
+          <span class="mut" style="font-size:13px;">✕</span>
+          <span class="t">Create schedule</span>
+          <span class="tealtx" style="font-size:12px;font-weight:600;">Save</span>
+        </div>
+        <div class="ph-bd">
+          <!-- explainer banner -->
+          <div style="background:#0F2A22;border:.5px solid #1A4A36;border-radius:9px;padding:9px 11px;margin-bottom:10px;display:flex;gap:8px;align-items:flex-start;">
+            <span style="font-size:14px;">📅</span>
+            <div>
+              <div style="color:#3FE0B5;font-size:10px;font-weight:600;margin-bottom:2px;">What is a schedule?</div>
+              <div style="color:#6BBFA8;font-size:10px;line-height:1.4;">A schedule maps your routines to days of the week. Peak Fettle uses it to prompt today's workout automatically.</div>
+            </div>
+          </div>
+          <div class="card">
+            <div class="cap">SCHEDULE NAME</div>
+            <div class="mut" style="font-size:11px;">e.g. Push / Pull / Legs</div>
+          </div>
+          <div class="card" style="margin-top:6px;">
+            <div class="cap">ACTIVE DAYS</div>
+            <div class="days">
+              <div>S</div><div class="on">M</div><div>T</div><div class="on">W</div><div>T</div><div class="on">F</div><div>S</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">After — first-open explainer</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">12</span><h2>First-time explainer banner</h2><span class="tag tag-add">NEW</span></div>
+    <p>New users who navigate to the schedule editor do not know what a "schedule" is in Peak Fettle's model or how it differs from a routine or a plan. The editor opens directly onto an empty form with no context.</p>
+    <p class="why"><b>The problem:</b> The term "schedule" overlaps with several related concepts (plan, program, routine) in fitness-app vocabulary. Without explanation, new users frequently create a schedule with no routines assigned (see option 6) or mistake it for a one-off workout entry.&nbsp; <b>The change:</b> On the very first open (tracked via <code>AsyncStorage</code> key <code>seen_schedule_explainer</code>), render a teal-tinted info banner at the top of the sheet body: a calendar emoji, a bolded "What is a schedule?" heading, and a single plain-English sentence explaining the concept. A small ✕ on the banner dismisses it permanently. Shown once — never again after the user acknowledges it.</p>
+    <p class="kv"><b>Addresses:</b> schedule-editor-no-onboarding-context &nbsp;·&nbsp; <b>Effort:</b> S &nbsp;·&nbsp; <b>Risk:</b> Low</p>
+  </div>
+</div>
+
+<!-- ── Option 13: Inline validation ── -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+        <div class="ph-hd">
+          <span class="mut" style="font-size:13px;">✕</span>
+          <span class="t">Create schedule</span>
+          <span style="color:#4E7A6C;font-size:12px;font-weight:600;">Save</span>
+        </div>
+        <div class="ph-bd">
+          <div class="card" style="margin-bottom:8px;">
+            <div class="cap">SCHEDULE NAME</div>
+            <div style="background:#0F1726;border:.5px solid #6B2A2A;border-radius:7px;padding:7px 9px;color:#E6EAF2;font-size:11px;margin-bottom:4px;"></div>
+            <div class="errtx">Schedule name is required</div>
+          </div>
+          <div class="card">
+            <div class="cap">ACTIVE DAYS</div>
+            <div class="days" style="margin-bottom:6px;">
+              <div>S</div><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div>
+            </div>
+            <div class="errtx">Pick at least one training day</div>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">After — inline error messages</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">13</span><h2>Inline validation messages</h2><span class="tag tag-p2">P2</span></div>
+    <p>When the form is invalid, Save is silently disabled. There is no indication of which fields are incomplete or what the user needs to do to unblock the button. The form appears to be frozen.</p>
+    <p class="why"><b>The problem:</b> Validation runs in a <code>useMemo</code> but the result is only used to disable the Save button — the individual field errors are never surfaced.&nbsp; <b>The change:</b> After the first attempted tap on the disabled Save (tracked with a <code>submitAttempted</code> boolean), show inline error messages directly beneath each invalid field: a red border on the text input, and a small <code class="errtx">errtx</code>-styled line underneath ("Schedule name is required" / "Pick at least one training day"). Errors clear as soon as the field becomes valid. This is the standard iOS form validation pattern — users know exactly what to fix without hunting.</p>
+    <p class="kv"><b>Addresses:</b> schedule-editor-silent-validation &nbsp;·&nbsp; <b>Effort:</b> S &nbsp;·&nbsp; <b>Risk:</b> Low</p>
+  </div>
+</div>
+
+<!-- ── Option 14: Local-first persistence ── -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>&#9679;&#9679;&#9679;</span></div>
+        <div class="ph-hd">
+          <span class="mut" style="font-size:13px;">✕</span>
+          <span class="t">Create schedule</span>
+          <span class="tealtx" style="font-size:12px;font-weight:600;">Save</span>
+        </div>
+        <div class="ph-bd">
+          <div class="card" style="margin-bottom:8px;">
+            <div class="cap">SCHEDULE NAME</div>
+            <div style="font-size:11px;color:#E6EAF2;">Summer push / pull</div>
+          </div>
+          <div class="card" style="margin-bottom:8px;">
+            <div class="cap">ACTIVE DAYS</div>
+            <div class="days">
+              <div>S</div><div class="on">M</div><div class="on">T</div><div>W</div><div class="on">T</div><div class="on">F</div><div>S</div>
+            </div>
+          </div>
+          <!-- save confirmation -->
+          <div style="background:#0A2A20;border:.5px solid #1A5A40;border-radius:10px;padding:10px 12px;display:flex;align-items:center;gap:8px;">
+            <span style="font-size:16px;">✓</span>
+            <div>
+              <div style="color:#3FE0B5;font-size:11px;font-weight:600;">Saved on-device</div>
+              <div style="color:#6BBFA8;font-size:10px;margin-top:1px;">Works offline · syncs when signed in</div>
+            </div>
+            <span class="pill" style="margin-left:auto;">Local</span>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">After — local save confirmation</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">14</span><h2>Local-first schedule persistence</h2><span class="tag tag-p1">P1</span></div>
+    <p>Schedules currently save to Supabase only. Unauthenticated (free) users cannot create or persist a schedule at all — the save call fails silently if there is no active session. There is no offline fallback.</p>
+    <p class="why"><b>The problem:</b> The schedule save path calls <code>supabase.from('schedules').upsert()</code> directly. If the user is not signed in — or is signed in but offline — the call fails and the error is swallowed. The schedule is lost. This is especially painful as schedule creation is one of the first things a new user does before they have connected an account.&nbsp; <b>The change:</b> Write schedule records to the local SQLite database first (via <code>localDb</code>) and show a "Saved on-device" confirmation pill immediately. If the user is signed in and online, background-sync the record to Supabase using the existing PowerSync layer and update the pill to "Synced" when the round-trip completes. Free / offline users see "Works offline · syncs when signed in." This aligns with the local-first architecture described in TICKET-094.</p>
+    <p class="kv"><b>Addresses:</b> local-first-schedule-persistence (TICKET-094) &nbsp;·&nbsp; <b>Effort:</b> S–M &nbsp;·&nbsp; <b>Risk:</b> Low (additive write path)</p>
+  </div>
+</div>
+
+<!-- ── Final recommendation ── -->
+<div class="opt" style="grid-template-columns:1fr;border-color:var(--teal);border-width:2px;">
+  <div>
+    <div class="opt-head">
+      <span class="optnum" style="background:#0E9E76;color:#fff;width:auto;border-radius:20px;padding:5px 14px;">Recommendation</span>
+      <h2>What to build and in what order</h2>
+    </div>
+    <p>These 14 options split cleanly into three tiers. Ship the first tier now — it fixes the screenshot bugs you already know about. The second tier turns the editor into something genuinely usable in a single sprint. The third tier is polish and power features you can sequence by feel.</p>
+
+    <p style="margin-top:4px;"><b style="color:var(--ink);">Tier 1 — must ship (fix the screenshot bugs):</b></p>
+    <p class="why" style="margin-bottom:4px;">
+      <b>Option 1</b> (safe-area header) and <b>option 2</b> (kill the spinner) are not optional — they are the two bugs visible in your screenshot. The header is obscured on every modern iPhone; the spinner means the form is literally unusable. Both are one-to-two line fixes. Ship these together in a single commit before anything else.
+    </p>
+
+    <p style="margin-top:12px;"><b style="color:var(--ink);">Tier 2 — usable builder (one sprint, ~3 days):</b></p>
+    <p class="why" style="margin-bottom:4px;">
+      <b>Option 3</b> (segmented control) and <b>option 4</b> (day chips) make the core interaction feel native and correct — low effort, high visible impact. <b>Option 6</b> (routine per slot) is the most meaningful feature addition: a schedule without routine assignment is a list of days, not a training plan. <b>Option 8</b> (sticky Save) fixes discoverability and replaces the silent-disable with a helpful reason. Together these four complete the MVP of the screen.
+    </p>
+
+    <p style="margin-top:12px;"><b style="color:var(--ink);">Tier 3 — polish and power (next two sprints):</b></p>
+    <p class="why">
+      <b>Option 5</b> (repeating cycle stepper) unblocks a mode that is currently dead UI. <b>Option 7</b> (2-week preview) and <b>option 9</b> (time + reminder) are the features most likely to drive daily active use — the preview reduces scheduling mistakes; the reminder closes the intention-action loop that most training apps fail at. <b>Option 10</b> (confirm on dismiss) and <b>option 13</b> (inline validation) are small, low-risk quality closes. <b>Option 11</b> (slide-in motion) and <b>option 12</b> (first-time explainer) are one-day additions with outsized polish returns. <b>Option 14</b> (local-first persistence) is the right architecture call and should be sequenced when the broader TICKET-094 local-first migration lands — it is already the stated direction.
+    </p>
+
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:16px;padding-top:16px;border-top:1px solid var(--line);">
+      <div style="flex:1;min-width:200px;background:var(--tealbg);border:1px solid #b3e6d4;border-radius:10px;padding:14px;">
+        <div style="font-weight:600;color:var(--teal);font-size:13px;margin-bottom:6px;">Tier 1 — now</div>
+        <div style="font-size:13px;color:var(--ink2);">Options 1 · 2</div>
+        <div style="font-size:12px;color:var(--ink3);margin-top:4px;">Both P0/P1 · fixes screenshot bugs · ~1 hour</div>
+      </div>
+      <div style="flex:1;min-width:200px;background:var(--warnbg);border:1px solid #f0c9a8;border-radius:10px;padding:14px;">
+        <div style="font-weight:600;color:var(--warn);font-size:13px;margin-bottom:6px;">Tier 2 — sprint 1</div>
+        <div style="font-size:13px;color:var(--ink2);">Options 3 · 4 · 6 · 8</div>
+        <div style="font-size:12px;color:var(--ink3);margin-top:4px;">P2 + NEW · usable builder · ~3 days</div>
+      </div>
+      <div style="flex:1;min-width:200px;background:#EAF1FB;border:1px solid #b3c9ef;border-radius:10px;padding:14px;">
+        <div style="font-weight:600;color:#2D5B9E;font-size:13px;margin-bottom:6px;">Tier 3 — sprints 2–3</div>
+        <div style="font-size:13px;color:var(--ink2);">Options 5 · 7 · 9 · 10 · 11 · 12 · 13 · 14</div>
+        <div style="font-size:12px;color:var(--ink3);margin-top:4px;">Power + polish · 1–2 sprints</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div></body></html>

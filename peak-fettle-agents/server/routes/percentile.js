@@ -61,6 +61,15 @@ const COHORT_NOTE =
     'Rankings compare you against athletes in your age group, experience tier, ' +
     'and primary discipline. ' + DOTS_NOTE + ' Updated every Sunday night (UTC).';
 
+// SERVER-1 (2026-06-13): a bare new account hits these routes before the
+// "ensure-everything" migration has added the percentile tables/columns. A
+// missing relation (42P01 undefined_table) or column (42703 undefined_column)
+// must degrade to "no rankings yet" — an empty list — not a 500 that surfaces
+// as the Rankings error banner. Anything else is a genuine error → next(err).
+function isMissingSchema(err) {
+    return err && (err.code === '42P01' || err.code === '42703');
+}
+
 // ---------------------------------------------------------------------------
 // GET /percentile
 // Returns all of the calling user's percentile rankings, sorted by lift_id.
@@ -146,7 +155,25 @@ router.get('/', async (req, res, next) => {
             dots_note: DOTS_NOTE,
             wilks_note: WILKS_NOTE,
         });
-    } catch (err) { next(err); }
+    } catch (err) {
+        // SERVER-1: percentile tables/columns not yet provisioned for this
+        // account → 200 with an empty list, not a 500. Same response shape as
+        // the success path (empty rankings array) so the client renders the
+        // normal empty state instead of the error banner.
+        if (isMissingSchema(err)) {
+            console.warn(
+                '[percentile] GET / — missing table/column (%s); returning empty rankings',
+                err.code
+            );
+            return res.json({
+                rankings: [],
+                cohort_note: COHORT_NOTE,
+                dots_note: DOTS_NOTE,
+                wilks_note: WILKS_NOTE,
+            });
+        }
+        next(err);
+    }
 });
 
 // ---------------------------------------------------------------------------
@@ -218,7 +245,24 @@ async function percentileByLift(req, res, next) {
         }
 
         res.json({ ...rows[0], dots_note: DOTS_NOTE, wilks_note: WILKS_NOTE });
-    } catch (err) { next(err); }
+    } catch (err) {
+        // SERVER-1: percentile tables/columns not yet provisioned for this
+        // account. There is by definition no ranking for this lift yet, so
+        // return the existing 404 "no_ranking" empty state rather than a 500.
+        if (isMissingSchema(err)) {
+            console.warn(
+                '[percentile] GET /:liftId — missing table/column (%s); returning no_ranking',
+                err.code
+            );
+            return res.status(404).json({
+                error: 'no_ranking',
+                message: 'No percentile ranking found for this lift. ' +
+                         'Log at least one set with this exercise and ' +
+                         'check back after the next weekly update.',
+            });
+        }
+        next(err);
+    }
 }
 
 // ---------------------------------------------------------------------------
