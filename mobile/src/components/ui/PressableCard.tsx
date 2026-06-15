@@ -2,9 +2,14 @@
  * PressableCard — animated pressable container with card-tap scale feedback.
  * Phase E — E-006: Motion & Haptics
  *
- * Wraps children in a Reanimated Pressable that scales to motion.cardTap.scale
- * (0.97) on press-in and springs back to 1.0 on press-out. Fires a light haptic
- * on each tap. Collapses all animation to identity when Reduce Motion is on.
+ * Wraps children in a Pressable (react-native core) with a Reanimated animated
+ * View wrapper that scales to motion.cardTap.scale (0.97) on press-in and
+ * springs back to 1.0 on press-out. Fires a light haptic on each tap. Collapses
+ * all animation to identity when Reduce Motion is on.
+ *
+ * Intentionally uses react-native Pressable rather than GestureDetector so the
+ * component never requires a GestureHandlerRootView ancestor — any screen can
+ * mount it safely.
  *
  * Usage (replaces TouchableOpacity on interactive cards):
  *   <PressableCard onPress={handlePress} style={cardStyle}>
@@ -15,15 +20,14 @@
  *   <PressableCard onPress={handlePress} haptic={false}>…</PressableCard>
  */
 
-import React from 'react';
-import { StyleProp, ViewStyle } from 'react-native';
+import React, { useCallback } from 'react';
+import { Pressable, StyleProp, ViewStyle } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
   withTiming,
 } from 'react-native-reanimated';
-import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { motion } from '../../theme/tokens';
 import { useReduceMotion } from '../../hooks/useReduceMotion';
 import { haptics } from '../../utils/haptics';
@@ -61,28 +65,34 @@ export function PressableCard({
     transform: [{ scale: scale.value }],
   }));
 
-  const tap = Gesture.Tap()
-    .enabled(!disabled)
-    .onBegin(() => {
-      if (!reduceMotion) {
-        scale.value = withTiming(motion.cardTap.scale, {
-          duration: motion.cardTap.duration,
-        });
-      }
-    })
-    .onFinalize((_, success) => {
-      scale.value = withSpring(1, { damping: 15, stiffness: 300 });
-      if (success && onPress) {
-        if (haptic) haptics.light();
-        onPress();
-      }
-    });
+  const handlePressIn = useCallback(() => {
+    if (!reduceMotion) {
+      scale.value = withTiming(motion.cardTap.scale, {
+        duration: motion.cardTap.duration,
+      });
+    }
+  }, [reduceMotion, scale]);
+
+  const handlePressOut = useCallback(() => {
+    scale.value = withSpring(1, { damping: 15, stiffness: 300 });
+  }, [scale]);
+
+  const handlePress = useCallback(() => {
+    if (haptic) haptics.light();
+    onPress?.();
+  }, [haptic, onPress]);
 
   return (
-    <GestureDetector gesture={tap}>
+    <Pressable
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      onPress={handlePress}
+      disabled={disabled}
+      accessibilityRole="button"
+    >
       <Animated.View style={[animatedStyle, style]}>
         {children}
       </Animated.View>
-    </GestureDetector>
+    </Pressable>
   );
 }

@@ -106,6 +106,23 @@ function parsePace(str) {
 // (~400 ms → ~30 ms on typical Supabase latency).
 // ---------------------------------------------------------------------------
 router.post('/', upload.single('file'), async (req, res, next) => {
+    // csv-import-free-tier fix (2026-06-14): CSV import writes server-side workout
+    // rows — a violation of the local-first invariant for free users. Gate here
+    // because the architecture decision (20260612_purge_free_user_training_data.sql)
+    // says free users' personal data must never touch the server.
+    try {
+        const { rows: tierRows } = await pool.query(
+            `SELECT tier FROM users WHERE id = $1`,
+            [req.user.id]
+        );
+        if (!tierRows[0] || tierRows[0].tier !== 'paid') {
+            return res.status(403).json({
+                error: 'paid_tier_required',
+                message: 'CSV import is a Pro feature. Upgrade to import Garmin or Strava data.',
+            });
+        }
+    } catch (err) { return next(err); }
+
     if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
     const userId = req.user.id;
 

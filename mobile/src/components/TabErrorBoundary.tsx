@@ -4,10 +4,20 @@
  *
  * Usage: wrap any screen that has complex rendering logic.
  * The error message is shown so it can be reported.
+ *
+ * This is a class component (required by React's error boundary API), so it
+ * cannot use hooks. Colors are sourced from the DEFAULT_THEME semantic tokens
+ * to stay consistent with the design system without requiring a hook.
  */
 
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { THEMES, DEFAULT_THEME } from '../theme/tokens';
+
+// Use the DEFAULT_THEME semantic colors so the boundary matches the dark-navy
+// design system. Falls back correctly even if a user has not loaded their
+// persisted theme yet (class component cannot read ThemeContext).
+const { colors, components } = THEMES[DEFAULT_THEME];
 
 interface Props {
   children: React.ReactNode;
@@ -63,30 +73,30 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 32,
-    backgroundColor: '#0a0f1e',
+    backgroundColor: colors.bgPrimary,
   },
   title: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#ffffff',
+    color: colors.textPrimary,
     marginBottom: 12,
     textAlign: 'center',
   },
   message: {
     fontSize: 13,
-    color: '#94a3b8',
+    color: colors.textSecondary,
     textAlign: 'center',
     marginBottom: 24,
     lineHeight: 20,
   },
   button: {
-    backgroundColor: '#3b82f6',
+    backgroundColor: components.buttonPrimaryBg,
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 8,
   },
   buttonText: {
-    color: '#ffffff',
+    color: components.buttonPrimaryText,
     fontSize: 15,
     fontWeight: '600',
   },

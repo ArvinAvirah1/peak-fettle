@@ -17,7 +17,7 @@
  * SPEC-094A Agent L, 2026-06-12.
  */
 
-import { SCHEMA_V2_STATEMENTS, SCHEMA_V3_STATEMENTS } from './localSchema';
+import { SCHEMA_V2_STATEMENTS, SCHEMA_V3_STATEMENTS, MigrationStatement } from './localSchema';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -31,7 +31,7 @@ interface MigrationDb {
 
 export interface MigrationVersion {
   v: number;
-  statements: string[];
+  statements: MigrationStatement[];
 }
 
 // ---------------------------------------------------------------------------
@@ -145,15 +145,46 @@ export async function runMigrations(
       () => undefined,
     );
 
-    // Apply each statement. SQLite on expo-sqlite doesn't support explicit
-    // BEGIN/COMMIT via execAsync in all versions, so we apply statements
-    // individually. Each CREATE TABLE IF NOT EXISTS is already idempotent.
-    for (const stmt of migration.statements) {
-      await db.execute(stmt, [], { tables: [] });
+    // Apply all statements for this migration version inside a single
+    // transaction so that a mid-migration crash leaves the DB unchanged.
+    // PRAGMA user_version is set inside the same transaction — if anything
+    // throws before COMMIT the version is not advanced and the next launch
+    // will re-run the migration cleanly.
+    //
+    // Note: expo-sqlite's execAsync supports BEGIN/COMMIT; we drive each
+    // statement through db.execute() so the MigrationDb interface stays thin.
+    try {
+      await db.execute('BEGIN', [], { tables: [] });
+      for (const stmt of migration.statements) {
+        if (typeof stmt === 'string') {
+          await db.execute(stmt, [], { tables: [] });
+        } else if (stmt.type === 'alter_add_column') {
+          // Idempotency guard for ALTER TABLE ADD COLUMN: SQLite has no
+          // "IF NOT EXISTS" syntax for this DDL.  Check pragma_table_info
+          // first and skip if the column is already present (handles the case
+          // where the app was killed after the ALTER but before COMMIT /
+          // user_version advancement on a prior launch).
+          const colRows = await db.getAll<{ name: string }>(
+            `SELECT name FROM pragma_table_info(?) WHERE name = ?`,
+            [stmt.table, stmt.column],
+          );
+          if (colRows.length === 0) {
+            await db.execute(
+              `ALTER TABLE ${stmt.table} ADD COLUMN ${stmt.column} ${stmt.definition}`,
+              [],
+              { tables: [] },
+            );
+          }
+        }
+      }
+      // Advance the version inside the transaction.
+      await db.execute(`PRAGMA user_version = ${migration.v}`, [], { tables: [] });
+      await db.execute('COMMIT', [], { tables: [] });
+    } catch (err) {
+      // Roll back so the DB is left in the pre-migration state.
+      try { await db.execute('ROLLBACK', [], { tables: [] }); } catch { /* ignore rollback errors */ }
+      throw err;
     }
-
-    // Advance the version.
-    await db.execute(`PRAGMA user_version = ${migration.v}`, [], { tables: [] });
     currentVersion = migration.v;
   }
 }

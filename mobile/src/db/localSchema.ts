@@ -445,8 +445,21 @@ export const SCHEMA_V2_STATEMENTS: string[] = [
 //
 // ALTER ADD COLUMN is applied only here (not in CREATE_SETS) so it runs exactly
 // once on both fresh installs (v1→v2→v3) and existing v2 installs.
-export const SCHEMA_V3_STATEMENTS: string[] = [
-  `ALTER TABLE sets ADD COLUMN weight_kg REAL`,
+//
+// Idempotency: ALTER TABLE ADD COLUMN throws if the column already exists in
+// SQLite (no IF NOT EXISTS syntax).  The migration runner (migrations.ts) guards
+// each statement in SCHEMA_V3_STATEMENTS tagged as 'alter_guarded' by checking
+// pragma_table_info before executing it.  The backfill UPDATE is inherently safe
+// to re-run (the WHERE weight_kg IS NULL clause skips already-filled rows).
+//
+// Encoding: each entry is either a plain SQL string or an object describing a
+// guarded ALTER so the runner can apply the existence check.
+export type MigrationStatement =
+  | string
+  | { type: 'alter_add_column'; table: string; column: string; definition: string };
+
+export const SCHEMA_V3_STATEMENTS: MigrationStatement[] = [
+  { type: 'alter_add_column', table: 'sets', column: 'weight_kg', definition: 'REAL' },
   `UPDATE sets
       SET weight_kg = CAST(weight_raw AS REAL) / 8.0
     WHERE weight_kg IS NULL AND weight_raw IS NOT NULL`,

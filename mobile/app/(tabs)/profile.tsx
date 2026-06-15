@@ -56,6 +56,8 @@ import {
   UserConstraint,
 } from '../../src/api/constraints';
 import { fetchDataExport, deleteAccount } from '../../src/api/user';
+import { isLocalFirst } from '../../src/data/backup/tierPolicy';
+import { localDb, genId } from '../../src/db/localDb';
 import { saveProfile } from '../../src/data/profile';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { ThemeSelectorModal } from '../../src/components/ThemeSelector';
@@ -460,8 +462,28 @@ export default function ProfileScreen(): React.ReactElement {
     setConstraintsLoading(true);
     setConstraintsError(null);
     try {
-      const data = await getConstraints();
-      setConstraints(data);
+      if (isLocalFirst(user)) {
+        // Free / local-first: read from on-device user_constraints table.
+        const rows = await localDb.getAll<{
+          constraint_id: string;
+          user_id: string;
+          constraint_type: string;
+          custom_note: string | null;
+          created_at: string;
+        }>('SELECT * FROM user_constraints WHERE user_id = ? OR user_id = \'local\' ORDER BY created_at ASC', [user?.id ?? 'local']);
+        setConstraints(
+          rows.map((r) => ({
+            id: r.constraint_id,
+            user_id: r.user_id,
+            constraint_type: r.constraint_type,
+            custom_note: r.custom_note,
+            created_at: r.created_at,
+          }))
+        );
+      } else {
+        const data = await getConstraints();
+        setConstraints(data);
+      }
     } catch (err) {
       setConstraintsError(
         err instanceof Error ? err.message : 'Failed to load restrictions'
@@ -469,7 +491,7 @@ export default function ProfileScreen(): React.ReactElement {
     } finally {
       setConstraintsLoading(false);
     }
-  }, []);
+  }, [user]);
 
   // ── B. Units toggle ──────────────────────────────────────────────────────
 
@@ -562,13 +584,36 @@ export default function ProfileScreen(): React.ReactElement {
 
   const handleAddConstraint = useCallback(
     async (constraintType: string, customNote?: string) => {
-      const added = await addConstraint({
-        constraintType,
-        ...(customNote ? { customNote } : {}),
-      });
-      setConstraints((prev) => [...prev, added]);
+      if (isLocalFirst(user)) {
+        // Free / local-first: insert into on-device user_constraints table.
+        const id = genId();
+        const now = new Date().toISOString();
+        const userId = user?.id ?? 'local';
+        await localDb.execute(
+          `INSERT OR IGNORE INTO user_constraints (constraint_id, user_id, constraint_type, custom_note, created_at)
+           VALUES (?, ?, ?, ?, ?)`,
+          [id, userId, constraintType, customNote ?? null, now],
+          { tables: ['user_constraints'] }
+        );
+        setConstraints((prev) => [
+          ...prev,
+          {
+            id,
+            user_id: userId,
+            constraint_type: constraintType,
+            custom_note: customNote ?? null,
+            created_at: now,
+          },
+        ]);
+      } else {
+        const added = await addConstraint({
+          constraintType,
+          ...(customNote ? { customNote } : {}),
+        });
+        setConstraints((prev) => [...prev, added]);
+      }
     },
-    []
+    [user]
   );
 
   const handleDeleteConstraint = useCallback((constraint: UserConstraint) => {
@@ -584,7 +629,16 @@ export default function ProfileScreen(): React.ReactElement {
           style: 'destructive',
           onPress: async () => {
             try {
-              await deleteConstraint(constraint.id);
+              if (isLocalFirst(user)) {
+                // Free / local-first: delete from on-device table.
+                await localDb.execute(
+                  'DELETE FROM user_constraints WHERE constraint_id = ?',
+                  [constraint.id],
+                  { tables: ['user_constraints'] }
+                );
+              } else {
+                await deleteConstraint(constraint.id);
+              }
               setConstraints((prev) => prev.filter((c) => c.id !== constraint.id));
             } catch (err) {
               Alert.alert(
@@ -596,14 +650,29 @@ export default function ProfileScreen(): React.ReactElement {
         },
       ]
     );
-  }, []);
+  }, [user]);
 
   // ── D. Data export ───────────────────────────────────────────────────────
 
   const handleDataExport = useCallback(async () => {
     setIsExportingData(true);
     try {
-      const json = await fetchDataExport();
+      let json: string;
+      if (isLocalFirst(user)) {
+        // Free / local-first: build the export directly from on-device SQLite.
+        const workouts = await localDb.getAll<Record<string, unknown>>(
+          'SELECT * FROM workouts ORDER BY day_key DESC'
+        );
+        const sets = await localDb.getAll<Record<string, unknown>>(
+          'SELECT * FROM sets ORDER BY logged_at DESC'
+        );
+        const constraints = await localDb.getAll<Record<string, unknown>>(
+          'SELECT * FROM user_constraints ORDER BY created_at ASC'
+        );
+        json = JSON.stringify({ workouts, sets, constraints, exported_at: new Date().toISOString() }, null, 2);
+      } else {
+        json = await fetchDataExport();
+      }
       await Share.share(
         {
           title: 'Peak Fettle data export',
@@ -619,7 +688,7 @@ export default function ProfileScreen(): React.ReactElement {
     } finally {
       setIsExportingData(false);
     }
-  }, []);
+  }, [user]);
 
   // ── D. Account deletion ──────────────────────────────────────────────────
 

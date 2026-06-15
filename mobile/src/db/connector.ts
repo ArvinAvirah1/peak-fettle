@@ -123,17 +123,26 @@ export class PeakFettleConnector implements PowerSyncBackendConnector {
           const kind = opData?.kind as 'lift' | 'cardio' | undefined;
 
           if (kind === 'lift') {
-            // Decode weight_raw (INTEGER = kg × 8) back to kg float for the API.
-            // The local SQLite schema stores weight_raw to mirror Postgres;
-            // the Express API always receives and returns weight_kg (float).
+            // Prefer weight_kg (exact precision, stored since v3 migration) over
+            // the legacy weight_raw encoding (INTEGER = kg × 8, 0.125 kg steps).
+            // weight_kg is the value the user actually entered; weight_raw is a
+            // rounded derivative kept for backward compat.  If the op predates the
+            // v3 migration (weight_kg is absent/null), fall back to weight_raw/8.
+            const weightKgExact = opData?.weight_kg as number | null | undefined;
             const weightRaw = opData?.weight_raw as number | null | undefined;
+            const weightKg =
+              weightKgExact != null
+                ? weightKgExact
+                : weightRaw != null
+                ? weightRaw / 8
+                : 0;
             const payload: LogSetPayload = {
               kind: 'lift',
               workoutId: opData?.workout_id as string,
               exerciseId: opData?.exercise_id as string,
               setIndex: opData?.set_index as number,
               reps: opData?.reps as number,
-              weightKg: weightRaw != null ? weightRaw / 8 : 0,
+              weightKg,
               ...(opData?.rir != null && { rir: opData.rir as number }),
             };
             await apiClient.post('/sets', payload);

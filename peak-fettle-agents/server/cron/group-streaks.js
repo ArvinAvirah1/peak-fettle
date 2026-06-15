@@ -84,8 +84,9 @@ async function didHitGoalLegacy(client, userId, weekStartStr, weekEndStr) {
     );
     const goal = parseInt(goalRows[0].goal, 10);
     const { rows: countRows } = await client.query(
-        'SELECT COUNT(*) AS session_count FROM workouts' +
-        ' WHERE user_id = $1 AND day_key >= $2 AND day_key < $3',
+        "SELECT COUNT(*) AS session_count FROM workouts" +
+        " WHERE user_id = $1 AND day_key >= $2 AND day_key < $3" +
+        "   AND session_type = 'workout'",
         [userId, weekStartStr, weekEndStr]
     );
     return parseInt(countRows[0].session_count, 10) >= goal;

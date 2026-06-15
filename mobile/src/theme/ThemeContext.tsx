@@ -70,9 +70,10 @@ export function ThemeProvider({
 }: ThemeProviderProps): React.ReactElement {
   const [themeName, setThemeName] = useState<ThemeName>(DEFAULT_THEME);
   const [theme, setThemeObj] = useState<Theme>(THEMES[DEFAULT_THEME]);
-  const [isReady, setIsReady] = useState(false);
 
-  // Load persisted theme at boot — before first render to avoid flicker
+  // Load persisted theme at boot. Children render with DEFAULT_THEME immediately
+  // and re-render once the stored preference resolves — a theme swap is far less
+  // jarring than a blank frame.
   useEffect(() => {
     (async () => {
       try {
@@ -83,10 +84,8 @@ export function ThemeProvider({
           setThemeObj(THEMES[name]);
         }
       } catch (err) {
-        // If AsyncStorage fails, fall back to default silently
+        // If AsyncStorage fails, keep the default silently
         console.warn('[PF] ThemeContext/loadTheme:', err instanceof Error ? err.message : String(err));
-      } finally {
-        setIsReady(true);
       }
     })();
   }, []);
@@ -136,12 +135,10 @@ export function ThemeProvider({
     fontWeight,
   };
 
-  // Don't render children until the stored theme is resolved —
-  // prevents a single-frame flash of the wrong colors at boot.
-  if (!isReady) {
-    return <></>;
-  }
-
+  // Render children immediately with whatever theme is active (default at boot,
+  // then swapped to the stored theme once AsyncStorage resolves). This avoids a
+  // blank frame while AsyncStorage is read — a theme flash is visually far less
+  // jarring than a completely empty/transparent screen.
   return (
     <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>
   );

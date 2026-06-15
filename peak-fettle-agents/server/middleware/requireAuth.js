@@ -14,7 +14,10 @@ function requireAuth(req, res, next) {
     if (!token) return res.status(401).json({ error: 'missing_token' });
 
     try {
-        const payload = jwt.verify(token, process.env.JWT_SECRET);
+        // Pin the algorithm to HS256 (what routes/auth.js signs with). Without an
+        // allowlist, jsonwebtoken honours the token header's `alg`, which opens the
+        // door to algorithm-substitution attacks. The OAuth path already pins RS256.
+        const payload = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
 
         // T-01: Refuse refresh tokens used as access tokens.
         if (payload.type === 'refresh') {

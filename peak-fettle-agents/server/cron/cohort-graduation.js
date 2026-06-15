@@ -131,6 +131,21 @@ async function run() {
     try {
         await client.query('BEGIN');
 
+        // Guard: if the drop-percentile migration has run, v_user_lift_inputs
+        // will not exist (it was dropped by 20260612_drop_percentile_rankings.sql).
+        // In that case, exit cleanly rather than crashing with 42P01.
+        const { rows: viewCheck } = await client.query(
+            "SELECT to_regclass('public.v_user_lift_inputs') AS oid"
+        );
+        if (!viewCheck[0] || viewCheck[0].oid === null) {
+            console.warn(
+                '[cohort-graduation] v_user_lift_inputs view does not exist ' +
+                '(drop-percentile migration may have run). Skipping run.'
+            );
+            await client.query('ROLLBACK');
+            return;
+        }
+
         // Pull every user whose account is >=90 days old, alongside their
         // self-reported years_in_sport and the median training_years inferred
         // from their lift history.

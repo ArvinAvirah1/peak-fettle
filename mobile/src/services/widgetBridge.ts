@@ -54,7 +54,8 @@ interface SetRow {
   id: string;
   exercise_id: string | null;
   reps: number | null;
-  weight_raw: number | null;
+  /** Exact kg value (v3+). Preferred for all comparisons. */
+  weight_kg_val: number | null;
   logged_at: string | null;
 }
 
@@ -66,17 +67,17 @@ export function countPRsThisWeek(rows: SetRow[], now: Date = new Date()): number
   const weekCutoff = new Date(now.getTime() - 7 * DAY_MS).toISOString();
   const bestWeight = new Map<string, number>();
   for (const s of rows) {
-    if (!s.exercise_id || s.reps == null || s.weight_raw == null) continue;
+    if (!s.exercise_id || s.reps == null || s.weight_kg_val == null) continue;
     const key = `${s.exercise_id}:${s.reps}`;
-    const w = s.weight_raw;
+    const w = s.weight_kg_val;
     if (w > (bestWeight.get(key) ?? -Infinity)) bestWeight.set(key, w);
   }
   let count = 0;
   for (const s of rows) {
-    if (!s.exercise_id || s.reps == null || s.weight_raw == null || !s.logged_at) continue;
+    if (!s.exercise_id || s.reps == null || s.weight_kg_val == null || !s.logged_at) continue;
     if (s.logged_at < weekCutoff) continue;
     const key = `${s.exercise_id}:${s.reps}`;
-    if (s.weight_raw >= (bestWeight.get(key) ?? -Infinity)) count++;
+    if (s.weight_kg_val >= (bestWeight.get(key) ?? -Infinity)) count++;
   }
   return count;
 }
@@ -90,8 +91,13 @@ export async function buildWidgetPayload(now: Date = new Date()): Promise<Widget
   const nextUp = resolveNextUp(schedule, now);
 
   const monthCutoff = new Date(now.getTime() - 30 * DAY_MS).toISOString();
+  // Use COALESCE(weight_kg, weight_raw/8.0) so that both v3 rows (exact kg)
+  // and pre-v3 rows (weight_raw only) are handled correctly.  Aliased as
+  // weight_kg_val to match the SetRow interface and make the intent explicit.
   const rows = await localDb.getAll<SetRow>(
-    `SELECT id, exercise_id, reps, weight_raw, logged_at
+    `SELECT id, exercise_id, reps,
+            COALESCE(weight_kg, CAST(weight_raw AS REAL) / 8.0) AS weight_kg_val,
+            logged_at
        FROM sets WHERE kind = 'lift' AND logged_at >= ?`,
     [monthCutoff],
   );
