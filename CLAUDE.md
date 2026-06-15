@@ -2,6 +2,26 @@
 
 Operational guidance for agents working in this repo. Read before debugging builds or touching files. (Added 2026-05-21 after a multi-file corruption incident.)
 
+## ⚡ Architecture + dev-efficiency learnings (added 2026-06-14 after the 094-A local-first + overhaul run)
+
+These are the highest-leverage things to know before touching this app. Most of the bugs in the 2026-06-12..14 run were one of the first three.
+
+**1. Local-first is the central invariant — free users make NO personal REST calls.** Tier branch point: `mobile/src/data/backup/tierPolicy.ts` (`isLocalFirst(user)` / `syncsToServer(user)`). FREE (`!is_paid`) = on-device SQLite only (`mobile/src/db/localDb.ts`); PRO = server + PowerSync. There is a tier-branched data layer — use it, never raw `api/*` from a screen/component: `mobile/src/data/{routines,profile,schedule}.ts`, and the `useWorkout*`/`useStreak`/`useInsights`/`useHealthMetrics` hooks. The #1 recurring bug was a screen/hook/component calling `getRoutine`/`getPercentile`/`getConstraints`/etc. directly on mount → for free users that's a failing/slow round-trip (infinite spinners, 500s, slow startup). **Review step:** `grep` new screens for raw `from '../api/` imports of personal-data endpoints; each needs an `isLocalFirst` branch. (Group weekly-signal is the ONE network call allowed on the free path.)
+
+**2. Weight is stored as EXACT kg, not the legacy kg×8.** Local `sets` table (schema **v3**, `mobile/src/db/localSchema.ts` + `migrations.ts`) has `weight_kg REAL` = exact kilograms; the old `weight_raw INTEGER` (kg×8, 0.125 resolution) is lossy and secondary. **Read** via `COALESCE(weight_kg, weight_raw/8.0)`; **write** the exact kg. Convert display↔storage ONLY via `mobile/src/constants/units.ts` (`displayToKg` to store, `kgToInputValue` to prefill an edit field, `parseWeightInput`, `formatWeight`). Both the LOG and the EDIT paths must convert — a missed conversion stored lbs as kg (185 lb → 185 kg). Server `sets.weight_kg` is `NUMERIC`; `weight_raw` (kg×8) is only for the legacy percentile path.
+
+**3. Safe-area does NOT propagate inside a React Native `<Modal>`.** `SafeAreaView` / `useSafeAreaInsets()` around or inside a `<Modal>` does not reliably push content below the Dynamic Island on iPhone — a "fixed" header still sat under the island on-device, twice. **Fix:** apply `paddingTop: Math.max(insets.top, 12)` (from `useSafeAreaInsets()`) directly to the modal's header row. `GestureHandlerRootView` must wrap the app root (`mobile/app/_layout.tsx`) or RNGH gesture components crash.
+
+**4. Prod schema has drifted from `db/schema.sql`; make all DB ops drift-tolerant.** Railway/Supabase prod was built incrementally and is missing/extra-having columns vs the canonical `db/schema.sql`. Migrations that ALTER/DELETE must guard with `to_regclass('public.x') IS NOT NULL` and skip absent tables; **never use `CREATE TEMP TABLE … ON COMMIT DROP`** in a hand-run migration (the SQL editor autocommits between statements and the temp table vanishes → `42P01`) — inline the subquery instead. Server routes should catch `42P01`/`42703` and degrade (e.g. empty 200) rather than 500. `user_percentile_rankings`/`percentile_vectors` are DEPRECATED (percentiles compute on-device via `strengthModelV3.ts`). `db/schema.sql` is the canonical, idempotent source of truth — keep migrations folded back into it (re-running it is the safe "remake"); a missing fold (`group_weekly_signals`) would have lost a feature on rebuild.
+
+**5. Auth cold-start must not block on the network or clear the token on transient failure.** `AuthContext` renders the cached user immediately and refreshes the token in the background (with an ~8s timeout). It clears the stored refresh token ONLY on a definitive `401` — never on a network error / timeout / 5xx, or a flaky server forces re-login on every launch (and stalls startup).
+
+**6. The verification gate is non-negotiable and self-reports are not trusted.** The real DoD: `@babel/parser` parse-sweep of all `.ts/.tsx` under `mobile/app`+`mobile/src` (153 files → 0 failures), `node --check` every server `.js`, `node mobile/src/db/__tests__/migrations.test.js`, and a `tsc --noEmit` delta (baseline ~85 errors, dominated by expo-router typed-route strings + a chart `Value` type — count must not increase; RN ships via Babel so these don't block the build but new ones flag real mistakes). Run this YOURSELF after any multi-agent run — agents that "hit the session limit" often wrote their files before dying, so check the working tree rather than assume nothing changed.
+
+**7. Multi-agent workflow efficiency.** Disjoint file ownership (no two agents edit the same file) avoids conflicts with no worktree isolation needed. The session/agent-spawn quota gets exhausted by big fan-outs — `sonnet` is plenty for these targeted fixes and far less limit-prone; the `Workflow` static check rejects literal `Date.now()`/`Math.random()`/`new Date()` even inside prompt strings (reword them). Resume re-runs only the failed agents (cached prefix returns instantly).
+
+**8. Nothing reaches the device without push + EAS rebuild.** EAS builds from `origin/main`, and Railway deploys on push to `main`. Many "still broken" reports were just the phone running an old build. Order: fix → commit → `git push origin main` (= server deploy) → `eas build` → install → test. A local commit alone changes nothing the user can see.
+
 ## 🧭 Which tickets should THIS agent do? — model routing (founder decision, 2026-05-25 LATE-4)
 
 Active backlog: **TICKET-051…062** in `DEV_ROADMAP_2026-05-25-LATE.md` (v25). Pick your lane by the model you are running:
@@ -12,9 +32,13 @@ Active backlog: **TICKET-051…062** in `DEV_ROADMAP_2026-05-25-LATE.md` (v25). 
 
 Run order + per-ticket detail + the mandatory parse-sweep "definition of done" are in the **"⚙️ MODEL ROUTING FOR AGENT RUNS"** section of `DEV_ROADMAP_2026-05-25-LATE.md`. The HEAD-blob parse-sweep + `node --check` is required for every ticket on every model.
 
-## ⚠️ This repo lives in OneDrive — it corrupts the working tree and git
+## ✅ RESOLVED 2026-06-14: repo moved out of OneDrive — most "mount" workarounds below are now OBSOLETE
 
-The project sits in `…\OneDrive\Documents\Claude\Projects\Peak Fettle`. OneDrive's live sync clobbers files mid-write, including `.git` internals. A single incident (2026-05-21) produced **all** of these at once:
+**The repo now lives at `C:\Users\aavir\dev\Peak Fettle` (a normal, non-synced path).** A full multi-day session (2026-06-12..14) ran entirely there with **no** corruption and **none** of the old mount limitations: the `Write`/`Edit` tools work on files of any size (no ~33 KB truncation), `rm`/`mv`/`git mv` work, and plain `git add`/`git commit` works (no temp-index / loose-ref lock-bypass needed). **Default to the normal tools.** The OneDrive/agent-mount sections below (heredoc-only writes, `rm`-blocked, `.git/index.lock` bypass, the temp-`$GIT_INDEX_FILE` commit dance) are **historical** — keep them only as a reference if a session ever runs against the old `…\OneDrive\…` path again. The parse-sweep DoD, EAS-push rule, and the PUSH-001/002 lessons below all STILL apply.
+
+### Historical: this repo used to live in OneDrive — it corrupted the working tree and git
+
+The project previously sat in `…\OneDrive\Documents\Claude\Projects\Peak Fettle`. OneDrive's live sync clobbered files mid-write, including `.git` internals. A single incident (2026-05-21) produced **all** of these at once:
 
 - Source files **truncated mid-token** (cut off inside a string, object, or comment).
 - **Duplicated `StyleSheet.create` blocks** with a stray premature `});` and orphaned/mangled property fragments (hit `rankings.tsx`, `groups.tsx`).
