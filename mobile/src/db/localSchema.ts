@@ -132,8 +132,24 @@ CREATE TABLE IF NOT EXISTS exercise_goals (
   achieved_set_id TEXT
 )`;
 
+// Exercise name cache (local-first name resolution). The server `sets` row only
+// stores `exercise_id` (a UUID); free users have no server library to resolve
+// names from on Home/history. We remember id→name whenever an exercise is picked
+// or a session is started, and best-effort backfill from GET /exercises (a
+// global, non-personal catalogue) so Recent Activity / Recent PRs show real
+// names instead of raw UUIDs. Re-derivable, so it is NOT in the backup registry.
+export const CREATE_EXERCISE_NAMES = `
+CREATE TABLE IF NOT EXISTS exercise_names (
+  exercise_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  updated_at TEXT
+)`;
+
 export const CREATE_SETS_WORKOUT_IDX = `
 CREATE INDEX IF NOT EXISTS idx_sets_workout_id ON sets(workout_id)`;
+
+export const CREATE_WORKOUTS_DAY_IDX = `
+CREATE INDEX IF NOT EXISTS idx_workouts_day_key ON workouts(day_key)`;
 
 export const CREATE_OUTBOX_ID_IDX = `
 CREATE INDEX IF NOT EXISTS idx_outbox_id ON outbox(id)`;
@@ -398,7 +414,9 @@ export const SCHEMA_STATEMENTS: string[] = [
   CREATE_BODYWEIGHT,
   CREATE_EXERCISE_PREFS,
   CREATE_EXERCISE_GOALS,
+  CREATE_EXERCISE_NAMES,
   CREATE_SETS_WORKOUT_IDX,
+  CREATE_WORKOUTS_DAY_IDX,
   CREATE_OUTBOX_ID_IDX,
 ];
 
@@ -463,4 +481,20 @@ export const SCHEMA_V3_STATEMENTS: MigrationStatement[] = [
   `UPDATE sets
       SET weight_kg = CAST(weight_raw AS REAL) / 8.0
     WHERE weight_kg IS NULL AND weight_raw IS NOT NULL`,
+];
+
+// ---------------------------------------------------------------------------
+// v4 statements — descriptive session labels for local-first users.
+//
+// Free users start routine/template sessions entirely on-device, so the
+// routine name had nowhere to live locally (the server `createWorkout` link is
+// a no-op on the free path). Recent Activity therefore could only ever show the
+// date ("Today"/"Yesterday"). v4 adds `workouts.routine_name` so a started
+// routine stamps its name on today's local workout and the history list can
+// label it "Leg Day 6/14/26" exactly like the Pro path. Added 2026-06-15.
+//
+// Guarded ALTER (same idempotency pattern as v3): SQLite has no
+// "ADD COLUMN IF NOT EXISTS", so the runner checks pragma_table_info first.
+export const SCHEMA_V4_STATEMENTS: MigrationStatement[] = [
+  { type: 'alter_add_column', table: 'workouts', column: 'routine_name', definition: 'TEXT' },
 ];

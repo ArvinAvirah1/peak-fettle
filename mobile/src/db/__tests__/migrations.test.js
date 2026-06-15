@@ -154,15 +154,15 @@ function eq(a, b, msg) {
     await runMigrations(db);
     const v2 = db._pragmas.user_version;
     eq(v1, v2, 'version changed on second run:');
-    eq(v1, 3, 'expected version 3:');
+    eq(v1, 4, 'expected version 4:');
   });
 
   // 2. Fresh install reaches the latest version
-  await test('fresh install reaches user_version 3', async () => {
+  await test('fresh install reaches user_version 4', async () => {
     const db = makeStubDb();
     eq(db._pragmas.user_version, 0, 'starts at 0:');
     await runMigrations(db);
-    eq(db._pragmas.user_version, 3, 'should be 3 after migration:');
+    eq(db._pragmas.user_version, 4, 'should be 4 after migration:');
   });
 
   // 3. v2 tables created (10 spot-checked)

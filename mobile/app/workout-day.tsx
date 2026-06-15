@@ -39,6 +39,13 @@ import { useTheme } from '../src/theme/ThemeContext';
 import { useAuth } from '../src/hooks/useAuth';
 import { ScreenLayout, PFButton } from '../src/components/ui';
 import { apiClient } from '../src/api/client';
+import { localDb } from '../src/db/localDb';
+import { isLocalFirst } from '../src/data/backup/tierPolicy';
+import {
+  getExerciseNameMap,
+  ensureExerciseCatalogCached,
+  displayExerciseName,
+} from '../src/data/exerciseNames';
 import { formatWeight } from '../src/constants/units';
 import { UnitSystem } from '../src/constants/units';
 
@@ -226,6 +233,110 @@ function s_exerciseName(sets: ApiSet[], exerciseId: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Local-first data fetching (free tier — no REST)
+// ---------------------------------------------------------------------------
+
+interface LocalSetRow {
+  id: string;
+  workout_id: string;
+  exercise_id: string;
+  kind: string;
+  set_index: number;
+  reps: number | null;
+  weight_raw: number | null;
+  weight_kg: number | null;
+  rir: number | null;
+  duration_sec: number | null;
+  distance_m: number | null;
+  logged_at: string;
+}
+
+/**
+ * Read a single day's workout + sets entirely from on-device SQLite.
+ * Free users have no server copy of personal data, so the previous REST path
+ * (3 sequential calls, 15s timeout each) returned nothing → "No workout logged
+ * for this day" after a long stall. This resolves names locally and merges any
+ * duplicate workout rows for the day.
+ */
+async function fetchLocalDayData(date: string): Promise<DayData> {
+  await localDb.init();
+
+  const workouts = await localDb.getAll<{
+    id: string;
+    day_key: string;
+    session_type: string | null;
+    routine_name: string | null;
+    created_at: string;
+  }>(
+    'SELECT id, day_key, session_type, routine_name, created_at FROM workouts WHERE day_key = ? ORDER BY created_at ASC',
+    [date]
+  );
+
+  if (workouts.length === 0) {
+    return { workout: null, isRestDay: false, exerciseGroups: [], totalSets: 0, totalVolumeKg: 0 };
+  }
+
+  const isRestDay = workouts.some((w) => w.session_type === 'rest_day');
+  const rep =
+    workouts.find((w) => w.routine_name) ??
+    workouts.find((w) => w.session_type === 'rest_day') ??
+    workouts[0]!; // length checked above (early return when 0)
+  const apiWorkout: ApiWorkout = {
+    id: rep.id,
+    day_key: rep.day_key,
+    session_type: rep.session_type ?? undefined,
+  };
+
+  // Union sets across every workout row for the day (collapses dup rows).
+  const ids = workouts.map((w) => w.id);
+  const placeholders = ids.map(() => '?').join(',');
+  const setRows = await localDb.getAll<LocalSetRow>(
+    `SELECT * FROM sets WHERE workout_id IN (${placeholders}) ORDER BY logged_at ASC, set_index ASC`,
+    ids
+  );
+
+  const nameMap = await getExerciseNameMap();
+  void ensureExerciseCatalogCached();
+
+  const apiSets: ApiSet[] = setRows.map((r) => ({
+    id: r.id,
+    workout_id: r.workout_id,
+    exercise_id: r.exercise_id,
+    exercise_name: displayExerciseName(r.exercise_id, nameMap),
+    kind: r.kind === 'cardio' ? 'cardio' : 'lift',
+    // weight_raw is consumed as kg×8 by the display helpers; derive it from the
+    // exact weight_kg so values round-trip precisely (no 0.125 kg drift).
+    weight_raw: r.weight_kg != null ? r.weight_kg * 8 : (r.weight_raw ?? 0),
+    reps: r.reps ?? 0,
+    rir: r.rir,
+    set_index: r.set_index,
+    duration_sec: r.duration_sec ?? undefined,
+    distance_m: r.distance_m ?? null,
+    created_at: r.logged_at,
+  }));
+
+  const groupOrder: string[] = [];
+  const groupMap = new Map<string, ApiSet[]>();
+  for (const s of apiSets) {
+    if (!groupMap.has(s.exercise_id)) {
+      groupOrder.push(s.exercise_id);
+      groupMap.set(s.exercise_id, []);
+    }
+    groupMap.get(s.exercise_id)!.push(s);
+  }
+  const exerciseGroups: ExerciseGroup[] = groupOrder.map((exId) => ({
+    exerciseId: exId,
+    exerciseName: displayExerciseName(exId, nameMap),
+    sets: groupMap.get(exId)!,
+  }));
+
+  const totalSets = apiSets.length;
+  const totalVolumeKg = apiSets.reduce((acc, s) => acc + setVolumeKg(s), 0);
+
+  return { workout: apiWorkout, isRestDay, exerciseGroups, totalSets, totalVolumeKg };
+}
+
+// ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
@@ -398,19 +509,21 @@ export default function WorkoutDayScreen(): React.ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [dayData, setDayData] = useState<DayData | null>(null);
 
+  const localFirst = isLocalFirst(user);
+
   const load = useCallback(async () => {
     if (!date) return;
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchDayData(date);
+      const data = localFirst ? await fetchLocalDayData(date) : await fetchDayData(date);
       setDayData(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load workout');
     } finally {
       setLoading(false);
     }
-  }, [date]);
+  }, [date, localFirst]);
 
   useEffect(() => {
     load();

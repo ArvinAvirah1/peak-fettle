@@ -14,6 +14,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from './useAuth';
 import { isLocalFirst } from '../data/backup/tierPolicy';
 import { localDb, genId } from '../db/localDb';
+import { ensureLocalWorkoutForDay } from '../data/localWorkouts';
 import { createWorkout } from '../api/workouts';
 import {
   getSetsForWorkout,
@@ -136,40 +137,10 @@ export function useWorkout(): UseWorkoutResult {
 
       if (localFirst) {
         // ── Free path: localDb ──────────────────────────────────────────────
-        await localDb.init();
-
-        // Upsert today's workout row in local SQLite.
-        let workoutRow = await localDb.getFirst<WorkoutRow>(
-          'SELECT * FROM workouts WHERE day_key = ? ORDER BY created_at ASC LIMIT 1',
-          [todayKey]
-        );
-        if (!workoutRow) {
-          const newId  = genId();
-          const now    = new Date().toISOString();
-          await localDb.execute(
-            `INSERT INTO workouts (id, user_id, day_key, notes, session_type,
-               created_at, updated_at, synced)
-             VALUES (?, ?, ?, NULL, NULL, ?, ?, 0)`,
-            [newId, userId, todayKey, now, now],
-            { tables: ['workouts'] }
-          );
-          workoutRow = await localDb.getFirst<WorkoutRow>(
-            'SELECT * FROM workouts WHERE id = ?',
-            [newId]
-          );
-        }
-
-        if (!workoutRow) throw new Error('Could not initialise local workout');
-
-        const w: Workout = {
-          id:           workoutRow.id,
-          user_id:      workoutRow.user_id,
-          day_key:      workoutRow.day_key,
-          notes:        workoutRow.notes,
-          session_type: (workoutRow.session_type ?? null) as Workout['session_type'],
-          created_at:   workoutRow.created_at,
-          updated_at:   workoutRow.updated_at,
-        };
+        // Atomic get-or-create (shared with usePowerSyncLog) — prevents the
+        // cold-start race that produced duplicate "Today" workout rows.
+        const w = await ensureLocalWorkoutForDay(todayKey, userId);
+        if (!w) throw new Error('Could not initialise local workout');
         setWorkout(w);
 
         const setRows = await localDb.getAll<SetRow>(

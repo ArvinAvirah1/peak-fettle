@@ -225,6 +225,18 @@ export function RoutineStrip({
   const [loadingRoutines, setLoadingRoutines] = useState(true);
   const [loadingTemplates, setLoadingTemplates] = useState(true);
 
+  // Hang-proofing: STARTER SPLITS comes from the network (getTemplates) and the
+  // axios timeout is 15s. Without a deadline a slow/flaky connection left both
+  // strips spinning "forever" on Home (the user's #1 lag complaint). After this
+  // deadline a still-pending loader resolves to its empty state instead of a
+  // perpetual spinner; the real data still pops in if/when the fetch returns.
+  const LOAD_DEADLINE_MS = 2500;
+  const [loadTimedOut, setLoadTimedOut] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setLoadTimedOut(true), LOAD_DEADLINE_MS);
+    return () => clearTimeout(t);
+  }, []);
+
   useEffect(() => {
     // Tier-branched: free/local-first users read the on-device `routines` table
     // (no REST round-trip on Home startup); Pro users hit the server. Fixes the
@@ -323,7 +335,7 @@ export function RoutineStrip({
 
       {routinesExpanded && (
         <View style={styles.stripBody}>
-          {loadingRoutines ? (
+          {loadingRoutines && !loadTimedOut ? (
             <ActivityIndicator size="small" color={theme.colors.accentDefault} style={styles.loader} />
           ) : routines.length === 0 ? (
             <Text style={[styles.emptyState, { color: theme.colors.textTertiary }]}>
@@ -357,7 +369,7 @@ export function RoutineStrip({
 
       {splitsExpanded && (
         <View style={styles.stripBody}>
-          {loadingTemplates || loadingDetail ? (
+          {(loadingTemplates || loadingDetail) && !loadTimedOut ? (
             <ActivityIndicator size="small" color={theme.colors.accentDefault} style={styles.loader} />
           ) : templates.length === 0 ? (
             <Text style={[styles.emptyState, { color: theme.colors.textTertiary }]}>

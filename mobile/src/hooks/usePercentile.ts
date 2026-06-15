@@ -15,6 +15,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getPercentile } from '../api/percentile';
 import { PercentileResponse } from '../types/api';
+import { useAuth } from './useAuth';
+import { isLocalFirst } from '../data/backup/tierPolicy';
 
 export interface UsePercentileResult {
   response: PercentileResponse | null;
@@ -24,11 +26,27 @@ export interface UsePercentileResult {
 }
 
 export function usePercentile(): UsePercentileResult {
+  const { user } = useAuth();
+  // Free/local-first users compute percentiles ENTIRELY on-device
+  // (rankings.tsx → strengthModelV3). The server `user_percentile_rankings`
+  // path is deprecated and 500s/stalls for them (no server-side sets), so the
+  // old unconditional GET /percentile turned every Rankings tab open into a
+  // 15s hang or error banner. Skip the call for them — the screen renders its
+  // on-device tier/percentile cards regardless of this (now-empty) response.
+  const localFirst = isLocalFirst(user);
+
   const [response, setResponse] = useState<PercentileResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const fetchRankings = useCallback(async () => {
+    if (localFirst) {
+      // No network — resolve immediately to a clean empty state.
+      setResponse(null);
+      setError(null);
+      setIsLoading(false);
+      return;
+    }
     setIsLoading(true);
     setError(null);
     try {
@@ -42,7 +60,7 @@ export function usePercentile(): UsePercentileResult {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [localFirst]);
 
   useEffect(() => {
     fetchRankings();

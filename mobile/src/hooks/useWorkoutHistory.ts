@@ -21,6 +21,11 @@ import { localDb } from '../db/localDb';
 import { getWorkouts } from '../api/workouts';
 import { getSetsForWorkout } from '../api/sets';
 import { getExercises } from '../api/exercises';
+import {
+  getExerciseNameMap,
+  ensureExerciseCatalogCached,
+  displayExerciseName,
+} from '../data/exerciseNames';
 import { Workout, WorkoutSet, LiftSet, CardioSet, Exercise } from '../types/api';
 import { computeStreak } from './useStreak';
 import { toDateKey, daysAgo } from '../utils/dateHelpers';
@@ -81,6 +86,7 @@ interface WorkoutRow {
   day_key: string;
   notes: string | null;
   session_type: string | null;
+  routine_name: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -157,25 +163,36 @@ export function useWorkoutHistory(): UseWorkoutHistoryResult {
         const domainWorkouts: Workout[] = localWorkouts.map((w) => ({
           id: w.id, user_id: w.user_id, day_key: w.day_key, notes: w.notes,
           session_type: (w.session_type ?? null) as Workout['session_type'],
+          routine_name: w.routine_name ?? null,
           created_at: w.created_at, updated_at: w.updated_at,
         }));
 
-        // Best-effort exercise name map from exercise_prefs (id→id fallback).
-        const prefRows = await localDb.getAll<{ exercise_id: string }>(
-          'SELECT exercise_id FROM exercise_prefs'
-        );
-        const exerciseMap = new Map<string, string>();
-        prefRows.forEach((r) => exerciseMap.set(r.exercise_id, r.exercise_id));
+        // Resolve exercise names from the on-device id→name cache (populated at
+        // log/pick time + a best-effort global-catalogue backfill). Never shows
+        // a raw UUID. Kick the backfill in the background so already-logged sets
+        // that predate the cache resolve on a subsequent open — without blocking.
+        const exerciseMap = await getExerciseNameMap();
+        void ensureExerciseCatalogCached();
 
-        // Fetch sets per workout.
-        const setsArrays: WorkoutSet[][] = await Promise.all(
-          domainWorkouts.map(async (w) => {
-            const rows = await localDb.getAll<SetRow>(
-              'SELECT * FROM sets WHERE workout_id = ? ORDER BY set_index ASC',
-              [w.id]
-            );
-            return rows.map(rowToSet);
-          })
+        // Fetch ALL sets for the window in ONE query (was N+1: one SELECT per
+        // workout). With up to ~60 rows in 30 days this is well under SQLite's
+        // host-parameter limit and turns N round-trips into a single one.
+        const setsByWorkout = new Map<string, WorkoutSet[]>();
+        if (domainWorkouts.length > 0) {
+          const ids = domainWorkouts.map((w) => w.id);
+          const placeholders = ids.map(() => '?').join(',');
+          const allRows = await localDb.getAll<SetRow>(
+            `SELECT * FROM sets WHERE workout_id IN (${placeholders}) ORDER BY set_index ASC`,
+            ids
+          );
+          for (const row of allRows) {
+            const arr = setsByWorkout.get(row.workout_id) ?? [];
+            arr.push(rowToSet(row));
+            setsByWorkout.set(row.workout_id, arr);
+          }
+        }
+        const setsArrays: WorkoutSet[][] = domainWorkouts.map(
+          (w) => setsByWorkout.get(w.id) ?? []
         );
 
         const allLiftSets: LiftSet[] = [];
@@ -186,30 +203,59 @@ export function useWorkoutHistory(): UseWorkoutHistoryResult {
         }
         const prIds = computePRIds(allLiftSets);
 
-        const entries: WorkoutHistoryEntry[] = domainWorkouts.map((workout, idx) => {
-          const rawSets = setsArrays[idx] ?? [];
-          const setsWithPR: WorkoutSetWithPR[] = rawSets.map((s) => {
-            if (s.kind === 'lift') {
-              return { ...(s as LiftSet), is_pr: prIds.has(s.id) };
-            }
-            return s;
-          });
+        // ── Merge all workout rows for the same day into ONE entry ────────────
+        // The cold-start race (now fixed forward) could already have left two
+        // rows per day on-device — one real, one empty. Grouping by day_key and
+        // unioning their sets collapses the visible duplicate, and dropping days
+        // with no sets that aren't rest days removes the "0 sets / No lifts
+        // recorded" noise the user saw.
+        interface DayGroup { workouts: Workout[]; sets: WorkoutSet[] }
+        const byDay = new Map<string, DayGroup>();
+        domainWorkouts.forEach((workout, idx) => {
+          const g = byDay.get(workout.day_key) ?? { workouts: [], sets: [] };
+          g.workouts.push(workout);
+          g.sets.push(...(setsArrays[idx] ?? []));
+          byDay.set(workout.day_key, g);
+        });
+
+        const entries: WorkoutHistoryEntry[] = [];
+        for (const g of byDay.values()) {
+          const isRestDay = g.workouts.some((w) => w.session_type === 'rest_day');
+          if (g.sets.length === 0 && !isRestDay) continue; // drop empty non-rest day
+
+          // Representative row: prefer one carrying a routine label, then a rest
+          // day, else the earliest. day_key/session_type/routine_name are all the
+          // consumers read.
+          const rep =
+            g.workouts.find((w) => w.routine_name) ??
+            g.workouts.find((w) => w.session_type === 'rest_day') ??
+            g.workouts[0]!; // group is only created when a workout is pushed
+
+          const ordered = [...g.sets].sort((a, b) =>
+            (a.logged_at ?? '').localeCompare(b.logged_at ?? '')
+          );
+          const setsWithPR: WorkoutSetWithPR[] = ordered.map((s) =>
+            s.kind === 'lift' ? { ...(s as LiftSet), is_pr: prIds.has(s.id) } : s
+          );
+
           const seen = new Set<string>();
           const liftNames: string[] = [];
-          for (const s of rawSets) {
-            if (s.kind === 'lift') {
-              const liftSet = s as LiftSet;
-              if (!liftSet.exercise_id) continue;
-              const name = exerciseMap.get(liftSet.exercise_id) ?? liftSet.exercise_id;
-              if (!seen.has(name)) { seen.add(name); liftNames.push(name); }
-            }
+          for (const s of ordered) {
+            if (s.kind !== 'lift') continue;
+            const ls = s as LiftSet;
+            if (!ls.exercise_id || seen.has(ls.exercise_id)) continue;
+            seen.add(ls.exercise_id);
+            liftNames.push(displayExerciseName(ls.exercise_id, exerciseMap));
           }
-          return { workout, sets: setsWithPR, liftNames };
-        });
+          entries.push({ workout: rep, sets: setsWithPR, liftNames });
+        }
+        entries.sort((a, b) => b.workout.day_key.localeCompare(a.workout.day_key));
 
         setExerciseNames(exerciseMap);
         setHistory(entries);
-        setStreak(computeStreak(domainWorkouts));
+        // Streak counts only real activity days (sets or rest day) — an empty
+        // "started but logged nothing" row must not extend the streak.
+        setStreak(computeStreak(entries.map((e) => e.workout)));
         return;
       }
 
