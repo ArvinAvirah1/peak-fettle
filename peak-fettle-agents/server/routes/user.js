@@ -105,7 +105,7 @@ router.get('/data-export', exportLimiter, async (req, res, next) => {
                                 END
                             ELSE NULL
                         END AS e1rm_kg,
-                        s.set_number, s.logged_at
+                        s.set_index, s.logged_at
                  FROM sets s
                  JOIN workouts w ON w.id = s.workout_id
                  JOIN exercises e ON e.id = s.exercise_id
@@ -134,7 +134,9 @@ router.get('/data-export', exportLimiter, async (req, res, next) => {
                 [uid]
             ),
             pool.query(
-                `SELECT current_streak, longest_streak, last_activity_date
+                // streak-col-mismatch fix (2026-06-14): actual column names per schema are
+                // current_streak_days, longest_streak_days, last_session_date.
+                `SELECT current_streak_days, longest_streak_days, last_session_date
                  FROM streaks WHERE user_id = $1`,
                 [uid]
             ),
@@ -249,20 +251,23 @@ router.delete('/account', deleteLimiter, async (req, res, next) => {
             );
 
             // Record the orphan so the cleanup cron can retry.
-            // Use a fire-and-forget pool.query — we don't await it on the hot path
-            // to avoid delaying the client response, but we do catch and log any
-            // insert failure so the on-call engineer sees both failures together.
-            pool.query(
-                `INSERT INTO orphaned_auth_records (auth_uid, reason)
-                 VALUES ($1, $2)`,
-                [uid, authDeleteError.message]
-            ).catch((insertErr) => {
+            // account-delete-orphan-silent-failure fix (2026-06-14): await the INSERT
+            // so that a failure is logged before we return 200. The 200 is still sent
+            // because the user's data is already deleted; the auth orphan is a cleanup
+            // concern, not a reason to report failure to the user.
+            try {
+                await pool.query(
+                    `INSERT INTO orphaned_auth_records (auth_uid, reason)
+                     VALUES ($1, $2)`,
+                    [uid, authDeleteError.message]
+                );
+            } catch (insertErr) {
                 console.error(
                     '[ALERT][TICKET-030] Failed to record orphan for uid=%s: %s',
                     uid,
                     insertErr.message
                 );
-            });
+            }
         }
 
         // Always 200: the user's personal data rows are gone regardless of
@@ -638,7 +643,7 @@ router.get('/export', exportLimiter, async (req, res, next) => {
                 `SELECT s.id, s.workout_id, w.day_key,
                         e.name AS exercise,
                         s.weight_raw / 8.0 AS weight_kg,
-                        s.reps, s.rir, s.kind, s.set_number, s.logged_at
+                        s.reps, s.rir, s.kind, s.set_index, s.logged_at
                  FROM sets s
                  JOIN workouts w ON w.id = s.workout_id
                  JOIN exercises e ON e.id = s.exercise_id

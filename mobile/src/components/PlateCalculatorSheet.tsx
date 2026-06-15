@@ -308,7 +308,9 @@ export default function PlateCalculatorSheet({
                   </Text>
                   {warmupLadder.map(({ pct, weight, skip }, idx) => {
                     if (skip) return null;
-                    const bk = plateBreakdown(weight, BAR_WEIGHT_DISP, plates);
+                    // Use the user's configured bar weight (baseNum) if available;
+                    // fall back to the default so the breakdown is never wrong (WL-005).
+                    const bk = plateBreakdown(weight, baseNum > 0 ? baseNum : BAR_WEIGHT_DISP, plates);
                     const isExp = expandedRung === idx;
                     return (
                       <TouchableOpacity

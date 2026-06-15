@@ -32,10 +32,31 @@ import { runMigrations } from './migrations';
 type ChangeListener = (tables: Set<string>) => void;
 
 // ---------------------------------------------------------------------------
-// genId — RFC4122-ish v4 UUID using Math.random (no native crypto).
+// genId — RFC4122 v4 UUID.
+//
+// Prefers the CSPRNG via global crypto.getRandomValues() (available in RN
+// 0.73+ via Hermes / JavaScriptCore). Falls back to Math.random() only when
+// the global is absent (e.g. some Jest environments without setup).  The
+// signature is unchanged; callers do not need updating.
 // ---------------------------------------------------------------------------
 
 export function genId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    const bytes = new Uint8Array(16);
+    crypto.getRandomValues(bytes);
+    // Set version bits (v4) and variant bits (RFC4122).
+    bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+    bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+    const hex = Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('');
+    return (
+      hex.slice(0, 8) + '-' +
+      hex.slice(8, 12) + '-' +
+      hex.slice(12, 16) + '-' +
+      hex.slice(16, 20) + '-' +
+      hex.slice(20)
+    );
+  }
+  // Fallback: Math.random() — acceptable only in environments without crypto.
   return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
     const r = (Math.random() * 16) | 0;
     const v = c === 'x' ? r : (r & 0x3) | 0x8;

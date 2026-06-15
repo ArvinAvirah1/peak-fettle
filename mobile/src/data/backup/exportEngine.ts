@@ -209,21 +209,35 @@ export async function buildBackupFromDb(db: MinimalDb): Promise<ExportDoc> {
  * Restore a parsed table map into the on-device DB: replace each known table's
  * contents (DELETE then INSERT). Caller passes the result of parseImport().
  * Safety-critical on a real device — covered by the device test, not in-sandbox.
+ *
+ * The entire operation runs inside a single SQLite transaction so that a device
+ * crash or app kill mid-restore cannot leave the database in a partially-restored
+ * state (some tables wiped, others still containing old data).  Either every
+ * table is replaced atomically, or the transaction is rolled back and the
+ * original data is preserved.
  */
 export async function restoreBackupToDb(db: MinimalDb, tables: TableMap): Promise<void> {
-  for (const t of BACKUP_TABLES) {
-    const rows = tables[t] ?? [];
-    await db.execute(`DELETE FROM ${t}`, [], { tables: [t] });
-    for (const row of rows) {
-      const cols = Object.keys(row);
-      if (cols.length === 0) continue;
-      const placeholders = cols.map(() => '?').join(', ');
-      const values = cols.map((c) => row[c] as unknown);
-      await db.execute(
-        `INSERT INTO ${t} (${cols.join(', ')}) VALUES (${placeholders})`,
-        values,
-        { tables: [t] },
-      );
+  await db.execute('BEGIN', [], { tables: [] });
+  try {
+    for (const t of BACKUP_TABLES) {
+      const rows = tables[t] ?? [];
+      await db.execute(`DELETE FROM ${t}`, [], { tables: [t] });
+      for (const row of rows) {
+        const cols = Object.keys(row);
+        if (cols.length === 0) continue;
+        const placeholders = cols.map(() => '?').join(', ');
+        const values = cols.map((c) => row[c] as unknown);
+        await db.execute(
+          `INSERT INTO ${t} (${cols.join(', ')}) VALUES (${placeholders})`,
+          values,
+          { tables: [t] },
+        );
+      }
     }
+    await db.execute('COMMIT', [], { tables: [] });
+  } catch (err) {
+    // Roll back so the original data is preserved on any error.
+    try { await db.execute('ROLLBACK', [], { tables: [] }); } catch { /* ignore */ }
+    throw err;
   }
 }

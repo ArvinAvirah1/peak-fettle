@@ -44,9 +44,9 @@ function httpsGetJson(url) {
 
 // Simple in-process JWKS cache (1h).
 const _cache = new Map();
-async function defaultFetchJwks(jwksUri) {
+async function defaultFetchJwks(jwksUri, { forceRefresh = false } = {}) {
   const cached = _cache.get(jwksUri);
-  if (cached && Date.now() - cached.at < 60 * 60 * 1000) return cached.keys;
+  if (!forceRefresh && cached && Date.now() - cached.at < 60 * 60 * 1000) return cached.keys;
   const data = await httpsGetJson(jwksUri);
   const keys = (data && data.keys) || [];
   _cache.set(jwksUri, { keys, at: Date.now() });
@@ -67,6 +67,11 @@ function err(message, code, status) {
 /**
  * Verify a provider id_token. Returns the decoded payload or throws.
  * opts: { issuer, jwksUri, audience, fetchJwks? }
+ *
+ * Cache-miss retry: if the signing key is not found in the cached JWKS
+ * (e.g. the provider rotated keys within the 1h cache window), we force-refresh
+ * once and retry before throwing unknown_signing_key. This prevents a permanent
+ * auth outage for up to 1h after a key rotation.
  */
 async function verifyProviderToken(idToken, opts) {
   const { issuer, jwksUri, audience, fetchJwks = defaultFetchJwks } = opts || {};
@@ -76,8 +81,15 @@ async function verifyProviderToken(idToken, opts) {
   if (!decoded || !decoded.header || !decoded.header.kid) {
     throw err('malformed_token', 'invalid_token', 401);
   }
-  const keys = await fetchJwks(jwksUri);
-  const jwk = (keys || []).find((k) => k.kid === decoded.header.kid);
+
+  let keys = await fetchJwks(jwksUri);
+  let jwk = (keys || []).find((k) => k.kid === decoded.header.kid);
+
+  // Key not found in cached set — force-refresh once in case of key rotation.
+  if (!jwk) {
+    keys = await fetchJwks(jwksUri, { forceRefresh: true });
+    jwk = (keys || []).find((k) => k.kid === decoded.header.kid);
+  }
   if (!jwk) throw err('unknown_signing_key', 'invalid_token', 401);
 
   const publicKey = jwkToPublicKey(jwk);

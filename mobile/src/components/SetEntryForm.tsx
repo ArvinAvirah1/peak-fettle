@@ -11,7 +11,7 @@
  * TODO(TICKET-027): swap for PowerSync hook after sync layer lands
  */
 
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Modal,
   View,
@@ -130,7 +130,13 @@ export function SetEntryForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [setCount, setSetCount] = useState(0);
-  const currentSetIndex = useRef(nextSetIndex);
+  // useState (not useRef) so the "Set N" indicator re-renders after each logged
+  // set, and so the index is reset correctly when the parent remounts with a new
+  // nextSetIndex prop (WL-004 / setentryform-currentsetindex-ref-stale).
+  const [currentSetIndex, setCurrentSetIndex] = useState(nextSetIndex);
+  useEffect(() => {
+    setCurrentSetIndex(nextSetIndex);
+  }, [nextSetIndex]);
 
   const repsRef = useRef<TextInput>(null);
   const ssRef = useRef<TextInput>(null);
@@ -178,7 +184,7 @@ export function SetEntryForm({
       kind: 'lift',
       workoutId,
       exerciseId: exercise.id,
-      setIndex: currentSetIndex.current,
+      setIndex: currentSetIndex,
       reps,
       weightKg,
       ...(rir !== undefined ? { rir } : {}),
@@ -202,7 +208,7 @@ export function SetEntryForm({
       kind: 'cardio',
       workoutId,
       exerciseId: exercise.id,
-      setIndex: currentSetIndex.current,
+      setIndex: currentSetIndex,
       durationSec,
       ...(distanceM !== undefined ? { distanceM } : {}),
       ...(avgPaceSecPerKm !== undefined ? { avgPaceSecPerKm } : {}),
@@ -227,7 +233,7 @@ export function SetEntryForm({
       const payload = isLift ? buildLiftPayload() : buildCardioPayload();
       const logged = await onSubmit(payload);
       onLogged(logged);
-      currentSetIndex.current += 1;
+      setCurrentSetIndex((prev) => prev + 1);
       setSetCount((c) => c + 1);
       // Clear fields for the next set (Log Another behaviour)
       if (isLift) {
@@ -243,7 +249,7 @@ export function SetEntryForm({
       setIsSubmitting(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLift, liftFields, cardioFields, workoutId, exercise, unitPref, onSubmit, onLogged]);
+  }, [isLift, liftFields, cardioFields, workoutId, exercise, unitPref, onSubmit, onLogged, currentSetIndex]);
 
   // ---------------------------------------------------------------------------
   // Render helpers
@@ -429,7 +435,7 @@ export function SetEntryForm({
               borderColor: theme.colors.borderDefault,
             }]}>
               <Text style={[styles.setIndicatorText, { color: theme.colors.textSecondary }]}>
-                Set {currentSetIndex.current + 1}
+                Set {currentSetIndex + 1}
               </Text>
             </View>
 

@@ -14,6 +14,15 @@ const { verifyOAuthIdToken } = require('../lib/oauthVerify'); // TICKET-099
 
 const router = express.Router();
 
+// jwt-secret-no-startup-guard (2026-06-14): fail loud at module load if the
+// secret is absent.  jwt.sign/verify both silently accept undefined as the
+// secret, making every token trivially forgeable.  Unlike SUPABASE_URL which
+// throws in supabaseAdmin.js, JWT_SECRET has no other guard — add it here.
+if (!process.env.JWT_SECRET) {
+    console.error('[peak-fettle-api] FATAL: JWT_SECRET env var must be set.');
+    process.exit(1);
+}
+
 const SignupSchema = z.object({
     email: z.string().email(),
     password: z.string().min(8).max(128),

@@ -45,11 +45,15 @@ export async function getLatestBodyweight(): Promise<BodyweightEntry | null> {
 
 /** All entries, oldest first (for the Trends chart). */
 export async function getBodyweightHistory(limit = 104): Promise<BodyweightEntry[]> {
-  const rows = await localDb.getAll<BodyweightEntry>(
-    `SELECT id, week_key, weight_kg, logged_at FROM bodyweight ORDER BY logged_at DESC LIMIT ?`,
+  // Order by week_key (ISO week string, e.g. "2026-W24") rather than logged_at
+  // so that re-edits of old entries (which update logged_at to the edit time)
+  // don't cause the chart's time axis to become non-monotonic.  week_key sorts
+  // lexicographically correctly for ISO weeks within a year and across years.
+  // ASC directly yields oldest-first — no .reverse() needed.
+  return localDb.getAll<BodyweightEntry>(
+    `SELECT id, week_key, weight_kg, logged_at FROM bodyweight ORDER BY week_key ASC LIMIT ?`,
     [limit],
   );
-  return rows.reverse();
 }
 
 /** Has the user logged a median for the CURRENT ISO week? Drives the prompt. */

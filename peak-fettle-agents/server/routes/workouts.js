@@ -104,42 +104,39 @@ router.post('/', async (req, res, next) => {
         // Fire-and-forget — never delays the response or throws to the client.
         // Sets paywall_triggered_at on users table (once, never cleared) and
         // enqueues a push notification via the notification_queue table.
+        //
+        // paywall-dual-trigger-race fix (2026-06-14): collapse the old SELECT +
+        // UPDATE into a single atomic UPDATE ... WHERE paywall_triggered_at IS NULL
+        // RETURNING. If two concurrent POST /workouts requests race, only one will
+        // get rowCount=1 and enqueue the push notification — the other is a no-op.
         (async () => {
           try {
-            // Only check if paywall hasn't already been persisted for this user
-            const { rows: [userRow] } = await pool.query(
-              'SELECT paywall_triggered_at FROM users WHERE id = $1',
-              [req.user.id]
-            );
-            if (userRow?.paywall_triggered_at) return; // already triggered
-
             // Count real workout sessions only (same logic as countRealSessions()).
-            // NEW-002 fix: was COUNT(*) which incorrectly counted rest days, cardio
-            // imports, and soft-deleted rows — could trigger paywall before the user
-            // hit FREE_SESSION_LIMIT real workouts.
             const { rows: [{ count }] } = await pool.query(
               `SELECT COUNT(*)::int AS count FROM workouts
                WHERE user_id = $1
-                 -- FIX (data-audit 2026-05-27): no soft-delete column; real session = 'workout'
                  AND session_type = 'workout'`,
               [req.user.id]
             );
 
             if (parseInt(count, 10) >= FREE_SESSION_LIMIT) {
-              // Mark paywall triggered (set once, never cleared)
-              await pool.query(
-                'UPDATE users SET paywall_triggered_at = NOW() WHERE id = $1',
+              // Atomic: only fires once even under concurrent requests.
+              const { rowCount } = await pool.query(
+                `UPDATE users SET paywall_triggered_at = NOW()
+                 WHERE id = $1 AND paywall_triggered_at IS NULL`,
                 [req.user.id]
               );
 
-              // Enqueue push notification (if notification_queue table exists)
-              await pool.query(`
-                INSERT INTO notification_queue (user_id, type, title, body, data)
-                VALUES ($1, 'paywall_trigger',
-                  'You''re on a roll! 🔥',
-                  'You''ve logged 5 sessions. Unlock premium for unlimited AI plans, advanced analytics, and more.',
-                  $2::jsonb)
-              `, [req.user.id, JSON.stringify({ screen: 'upgrade' })]);
+              if (rowCount === 1) {
+                // Enqueue push notification (if notification_queue table exists)
+                await pool.query(`
+                  INSERT INTO notification_queue (user_id, type, title, body, data)
+                  VALUES ($1, 'paywall_trigger',
+                    'You''re on a roll! 🔥',
+                    'You''ve logged 5 sessions. Unlock premium for unlimited AI plans, advanced analytics, and more.',
+                    $2::jsonb)
+                `, [req.user.id, JSON.stringify({ screen: 'upgrade' })]);
+              }
             }
           } catch (err) {
             console.warn('[paywall-trigger] error (non-fatal):', err?.message);
@@ -147,29 +144,41 @@ router.post('/', async (req, res, next) => {
         })();
 
         // Push notification: streak milestone check
-        try {
-            const MILESTONES = [7, 30, 100];
-            // Fetch current streak and notification preference from users table
-            const { data: streakData } = await supabaseAdmin
-                .from('users')
-                .select('streak_days, streak_notifications_enabled')
-                .eq('id', req.user.id)
-                .single();
-            const streak = streakData?.streak_days;
-            const notifEnabled = streakData?.streak_notifications_enabled !== false; // default true if null
-            if (streak && MILESTONES.includes(streak) && notifEnabled) {
-                await supabaseAdmin.from('notification_queue').insert({
-                    user_id: req.user.id,
-                    type: 'streak_milestone',
-                    title: `${streak}-day streak! 🔥`,
-                    body: `You've logged workouts for ${streak} days in a row. Keep it going!`,
-                    data: { streak_days: streak },
-                });
+        // post-response-try-catch fix (2026-06-14): moved into a fire-and-forget
+        // IIFE so it executes after the response has been flushed and can never
+        // interfere with headers or the outer catch (err) => next(err) path.
+        // streak-milestone-nonexistent-col fix: users has no streak_days column —
+        // streak data lives in the streaks table (current_streak_days).
+        (async () => {
+            try {
+                const MILESTONES = [7, 30, 100];
+                const { rows: streakRows } = await pool.query(
+                    `SELECT s.current_streak_days, u.streak_notifications_enabled
+                     FROM streaks s
+                     JOIN users u ON u.id = s.user_id
+                     WHERE s.user_id = $1`,
+                    [req.user.id]
+                );
+                const streakRow = streakRows[0];
+                const streak = streakRow?.current_streak_days;
+                const notifEnabled = streakRow?.streak_notifications_enabled !== false; // default true if null
+                if (streak && MILESTONES.includes(streak) && notifEnabled) {
+                    await pool.query(
+                        `INSERT INTO notification_queue (user_id, type, title, body, data)
+                         VALUES ($1, 'streak_milestone', $2, $3, $4::jsonb)`,
+                        [
+                            req.user.id,
+                            `${streak}-day streak! 🔥`,
+                            `You've logged workouts for ${streak} days in a row. Keep it going!`,
+                            JSON.stringify({ streak_days: streak }),
+                        ]
+                    );
+                }
+            } catch (_e) {
+                // Notification enqueue failure must never break the workout response
+                console.warn('[push] streak milestone enqueue failed:', _e?.message);
             }
-        } catch (_e) {
-            // Notification enqueue failure must never break the workout response
-            console.warn('[push] streak milestone enqueue failed:', _e?.message);
-        }
+        })();
     } catch (err) { next(err); }
 });
 
@@ -204,10 +213,14 @@ router.get('/', async (req, res, next) => {
                 -- total_sets / exercise_count count lift sets only.
                 COUNT(s.id)          FILTER (WHERE s.kind = 'lift')              AS total_sets,
                 COUNT(DISTINCT s.exercise_id) FILTER (WHERE s.kind = 'lift')     AS exercise_count,
+                -- workout-volume-wrong fix (2026-06-14): total volume = SUM(weight_kg × reps).
+                -- weight_raw is kg×8, so weight_kg = weight_raw/8.0. Reps must also be
+                -- included; the prior formula omitted reps entirely (SUM(weight_raw)/8 = sum
+                -- of individual weights, not volume).
                 COALESCE(
-                    SUM(s.weight_raw) FILTER (WHERE s.kind = 'lift' AND s.weight_raw > 0),
+                    SUM((s.weight_raw / 8.0) * s.reps) FILTER (WHERE s.kind = 'lift' AND s.weight_raw > 0 AND s.reps > 0),
                     0
-                ) / 8.0                                                           AS total_volume_kg
+                )                                                                 AS total_volume_kg
              FROM workouts w
              LEFT JOIN sets s ON s.workout_id = w.id
              WHERE ${conditions.join(' AND ')}

@@ -510,7 +510,10 @@ groupsRouter.post('/:id/members', async (req, res, next) => {
             return res.status(403).json({ error: 'not_admin' });
         }
 
-        // Look up the target user by display_name
+        // Look up the target user by display_name.
+        // direct-add-member-display-name-collision fix (2026-06-14): display_name
+        // has no UNIQUE constraint, so multiple users can share a name. Return 409
+        // rather than silently adding the wrong person if more than one row matches.
         const { rows: userRows } = await pool.query(
             `SELECT id FROM users
              WHERE display_name = $1 AND deleted_at IS NULL`,
@@ -518,6 +521,12 @@ groupsRouter.post('/:id/members', async (req, res, next) => {
         );
         if (userRows.length === 0) {
             return res.status(404).json({ error: 'user_not_found' });
+        }
+        if (userRows.length > 1) {
+            return res.status(409).json({
+                error: 'ambiguous_username',
+                message: 'Multiple users share that display name. Ask the user to share an invite link instead.',
+            });
         }
 
         const targetUserId = userRows[0].id;

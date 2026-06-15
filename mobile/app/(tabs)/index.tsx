@@ -57,6 +57,8 @@ import { PFCard, PFButton, ScreenLayout } from '../../src/components/ui';
 import { getPlans, getPlan } from '../../src/api/plans';
 import { getPercentile } from '../../src/api/percentile';
 import { logRestDay, undoRestDay } from '../../src/api/workouts';
+import { isLocalFirst } from '../../src/data/backup/tierPolicy';
+import { localDb, genId } from '../../src/db/localDb';
 import { BrandLogo } from '../../src/components/BrandLogo'; // TICKET-063
 import { WorkoutLoggerHost, WorkoutLoggerRef } from '../../src/components/WorkoutLoggerHost';
 import { RoutineStrip } from '../../src/components/RoutineStrip';
@@ -413,6 +415,10 @@ export default function HomeScreen(): React.ReactElement {
   const [bestPercentile, setBestPercentile] = useState<number | null>(null);
 
   useEffect(() => {
+    // Percentiles are a Pro/server feature; free (local-first) users compute
+    // them on-device (strengthModelV3) and must NOT block Home startup on a
+    // REST round-trip (which also 500s against a drifted server). Skip it.
+    if (!user?.is_paid) return;
     getPercentile()
       .then((resp) => {
         const values = resp.rankings
@@ -423,7 +429,7 @@ export default function HomeScreen(): React.ReactElement {
       .catch((err: unknown) => {
         console.warn('[PF] index/getPercentile:', err instanceof Error ? err.message : String(err));
       });
-  }, []);
+  }, [user?.is_paid]);
 
   // ── P0-005: Computed dashboard stats ─────────────────────────────────────
 
@@ -439,15 +445,25 @@ export default function HomeScreen(): React.ReactElement {
     const seen = new Set<string>();
     const chips: Array<{ id: string; exercise_name: string; weight_kg: number }> = [];
     for (const entry of history) {
+      // Build a map from exercise_id → display name using unique first-occurrence
+      // order (matching how entry.liftNames is constructed).
+      const exerciseIdToName = new Map<string, string>();
+      let nameIdx = 0;
+      for (const s of entry.sets) {
+        if (s.kind === 'lift' && !exerciseIdToName.has((s as LiftSet).exercise_id)) {
+          exerciseIdToName.set(
+            (s as LiftSet).exercise_id,
+            entry.liftNames[nameIdx] ?? (s as LiftSet).exercise_id
+          );
+          nameIdx++;
+        }
+      }
       for (const s of entry.sets) {
         if (s.kind === 'lift' && (s as LiftSet & { is_pr?: boolean }).is_pr) {
           const ls = s as LiftSet & { is_pr: boolean };
           if (!seen.has(ls.exercise_id)) {
             seen.add(ls.exercise_id);
-            const nameIdx = entry.sets
-              .filter((x) => x.kind === 'lift')
-              .findIndex((x) => x.id === ls.id);
-            const name = entry.liftNames[nameIdx] ?? ls.exercise_id;
+            const name = exerciseIdToName.get(ls.exercise_id) ?? ls.exercise_id;
             chips.push({ id: ls.id, exercise_name: name, weight_kg: ls.weight_kg });
           }
         }
@@ -474,27 +490,47 @@ export default function HomeScreen(): React.ReactElement {
     if (restDayLoggedToday || restDayLoading) return;
     setRestDayLoading(true);
     try {
-      await logRestDay();
+      if (isLocalFirst(user)) {
+        // Free / local-first: write directly to localDb — no REST call.
+        const now = new Date().toISOString();
+        await localDb.execute(
+          `INSERT OR IGNORE INTO workouts (id, user_id, day_key, session_type, created_at, updated_at)
+           VALUES (?, ?, ?, 'rest_day', ?, ?)`,
+          [genId(), user?.id ?? 'local', todayKey, now, now],
+          { tables: ['workouts'] }
+        );
+      } else {
+        await logRestDay();
+      }
       await refetch();
     } catch {
       Alert.alert('Could not log rest day', 'Please try again.');
     } finally {
       setRestDayLoading(false);
     }
-  }, [restDayLoggedToday, restDayLoading, refetch]);
+  }, [restDayLoggedToday, restDayLoading, refetch, user, todayKey]);
 
   const handleUndoRestDay = useCallback(async () => {
     if (!restDayLoggedToday || restDayLoading) return;
     setRestDayLoading(true);
     try {
-      await undoRestDay();
+      if (isLocalFirst(user)) {
+        // Free / local-first: delete from localDb — no REST call.
+        await localDb.execute(
+          `DELETE FROM workouts WHERE day_key = ? AND session_type = 'rest_day' AND (user_id = ? OR user_id = 'local')`,
+          [todayKey, user?.id ?? 'local'],
+          { tables: ['workouts'] }
+        );
+      } else {
+        await undoRestDay();
+      }
       await refetch();
     } catch {
       Alert.alert('Could not undo rest day', 'Please try again.');
     } finally {
       setRestDayLoading(false);
     }
-  }, [restDayLoggedToday, restDayLoading, refetch]);
+  }, [restDayLoggedToday, restDayLoading, refetch, user, todayKey]);
 
   // ── P1-006: Streak detail sheet ──────────────────────────────────────────
   const [streakDetailVisible, setStreakDetailVisible] = useState(false);

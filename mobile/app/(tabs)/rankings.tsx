@@ -53,7 +53,7 @@ import { useAuth } from '../../src/hooks/useAuth';
 import { PercentileBar } from '../../src/components/PercentileBar';
 import { ConfidenceRing, confidenceRingTooltip } from '../../src/components/ConfidenceRing';
 import { confirm1rm } from '../../src/api/percentile';
-import { patchProfile } from '../../src/api/user';
+import { saveProfile } from '../../src/data/profile';
 import { liftIdToName } from '../../src/utils/liftNames';
 import { TierLadderCard } from '../../src/components/TierLadderCard'; // TICKET-093 v3 tier headline
 import {
@@ -142,6 +142,17 @@ function ConfirmSheet({
   const [inputValue, setInputValue] = useState(defaultValue);
   const [isSaving, setIsSaving] = useState(false);
   const [savedOk, setSavedOk] = useState(false);
+  // Ref to track the auto-close timer so it can be cleared on unmount.
+  const closeTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (closeTimerRef.current !== null) {
+        clearTimeout(closeTimerRef.current);
+        closeTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // P2-007: spring slide-up animation shared value
   const translateY = useSharedValue(400);
@@ -172,8 +183,11 @@ function ConfirmSheet({
       await onConfirm(kg);
       setSavedOk(true);
       haptics.success(); // E-006: confirmed 1RM is a high-signal user commitment
-      // Auto-close after a short success flash
-      setTimeout(() => onClose(), 2000);
+      // Auto-close after a short success flash; ref allows cleanup on unmount.
+      closeTimerRef.current = setTimeout(() => {
+        closeTimerRef.current = null;
+        onClose();
+      }, 2000);
     } catch {
       haptics.error(); // E-006: save failure
       setIsSaving(false);
@@ -722,14 +736,17 @@ export default function RankingsScreen(): React.ReactElement {
     updateUser({ show_wilks: next });
     setIsTogglingWilks(true);
     try {
-      await patchProfile({ show_wilks: next });
+      // saveProfile() routes free users to localDb and Pro users to PATCH /user/profile.
+      // It also calls updateUser() internally on success, but the optimistic call
+      // above already did that — saveProfile's updateUser call is idempotent.
+      await saveProfile(user, { show_wilks: next });
     } catch {
       // Revert on failure
       updateUser({ show_wilks: !next });
     } finally {
       setIsTogglingWilks(false);
     }
-  }, [showWilks, updateUser]);
+  }, [showWilks, updateUser, user]);
 
   // BUG-008 (2026-05-23): persist confirmed lift IDs to AsyncStorage so the
   // "confirmed" state survives an app restart before the nightly batch flips
@@ -771,7 +788,12 @@ export default function RankingsScreen(): React.ReactElement {
   const handleConfirm = useCallback(
     async (confirmedKg: number) => {
       if (!confirmingRanking) return;
-      await confirm1rm({ lift_id: confirmingRanking.lift_id, confirmed_kg: confirmedKg });
+      if (user?.is_paid) {
+        // Only paid users have a server percentile row to update.
+        await confirm1rm({ lift_id: confirmingRanking.lift_id, confirmed_kg: confirmedKg });
+      }
+      // For free users: store to AsyncStorage only (local confirmation persists
+      // the preference UI; the server ranking update requires a paid account).
       setConfirmedThisSession((prev) => {
         const next = new Set([...prev, confirmingRanking.lift_id]);
         // BUG-008: persist so CTA doesn't reappear after restart
@@ -779,7 +801,7 @@ export default function RankingsScreen(): React.ReactElement {
         return next;
       });
     },
-    [confirmingRanking, CONFIRMED_KEY]
+    [confirmingRanking, CONFIRMED_KEY, user?.is_paid]
   );
 
   const rankings = response?.rankings ?? [];

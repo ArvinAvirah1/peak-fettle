@@ -285,6 +285,24 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
 
         refreshTokenRef.current = storedRefreshToken;
 
+        // STARTUP PERF: restore the cached user profile and release the splash
+        // IMMEDIATELY — do NOT block the whole app behind the /auth/refresh
+        // network round-trip (that stalled every cold start behind a call to a
+        // possibly-slow server). The token refresh runs in the background below;
+        // free/local-first users make no token-dependent calls, and any Pro call
+        // that races the refresh is recovered by the apiClient 401 interceptor.
+        try {
+          const storedUser = await safeSecureStore.getItemAsync(USER_PROFILE_KEY);
+          if (storedUser && !cancelled) {
+            setUser(JSON.parse(storedUser) as User);
+          }
+        } catch (err) {
+          // Corrupted or missing — leave user null; login will fix it.
+          console.warn('[PF] AuthContext/bootstrap restoreUser:', err instanceof Error ? err.message : String(err));
+        }
+        if (!cancelled) setIsLoading(false);
+
+        // Silent token refresh — now runs AFTER the UI is up (non-blocking).
         const tokens = await AuthApi.refreshTokens(storedRefreshToken);
 
         if (cancelled) return;
@@ -294,24 +312,6 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
         setAccessToken(tokens.accessToken);
         // Propagate the new token to the PowerSync connector.
         setPowerSyncToken(tokens.accessToken);
-
-        // Restore the persisted user profile so the app works immediately on
-        // cold start without a separate /auth/me round-trip. The profile is
-        // written to SecureStore on every login/register and kept in sync via
-        // updateUser(). If it's missing (first install / cleared storage) the
-        // user will see null and routes that depend on the profile gracefully
-        // degrade until the next login refreshes it.
-        if (!cancelled) {
-          try {
-            const storedUser = await safeSecureStore.getItemAsync(USER_PROFILE_KEY);
-            if (storedUser) {
-              setUser(JSON.parse(storedUser) as User);
-            }
-          } catch (err) {
-            // Corrupted or missing — leave user null; login will fix it.
-            console.warn('[PF] AuthContext/bootstrap restoreUser:', err instanceof Error ? err.message : String(err));
-          }
-        }
       } catch (err) {
         console.warn('[PF] AuthContext/bootstrap silentRefresh:', err instanceof Error ? err.message : String(err));
         if (!cancelled) {

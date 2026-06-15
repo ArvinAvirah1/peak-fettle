@@ -125,6 +125,31 @@ interface GoogleButtonProps {
   fontWeightSemibold: string;
 }
 
+// ---------------------------------------------------------------------------
+// Stable no-op stub for useIdTokenAuthRequest — used when the Google package
+// is not installed or no client ID is configured. Always returns the same
+// shape as the real hook so GoogleButton can call it unconditionally.
+// The stub never changes between renders, satisfying Rules of Hooks.
+// ---------------------------------------------------------------------------
+
+type IdTokenHook = (opts: Record<string, unknown>) => [
+  unknown,
+  { type?: string; params?: { id_token?: string } } | null,
+  () => Promise<void>,
+];
+
+function useIdTokenAuthRequestStub(): [null, null, () => Promise<void>] {
+  return [null, null, async () => {}];
+}
+
+// Resolve the real hook once at module-eval time. The result is either the
+// real hook function or the stub — stable for the lifetime of the app.
+const resolvedUseIdTokenAuthRequest: IdTokenHook | typeof useIdTokenAuthRequestStub =
+  Google && GOOGLE_CLIENT_ID_FOR_PLATFORM &&
+  typeof (Google as { useIdTokenAuthRequest?: unknown }).useIdTokenAuthRequest === 'function'
+    ? (Google as { useIdTokenAuthRequest: IdTokenHook }).useIdTokenAuthRequest
+    : useIdTokenAuthRequestStub;
+
 function GoogleButton({
   busy,
   setBusy,
@@ -136,21 +161,14 @@ function GoogleButton({
 }: GoogleButtonProps): React.ReactElement | null {
   const { loginWithOAuth } = useAuth();
 
-  // Safely destructure the hook factory — only if the Google module loaded
-  // AND this platform has a client ID (the hook throws without one).
-  const useIdTokenAuthRequest =
-    Google && GOOGLE_CLIENT_ID_FOR_PLATFORM && typeof (Google as { useIdTokenAuthRequest?: unknown }).useIdTokenAuthRequest === 'function'
-      ? (Google as { useIdTokenAuthRequest: (opts: Record<string, unknown>) => [unknown, { type?: string; params?: { id_token?: string } } | null, () => Promise<void>] }).useIdTokenAuthRequest
-      : null;
-
-  // Always call hooks unconditionally (React rules) — but guard the real one.
-  const [request, response, promptAsync] = useIdTokenAuthRequest
-    ? useIdTokenAuthRequest({
-        iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
-        androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
-        webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
-      })
-    : ([null, null, async () => {}] as [null, null, () => Promise<void>]);
+  // Always call the same hook (either the real one or the stable stub) on every
+  // render. The hook reference is resolved once at module-eval time and never
+  // changes between renders, so React's hook-count invariant is satisfied.
+  const [request, response, promptAsync] = resolvedUseIdTokenAuthRequest({
+    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
+    androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
+    webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+  });
 
   useEffect(() => {
     if (!response) return;
@@ -168,7 +186,7 @@ function GoogleButton({
     }
   }, [response, loginWithOAuth, setBusy, setError]);
 
-  if (!useIdTokenAuthRequest) return null;
+  if (!GOOGLE_AVAILABLE) return null;
 
   return (
     <TouchableOpacity

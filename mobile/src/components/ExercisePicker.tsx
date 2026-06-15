@@ -31,6 +31,8 @@ import { getExercises, searchExercises, createExercise } from '../api/exercises'
 import { Exercise, ExerciseCategory, ExerciseLibrary } from '../types/api';
 import { useTheme } from '../theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
+import { useAuth } from '../hooks/useAuth';
+import { isLocalFirst } from '../data/backup/tierPolicy';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -71,6 +73,8 @@ export function ExercisePicker({
   onClose,
 }: ExercisePickerProps): React.ReactElement {
   const { theme } = useTheme();
+  const { user } = useAuth();
+  const localFirst = isLocalFirst(user);
   const [query, setQuery] = useState('');
   const [library, setLibrary] = useState<ExerciseLibrary | null>(null);
   const [searchResults, setSearchResults] = useState<Exercise[] | null>(null);
@@ -168,9 +172,16 @@ export function ExercisePicker({
   // existing row's UUID if the name already exists — safe to call redundantly).
   // This is the correct path for exercises not in the library; using a mock
   // UUID would cause a FK violation on POST /sets.
+  // FREE (local-first) users must not call POST /exercises (exercisepicker-free-user-api).
+  // For free users, show an upgrade prompt instead.
   const handleCreateCustom = useCallback(async () => {
     const name = query.trim();
     if (!name) return;
+    if (localFirst) {
+      // Personal custom-exercise creation is a server write — gate it behind Pro.
+      setError('Creating custom exercises requires a Pro account. Upgrade to add your own exercises.');
+      return;
+    }
     setIsCreating(true);
     try {
       const exercise = await createExercise(name);
@@ -181,7 +192,7 @@ export function ExercisePicker({
     } finally {
       setIsCreating(false);
     }
-  }, [query, onSelect]);
+  }, [query, onSelect, localFirst]);
 
   const renderItem = ({ item }: { item: ListItem }) => {
     if (item.type === 'header') {
@@ -332,7 +343,14 @@ export function ExercisePicker({
                 style={[styles.retryButton, { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault }]}
                 accessibilityRole="button"
                 accessibilityLabel="Retry search"
-                onPress={() => handleQueryChange(query)}
+                onPress={() => {
+                  // Clear the stale error/failed flags before retrying so the
+                  // user sees a loading state rather than the old error message
+                  // (exercise-picker-stale-error-on-retry).
+                  setSearchFailed(false);
+                  setSearchResults(null);
+                  handleQueryChange(query);
+                }}
               >
                 <Text style={[styles.retryButtonText, { color: theme.colors.accentDefault }]}>Try Again</Text>
               </TouchableOpacity>
@@ -357,7 +375,9 @@ export function ExercisePicker({
               keyboardShouldPersistTaps="handled"
               // When searching, show "Add as custom" below results so users can
               // log anything not in the library without clearing their query.
-              ListFooterComponent={renderCustomButton()}
+              // Pass the function reference (not the call result) so FlatList
+              // renders it lazily and always sees the current query (WL-007).
+              ListFooterComponent={renderCustomButton}
             />
           )}
         </KeyboardAvoidingView>

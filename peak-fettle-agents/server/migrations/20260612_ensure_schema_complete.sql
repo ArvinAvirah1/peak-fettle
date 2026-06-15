@@ -46,7 +46,11 @@ ALTER TABLE users
   ADD COLUMN IF NOT EXISTS last_deload_at DATE,
   ADD COLUMN IF NOT EXISTS use_1rm_confirmation BOOLEAN NOT NULL DEFAULT FALSE,
   ADD COLUMN IF NOT EXISTS sex TEXT,
-  ADD COLUMN IF NOT EXISTS primary_discipline TEXT;
+  ADD COLUMN IF NOT EXISTS primary_discipline TEXT,
+  -- Notification opt-outs read by POST /workouts (streak milestone push) and the
+  -- plan-ready push path. Missing in a drifted prod → those queries 500.
+  ADD COLUMN IF NOT EXISTS streak_notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  ADD COLUMN IF NOT EXISTS plan_notifications_enabled   BOOLEAN NOT NULL DEFAULT TRUE;
 
 -- ---------------------------------------------------------------------------
 -- 2. user_percentile_rankings — columns the GET /percentile SELECT requires.
@@ -126,6 +130,22 @@ CREATE INDEX IF NOT EXISTS idx_gws_group_week
     ON group_weekly_signals (group_id, week_start);
 CREATE INDEX IF NOT EXISTS idx_gws_user_group_week
     ON group_weekly_signals (user_id, group_id, week_start);
+
+-- ---------------------------------------------------------------------------
+-- 9. orphaned_auth_records — written by DELETE /user/account when the Supabase
+--    auth deleteUser() call fails, so the cleanup cron can retry. Missing in a
+--    drifted prod → account deletion 500s on the orphan INSERT.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS orphaned_auth_records (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    auth_uid    UUID        NOT NULL,
+    reason      TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    resolved_at TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_orphaned_auth_records_unresolved
+    ON orphaned_auth_records (created_at)
+    WHERE resolved_at IS NULL;
 
 COMMIT;
 

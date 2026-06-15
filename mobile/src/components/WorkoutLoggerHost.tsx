@@ -223,11 +223,12 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
     // PB + last-session for the STEPPER'S current exercise (routine advance
     // doesn't go through the picker, so fetch per current index). Powers the
     // PB line, the "Last session" line, and the warm-up ramp (founder 2026-06-10).
+    // FREE users are local-first and must not make personal REST calls (free-user-rest-api-calls).
     const [stepperPB, setStepperPB] = useState<PersonalBest | null>(null);
     const stepperExerciseId =
       routineSession?.exercises[routineSession.currentIndex]?.exerciseId ?? null;
     useEffect(() => {
-      if (!stepperExerciseId) {
+      if (!stepperExerciseId || !user?.is_paid) {
         setStepperPB(null);
         return;
       }
@@ -236,7 +237,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
         .then((pb) => { if (!cancelled) setStepperPB(pb); })
         .catch(() => {});
       return () => { cancelled = true; };
-    }, [stepperExerciseId]);
+    }, [stepperExerciseId, user?.is_paid]);
 
     // PR toast
     const [prToast, setPrToast] = useState<PRToastData | null>(null);
@@ -484,7 +485,8 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           next.set(exercise.id, exercise.name);
           return next;
         });
-        if (exercise.category === 'lift') {
+        if (exercise.category === 'lift' && user?.is_paid) {
+          // FREE users are local-first — no personal REST calls (free-user-rest-api-calls).
           setExercisePB(null);
           getPersonalBest(exercise.id).then(setExercisePB).catch(() => {});
         } else {
@@ -495,10 +497,23 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           setFreeSessionPickerMode(false);
           const isExistingSession = routineSession && routineSession.source === 'free';
           if (isExistingSession) {
-            handleStepperAddOffRoutine(exercise.id, exercise.name, 'end');
+            // Atomically append the exercise and set currentIndex in one updater
+            // to avoid a stale-read off-by-one (WL-008 / handleexerciseselect-offbyone).
             setRoutineSession((prev) => {
               if (!prev) return prev;
-              return { ...prev, currentIndex: prev.exercises.length };
+              const exercises = [...prev.exercises];
+              const existingIdx = exercises.findIndex(
+                (e) => e.exerciseId === exercise.id || e.name === exercise.name,
+              );
+              if (existingIdx !== -1) exercises.splice(existingIdx, 1);
+              exercises.push({
+                exerciseId: exercise.id,
+                name: exercise.name,
+                loggedSetCount: 0,
+                done: false,
+                category: exercise.category as RoutineSessionExercise['category'],
+              });
+              return { ...prev, exercises, currentIndex: exercises.length - 1 };
             });
           } else {
             handleStartStepper({
@@ -605,7 +620,11 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           console.warn('[PF] WorkoutLoggerHost/handleStepperLogSet:', err instanceof Error ? err.message : String(err));
         }
       },
-      [workout, selectedExercise, logSet, updateRoutineExercise, stepperSets, unitPref],
+      // stepperPB, exercisePB, routineSession, restDefault, restTimer are intentionally
+      // included so PR detection and rest-timer always read the current values (WL-001 /
+      // stale-closure-rest / wlh-stale-closure-prdetection).
+      [workout, selectedExercise, logSet, updateRoutineExercise, stepperSets, unitPref,
+       stepperPB, exercisePB, routineSession, restDefault, restTimer],
     );
 
     // Edit a previously-logged LIFT set (e.g. fix a mistyped weight). The sync
@@ -681,11 +700,15 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           haptics.success();
           setTimerActive(true);
           setRestSecondsLeft(restDefault);
+          // Also start background-safe timer (mirrors the lift path).
+          restTimer.start(restDefault);
         } catch (err) {
           console.warn('[PF] WorkoutLoggerHost/handleStepperLogCardioSet:', err instanceof Error ? err.message : String(err));
         }
       },
-      [workout, selectedExercise, logSet, updateRoutineExercise, stepperSets],
+      // restDefault and restTimer added to ensure the cardio path uses the
+      // current rest preset (WL-006 / wlh-stale-closure-cardio).
+      [workout, selectedExercise, logSet, updateRoutineExercise, stepperSets, restDefault, restTimer],
     );
 
     const handleStepperAdvance = useCallback((toIndex: number) => {
@@ -884,7 +907,15 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={() => setRestSecondsLeft((v) => (v == null ? v : v + 30))}
+              onPress={() => {
+                // Extend both the visual banner countdown AND restart the
+                // background timer at the new duration so they stay in sync (WL-002).
+                setRestSecondsLeft((v) => {
+                  const next = (v ?? 0) + 30;
+                  restTimer.start(next);
+                  return next;
+                });
+              }}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               accessibilityRole="button"
               accessibilityLabel="Add 30 seconds of rest"
@@ -985,6 +1016,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
               onClose={() => setStepperVisible(false)}
               unitPref={unitPref}
               weekNumber={routineSession.weekNumber ?? null}
+              restSeconds={restDefault}
               onChooseAlternative={user?.is_paid ? handleChooseAlternative : (() => setShowPaywall(true))}
             />
           )}

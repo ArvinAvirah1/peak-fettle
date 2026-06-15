@@ -24,7 +24,9 @@ import {
 } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius, fontSize, fontWeight } from '../theme/tokens';
-import { getRoutines, Routine } from '../api/routines';
+import { Routine } from '../api/routines';
+import { listRoutines } from '../data/routines';
+import { useAuth } from '../hooks/useAuth';
 import { getTemplates, getTemplate, WorkoutTemplate } from '../api/templates';
 import { TemplateDetailSheet, SheetExercise } from './TemplateDetailSheet';
 
@@ -204,6 +206,7 @@ export function RoutineStrip({
   // 'Manage →' / routines-tab navigation. (Previously referenced an undefined
   // `router` in this scope — useRouter() only existed inside StripHeader.)
   const router = useRouter();
+  const { user } = useAuth();
 
   // Auto-collapse once the user has logged sets, but allow manual re-expand.
   const [routinesExpanded, setRoutinesExpanded] = useState(true);
@@ -223,15 +226,19 @@ export function RoutineStrip({
   const [loadingTemplates, setLoadingTemplates] = useState(true);
 
   useEffect(() => {
-    getRoutines()
+    // Tier-branched: free/local-first users read the on-device `routines` table
+    // (no REST round-trip on Home startup); Pro users hit the server. Fixes the
+    // startup delay where every free Home open waited on GET /routines.
+    listRoutines(user)
       .then(setRoutines)
-      .catch((err: unknown) => { console.warn('[PF] RoutineStrip/getRoutines:', err instanceof Error ? err.message : String(err)); })
+      .catch((err: unknown) => { console.warn('[PF] RoutineStrip/listRoutines:', err instanceof Error ? err.message : String(err)); })
       .finally(() => setLoadingRoutines(false));
+    // Templates are the global, non-personal library — fine to fetch for everyone.
     getTemplates()
       .then((all) => setTemplates(all.filter((t) => t.is_featured).slice(0, 6)))
       .catch((err: unknown) => { console.warn('[PF] RoutineStrip/getTemplates:', err instanceof Error ? err.message : String(err)); })
       .finally(() => setLoadingTemplates(false));
-  }, []);
+  }, [user]);
 
   // Sheet state
   const [sheetVisible, setSheetVisible] = useState(false);

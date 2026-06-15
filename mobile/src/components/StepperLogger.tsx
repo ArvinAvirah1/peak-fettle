@@ -660,8 +660,15 @@ export default function StepperLogger({
   const unitLabel = unitPref === 'lbs' ? 'lb' : 'kg';
   const ghostLast = useMemo(() => {
     if (isCardio || !lastTopSetDisplay) return null;
+    // lastTopSetDisplay.weight is already in DISPLAY units (WLH converts kg→lbs for
+    // lbs users before passing the prop). Do NOT call displayToKg+kgToInputValue —
+    // that would double-convert and produce a floating-point-corrupted value (WL-003).
+    // For kg users: w is already kg, stringify it with kgToInputValue(w, 'kg') to
+    // strip trailing zeros. For lbs users: w was already rounded to nearest ¼ lb
+    // by WLH — just stringify it.
     const w = lastTopSetDisplay.weight;
-    return { weightStr: kgToInputValue(displayToKg(w, unitPref), unitPref), reps: lastTopSetDisplay.reps, w };
+    const weightStr = unitPref === 'lbs' ? String(w) : kgToInputValue(w, 'kg');
+    return { weightStr, reps: lastTopSetDisplay.reps, w };
   }, [isCardio, lastTopSetDisplay, unitPref]);
   const copyLastSet = useCallback(() => {
     if (!ghostLast) return;
@@ -688,11 +695,19 @@ export default function StepperLogger({
   }, [reps]);
 
   // ── Swipe between exercises (option 8) — keeps the existing buttons. ───────
+  // Track whether the inner ScrollView has been scrolled down; we only claim
+  // the PanResponder when the content is at the top, preventing the gesture
+  // from competing with vertical scroll (swipe-gesture-on-scroll).
+  const scrollYRef = useRef(0);
   const swipeResponder = useMemo(
     () =>
       PanResponder.create({
         onMoveShouldSetPanResponder: (_evt, g) =>
-          Math.abs(g.dx) > 24 && Math.abs(g.dx) > Math.abs(g.dy) * 1.5,
+          // Only claim a clearly horizontal gesture AND only when the scroll is
+          // at rest at the top of the content (y === 0).
+          scrollYRef.current === 0 &&
+          Math.abs(g.dx) > 32 &&
+          Math.abs(g.dx) > Math.abs(g.dy) * 2,
         onPanResponderRelease: (_evt, g) => {
           if (g.dx <= -48 && currentIndex < exercises.length - 1) {
             setEditingIndex(null);
@@ -748,6 +763,11 @@ export default function StepperLogger({
       const rr = rir.trim() || undefined;
       if (editingIndex != null) {
         // Saving a correction to an already-logged set (e.g. a mistyped weight).
+        // Null out lastPayloadRef so the Retry button (if visible from a prior failed
+        // new-set) doesn't re-submit the old new-set payload instead of this edit
+        // (edit-set-weight-unit-bug). Also clear any visible retry toast.
+        lastPayloadRef.current = null;
+        setRetryToast(false);
         Promise.resolve(
           onUpdateSet?.(currentEx?.exerciseId ?? '', editingIndex, w, r, rr) as unknown,
         ).catch(() => setRetryToast(true));
@@ -950,6 +970,8 @@ export default function StepperLogger({
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
+        onScroll={(e) => { scrollYRef.current = e.nativeEvent.contentOffset.y; }}
+        scrollEventThrottle={16}
       >
         {showInterstitial ? (
           /* ── §3c · JUST LOGGED interstitial (PRO smart-suggest) ──────────── */

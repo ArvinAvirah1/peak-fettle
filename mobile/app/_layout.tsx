@@ -32,6 +32,7 @@ import React, { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, View, StyleSheet, Text, ScrollView, InteractionManager } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { AuthProvider } from '../src/context/AuthContext';
 import { PowerSyncProvider } from '../src/context/PowerSyncContext';
@@ -212,19 +213,24 @@ function RootNavigator(): React.ReactElement {
 export default function RootLayout(): React.ReactElement {
   // useFonts removed (IOS-26-CRASH-FIX above). System fonts will be used.
   return (
-    <BootErrorBoundary>
-      <ThemeProvider
-        onThemeChange={async (newTheme: ThemeName) => {
-          await patchProfile({ theme_preference: newTheme }).catch(() => {});
-        }}
-      >
-        <AuthProvider>
-          <PowerSyncProvider>
-            <RootNavigator />
-          </PowerSyncProvider>
-        </AuthProvider>
-      </ThemeProvider>
-    </BootErrorBoundary>
+    // GestureHandlerRootView must wrap the whole app so any RNGH gesture
+    // (swipeable routine rows, drag-to-reorder, swipe-between-exercises) has a
+    // valid root ancestor — without it those components crash on render.
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <BootErrorBoundary>
+        <ThemeProvider
+          onThemeChange={async (newTheme: ThemeName) => {
+            await patchProfile({ theme_preference: newTheme }).catch(() => {});
+          }}
+        >
+          <AuthProvider>
+            <PowerSyncProvider>
+              <RootNavigator />
+            </PowerSyncProvider>
+          </AuthProvider>
+        </ThemeProvider>
+      </BootErrorBoundary>
+    </GestureHandlerRootView>
   );
 }
 
