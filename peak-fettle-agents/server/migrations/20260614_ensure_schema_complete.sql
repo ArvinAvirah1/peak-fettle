@@ -1,5 +1,5 @@
--- 20260612 — Ensure-everything: bring a drifted prod DB up to the columns/tables
---            every live route + cron depends on.  (Bug review 2026-06-12.)
+-- 20260614 — Ensure-everything: bring a drifted prod DB up to the columns/tables
+--            every live route + cron depends on.  (Bug review 2026-06-12..14.)
 --
 -- WHY THIS EXISTS
 --   db/schema.sql is a single consolidated, idempotent file (base CREATE TABLEs
@@ -53,14 +53,26 @@ ALTER TABLE users
   ADD COLUMN IF NOT EXISTS plan_notifications_enabled   BOOLEAN NOT NULL DEFAULT TRUE;
 
 -- ---------------------------------------------------------------------------
--- 2. user_percentile_rankings — columns the GET /percentile SELECT requires.
---    These are the direct cause of the Rankings 500 when absent in prod.
+-- 2. user_percentile_rankings — columns the legacy GET /percentile SELECT reads.
+--    This table is DEPRECATED (percentiles moved on-device, strengthModelV3) and
+--    may already have been dropped in prod, so we only ADD the columns if the
+--    table still exists. When it's gone, GET /percentile returns an empty 200
+--    (server resilience fix), so the Rankings tab works without it — we must NOT
+--    recreate a table that's intentionally being retired.
 -- ---------------------------------------------------------------------------
-ALTER TABLE user_percentile_rankings
-  ADD COLUMN IF NOT EXISTS percentile_simple    DOUBLE PRECISION,
-  ADD COLUMN IF NOT EXISTS cohort_size_internal INTEGER,
-  ADD COLUMN IF NOT EXISTS is_estimated         BOOLEAN NOT NULL DEFAULT TRUE,
-  ADD COLUMN IF NOT EXISTS model_version        INTEGER NOT NULL DEFAULT 1;
+DO $ensure_upr$
+BEGIN
+  IF to_regclass('public.user_percentile_rankings') IS NOT NULL THEN
+    ALTER TABLE user_percentile_rankings
+      ADD COLUMN IF NOT EXISTS percentile_simple    DOUBLE PRECISION,
+      ADD COLUMN IF NOT EXISTS cohort_size_internal INTEGER,
+      ADD COLUMN IF NOT EXISTS is_estimated         BOOLEAN NOT NULL DEFAULT TRUE,
+      ADD COLUMN IF NOT EXISTS model_version        INTEGER NOT NULL DEFAULT 1;
+    RAISE NOTICE 'user_percentile_rankings: columns ensured';
+  ELSE
+    RAISE NOTICE 'user_percentile_rankings: table absent (deprecated) — skipped';
+  END IF;
+END $ensure_upr$;
 
 -- ---------------------------------------------------------------------------
 -- 3. sets — weight_raw (SMALLINT, kg x 8) the percentile Epley subquery reads.
