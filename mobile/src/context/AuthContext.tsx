@@ -58,6 +58,7 @@ const safeSecureStore = {
   },
 };
 
+import axios from 'axios';
 import { setAuthHandlers } from '../api/client';
 import { setAccessToken as setPowerSyncToken } from '../db/connector';
 import * as AuthApi from '../api/auth';
@@ -122,7 +123,12 @@ export interface AuthContextValue {
   user: User | null;
   /** In-memory access token (null when unauthenticated). */
   accessToken: string | null;
-  /** True if the user has completed auth (login/register) and has a valid token. */
+  /**
+   * True when the user has an active session — either an in-memory access token
+   * (normal) or a stored refresh token with a cached user (transient network
+   * failure on cold-start refresh — the access token will be re-established by
+   * the 401 interceptor on the first API call).
+   */
   isAuthenticated: boolean;
   /**
    * True while:
@@ -303,7 +309,16 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
         if (!cancelled) setIsLoading(false);
 
         // Silent token refresh — now runs AFTER the UI is up (non-blocking).
-        const tokens = await AuthApi.refreshTokens(storedRefreshToken);
+        // Race against an 8-second timeout so a hung/slow server doesn't stall
+        // the background task indefinitely.
+        const REFRESH_TIMEOUT_MS = 8_000;
+        const timeoutPromise = new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error('refresh_timeout')), REFRESH_TIMEOUT_MS)
+        );
+        const tokens = await Promise.race([
+          AuthApi.refreshTokens(storedRefreshToken),
+          timeoutPromise,
+        ]);
 
         if (cancelled) return;
 
@@ -313,11 +328,49 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
         // Propagate the new token to the PowerSync connector.
         setPowerSyncToken(tokens.accessToken);
       } catch (err) {
-        console.warn('[PF] AuthContext/bootstrap silentRefresh:', err instanceof Error ? err.message : String(err));
-        if (!cancelled) {
-          // Refresh token was revoked/expired — clear everything and show login.
-          await clearRefreshToken();
+        // Classify the error before deciding whether to wipe the stored token.
+        //
+        // Only clear on a DEFINITIVE server-side auth rejection:
+        //   - HTTP 401 (Unauthorized) from the refresh endpoint
+        //   - Response body error field containing "invalid", "revoked", or "expired"
+        //
+        // On network errors, timeouts (err.message === 'refresh_timeout'), or 5xx
+        // server errors, KEEP the stored token so the user stays signed in.
+        // The app will retry silently on the next launch, and any API call that
+        // needs a valid access token will be recovered by the 401 interceptor.
+        let isDefinitiveAuthFailure = false;
+        if (axios.isAxiosError(err)) {
+          const status = err.response?.status;
+          if (status === 401) {
+            isDefinitiveAuthFailure = true;
+          } else if (status && status >= 200 && status < 500) {
+            // 4xx other than 401 (e.g. 400 bad_request): treat as auth failure
+            // only if the response body signals an invalid/revoked token.
+            const errField: string =
+              (err.response?.data as { error?: string } | undefined)?.error ?? '';
+            if (/invalid|revoked|expired/i.test(errField)) {
+              isDefinitiveAuthFailure = true;
+            }
+          }
+          // status === undefined (network error) or 5xx → isDefinitiveAuthFailure stays false
         }
+        // err.message === 'refresh_timeout' → network was slow, keep the token
+
+        console.warn(
+          '[PF] AuthContext/bootstrap silentRefresh:',
+          isDefinitiveAuthFailure ? 'definitive auth failure — clearing token' : 'transient error — keeping token',
+          err instanceof Error ? err.message : String(err)
+        );
+
+        if (!cancelled && isDefinitiveAuthFailure) {
+          // Token is genuinely revoked/expired — clear everything and show login.
+          await _clearAuthState();
+          router.replace('/(auth)/login');
+        }
+        // Transient failure: user stays signed in with the cached profile.
+        // Access token is null (not restored) until the next successful refresh,
+        // but free/local-first users won't need it, and any authenticated call
+        // will hit the 401 interceptor which retries the refresh.
       } finally {
         if (!cancelled) {
           setIsLoading(false);
@@ -487,7 +540,11 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
   const value: AuthContextValue = {
     user,
     accessToken,
-    isAuthenticated: !!accessToken,
+    // True when the user has a valid session — either an in-memory access token
+    // (normal) or a cached user + stored refresh token (transient cold-start
+    // refresh failure). In the latter case the 401 interceptor re-establishes
+    // the access token on the first API call, so the user never sees login.
+    isAuthenticated: !!(accessToken || (user && refreshTokenRef.current)),
     isLoading,
     login,
     register,

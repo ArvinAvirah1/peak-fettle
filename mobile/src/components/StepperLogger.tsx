@@ -406,6 +406,7 @@ function StepperControl({
   accessibilityLabel,
   rightAccessory,
   unitSuffix,
+  maxLength,
 }: {
   label: string;
   value: string;
@@ -416,6 +417,7 @@ function StepperControl({
   accessibilityLabel: string;
   rightAccessory?: React.ReactNode;
   unitSuffix?: string | null;
+  maxLength?: number;
 }): React.ReactElement {
   return (
     <View style={styles.inputGroup}>
@@ -442,6 +444,7 @@ function StepperControl({
             placeholderTextColor={stepperPalette.muted}
             selectTextOnFocus
             accessibilityLabel={accessibilityLabel}
+            maxLength={maxLength}
           />
           {unitSuffix ? <Text style={stepperCtl.unit}>{unitSuffix}</Text> : null}
         </View>
@@ -1329,6 +1332,7 @@ export default function StepperLogger({
                     placeholder={isBodyweightExercise(currentEx?.name) ? 'BW' : '—'}
                     accessibilityLabel="Weight"
                     unitSuffix={unitLabel}
+                    maxLength={7}
                     rightAccessory={
                       <TouchableOpacity
                         onPress={() => setPlateCalcVisible(true)}
@@ -1348,6 +1352,7 @@ export default function StepperLogger({
                     keyboardType="number-pad"
                     placeholder="—"
                     accessibilityLabel="Reps"
+                    maxLength={4}
                   />
                 </View>
 
@@ -2512,7 +2517,7 @@ const stepperCtl = StyleSheet.create({
     gap: spacing.s2,
   },
   btn: {
-    width: 56,
+    width: 44,
     height: 56,
     borderRadius: radius.md,
     backgroundColor: stepperPalette.card,
@@ -2531,12 +2536,13 @@ const stepperCtl = StyleSheet.create({
     borderColor: stepperPalette.line,
     borderRadius: radius.md,
     minHeight: 56,
+    minWidth: 72,
     paddingHorizontal: spacing.s2,
   },
   field: {
     flex: 1,
     fontFamily: fontFamily.bold,
-    fontSize: 22,
+    fontSize: 20,
     color: stepperPalette.text,
     textAlign: 'center',
     padding: 0,

@@ -165,8 +165,10 @@ export default function RoutineEditorSheet({
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-          {/* ── Header (within the safe-area top inset) ─────────────────── */}
-          <View style={styles.header}>
+          {/* ── Header: explicit top-inset padding so the close button clears
+               the Dynamic Island / notch even inside a RN Modal, where
+               SafeAreaView alone may not propagate the inset. */}
+          <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
             <TouchableOpacity
               onPress={onClose}
               style={styles.headerBtn}
