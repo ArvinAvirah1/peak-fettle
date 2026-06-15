@@ -6776,6 +6776,29 @@ CREATE INDEX IF NOT EXISTS idx_oauth_identities_provider_sub
 
 
 -- ===========================================================================
+-- SOURCE: migrations/20260612_group_weekly_signals.sql (folded in 2026-06-14)
+--
+-- Clients send a tiny weekly signal instead of the server reading personal
+-- workout logs for group evaluation. cron/group-streaks.js prefers signals when
+-- present and falls back to the legacy log-query path otherwise.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS group_weekly_signals (
+    id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    group_id      UUID        NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+    user_id       UUID        NOT NULL REFERENCES users(id)  ON DELETE CASCADE,
+    week_start    DATE        NOT NULL,  -- ISO Monday, YYYY-MM-DD
+    hit_goal      BOOLEAN     NOT NULL,
+    workouts_done SMALLINT    NOT NULL DEFAULT 0,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT group_weekly_signals_unique UNIQUE (group_id, user_id, week_start)
+);
+CREATE INDEX IF NOT EXISTS idx_gws_group_week
+    ON group_weekly_signals (group_id, week_start);
+CREATE INDEX IF NOT EXISTS idx_gws_user_group_week
+    ON group_weekly_signals (user_id, group_id, week_start);
+
+
+-- ===========================================================================
 -- LIFEOS TICKET-111 (2026-06-12) — cross-app whole-person streak marker.
 --
 -- Local-first posture (Q30): the Life OS app's content never reaches the

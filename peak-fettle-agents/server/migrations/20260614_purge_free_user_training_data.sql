@@ -1,4 +1,4 @@
--- 20260612 — Purge free-tier users' personal training data from the server.
+-- 20260614 — Purge free-tier users' personal training data from the server.
 --
 --   ⚠️  FOUNDER-GATED + DESTRUCTIVE.  APPLY ONLY AFTER:
 --       1. A fresh prod backup is taken (pg_dump) and verified restorable.
