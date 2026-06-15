@@ -44,6 +44,9 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from './Icon';
 import { useAuth } from '../hooks/useAuth';
 import { usePowerSyncLog } from '../hooks/usePowerSyncLog';
+import { isLocalFirst } from '../data/backup/tierPolicy';
+import { rememberExerciseName, rememberExerciseNames } from '../data/exerciseNames';
+import { stampLocalRoutineName } from '../data/localWorkouts';
 import { ExercisePicker } from './ExercisePicker';
 import StepperLogger, { LoggedSet } from './StepperLogger';
 import { useTheme } from '../theme/ThemeContext';
@@ -290,21 +293,34 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
       setStepperSets(new Map());
       setStepperVisible(true);
 
+      // Remember every exercise's name on-device so Recent Activity / Recent PRs
+      // resolve real names (not UUIDs) — works fully offline for the free tier.
+      void rememberExerciseNames(
+        session.exercises.map((ex) => ({ exerciseId: ex.exerciseId, name: ex.name })),
+      );
+
       // Persist the routine link onto today's workout so Recent Activity can
       // label the session (e.g. "Leg Day 6/4/26"). Only named sessions
       // (routine/template) get a label; ad-hoc "free" sessions stay date-only.
-      // Fire-and-forget: the upsert never blocks the stepper from opening, and a
-      // failure just leaves the date label as before.
+      // Fire-and-forget: never blocks the stepper from opening.
       if (session.source !== 'free' && session.name) {
         const dayKey = workout?.day_key ?? toDateKey(new Date());
-        createWorkout(dayKey, undefined, {
-          routineId: session.routineId,
-          routineName: session.name,
-        }).catch((err) => {
-          console.warn('[PF] WorkoutLoggerHost/routine-link:', err instanceof Error ? err.message : String(err));
-        });
+        if (isLocalFirst(user)) {
+          // Free / local-first: stamp the label locally — NO REST call. The old
+          // server createWorkout() here just stalled on the free path (no token
+          // round-trip succeeds), contributing to the "routine logging is laggy"
+          // report, and never actually labelled the local session.
+          void stampLocalRoutineName(dayKey, session.name);
+        } else {
+          createWorkout(dayKey, undefined, {
+            routineId: session.routineId,
+            routineName: session.name,
+          }).catch((err) => {
+            console.warn('[PF] WorkoutLoggerHost/routine-link:', err instanceof Error ? err.message : String(err));
+          });
+        }
       }
-    }, [workout?.day_key]);
+    }, [workout?.day_key, user]);
 
     const recomputeSuggestion = useCallback(() => {
       if (!routineSession || routineSession.source === 'routine') return;
@@ -409,6 +425,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           next.set(exerciseId, exerciseName);
           return next;
         });
+        void rememberExerciseName(exerciseId, exerciseName);
       },
 
       startSession(session: RoutineSession) {
@@ -452,6 +469,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
 
     const handleStepperAddOffRoutine = useCallback(
       (exerciseId: string, exerciseName: string, position: 'end' | 'after_current' | 'pick', pickIndex?: number) => {
+        void rememberExerciseName(exerciseId, exerciseName);
         setRoutineSession((prev) => {
           if (!prev) return prev;
           const exercises = [...prev.exercises];
@@ -485,6 +503,8 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           next.set(exercise.id, exercise.name);
           return next;
         });
+        // Persist id→name on-device so history resolves the real name later.
+        void rememberExerciseName(exercise.id, exercise.name);
         if (exercise.category === 'lift' && user?.is_paid) {
           // FREE users are local-first — no personal REST calls (free-user-rest-api-calls).
           setExercisePB(null);
@@ -777,6 +797,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
 
     const handleSelectAlternative = useCallback(
       (alt: { id: string; name: string; equipment: string | null }) => {
+        void rememberExerciseName(alt.id, alt.name);
         setRoutineSession((prev) => {
           if (!prev) return prev;
           const exercises = prev.exercises.map((ex, idx) =>
@@ -943,9 +964,15 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           }}
         />
 
-        {/* Focus Stepper modal */}
+        {/* Focus Stepper modal.
+            Guard on routineSession: a full-screen Modal whose only child is
+            `{routineSession && <StepperLogger/>}` would otherwise present an
+            EMPTY opaque overlay if stepperVisible were ever true without a
+            session — covering the whole UI with just the status-bar icons
+            showing ("buttons disappeared, only weird buttons at the top").
+            Tying visibility to the session makes that state impossible. */}
         <Modal
-          visible={stepperVisible}
+          visible={stepperVisible && !!routineSession}
           animationType="slide"
           presentationStyle="fullScreen"
           onRequestClose={() => setStepperVisible(false)}

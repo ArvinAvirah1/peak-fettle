@@ -40,6 +40,7 @@ import { syncEngine } from '../db/syncEngine';
 import { useAuth } from './useAuth';
 import { isLocalFirst } from '../data/backup/tierPolicy';
 import { maybeSendWeeklySignals, getActiveGroupIds } from '../data/groupSignals';
+import { ensureLocalWorkoutForDay } from '../data/localWorkouts';
 import { localDb } from '../db/localDb';
 import {
   Workout,
@@ -227,26 +228,12 @@ export function usePowerSyncLog(): UsePowerSyncLogResult {
       // already created locally by useWorkout or a prior session.
       if (localFirst) {
         // For free users, read or create today's workout from localDb only.
-        let localRow = await localDb.getFirst<{ id: string; user_id: string; day_key: string; notes: string | null; session_type: string | null; created_at: string; updated_at: string }>(
-          'SELECT * FROM workouts WHERE day_key = ? ORDER BY created_at ASC LIMIT 1',
-          [todayKey]
-        );
-        if (!localRow) {
-          const { genId: makeId } = require('../db/localDb');
-          const newId = makeId();
-          const now   = new Date().toISOString();
-          await localDb.execute(
-            `INSERT INTO workouts (id, user_id, day_key, notes, session_type, created_at, updated_at, synced) VALUES (?, ?, ?, NULL, NULL, ?, ?, 0)`,
-            [newId, userId, todayKey, now, now],
-            { tables: ['workouts'] }
-          );
-          localRow = await localDb.getFirst<{ id: string; user_id: string; day_key: string; notes: string | null; session_type: string | null; created_at: string; updated_at: string }>(
-            'SELECT * FROM workouts WHERE id = ?', [newId]
-          );
-        }
-        if (localRow) {
-          workoutIdRef.current = localRow.id;
-          setWorkout({ id: localRow.id, user_id: localRow.user_id, day_key: localRow.day_key, notes: localRow.notes, session_type: (localRow.session_type ?? null) as import('../types/api').Workout['session_type'], created_at: localRow.created_at, updated_at: localRow.updated_at });
+        // Atomic get-or-create (shared with useWorkout) — prevents the
+        // cold-start race that produced duplicate "Today" workout rows.
+        const localWorkout = await ensureLocalWorkoutForDay(todayKey, userId);
+        if (localWorkout) {
+          workoutIdRef.current = localWorkout.id;
+          setWorkout(localWorkout);
         }
         return;
       }

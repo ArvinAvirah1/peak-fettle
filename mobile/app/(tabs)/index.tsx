@@ -58,6 +58,7 @@ import { getPlans, getPlan } from '../../src/api/plans';
 import { getPercentile } from '../../src/api/percentile';
 import { logRestDay, undoRestDay } from '../../src/api/workouts';
 import { isLocalFirst } from '../../src/data/backup/tierPolicy';
+import { ensureExerciseCatalogCached } from '../../src/data/exerciseNames';
 import { localDb, genId } from '../../src/db/localDb';
 import { BrandLogo } from '../../src/components/BrandLogo'; // TICKET-063
 import { WorkoutLoggerHost, WorkoutLoggerRef } from '../../src/components/WorkoutLoggerHost';
@@ -350,6 +351,13 @@ export default function HomeScreen(): React.ReactElement {
   useEffect(() => {
     const t = setTimeout(() => setLoadTimedOut(true), LOAD_DEADLINE_MS);
     return () => clearTimeout(t);
+  }, []);
+
+  // Best-effort, throttled backfill of the on-device exercise-name cache from
+  // the global catalogue so sets logged before the cache existed resolve to real
+  // names (not UUIDs) in Recent Activity / Recent PRs. Non-blocking; offline = no-op.
+  useEffect(() => {
+    void ensureExerciseCatalogCached();
   }, []);
   const todayLoading = todayLoadingRaw && !loadTimedOut;
   const historyLoading = historyLoadingRaw && !loadTimedOut;
@@ -696,7 +704,7 @@ export default function HomeScreen(): React.ReactElement {
     <ScreenLayout horizontalPadding={false}>
     <ScrollView
       style={styles.container}
-      contentContainerStyle={[styles.content, { padding: sp.s5, paddingBottom: sp.s8 }]}
+      contentContainerStyle={[styles.content, { paddingHorizontal: sp.s5, paddingTop: sp.s6, paddingBottom: sp.s8 }]}
       refreshControl={
         <RefreshControl
           refreshing={refreshing}
@@ -1141,10 +1149,19 @@ export default function HomeScreen(): React.ReactElement {
         <View style={styles.historyList}>
           {recentDays.map((entry) => {
             const { workout, sets, liftNames } = entry;
-            const hasPR = sets.some(
-              (s) => s.kind === 'lift' && (s as LiftSet & { is_pr: boolean }).is_pr
-            );
+            // Descriptive PR badge: count DISTINCT exercises that hit a PR this
+            // session ("🏆 2 PRs") rather than a bare "PR".
+            const prExerciseIds = new Set<string>();
+            for (const s of sets) {
+              if (s.kind === 'lift' && (s as LiftSet & { is_pr: boolean }).is_pr) {
+                prExerciseIds.add((s as LiftSet).exercise_id);
+              }
+            }
+            const prCount = prExerciseIds.size;
+            const hasPR = prCount > 0;
+            const prLabel = `🏆 ${prCount} PR${prCount !== 1 ? 's' : ''}`;
             const isToday = workout.day_key === todayKey;
+            const isRestDay = workout.session_type === 'rest_day';
 
             const displayNames =
               liftNames.length <= 3
@@ -1191,7 +1208,7 @@ export default function HomeScreen(): React.ReactElement {
                           borderRadius: radius.sm,
                         }]}>
                           <Text style={{ fontSize: fontSize.micro, fontWeight: fontWeight.bold, color: theme.colors.statusSuccess }}>
-                            🏆 PR
+                            {prLabel}
                           </Text>
                         </View>
                       ) : (
@@ -1203,14 +1220,14 @@ export default function HomeScreen(): React.ReactElement {
                           }]}
                         >
                           <Text style={{ fontSize: fontSize.micro, fontWeight: fontWeight.bold, color: theme.colors.statusSuccess }}>
-                            🏆 PR
+                            {prLabel}
                           </Text>
                         </Animated.View>
                       )
                     )}
                   </View>
                   <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.textSecondary }} numberOfLines={1}>
-                    {displayNames || 'No lifts recorded'}
+                    {displayNames || (isRestDay ? '😴 Rest day' : 'No lifts recorded')}
                   </Text>
                 </View>
                 <View style={styles.historyRight}>

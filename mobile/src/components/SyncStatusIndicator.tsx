@@ -18,6 +18,8 @@ import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Animated } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { useSyncStatus } from '../hooks/useSyncStatus';
+import { useAuth } from '../hooks/useAuth';
+import { isLocalFirst } from '../data/backup/tierPolicy';
 
 // ---------------------------------------------------------------------------
 // Derived state
@@ -44,7 +46,13 @@ function deriveSyncState(status: StatusLike): SyncState {
 export function SyncStatusIndicator(): React.ReactElement {
   const { theme } = useTheme();
   const status = useSyncStatus();
+  const { user } = useAuth();
   const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  // Free/local-first users have no server sync — their data lives on-device with
+  // an encrypted backup. "Synced" would be misleading (it implies multi-device
+  // server sync, a Pro feature). Show a calm "On device" instead.
+  const localFirst = isLocalFirst(user);
 
   // The offline-queue engine exposes a single in-flight signal (`syncing`);
   // map it onto the existing downloading/uploading inputs of deriveSyncState.
@@ -55,8 +63,9 @@ export function SyncStatusIndicator(): React.ReactElement {
   });
 
   // Pulse the dot while syncing; snap back to full opacity otherwise.
+  // (Local-first users never pulse — they're never "syncing".)
   useEffect(() => {
-    if (syncState === 'syncing') {
+    if (!localFirst && syncState === 'syncing') {
       const pulse = Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, {
@@ -80,22 +89,25 @@ export function SyncStatusIndicator(): React.ReactElement {
   }, [syncState, pulseAnim]);
 
   // Colours and label per state — all via semantic tokens
-  const dotColor =
-    syncState === 'synced'
+  const dotColor = localFirst
+    ? theme.colors.statusSuccess
+    : syncState === 'synced'
       ? theme.colors.statusSuccess
       : syncState === 'syncing'
       ? theme.colors.accentDefault
       : theme.colors.statusError;
 
-  const labelColor =
-    syncState === 'offline'
+  const labelColor = localFirst
+    ? theme.colors.textSecondary
+    : syncState === 'offline'
       ? theme.colors.statusError
       : syncState === 'syncing'
       ? theme.colors.accentHover
       : theme.colors.textSecondary;
 
-  const label =
-    syncState === 'synced'
+  const label = localFirst
+    ? 'On device'
+    : syncState === 'synced'
       ? 'Synced'
       : syncState === 'syncing'
       ? 'Syncing…'

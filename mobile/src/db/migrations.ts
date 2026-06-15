@@ -17,7 +17,7 @@
  * SPEC-094A Agent L, 2026-06-12.
  */
 
-import { SCHEMA_V2_STATEMENTS, SCHEMA_V3_STATEMENTS, MigrationStatement } from './localSchema';
+import { SCHEMA_V2_STATEMENTS, SCHEMA_V3_STATEMENTS, SCHEMA_V4_STATEMENTS, MigrationStatement } from './localSchema';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -111,7 +111,13 @@ const MIGRATION_V3: MigrationVersion = {
   statements: SCHEMA_V3_STATEMENTS,
 };
 
-export const MIGRATIONS: MigrationVersion[] = [MIGRATION_V2, MIGRATION_V3];
+// v4: local routine labels (adds workouts.routine_name TEXT).
+const MIGRATION_V4: MigrationVersion = {
+  v: 4,
+  statements: SCHEMA_V4_STATEMENTS,
+};
+
+export const MIGRATIONS: MigrationVersion[] = [MIGRATION_V2, MIGRATION_V3, MIGRATION_V4];
 
 // ---------------------------------------------------------------------------
 // Runner
