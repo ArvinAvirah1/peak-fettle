@@ -51,13 +51,12 @@ BEGIN
   -- the entire training dataset. The server copy is being discarded knowingly.
 END $$;
 
--- Free-user id set, materialized once.
-CREATE TEMP TABLE _free_uids ON COMMIT DROP AS
-  SELECT id FROM users WHERE tier <> 'paid' OR tier IS NULL;
-
 -- Delete children first, parents last. Each table is purged only if it EXISTS
 -- in this database — prod has drifted (e.g. user_percentile_rankings was already
 -- dropped), so to_regclass() guards every statement and silently skips absentees.
+-- The free-user filter is inlined into each DELETE (no temp table) so this works
+-- in SQL editors that run statements with autocommit between them — a TEMP TABLE
+-- ON COMMIT DROP would vanish before the loop reached it.
 DO $purge$
 DECLARE
   tbl  TEXT;
@@ -72,7 +71,8 @@ BEGIN
   FOREACH tbl IN ARRAY tbls LOOP
     IF to_regclass(tbl) IS NOT NULL THEN
       EXECUTE format(
-        'DELETE FROM %I WHERE user_id IN (SELECT id FROM _free_uids)', tbl
+        'DELETE FROM %I WHERE user_id IN (SELECT id FROM users WHERE tier <> ''paid'' OR tier IS NULL)',
+        tbl
       );
       GET DIAGNOSTICS n = ROW_COUNT;
       RAISE NOTICE '  purged % rows from %', n, tbl;
