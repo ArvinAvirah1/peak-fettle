@@ -44,7 +44,7 @@ import {
   Switch,
   Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from './Icon';
 import { useTheme } from '../theme/ThemeContext';
@@ -86,6 +86,7 @@ export default function ScheduleEditorSheet({ visible, routines, onClose, onSave
   const { theme, fontWeight } = useTheme();
   const c = theme.colors;
   const reduceMotion = useReduceMotion();
+  const insets = useSafeAreaInsets();
 
   const [draft, setDraft] = useState<Schedule>(() => emptySchedule('weekly'));
   const [skeleton, setSkeleton] = useState(false);
@@ -184,12 +185,27 @@ export default function ScheduleEditorSheet({ visible, routines, onClose, onSave
     markDirty();
   }, [markDirty]);
 
+  // Max days for each leg and for the total cycle.
+  const MAX_CYCLE = 14;
+  // Refs mirror the state values so the cross-leg cap can read the sibling value
+  // synchronously without a stale closure.
+  const trainDaysRef = useRef(trainDays);
+  const restDaysRef = useRef(restDays);
+  useEffect(() => { trainDaysRef.current = trainDays; }, [trainDays]);
+  useEffect(() => { restDaysRef.current = restDays; }, [restDays]);
+
   const adjustTrain = useCallback((delta: number) => {
-    setTrainDays((n) => Math.max(1, Math.min(7, n + delta)));
+    setTrainDays((n) => {
+      const maxAllowed = Math.min(MAX_CYCLE, MAX_CYCLE - restDaysRef.current);
+      return Math.max(1, Math.min(maxAllowed, n + delta));
+    });
     markDirty();
   }, [markDirty]);
   const adjustRest = useCallback((delta: number) => {
-    setRestDays((n) => Math.max(0, Math.min(7, n + delta)));
+    setRestDays((r) => {
+      const maxAllowed = Math.min(MAX_CYCLE, MAX_CYCLE - trainDaysRef.current);
+      return Math.max(0, Math.min(maxAllowed, r + delta));
+    });
     markDirty();
   }, [markDirty]);
 
@@ -362,8 +378,8 @@ export default function ScheduleEditorSheet({ visible, routines, onClose, onSave
     <Modal visible={visible} animationType="slide" onRequestClose={requestClose} presentationStyle="fullScreen">
       {/* Option 1 — safe-area root; header sits below the status bar, sticky bar above the home indicator */}
       <SafeAreaView style={[styles.root, { backgroundColor: c.bgPrimary }]} edges={['top', 'bottom']}>
-        {/* Header */}
-        <View style={[styles.header, { borderBottomColor: c.borderDefault }]}>
+        {/* Header — explicit paddingTop so the close/save buttons clear the Dynamic Island */}
+        <View style={[styles.header, { borderBottomColor: c.borderDefault, paddingTop: Math.max(insets.top, 12) }]}>
           <TouchableOpacity
             onPress={requestClose}
             accessibilityRole="button"

@@ -274,6 +274,7 @@ export function SetEntryForm({
           returnKeyType="next"
           onSubmitEditing={() => repsRef.current?.focus()}
           accessibilityLabel="Weight"
+          maxLength={7}
         />
       </View>
 

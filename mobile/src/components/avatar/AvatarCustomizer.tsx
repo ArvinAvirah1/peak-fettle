@@ -16,7 +16,7 @@ import {
   Pressable,
   StyleSheet,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '../Icon';
 import { useTheme } from '../../theme/ThemeContext';
 import { fontSize, spacing, radius } from '../../theme/tokens';
@@ -44,6 +44,7 @@ function prettify(id: string): string {
 export default function AvatarCustomizer({ visible, initial, onClose, onSaved }: Props): React.ReactElement {
   const { theme, fontWeight } = useTheme();
   const c = theme.colors;
+  const insets = useSafeAreaInsets();
 
   const [draft, setDraft] = useState<AvatarConfig>(() => normalizeAvatar(initial ?? DEFAULT_AVATAR));
   const [catKey, setCatKey] = useState<AvatarCategory['key']>('background');
@@ -68,8 +69,10 @@ export default function AvatarCustomizer({ visible, initial, onClose, onSaved }:
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
       <SafeAreaView style={[styles.root, { backgroundColor: c.bgPrimary }]} edges={['top', 'bottom']}>
-        {/* Header */}
-        <View style={[styles.header, { borderBottomColor: c.borderDefault }]}>
+        {/* Header: explicit top-inset padding so close/save clear the Dynamic
+             Island / notch inside a RN Modal where SafeAreaView may not
+             propagate the inset reliably. */}
+        <View style={[styles.header, { borderBottomColor: c.borderDefault, paddingTop: Math.max(insets.top, 12) }]}>
           <TouchableOpacity onPress={onClose} accessibilityRole="button" accessibilityLabel="Close avatar editor">
             <Ionicons name="close" size={24} color={c.textSecondary} />
           </TouchableOpacity>

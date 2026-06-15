@@ -51,7 +51,7 @@ import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
 import { haptics } from '../utils/haptics';
 import { formatWeight, kgToLbs, roundToNearestQuarterLb, displayToKg, parseWeightInput } from '../constants/units';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getRoutine } from '../api/routines';
+import { getRoutine } from '../data/routines';
 import { markRoutineCompleted } from '../data/schedule'; // TICKET-097
 import { checkGoalAchieved } from '../data/exerciseGoals'; // WIDGET-002
 import { createWorkout } from '../api/workouts';
@@ -363,7 +363,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
 
       startRoutine(routineId: string, routineName: string) {
         let cancelled = false;
-        getRoutine(routineId)
+        getRoutine(user, routineId)
           .then((routine) => {
             if (cancelled) return;
             let wkNum: number | undefined;
