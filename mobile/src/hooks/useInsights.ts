@@ -75,14 +75,17 @@ async function fetchSets14d(): Promise<unknown[]> {
   }
 }
 
-/** Fetch last 28 days of health metrics. */
+/** Fetch last 28 days of wearable health metrics (HRV / resting HR / sleep). */
 async function fetchMetrics28d(): Promise<unknown[]> {
   try {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 28);
     const isoStr = cutoff.toISOString().slice(0, 10);
+    // daily_health_metrics has the `date` column (daily_health_log has log_date
+    // and entirely different survey columns) — the recovery/readiness model
+    // reads HRV/resting-HR/sleep, which live here.
     return await localDb.getAll(
-      `SELECT * FROM daily_health_log WHERE date >= ? ORDER BY date ASC`,
+      `SELECT * FROM daily_health_metrics WHERE date >= ? ORDER BY date ASC`,
       [isoStr]
     );
   } catch {

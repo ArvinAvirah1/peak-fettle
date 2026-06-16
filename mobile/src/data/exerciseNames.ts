@@ -125,10 +125,26 @@ async function doEnsureExerciseCatalogCached(): Promise<void> {
     const pairs: Array<{ exerciseId: string; name: string }> = [];
     for (const category of Object.values(library.exercises ?? {})) {
       for (const ex of category as Exercise[]) {
-        if (ex?.id && ex?.name) pairs.push({ exerciseId: ex.id, name: ex.name });
+        if (ex?.id && isRealName(ex.id, ex.name)) pairs.push({ exerciseId: ex.id, name: ex.name });
       }
     }
-    await rememberExerciseNames(pairs);
+    // Chunked multi-row UPSERT — the catalogue can be hundreds of rows, so a
+    // per-row loop would be hundreds of native round-trips. 200 rows × 3 params
+    // = 600, comfortably under SQLite's host-parameter limit.
+    const now = new Date().toISOString();
+    const CHUNK = 200;
+    for (let i = 0; i < pairs.length; i += CHUNK) {
+      const chunk = pairs.slice(i, i + CHUNK);
+      const valuesSql = chunk.map(() => '(?, ?, ?)').join(', ');
+      const params: unknown[] = [];
+      for (const p of chunk) params.push(p.exerciseId, p.name, now);
+      await localDb.execute(
+        `INSERT INTO exercise_names (exercise_id, name, updated_at) VALUES ${valuesSql}
+         ON CONFLICT(exercise_id) DO UPDATE SET name = excluded.name, updated_at = excluded.updated_at`,
+        params,
+        { tables: ['exercise_names'] }
+      );
+    }
     await AsyncStorage.setItem(CATALOG_CACHE_TS_KEY, String(Date.now()));
   } catch {
     // best-effort
