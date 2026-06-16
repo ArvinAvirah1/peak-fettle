@@ -37,7 +37,8 @@ import {
 } from '../services/healthKit';
 
 // ---------------------------------------------------------------------------
-// Local DB row type for daily_health_log (Agent L schema)
+// Local DB row type for daily_health_metrics (wearable metrics; `id` is aliased
+// from metric_id in the SELECT). NOT daily_health_log (the survey log).
 // ---------------------------------------------------------------------------
 
 interface HealthLogRow {
@@ -134,10 +135,17 @@ export function useHealthMetrics(): UseHealthMetricsResult {
         cutoff.setDate(cutoff.getDate() - 14);
         const isoStr = cutoff.toISOString().slice(0, 10);
 
+        // Wearable metrics (HRV / resting HR / sleep / active kcal / source) live
+        // in daily_health_metrics — NOT daily_health_log (that table is the
+        // survey log: log_date / mood / stress / habits, different columns). The
+        // old query hit daily_health_log.date, which doesn't exist, so the read
+        // always threw and was swallowed → free users saw zero metrics.
         const rows = await localDb.getAll<HealthLogRow>(
-          `SELECT * FROM daily_health_log WHERE date >= ? ORDER BY date DESC`,
+          `SELECT metric_id AS id, user_id, date, resting_hr_bpm, hrv_ms,
+                  sleep_hours, active_kcal, source, created_at
+             FROM daily_health_metrics WHERE date >= ? ORDER BY date DESC`,
           [isoStr]
-        ).catch(() => [] as HealthLogRow[]); // table may not exist yet (pre-migration)
+        ).catch(() => [] as HealthLogRow[]); // defensive: pre-migration safety
 
         const fetchedMetrics = rows.map(rowToMetric);
         setMetrics(fetchedMetrics);
@@ -194,8 +202,11 @@ export function useHealthMetrics(): UseHealthMetricsResult {
           const id  = `hk-${user?.id ?? 'anon'}-${sample.date}`;
           const now = new Date().toISOString();
           await localDb.execute(
-            `INSERT OR REPLACE INTO daily_health_log
-               (id, user_id, date, resting_hr_bpm, hrv_ms, sleep_hours, active_kcal,
+            // daily_health_metrics (PK metric_id), NOT daily_health_log — see
+            // the read above. The old write targeted daily_health_log with
+            // columns it doesn't have, so HealthKit data was never stored.
+            `INSERT OR REPLACE INTO daily_health_metrics
+               (metric_id, user_id, date, resting_hr_bpm, hrv_ms, sleep_hours, active_kcal,
                 source, created_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, 'apple_healthkit', ?)`,
             [
@@ -206,8 +217,8 @@ export function useHealthMetrics(): UseHealthMetricsResult {
               sample.activeKcal ?? null,
               now,
             ],
-            { tables: ['daily_health_log'] }
-          ).catch(() => {}); // table may not exist pre-migration — swallow
+            { tables: ['daily_health_metrics'] }
+          ).catch(() => {}); // defensive: pre-migration safety
         }
         await load();
       } else {
