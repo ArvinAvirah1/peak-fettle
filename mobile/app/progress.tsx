@@ -26,6 +26,14 @@ import { Ionicons } from '../src/components/Icon';
 import { useTheme } from '../src/theme/ThemeContext';
 import { PFButton, PFProgressBar, ScreenLayout } from '../src/components/ui';
 import { apiClient } from '../src/api/client';
+import { useAuth } from '../src/hooks/useAuth';
+import { isLocalFirst } from '../src/data/backup/tierPolicy';
+import { localDb } from '../src/db/localDb';
+import {
+  getExerciseNameMap,
+  ensureExerciseCatalogCached,
+  displayExerciseName,
+} from '../src/data/exerciseNames';
 
 function VictoryChart({
   children,
@@ -259,6 +267,81 @@ async function fetchCardioData(): Promise<CardioData> {
   };
 }
 
+/**
+ * Local-first equivalent of fetchProgressData for free users — reads the
+ * on-device workouts/sets tables instead of GET /workouts + GET /sets (which
+ * hang for free users, who have no server-side training data). Reuses the exact
+ * same week-bucket / consistency / PR maths so the screen renders identically.
+ * Weight uses exact weight_kg (schema v3) with weight_raw/8 as the fallback.
+ */
+async function fetchLocalProgressData(): Promise<ProgressData> {
+  await localDb.init();
+  const workouts = await localDb.getAll<{ id: string; day_key: string }>(
+    `SELECT id, day_key FROM workouts ORDER BY day_key DESC LIMIT 200`,
+  );
+  const sets = await localDb.getAll<{
+    exercise_id: string;
+    weight_kg: number | null;
+    weight_raw: number | null;
+    reps: number | null;
+    logged_at: string;
+    workout_id: string;
+  }>(
+    `SELECT exercise_id, weight_kg, weight_raw, reps, logged_at, workout_id
+       FROM sets WHERE kind = 'lift' ORDER BY logged_at DESC LIMIT 1000`,
+  );
+  const nameMap = await getExerciseNameMap();
+  void ensureExerciseCatalogCached();
+
+  const kgOf = (s: { weight_kg: number | null; weight_raw: number | null }): number =>
+    s.weight_kg != null ? s.weight_kg : (s.weight_raw != null ? s.weight_raw / 8 : 0);
+
+  // ── Week buckets ────────────────────────────────────────────────────────────
+  const targetWeeks = lastEightWeeks();
+  const workoutWeekMap = new Map<string, string[]>();
+  const workoutIdToWeek = new Map<string, string>();
+  for (const w of workouts) {
+    const wk = isoWeek(w.day_key);
+    if (!workoutWeekMap.has(wk)) workoutWeekMap.set(wk, []);
+    workoutWeekMap.get(wk)!.push(w.id);
+    workoutIdToWeek.set(w.id, wk);
+  }
+  const volumePerWeek = new Map<string, number>();
+  for (const s of sets) {
+    const wk = workoutIdToWeek.get(s.workout_id);
+    if (!wk) continue;
+    volumePerWeek.set(wk, (volumePerWeek.get(wk) ?? 0) + kgOf(s) * (s.reps ?? 0));
+  }
+  const weekBuckets: WeekBucket[] = targetWeeks.map((wk, idx) => ({
+    label: `W${idx + 1}`,
+    isoWeek: wk,
+    workoutCount: workoutWeekMap.get(wk)?.length ?? 0,
+    totalVolume: Math.round(volumePerWeek.get(wk) ?? 0),
+  }));
+  const weeksWithWorkout = weekBuckets.filter((b) => b.workoutCount > 0).length;
+  const consistency = Math.round((weeksWithWorkout / 8) * 100);
+
+  // ── Personal records ────────────────────────────────────────────────────────
+  const prMap = new Map<string, PREntry>();
+  const thirtyDaysAgo = Date.now() - 30 * 86_400_000;
+  for (const s of sets) {
+    const e1rm = kgOf(s) * (1 + (s.reps ?? 0) / 30);
+    const existing = prMap.get(s.exercise_id);
+    if (!existing || e1rm > existing.e1rmKg) {
+      prMap.set(s.exercise_id, {
+        exerciseId: s.exercise_id,
+        exerciseName: displayExerciseName(s.exercise_id, nameMap),
+        e1rmKg: e1rm,
+        date: s.logged_at,
+        isRecent: new Date(s.logged_at).getTime() >= thirtyDaysAgo,
+      });
+    }
+  }
+  const topPRs = [...prMap.values()].sort((a, b) => b.e1rmKg - a.e1rmKg).slice(0, 5);
+
+  return { consistency, weekBuckets, topPRs };
+}
+
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
@@ -377,6 +460,8 @@ function PRCard({ item }: { item: PREntry }): React.ReactElement {
 
 export default function ProgressScreen(): React.ReactElement {
   const { theme, fontSize, fontWeight, radius, spacing } = useTheme();
+  const { user } = useAuth();
+  const localFirst = isLocalFirst(user);
 
   const [data, setData] = useState<ProgressData | null>(null);
   const [cardioData, setCardioData] = useState<CardioData | null>(null);
@@ -387,18 +472,26 @@ export default function ProgressScreen(): React.ReactElement {
     setLoading(true);
     setError(null);
     try {
-      const [result, cardio] = await Promise.all([
-        fetchProgressData(),
-        fetchCardioData().catch(() => null), // cardio data is supplementary — never block on failure
-      ]);
-      setData(result);
-      setCardioData(cardio);
+      if (localFirst) {
+        // Free/local-first: read strength progress from on-device SQLite. Cardio
+        // mileage/pace are server-only aggregates with no local source, so they
+        // stay empty here rather than hanging on GET /workouts/*.
+        setData(await fetchLocalProgressData());
+        setCardioData(null);
+      } else {
+        const [result, cardio] = await Promise.all([
+          fetchProgressData(),
+          fetchCardioData().catch(() => null), // cardio data is supplementary — never block on failure
+        ]);
+        setData(result);
+        setCardioData(cardio);
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load progress data.');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [localFirst]);
 
   useEffect(() => {
     load();
