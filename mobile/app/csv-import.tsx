@@ -21,6 +21,8 @@ import {
 } from 'react-native';
 import { useTheme } from '../src/theme/ThemeContext';
 import { apiClient } from '../src/api/client';
+import { useAuth } from '../src/hooks/useAuth';
+import { isLocalFirst } from '../src/data/backup/tierPolicy';
 import { PFButton } from '../src/components/ui/PFButton';
 import { PFCard } from '../src/components/ui/PFCard';
 
@@ -87,6 +89,8 @@ async function pickCsvFile(): Promise<PickedFile | null> {
 export default function CsvImportScreen(): React.ReactElement {
   const { theme, fontSize, fontWeight, spacing, radius } = useTheme();
   const { colors } = theme;
+  const { user } = useAuth();
+  const localFirst = isLocalFirst(user);
 
   const [file, setFile] = useState<PickedFile | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -102,6 +106,13 @@ export default function CsvImportScreen(): React.ReactElement {
 
   const handleImport = useCallback(async () => {
     if (!file) return;
+    if (localFirst) {
+      // CSV import is parsed/validated server-side. Free/local-first accounts have
+      // no server to process it, so don't fire a POST that will just fail — tell
+      // the user it needs a synced (Pro) account.
+      setUploadError('CSV import needs a synced (Pro) account — your free data is stored on-device only.');
+      return;
+    }
     setUploading(true);
     setUploadError(null);
     setResult(null);

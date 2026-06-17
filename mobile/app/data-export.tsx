@@ -33,6 +33,8 @@ import { ScreenLayout } from '../src/components/ui';
 import { PFCard } from '../src/components/ui';
 import { fontWeight } from '../src/theme/tokens';
 import { apiClient } from '../src/api/client';
+import { useAuth } from '../src/hooks/useAuth';
+import { isLocalFirst } from '../src/data/backup/tierPolicy';
 import { localDb } from '../src/db/localDb';
 import {
   buildBackupFromDb,
@@ -160,6 +162,8 @@ async function downloadAndShare(url: string, filename: string): Promise<void> {
 export default function DataExportScreen(): React.ReactElement {
   const { theme, spacing: sp, fontSize: fs, radius: r } = useTheme();
   const { colors } = theme;
+  const { user } = useAuth();
+  const localFirst = isLocalFirst(user);
   const reduceMotion = useReduceMotion();
   const [jsonLoading, setJsonLoading] = useState(false);
   const [csvLoading, setCsvLoading] = useState(false);
@@ -266,6 +270,13 @@ export default function DataExportScreen(): React.ReactElement {
   };
 
   const handleExportJson = async () => {
+    if (localFirst) {
+      Alert.alert(
+        'Use “Export backup” instead',
+        'Server export is for synced (Pro) accounts. Your data lives on this device — use the encrypted backup export below to save all of it.',
+      );
+      return;
+    }
     setJsonLoading(true);
     try {
       await downloadAndShare('/user/export', `peak-fettle-export-${today}.json`);
@@ -379,6 +390,13 @@ export default function DataExportScreen(): React.ReactElement {
   };
 
   const handleExportCsv = async () => {
+    if (localFirst) {
+      Alert.alert(
+        'Use “Export backup” instead',
+        'Server CSV export is for synced (Pro) accounts. On a free account your sets are on this device — use the encrypted backup export below.',
+      );
+      return;
+    }
     setCsvLoading(true);
     try {
       await downloadAndShare('/user/export.csv', `peak-fettle-sets-${today}.csv`);
