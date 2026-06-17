@@ -37,6 +37,8 @@ import { Ionicons } from '../src/components/Icon';
 import { useTheme } from '../src/theme/ThemeContext';
 import { PFButton, ScreenLayout } from '../src/components/ui';
 import { apiClient } from '../src/api/client';
+import { useAuth } from '../src/hooks/useAuth';
+import { isLocalFirst } from '../src/data/backup/tierPolicy';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -562,6 +564,8 @@ function LoadoutBar({ loadout }: { loadout: Loadout | null }): React.ReactElemen
 
 export default function CosmeticsScreen(): React.ReactElement {
   const { theme, fontSize, fontWeight, radius, spacing } = useTheme();
+  const { user } = useAuth();
+  const localFirst = isLocalFirst(user);
 
   const [items, setItems] = useState<CosmeticItem[]>([]);
   const [loadout, setLoadout] = useState<Loadout | null>(null);
@@ -574,6 +578,15 @@ export default function CosmeticsScreen(): React.ReactElement {
   // ── Data fetch — full catalog (includes locked items + owned flag) ─────────
 
   const load = useCallback(async () => {
+    // The cosmetics catalog, credit balance, and purchase/equip flow are all
+    // server-backed. Free/local-first users have nothing to pull, so skip the
+    // REST round-trip (no hang) and show the empty-shop state.
+    if (localFirst) {
+      setItems([]);
+      setLoadout(null);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -588,7 +601,7 @@ export default function CosmeticsScreen(): React.ReactElement {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [localFirst]);
 
   useEffect(() => {
     load();

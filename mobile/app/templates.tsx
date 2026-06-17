@@ -22,6 +22,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useTheme } from '../src/theme/ThemeContext';
 import { useAuth } from '../src/hooks/useAuth';
+import { isLocalFirst } from '../src/data/backup/tierPolicy';
 import { apiClient } from '../src/api/client';
 import { PFCard } from '../src/components/ui/PFCard';
 import { PFButton } from '../src/components/ui/PFButton';
@@ -268,6 +269,14 @@ export default function TemplatesScreen(): React.ReactElement {
   const bundledPrograms = listBeginnerPrograms();
 
   const fetchTemplates = useCallback(async () => {
+    // Free/local-first users get the bundled beginner programs (rendered always,
+    // below) — the server "All templates" section is a Pro/online extra. Skip the
+    // GET /templates round-trip for them so the screen never hangs on it.
+    if (isLocalFirst(user)) {
+      setTemplates([]);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -285,7 +294,7 @@ export default function TemplatesScreen(): React.ReactElement {
     } finally {
       setLoading(false);
     }
-  }, [disciplineFilter, levelFilter]);
+  }, [disciplineFilter, levelFilter, user]);
 
   useEffect(() => {
     fetchTemplates();
