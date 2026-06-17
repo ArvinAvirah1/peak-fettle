@@ -139,6 +139,16 @@ export default function InsightsScreen(): React.ReactElement {
   const staggerAnims = useStaggerFade(4, !reduceMotion);
 
   const load = useCallback(async () => {
+    // Readiness/recovery/deload are server-computed Pro signals. Free/local-first
+    // users have no server-side training data, so the old unconditional 3-call
+    // fetch just hung (15s each) and then showed empty cards. Skip it for them —
+    // the screen renders a Pro upsell instead.
+    if (!user?.is_paid) {
+      setReadiness(null);
+      setRecovery(null);
+      setDeload(null);
+      return;
+    }
     const [rd, rec, dl] = await Promise.all([
       getReadiness(),
       getRecovery(),
@@ -147,7 +157,7 @@ export default function InsightsScreen(): React.ReactElement {
     setReadiness(rd);
     setRecovery(rec);
     setDeload(dl);
-  }, []);
+  }, [user?.is_paid]);
 
   useEffect(() => {
     setLoading(true);
@@ -211,6 +221,39 @@ export default function InsightsScreen(): React.ReactElement {
           Evidence-based signals from your logged training and health metrics.
         </Text>
 
+        {/* ── Free-tier upsell (no REST fetch happens for free users) ─────── */}
+        {!user?.is_paid ? (
+          <View
+            style={[
+              styles.deloadBanner,
+              {
+                backgroundColor: colors.accentSecondary,
+                borderColor: colors.accentDefault,
+                borderRadius: r.lg,
+                padding: sp.s4,
+                marginBottom: sp.s5,
+              },
+            ]}
+          >
+            <Text style={{ color: colors.textPrimary, fontSize: fs.bodyLg, fontWeight: fontWeight.bold, marginBottom: sp.s2 }}>
+              Insights is a Pro feature
+            </Text>
+            <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, marginBottom: sp.s3, lineHeight: 20 }}>
+              Readiness, muscle-recovery and deload guidance are computed from your training on Peak Fettle Pro.
+            </Text>
+            <TouchableOpacity
+              onPress={() => router.push('/(tabs)/plans')}
+              accessibilityRole="button"
+              accessibilityLabel="See Pro plans"
+              style={{ backgroundColor: colors.accentDefault, borderRadius: r.md, paddingVertical: sp.s3, alignItems: 'center', minHeight: 44, justifyContent: 'center' }}
+            >
+              <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold }}>
+                See Plans
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
         {/* ── Deload banner ──────────────────────────────────────────────── */}
         {deload?.recommended && (
           <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[0])}>
@@ -266,24 +309,28 @@ export default function InsightsScreen(): React.ReactElement {
           </Animated.View>
         )}
 
-        {/* ── Readiness card ─────────────────────────────────────────────── */}
-        <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[1])}>
-          <SectionHeader label="Today's Readiness" />
-          <ReadinessCard data={readiness} loading={loading} />
-        </Animated.View>
+        {/* ── Readiness card (Pro only) ──────────────────────────────────── */}
+        {user?.is_paid ? (
+          <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[1])}>
+            <SectionHeader label="Today's Readiness" />
+            <ReadinessCard data={readiness} loading={loading} />
+          </Animated.View>
+        ) : null}
 
-        {/* ── Muscle heatmap ─────────────────────────────────────────────── */}
-        <Animated.View style={[reduceMotion ? undefined : staggerStyle(staggerAnims[2]), { marginTop: sp.s6 }]}>
-          <SectionHeader label="Muscle Recovery" />
-          <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, marginBottom: sp.s3, lineHeight: 20 }}>
-            Tap a muscle to see recovery detail and suggest alternatives.
-          </Text>
-          <MuscleHeatmap
-            muscles={muscles}
-            loading={loading}
-            onSuggestSubstitutes={handleSuggestSubstitutes}
-          />
-        </Animated.View>
+        {/* ── Muscle heatmap (Pro only) ──────────────────────────────────── */}
+        {user?.is_paid ? (
+          <Animated.View style={[reduceMotion ? undefined : staggerStyle(staggerAnims[2]), { marginTop: sp.s6 }]}>
+            <SectionHeader label="Muscle Recovery" />
+            <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, marginBottom: sp.s3, lineHeight: 20 }}>
+              Tap a muscle to see recovery detail and suggest alternatives.
+            </Text>
+            <MuscleHeatmap
+              muscles={muscles}
+              loading={loading}
+              onSuggestSubstitutes={handleSuggestSubstitutes}
+            />
+          </Animated.View>
+        ) : null}
 
         {/* Recovery rule trace */}
         {recovery?.rule_trace && recovery.rule_trace.length > 0 && (

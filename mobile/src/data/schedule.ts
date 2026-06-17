@@ -22,6 +22,7 @@
  */
 
 import { localDb } from '../db/localDb';
+import { toDateKey } from '../utils/dateHelpers';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,6 +52,13 @@ export interface Schedule {
   timeOfDay: string | null;
   /** When true, schedule a local reminder at `timeOfDay` on training days. */
   reminderEnabled: boolean;
+  /**
+   * Weekly-mode skip marker: an ISO date (YYYY-MM-DD). The weekly resolver
+   * ignores any day on or before this date, so "Skip" on a weekly next-up jumps
+   * to the next training day. Naturally expires (tomorrow's date is already
+   * after it). null/absent for cycle mode or when nothing has been skipped.
+   */
+  skipBeforeDate?: string | null;
   updatedAt: string;
 }
 
@@ -75,6 +83,7 @@ export function emptySchedule(mode: ScheduleMode = 'cycle'): Schedule {
     weekly: [null, null, null, null, null, null, null],
     timeOfDay: null,
     reminderEnabled: false,
+    skipBeforeDate: null,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -116,6 +125,7 @@ export function normalizeSchedule(raw: Partial<Schedule> | null | undefined): Sc
     timeOfDay,
     // A reminder only makes sense when a time is set.
     reminderEnabled: timeOfDay != null && raw.reminderEnabled === true,
+    skipBeforeDate: typeof raw.skipBeforeDate === 'string' ? raw.skipBeforeDate : null,
     updatedAt: raw.updatedAt ?? new Date().toISOString(),
   };
 }
@@ -163,9 +173,17 @@ export function resolveNextUp(schedule: Schedule | null, now: Date = new Date())
 
   if (schedule.mode === 'weekly') {
     const today = now.getDay();
-    // Find the next day (starting today) that has a non-rest routine.
+    const skipBefore = schedule.skipBeforeDate ?? null;
+    // Find the next day (starting today) that has a non-rest routine. A weekly
+    // "Skip" sets skipBeforeDate to today, so any day on/before it is passed over
+    // and next-up jumps to the following training day.
     for (let offset = 0; offset < 7; offset++) {
       const idx = (today + offset) % 7;
+      if (skipBefore) {
+        const d = new Date(now);
+        d.setDate(d.getDate() + offset);
+        if (toDateKey(d) <= skipBefore) continue;
+      }
       const slot = schedule.weekly[idx];
       if (slot && slot.routineId) {
         const whenLabel = offset === 0 ? 'Today' : offset === 1 ? 'Tomorrow' : (WEEKDAY_SHORT[idx] ?? 'Soon');
@@ -200,4 +218,22 @@ export async function markRoutineCompleted(routineId: string): Promise<void> {
   const idx = s.cycle.findIndex((slot) => slot.routineId === routineId);
   if (idx < 0) return; // out-of-loop routine — ignore
   await saveSchedule({ ...s, position: (idx + 1) % s.cycle.length });
+}
+
+/**
+ * Skip the current next-up WITHOUT logging anything (user wants the one after).
+ *   • cycle  — advance the pointer to the next slot (Push → Pull → Legs → …).
+ *   • weekly — mark today skipped so the resolver returns the next training day.
+ * Persists and returns the updated schedule (or null when there's no schedule).
+ */
+export async function skipToNext(): Promise<Schedule | null> {
+  const s = await loadSchedule();
+  if (!s) return null;
+  if (s.mode === 'cycle') {
+    if (s.cycle.length === 0) return s;
+    await saveSchedule({ ...s, position: (s.position + 1) % s.cycle.length });
+  } else {
+    await saveSchedule({ ...s, skipBeforeDate: toDateKey(new Date()) });
+  }
+  return (await loadSchedule()) ?? s;
 }

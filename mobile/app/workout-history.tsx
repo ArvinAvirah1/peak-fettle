@@ -31,6 +31,9 @@ import { useTheme } from '../src/theme/ThemeContext';
 import { CalendarHeatmap } from '../src/components/CalendarHeatmap';
 import { ScreenLayout, PFButton, PressableCard } from '../src/components/ui';
 import { apiClient } from '../src/api/client';
+import { useAuth } from '../src/hooks/useAuth';
+import { isLocalFirst } from '../src/data/backup/tierPolicy';
+import { localDb } from '../src/db/localDb';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -166,6 +169,8 @@ export default function WorkoutHistoryScreen(): React.ReactElement {
   const router = useRouter();
   const { theme, spacing, fontSize, fontWeight, radius } = useTheme();
   const { colors } = theme;
+  const { user } = useAuth();
+  const localFirst = isLocalFirst(user);
 
   // ── State ─────────────────────────────────────────────────────────────────
   const [allWorkouts, setAllWorkouts] = useState<ApiWorkout[]>([]);
@@ -180,13 +185,47 @@ export default function WorkoutHistoryScreen(): React.ReactElement {
   // GET /workouts returns a plain array (not {workouts:[]}). The server limits
   // to 90 rows desc by day_key and includes total_sets, exercise_count, and
   // total_volume_kg via a LEFT JOIN + GROUP BY — no client-side aggregation needed.
+  // Free/local-first users read the same aggregates from on-device SQLite (the old
+  // unconditional GET /workouts hung for them — no server-side data).
   const fetchPage = useCallback(async (_offset: number = 0) => {
     if (fetchingRef.current) return;
     fetchingRef.current = true;
 
     try {
-      const res = await apiClient.get<ApiWorkout[]>('/workouts');
-      const raw: ApiWorkout[] = Array.isArray(res.data) ? res.data : [];
+      let raw: ApiWorkout[];
+      if (localFirst) {
+        await localDb.init();
+        const rows = await localDb.getAll<{
+          id: string; day_key: string; routine_name: string | null;
+          total_sets: number; total_volume_kg: number; exercise_count: number;
+        }>(
+          `SELECT MIN(w.id) AS id,
+                  w.day_key AS day_key,
+                  MAX(w.routine_name) AS routine_name,
+                  COUNT(s.id) AS total_sets,
+                  COALESCE(SUM(
+                    CASE WHEN s.kind = 'lift'
+                         THEN COALESCE(s.weight_kg, s.weight_raw / 8.0) * COALESCE(s.reps, 0)
+                         ELSE 0 END
+                  ), 0) AS total_volume_kg,
+                  COUNT(DISTINCT s.exercise_id) AS exercise_count
+             FROM workouts w
+             LEFT JOIN sets s ON s.workout_id = w.id
+            GROUP BY w.day_key
+            ORDER BY w.day_key DESC`,
+        );
+        raw = rows.map((r) => ({
+          id: r.id,
+          day_key: r.day_key,
+          routine_name: r.routine_name,
+          total_sets: r.total_sets ?? 0,
+          total_volume_kg: Math.round(r.total_volume_kg ?? 0),
+          exercise_count: r.exercise_count ?? 0,
+        }));
+      } else {
+        const res = await apiClient.get<ApiWorkout[]>('/workouts');
+        raw = Array.isArray(res.data) ? res.data : [];
+      }
 
       const sorted = [...raw].sort((a, b) => b.day_key.localeCompare(a.day_key));
       setAllWorkouts(sorted);
@@ -202,7 +241,7 @@ export default function WorkoutHistoryScreen(): React.ReactElement {
       fetchingRef.current = false;
       setLoading(false);
     }
-  }, []);
+  }, [localFirst]);
 
   // Mount: load workouts
   useEffect(() => {

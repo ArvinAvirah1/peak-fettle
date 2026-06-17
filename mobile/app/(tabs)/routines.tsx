@@ -50,12 +50,13 @@ import {
   getLastPerformedMap,
   Routine,
 } from '../../src/data/routines';
-import { getTemplates, getTemplate, WorkoutTemplate } from '../../src/api/templates';
+import type { WorkoutTemplate } from '../../src/api/templates';
+import { getStarterSplits } from '../../src/data/starterSplits';
 import { TemplateDetailSheet, SheetExercise } from '../../src/components/TemplateDetailSheet';
 import RoutineEditorSheet from '../../src/components/RoutineEditorSheet';
 import { useTourAnchor } from '../../src/components/tour/WelcomeTour'; // TICKET-095
 import ScheduleEditorSheet from '../../src/components/ScheduleEditorSheet'; // TICKET-097
-import { loadSchedule, resolveNextUp, Schedule, NextUp, ScheduleSlot } from '../../src/data/schedule';
+import { loadSchedule, resolveNextUp, skipToNext, Schedule, NextUp, ScheduleSlot } from '../../src/data/schedule';
 import { localDb } from '../../src/db/localDb'; // TICKET-097: react to schedule changes
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -147,9 +148,9 @@ export default function RoutinesPage(): React.ReactElement {
   // Inline rename after a duplicate (option 6): the row id being renamed.
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
-  // Starter-split preview sheet (option 1).
+  // Starter-split preview sheet (option 1). Splits are bundled on-device, so
+  // there is no async fetch / loading state for the preview anymore.
   const [previewTpl, setPreviewTpl] = useState<WorkoutTemplate | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
   // Goal filter for starter splits (option 14).
   const [goalFilter, setGoalFilter] = useState<GoalFilter>('all');
   // Lightweight toast (option 6).
@@ -159,15 +160,13 @@ export default function RoutinesPage(): React.ReactElement {
   // ── Data fetching ──────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
     try {
-      const [r, t] = await Promise.all([
-        // Tier-branched: local-first for free users, REST for Pro.
-        listRoutines(user),
-        // Starter splits — fetch all seeded templates (the old discipline:'strength'
-        // filter matched nothing; TICKET-074 #4).
-        getTemplates(),
-      ]);
+      // Only the user's OWN routines are awaited — they come from on-device
+      // SQLite (free) and resolve instantly. Starter splits are now bundled
+      // on-device (getStarterSplits), so the page no longer blocks on a cold
+      // GET /templates round-trip (the #1 startup-lag complaint).
+      const r = await listRoutines(user);
       setRoutines(r);
-      setTemplates(t);
+      setTemplates(getStarterSplits());
       // Best-effort last-performed (option 5) — never blocks the list render.
       getLastPerformedMap(user, r).then(setLastPerformed).catch(() => {});
     } catch {
@@ -303,45 +302,40 @@ export default function RoutinesPage(): React.ReactElement {
     }
   }, [renamingId, renameValue, routines, user]);
 
-  // Duplicate a starter-split template into a user routine (used by the preview).
+  // Add a starter split to "Yours". Multi-day splits (Push/Pull/Legs) become ONE
+  // routine PER DAY so each maps to a real session — which also feeds the
+  // per-routine history folders on Home. All bundled, so no network is needed.
   const handleUseTemplate = useCallback(async (tpl: WorkoutTemplate) => {
     setSaving(true);
     try {
-      // The list endpoint returns summaries only — sessions/exercises live on
-      // GET /templates/:id. getTemplate() now returns the UNWRAPPED template.
-      const full = tpl.sessions && tpl.sessions.length > 0 ? tpl : await getTemplate(tpl.id);
-      const exercises = (full.sessions?.[0]?.exercises ?? []).map((ex) => ({
-        // TICKET-088: template exercises have no library UUID — name is source of truth.
-        exercise_id: undefined,
-        name: ex.exercise_name,
-        target_sets: ex.sets,
-        target_reps: ex.reps,
-      }));
-      const r = await createRoutine(user, { name: full.name, exercises }, userId);
-      setRoutines((prev) => [r, ...prev]);
+      const sessions = tpl.sessions ?? [];
+      if (sessions.length === 0) throw new Error('This split has no sessions.');
+      const created: Routine[] = [];
+      for (const session of sessions) {
+        const exercises = (session.exercises ?? []).map((ex) => ({
+          // TICKET-088: bundled exercises have no library UUID — name is source of truth.
+          exercise_id: undefined,
+          name: ex.exercise_name,
+          target_sets: ex.sets,
+          target_reps: ex.reps,
+        }));
+        const name = sessions.length > 1 ? session.session_name : tpl.name;
+        created.push(await createRoutine(user, { name, exercises }, userId));
+      }
+      setRoutines((prev) => [...created, ...prev]);
       setPreviewTpl(null);
-      showToast('Copied to Yours');
+      showToast(created.length > 1 ? `Added ${created.length} routines` : 'Copied to Yours');
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Could not duplicate template');
+      Alert.alert('Error', err instanceof Error ? err.message : 'Could not add this split');
     } finally {
       setSaving(false);
     }
   }, [user, userId, showToast]);
 
-  // Open the starter-split preview sheet (option 1) — fetch the full template so
-  // the sheet lists real exercises.
-  const openPreview = useCallback(async (tpl: WorkoutTemplate) => {
+  // Open the starter-split preview sheet (option 1). Splits are bundled on-device
+  // with their full session/exercise lists, so this is instant — no fetch.
+  const openPreview = useCallback((tpl: WorkoutTemplate) => {
     setPreviewTpl(tpl);
-    if (tpl.sessions && tpl.sessions.length > 0) return;
-    setPreviewLoading(true);
-    try {
-      const full = await getTemplate(tpl.id);
-      setPreviewTpl(full);
-    } catch {
-      // Keep the summary; the sheet shows a graceful empty state.
-    } finally {
-      setPreviewLoading(false);
-    }
   }, []);
 
   /** Start a routine → navigate to Home with routineId param (TICKET-084). */
@@ -375,9 +369,22 @@ export default function RoutinesPage(): React.ReactElement {
     router.push(`/(tabs)?routineId=${nu.slot.routineId}&routineName=${encodeURIComponent(name)}`);
   }, [router, routines]);
 
+  // Skip the current next-up without logging it: advance the cycle pointer (or,
+  // for a weekly schedule, skip today so next-up jumps to the next training day).
+  const handleSkipNextUp = useCallback(async () => {
+    const next = await skipToNext();
+    if (next) setSchedule(next);
+  }, []);
+
   const hasSchedule =
     !!schedule && (schedule.cycle.length > 0 || schedule.weekly.some((x) => !!x));
   const nextUp = hasSchedule ? resolveNextUp(schedule) : null;
+  // Skipping only makes sense when there's somewhere else to go: a cycle with
+  // more than one slot, or any weekly schedule (skip to the next training day).
+  const canSkip =
+    !!nextUp &&
+    !!schedule &&
+    (schedule.mode === 'weekly' ? true : schedule.cycle.length > 1);
   const nextUpName =
     nextUp && nextUp.slot.routineId
       ? routines.find((r) => r.id === nextUp.slot.routineId)?.name ?? nextUp.slot.routineName ?? 'Routine'
@@ -417,17 +424,26 @@ export default function RoutinesPage(): React.ReactElement {
     return list.slice(0, 12);
   }, [templates, goalFilter]);
 
-  // Build the exercise list for the preview sheet (option 1).
+  // Build the exercise list for the preview sheet (option 1). Multi-day splits
+  // show EVERY day's exercises, prefixed with the day name (e.g. "Push · …") so
+  // the user sees the whole split before adding it.
   const previewExercises: SheetExercise[] = useMemo(() => {
     if (!previewTpl) return [];
-    const session = previewTpl.sessions?.[0];
-    return (session?.exercises ?? []).map((ex) => ({
-      name: ex.exercise_name,
-      sets: ex.sets,
-      reps: ex.reps,
-      rest_s: ex.rest_seconds,
-      form_cue: ex.form_cue,
-    }));
+    const sessions = previewTpl.sessions ?? [];
+    const multiDay = sessions.length > 1;
+    const out: SheetExercise[] = [];
+    for (const session of sessions) {
+      for (const ex of session.exercises ?? []) {
+        out.push({
+          name: multiDay ? `${session.session_name} · ${ex.exercise_name}` : ex.exercise_name,
+          sets: ex.sets,
+          reps: ex.reps,
+          rest_s: ex.rest_seconds,
+          form_cue: ex.form_cue,
+        });
+      }
+    }
+    return out;
   }, [previewTpl]);
 
   // ── Swipe action renderers (option 7) ───────────────────────────────────────
@@ -499,9 +515,21 @@ export default function RoutinesPage(): React.ReactElement {
             <View style={[styles.nextUpCard, { backgroundColor: c.bgSecondary, borderColor: c.borderDefault }]}>
               {nextUp ? (
                 <>
-                  <Text style={[styles.nextUpKicker, { color: c.textTertiary }]}>
-                    {nextUp.whenLabel.toUpperCase()}
-                  </Text>
+                  <View style={styles.nextUpKickerRow}>
+                    <Text style={[styles.nextUpKicker, { color: c.textTertiary }]}>
+                      {nextUp.whenLabel.toUpperCase()}
+                    </Text>
+                    {canSkip ? (
+                      <TouchableOpacity
+                        onPress={handleSkipNextUp}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Skip ${nextUp.isRest ? 'rest day' : nextUpName ?? 'this routine'}`}
+                      >
+                        <Text style={[styles.nextUpSkip, { color: c.accentDefault }]}>Skip ›</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
                   <View style={styles.nextUpRow}>
                     <Text style={[styles.nextUpName, { color: c.textPrimary }]} numberOfLines={1}>
                       {nextUp.isRest ? 'Rest day' : nextUpName}
@@ -823,7 +851,7 @@ export default function RoutinesPage(): React.ReactElement {
           description={previewTpl?.description}
           exercises={previewExercises}
           onStart={() => { if (previewTpl) handleUseTemplate(previewTpl); }}
-          startLabel={previewLoading ? 'Loading…' : saving ? 'Adding…' : 'Use this'}
+          startLabel={saving ? 'Adding…' : 'Use this'}
         />
 
         {/* ── Full-screen routine editor ───────────────────────────────────── */}
@@ -887,11 +915,20 @@ const styles = StyleSheet.create({
     padding: spacing.s4,
     marginBottom: spacing.s4,
   },
+  nextUpKickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.s2,
+  },
   nextUpKicker: {
     fontFamily: fontFamily.bold,
     fontSize: fontSize.caption,
     letterSpacing: 0.5,
-    marginBottom: spacing.s2,
+  },
+  nextUpSkip: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: fontSize.bodySm,
   },
   nextUpRow: {
     flexDirection: 'row',

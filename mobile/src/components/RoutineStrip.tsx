@@ -27,7 +27,8 @@ import { spacing, radius, fontSize, fontWeight } from '../theme/tokens';
 import { Routine } from '../api/routines';
 import { listRoutines } from '../data/routines';
 import { useAuth } from '../hooks/useAuth';
-import { getTemplates, getTemplate, WorkoutTemplate } from '../api/templates';
+import type { WorkoutTemplate } from '../api/templates';
+import { getStarterSplits } from '../data/starterSplits';
 import { TemplateDetailSheet, SheetExercise } from './TemplateDetailSheet';
 
 // ---------------------------------------------------------------------------
@@ -225,11 +226,9 @@ export function RoutineStrip({
   const [loadingRoutines, setLoadingRoutines] = useState(true);
   const [loadingTemplates, setLoadingTemplates] = useState(true);
 
-  // Hang-proofing: STARTER SPLITS comes from the network (getTemplates) and the
-  // axios timeout is 15s. Without a deadline a slow/flaky connection left both
-  // strips spinning "forever" on Home (the user's #1 lag complaint). After this
-  // deadline a still-pending loader resolves to its empty state instead of a
-  // perpetual spinner; the real data still pops in if/when the fetch returns.
+  // Hang-proofing: kept as a final backstop. STARTER SPLITS are now bundled
+  // on-device (no network), and MY ROUTINES is a fast local read for free users,
+  // so this deadline rarely fires — but it still guarantees no perpetual spinner.
   const LOAD_DEADLINE_MS = 2500;
   const [loadTimedOut, setLoadTimedOut] = useState(false);
   useEffect(() => {
@@ -245,11 +244,10 @@ export function RoutineStrip({
       .then(setRoutines)
       .catch((err: unknown) => { console.warn('[PF] RoutineStrip/listRoutines:', err instanceof Error ? err.message : String(err)); })
       .finally(() => setLoadingRoutines(false));
-    // Templates are the global, non-personal library — fine to fetch for everyone.
-    getTemplates()
-      .then((all) => setTemplates(all.filter((t) => t.is_featured).slice(0, 6)))
-      .catch((err: unknown) => { console.warn('[PF] RoutineStrip/getTemplates:', err instanceof Error ? err.message : String(err)); })
-      .finally(() => setLoadingTemplates(false));
+    // Starter splits are bundled on-device — instant, offline-safe, no GET
+    // /templates round-trip (the old #1 Home startup-lag source).
+    setTemplates(getStarterSplits().filter((t) => t.is_featured).slice(0, 6));
+    setLoadingTemplates(false);
   }, [user]);
 
   // Sheet state
@@ -258,7 +256,6 @@ export function RoutineStrip({
   const [sheetDescription, setSheetDescription] = useState<string | undefined>();
   const [sheetExercises, setSheetExercises] = useState<SheetExercise[]>([]);
   const [sheetOnStart, setSheetOnStart] = useState<() => void>(() => {});
-  const [loadingDetail, setLoadingDetail] = useState(false);
 
   const openRoutineSheet = useCallback((routine: Routine) => {
     setSheetTitle(routine.name);
@@ -278,24 +275,11 @@ export function RoutineStrip({
     setSheetVisible(true);
   }, [onStartRoutine]);
 
-  const openTemplateSheet = useCallback(async (template: WorkoutTemplate) => {
-    // If sessions are already loaded (from template detail cache), use them.
-    // Otherwise fetch the full template.
-    let full = template;
-    if (!template.sessions) {
-      setLoadingDetail(true);
-      try {
-        full = await getTemplate(template.id);
-      } catch (err) {
-        console.warn('[PF] RoutineStrip/openTemplateSheet:', err instanceof Error ? err.message : String(err));
-        full = template;
-      } finally {
-        setLoadingDetail(false);
-      }
-    }
-    const session = full.sessions?.[0];
-    setSheetTitle(session?.session_name ?? full.name);
-    setSheetDescription(full.description);
+  const openTemplateSheet = useCallback((template: WorkoutTemplate) => {
+    // Bundled splits already carry their full session/exercise list — no fetch.
+    const session = template.sessions?.[0];
+    setSheetTitle(session?.session_name ?? template.name);
+    setSheetDescription(template.description);
     setSheetExercises(
       (session?.exercises ?? []).map((ex) => ({
         name: ex.exercise_name,
@@ -307,7 +291,7 @@ export function RoutineStrip({
     );
     setSheetOnStart(() => () => {
       setSheetVisible(false);
-      onStartTemplate(buildTemplateSession(full));
+      onStartTemplate(buildTemplateSession(template));
     });
     setSheetVisible(true);
   }, [onStartTemplate]);
@@ -369,7 +353,7 @@ export function RoutineStrip({
 
       {splitsExpanded && (
         <View style={styles.stripBody}>
-          {(loadingTemplates || loadingDetail) && !loadTimedOut ? (
+          {loadingTemplates && !loadTimedOut ? (
             <ActivityIndicator size="small" color={theme.colors.accentDefault} style={styles.loader} />
           ) : templates.length === 0 ? (
             <Text style={[styles.emptyState, { color: theme.colors.textTertiary }]}>

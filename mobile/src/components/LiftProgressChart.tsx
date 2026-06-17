@@ -34,6 +34,9 @@ import Svg, {
 } from 'react-native-svg';
 
 import { getExerciseProgress, ProgressPoint, ProgressSeries } from '../api/progress';
+import { getLocalExerciseProgress } from '../data/localProgress';
+import { isLocalFirst } from '../data/backup/tierPolicy';
+import { useAuth } from '../hooks/useAuth';
 import { formatWeight } from '../constants/units';
 import { useTheme } from '../theme/ThemeContext';
 
@@ -105,6 +108,7 @@ export default function LiftProgressChart({
   initialMetric = 'e1rm',
 }: LiftProgressChartProps): React.ReactElement {
   const { theme, spacing, fontSize, radius } = useTheme();
+  const { user } = useAuth();
   const colors = theme.colors;
   const activeChipInk = theme.components.buttonPrimaryText;
 
@@ -123,7 +127,12 @@ export default function LiftProgressChart({
     setLoading(true);
     setSeries(null);
 
-    getExerciseProgress(exerciseId).then((result) => {
+    // Free/local-first users read the on-device sets table (no GET /sets hang);
+    // Pro users keep the server aggregation.
+    const fetcher = isLocalFirst(user)
+      ? getLocalExerciseProgress(exerciseId)
+      : getExerciseProgress(exerciseId);
+    fetcher.then((result) => {
       if (!cancelled) {
         setSeries(result);
         loadedForId.current = exerciseId;
@@ -134,7 +143,7 @@ export default function LiftProgressChart({
     return () => {
       cancelled = true;
     };
-  }, [exerciseId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [exerciseId, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onLayout = useCallback((e: LayoutChangeEvent) => {
     setChartWidth(e.nativeEvent.layout.width);

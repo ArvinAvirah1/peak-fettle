@@ -59,6 +59,7 @@ import { getPercentile } from '../../src/api/percentile';
 import { logRestDay, undoRestDay } from '../../src/api/workouts';
 import { isLocalFirst } from '../../src/data/backup/tierPolicy';
 import { ensureExerciseCatalogCached } from '../../src/data/exerciseNames';
+import { getRoutineFolders, RoutineFolder } from '../../src/data/routineHistory';
 import { localDb, genId } from '../../src/db/localDb';
 import { BrandLogo } from '../../src/components/BrandLogo'; // TICKET-063
 import { WorkoutLoggerHost, WorkoutLoggerRef } from '../../src/components/WorkoutLoggerHost';
@@ -393,6 +394,19 @@ export default function HomeScreen(): React.ReactElement {
     const cutoffKey = toDateKey(cutoff);
     return history.filter((e) => e.workout.day_key >= cutoffKey);
   }, [history]);
+
+  // ── History folders (by routine), shown at the bottom of Home ──────────────
+  // One folder per routine the user has actually trained (Push / Pull / Legs…),
+  // grouped by the routine_name stamped on each workout. Local-first read; never
+  // blocks the page. Reloads when history changes (a finished session updates it).
+  const [routineFolders, setRoutineFolders] = useState<RoutineFolder[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    getRoutineFolders(user)
+      .then((f) => { if (!cancelled) setRoutineFolders(f); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [user, history]);
 
   // ── P0-005: AI Plan state ─────────────────────────────────────────────────
   const [plan, setPlan] = useState<PlanWithStructure | null>(null);
@@ -1243,6 +1257,43 @@ export default function HomeScreen(): React.ReactElement {
           })}
         </View>
       )}
+
+      {/* ── H. History folders by routine (tap to view past sessions) ── */}
+      {routineFolders.length > 0 ? (
+        <>
+          <SectionHeader label="BY ROUTINE" />
+          <View style={styles.folderList}>
+            {routineFolders.map((folder) => (
+              <TouchableOpacity
+                key={folder.routineName}
+                style={[styles.folderCard, {
+                  backgroundColor: theme.colors.bgSecondary,
+                  borderColor: theme.colors.borderDefault,
+                  borderRadius: radius.md,
+                }]}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`${folder.routineName}, ${folder.sessionCount} sessions`}
+                onPress={() => router.push(`/routine-history?name=${encodeURIComponent(folder.routineName)}` as any)}
+              >
+                <Text style={styles.folderEmoji}>📁</Text>
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={{ fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold, color: theme.colors.textPrimary }}
+                    numberOfLines={1}
+                  >
+                    {folder.routineName}
+                  </Text>
+                  <Text style={{ fontSize: fontSize.caption, color: theme.colors.textTertiary }}>
+                    {folder.sessionCount} session{folder.sessionCount !== 1 ? 's' : ''}
+                  </Text>
+                </View>
+                <Text style={{ fontSize: fontSize.bodyLg, color: theme.colors.textTertiary }}>›</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </>
+      ) : null}
     </ScrollView>
 
     {/* ── TICKET-084: WorkoutLoggerHost — always-mounted overlay ── */}
@@ -1347,6 +1398,23 @@ const styles = StyleSheet.create({
   },
   groupsNavText: {
     flex: 1,
+  },
+
+  // History folders (by routine)
+  folderList: {
+    gap: 8,
+    marginBottom: 8,
+  },
+  folderCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 12,
+  },
+  folderEmoji: {
+    fontSize: 22,
   },
 
   // History
