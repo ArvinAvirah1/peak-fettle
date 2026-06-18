@@ -35,7 +35,7 @@ import {
   RefreshControl,
   Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../src/hooks/useAuth';
 import { usePlans } from '../../src/hooks/usePlans';
 import { getPlan, activatePlan, regeneratePlan } from '../../src/api/plans';
@@ -45,6 +45,88 @@ import { useTheme } from '../../src/theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
 import { haptics } from '../../src/utils/haptics';
 import { PFButton, ScreenLayout } from '../../src/components/ui';
+import { syncsToServer } from '../../src/data/backup/tierPolicy';
+import {
+  buildLocalPlanContext,
+  type LocalProfileInput,
+} from '../../src/lib/trainingEngine';
+
+// ---------------------------------------------------------------------------
+// On-device Training Engine — generates plans LOCALLY for ALL tiers (local-first;
+// the engine is pure on-device code, so there is no is_paid gate on generation).
+// The Pro server path (saved plans + server generate) stays behind
+// syncsToServer(user). The require is lazy + guarded so a load failure degrades
+// to a friendly empty state instead of crashing the screen.
+// ---------------------------------------------------------------------------
+
+interface LocalEngineSlot {
+  name?: string;
+  exercise_id?: string;
+  sets: number;
+  reps: string;
+  rpe?: number;
+  rpe_target?: number;
+  rest_seconds: number;
+  coaching_note?: string;
+  weight_kg?: number | null;
+}
+
+interface LocalEngineSession {
+  day_label?: string;
+  archetype?: string;
+  slots?: LocalEngineSlot[];
+}
+
+interface LocalEngineWeek {
+  week_number: number;
+  sessions: LocalEngineSession[];
+}
+
+interface LocalEngineResult {
+  weeks: LocalEngineWeek[];
+  reasoning: string;
+  rule_trace: string[];
+  engine: string;
+}
+
+type LocalEngineModule = {
+  generatePlan: (ctx: Record<string, unknown>) => LocalEngineResult;
+};
+
+function loadLocalEngine(): LocalEngineModule | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    return require('../../src/lib/trainingEngine') as LocalEngineModule;
+  } catch {
+    return null;
+  }
+}
+
+/** Map one engine slot → the PlanExercise shape the render components expect. */
+function slotToPlanExercise(slot: LocalEngineSlot): PlanExercise {
+  const rpe = slot.rpe_target ?? slot.rpe ?? 7;
+  return {
+    name: slot.name ?? 'Exercise',
+    exercise_id: slot.exercise_id ?? null,
+    sets: slot.sets ?? 3,
+    reps: slot.reps ?? '8-12',
+    rpe_target: typeof rpe === 'number' ? rpe : 7,
+    rest_seconds: slot.rest_seconds ?? 90,
+    coaching_note: slot.coaching_note,
+  };
+}
+
+/** Map engine weeks → PlanWeek[] (defensive against missing slots/sessions). */
+function engineWeeksToPlanWeeks(weeks: LocalEngineWeek[] | undefined): PlanWeek[] {
+  if (!Array.isArray(weeks)) return [];
+  return weeks.map((w, wi) => ({
+    week_number: w?.week_number ?? wi + 1,
+    sessions: (w?.sessions ?? []).map((s, si) => ({
+      day_label: s?.day_label ?? s?.archetype ?? `Day ${si + 1}`,
+      exercises: (s?.slots ?? []).map(slotToPlanExercise),
+    })),
+  }));
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -547,6 +629,171 @@ function PlanDetailModal({ planId, onClose, onRegenerate }: PlanDetailProps): Re
   );
 }
 
+// ---------------------------------------------------------------------------
+// Local plan detail modal — renders an IN-MEMORY engine result (no server fetch).
+// Used for the on-device, all-tier plan. Mirrors PlanDetailModal's layout but is
+// driven by the engine output directly.
+// ---------------------------------------------------------------------------
+
+interface LocalPlanModalProps {
+  plan: LocalEngineResult;
+  onClose: () => void;
+  onRegenerate: () => void;
+  isRegenerating: boolean;
+}
+
+function LocalPlanModal({ plan, onClose, onRegenerate, isRegenerating }: LocalPlanModalProps): React.ReactElement {
+  const { theme } = useTheme();
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const [selectedWeek, setSelectedWeek] = React.useState(0);
+  const [selectedDay, setSelectedDay] = React.useState(0);
+
+  const weeks = React.useMemo(() => engineWeeksToPlanWeeks(plan?.weeks), [plan]);
+  const reasoning = plan?.reasoning ?? '';
+  const ruleTrace = plan?.rule_trace ?? [];
+  const currentWeekSessions: PlanWeekSession[] = weeks[selectedWeek]?.sessions ?? [];
+  const exercises: PlanExercise[] = currentWeekSessions[selectedDay]?.exercises ?? [];
+
+  return (
+    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+      <SafeAreaView style={[detailStyles.container, { backgroundColor: theme.colors.bgPrimary }]} edges={['top', 'bottom']}>
+        {/* Header — paddingTop applied directly (safe-area does NOT propagate into a Modal) */}
+        <View style={[
+          detailStyles.header,
+          { borderBottomColor: theme.colors.bgSecondary, paddingTop: Math.max(insets.top, 12) },
+        ]}>
+          <View style={detailStyles.headerText}>
+            <Text style={[detailStyles.title, { color: theme.colors.textPrimary }]} numberOfLines={2}>
+              Your Training Plan
+            </Text>
+            <Text style={[detailStyles.engineLabel, { color: theme.colors.textTertiary }]}>
+              Training Engine — built on-device
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={detailStyles.closeButton}
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Close plan detail"
+          >
+            <Text style={[detailStyles.closeButtonText, { color: theme.colors.accentDefault }]}>Done</Text>
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView contentContainerStyle={detailStyles.scrollContent} showsVerticalScrollIndicator={false}>
+          {/* Reasoning */}
+          {reasoning ? (
+            <View style={[
+              detailStyles.reasoningCard,
+              { backgroundColor: theme.colors.bgSecondary, borderLeftColor: theme.colors.accentDefault },
+            ]}>
+              <View style={detailStyles.reasoningHeader}>
+                <Text style={detailStyles.reasoningIcon}>📋</Text>
+                <Text style={[detailStyles.reasoningTitle, { color: theme.colors.accentHover }]}>
+                  Your plan, explained
+                </Text>
+              </View>
+              <Text style={[detailStyles.reasoningText, { color: theme.colors.textSecondary }]}>
+                {reasoning}
+              </Text>
+              {ruleTrace.length > 0 && <RuleTraceCollapsible ruleTrace={ruleTrace} />}
+            </View>
+          ) : null}
+
+          {/* Week picker */}
+          {weeks.length > 1 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={detailStyles.pickerRow}>
+                {weeks.map((week, idx) => (
+                  <TouchableOpacity
+                    key={week.week_number}
+                    style={[
+                      detailStyles.pickerChip,
+                      { borderColor: idx === selectedWeek ? theme.colors.accentDefault : theme.colors.borderDefault },
+                      idx === selectedWeek && { backgroundColor: theme.colors.accentDefault + '22' },
+                    ]}
+                    onPress={() => { setSelectedWeek(idx); setSelectedDay(0); }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`View Week ${week.week_number}`}
+                  >
+                    <Text style={[
+                      detailStyles.pickerChipText,
+                      { color: idx === selectedWeek ? theme.colors.accentDefault : theme.colors.textSecondary },
+                    ]}>
+                      Week {week.week_number}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+          )}
+
+          {/* Day picker */}
+          {currentWeekSessions.length > 0 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={detailStyles.pickerRow}>
+                {currentWeekSessions.map((session, idx) => (
+                  <TouchableOpacity
+                    key={`${session.day_label}-${idx}`}
+                    style={[
+                      detailStyles.pickerChip,
+                      { borderColor: idx === selectedDay ? theme.colors.accentDefault : theme.colors.borderDefault },
+                      idx === selectedDay && { backgroundColor: theme.colors.accentDefault + '22' },
+                    ]}
+                    onPress={() => setSelectedDay(idx)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`View ${session.day_label}`}
+                  >
+                    <Text style={[
+                      detailStyles.pickerChipText,
+                      { color: idx === selectedDay ? theme.colors.accentDefault : theme.colors.textSecondary },
+                    ]}>
+                      {session.day_label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </ScrollView>
+          )}
+
+          {/* Exercises */}
+          {exercises.length > 0 ? (
+            <View style={detailStyles.exerciseList}>
+              <Text style={[detailStyles.sectionHeader, { color: theme.colors.textTertiary }]}>EXERCISES</Text>
+              {exercises.map((ex, idx) => (
+                <ExerciseRow key={`${ex.name}-${idx}`} exercise={ex} index={idx} />
+              ))}
+            </View>
+          ) : (
+            <View style={detailStyles.centered}>
+              <Text style={[detailStyles.emptyText, { color: theme.colors.textTertiary }]}>
+                No exercises generated for this session. Add equipment in your Training Profile and regenerate.
+              </Text>
+            </View>
+          )}
+        </ScrollView>
+
+        <View style={{ paddingHorizontal: spacing.s5, paddingBottom: Math.max(insets.bottom, spacing.s5), paddingTop: spacing.s3, gap: spacing.s2 }}>
+          <PFButton
+            variant="primary"
+            label="Start This Workout"
+            onPress={() => {
+              onClose();
+              router.push('/(tabs)?startWorkout=1');
+            }}
+          />
+          <PFButton
+            variant="ghost"
+            label={isRegenerating ? 'Regenerating…' : 'Regenerate Plan'}
+            onPress={onRegenerate}
+          />
+        </View>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
 interface ExerciseRowProps {
   exercise: PlanExercise;
   index: number;
@@ -611,7 +858,6 @@ export default function PlansScreen(): React.ReactElement {
   const { user } = useAuth();
   const { theme } = useTheme();
   const router = useRouter();
-  const isPaid = user?.is_paid ?? false;
 
   const {
     plans,
@@ -628,6 +874,61 @@ export default function PlansScreen(): React.ReactElement {
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [lastGenerated, setLastGenerated] = useState<EngineGenerateResponse | null>(null);
   const [activatingPlanId, setActivatingPlanId] = useState<string | null>(null);
+
+  // ── On-device (local-first) plan generation — for ALL tiers ──────────────
+  const proSync = syncsToServer(user);
+  const [localPlan, setLocalPlan] = useState<LocalEngineResult | null>(null);
+  const [showLocalPlan, setShowLocalPlan] = useState(false);
+  const [isGeneratingLocal, setIsGeneratingLocal] = useState(false);
+  const [localGenError, setLocalGenError] = useState<string | null>(null);
+
+  /**
+   * Generate a plan ENTIRELY ON-DEVICE from the survey profile + local history.
+   * No is_paid gate (the engine is pure local code); no personal REST call. Wrapped
+   * defensively so any failure shows a friendly error rather than crashing.
+   */
+  const handleGenerateLocal = useCallback(async () => {
+    setIsGeneratingLocal(true);
+    setLocalGenError(null);
+    haptics.medium();
+    try {
+      const engine = loadLocalEngine();
+      if (!engine) throw new Error('engine_unavailable');
+
+      const u = (user ?? {}) as Record<string, unknown>;
+      const profile: LocalProfileInput = {
+        experience_level: (u.experience_level as string | null) ?? null,
+        sex: (u.sex as string | null) ?? null,
+        age_band: (u.age_band as string | null) ?? null,
+        weight_class_kg: (u.weight_class_kg as number | null) ?? null,
+        training_goal: (u.training_goal as string | null) ?? null,
+        sessions_per_week: (u.sessions_per_week as number | null) ?? null,
+        session_minutes: (u.session_minutes as number | null) ?? null,
+        goal_weight_kg: (u.goal_weight_kg as number | null) ?? null,
+        equipment_profile: (u.equipment_profile as string[] | null) ?? null,
+        season_phase: (u.season_phase as string | null) ?? null,
+        primary_discipline: (u.primary_discipline as string | null) ?? null,
+        id: (u.id as string | number | null) ?? null,
+      };
+
+      const ctx = await buildLocalPlanContext(profile);
+      const result = engine.generatePlan(ctx as unknown as Record<string, unknown>);
+
+      setLocalPlan(result);
+      setShowLocalPlan(true);
+      haptics.success();
+    } catch (err) {
+      haptics.error();
+      const isNoProfile = !((user as Record<string, unknown> | null)?.training_goal);
+      setLocalGenError(
+        isNoProfile
+          ? 'Set up your Training Profile first so the engine can tailor a plan.'
+          : 'Could not build a plan right now. Please try again.'
+      );
+    } finally {
+      setIsGeneratingLocal(false);
+    }
+  }, [user]);
 
   const handleActivatePlan = useCallback(
     async (plan: Plan) => {
@@ -695,107 +996,113 @@ export default function PlansScreen(): React.ReactElement {
           />
         }
       >
-        {/* ── A. Free upsell card ── */}
-        {!isPaid && <UpsellCard />}
-
-        {/* ── B. Generate CTA (paid only) ── */}
-        {isPaid && (
-          <View style={styles.generateSection}>
-            <GenerateCTA onPress={handleGeneratePress} isGenerating={isGenerating} />
-            {generateError ? (
-              <View style={[
-                styles.generateErrorBanner,
-                { backgroundColor: theme.colors.statusError + '18', borderColor: theme.colors.statusError + '60' },
-              ]}>
-                <Text style={[styles.generateErrorText, { color: theme.colors.statusError }]}>{generateError}</Text>
-                <TouchableOpacity
-                  style={styles.generateRetryButton}
-                  onPress={handleGeneratePress}
-                  accessibilityRole="button"
-                  accessibilityLabel="Try again"
-                >
-                  <Text style={[styles.generateRetryText, { color: theme.colors.statusError }]}>Try Again</Text>
-                </TouchableOpacity>
-              </View>
-            ) : null}
-          </View>
-        )}
-
-        {/* ── C. Plan list ── */}
-        {isLoading ? (
-          <View style={styles.centered}>
-            <ActivityIndicator size="large" color={theme.colors.accentDefault} />
-            <Text style={[styles.loadingText, { color: theme.colors.textTertiary }]}>Loading plans…</Text>
-          </View>
-        ) : error ? (
-          <View style={[
-            styles.errorBanner,
-            { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.statusError },
-          ]}>
-            <Text style={[styles.errorText, { color: theme.colors.statusError }]}>{error}</Text>
+        {/* ── A. Generate CTA — on-device engine, ALL tiers (local-first) ── */}
+        <View style={styles.generateSection}>
+          <GenerateCTA onPress={handleGenerateLocal} isGenerating={isGeneratingLocal} />
+          {localPlan && !showLocalPlan ? (
             <TouchableOpacity
-              style={[styles.retryButton, { backgroundColor: theme.colors.statusError }]}
-              onPress={refetch}
+              style={[
+                styles.viewLastPlanButton,
+                { borderColor: theme.colors.accentDefault },
+              ]}
+              onPress={() => setShowLocalPlan(true)}
               accessibilityRole="button"
-              accessibilityLabel="Retry loading plans"
+              accessibilityLabel="View your last generated plan"
             >
-              <Text style={[styles.retryButtonText, { color: theme.colors.textPrimary }]}>Retry</Text>
+              <Text style={[styles.viewLastPlanText, { color: theme.colors.accentDefault }]}>
+                View your latest plan
+              </Text>
             </TouchableOpacity>
-          </View>
-        ) : (
-          <>
-            {userPlans.length > 0 ? (
-              <View style={styles.section}>
-                <Text style={[styles.sectionHeader, { color: theme.colors.textTertiary }]}>YOUR PLANS</Text>
-                {userPlans.map((plan) => (
-                  <PlanCard
-                    key={plan.id}
-                    plan={plan}
-                    onPress={(p) => setSelectedPlanId(p.id)}
-                    onActivate={handleActivatePlan}
-                    isActivating={activatingPlanId === plan.id}
-                  />
-                ))}
-              </View>
-            ) : !isLoading && isPaid ? (
-              <View style={[
-                styles.emptyPlansCard,
-                { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
-              ]}>
-                <Text style={[styles.emptyPlansTitle, { color: theme.colors.textPrimary }]}>No plans yet</Text>
-                <Text style={[styles.emptyPlansSubtitle, { color: theme.colors.textTertiary }]}>
-                  Tap "Generate my plan" to create your first evidence-based training plan.
-                </Text>
-              </View>
-            ) : null}
-
-            {templates.length > 0 ? (
-              <View style={styles.section}>
-                <Text style={[styles.sectionHeader, { color: theme.colors.textTertiary }]}>TEMPLATES</Text>
-                {templates.map((plan) => (
-                  <PlanCard
-                    key={plan.id}
-                    plan={plan}
-                    onPress={(p) => setSelectedPlanId(p.id)}
-                  />
-                ))}
-              </View>
-            ) : null}
-
-            <View style={{ paddingHorizontal: spacing.s4, paddingBottom: spacing.s3 }}>
-              <PFButton
-                variant="ghost"
-                label="Browse Workout Templates"
-                onPress={() => router.push('/templates')}
-              />
+          ) : null}
+          {localGenError ? (
+            <View style={[
+              styles.generateErrorBanner,
+              { backgroundColor: theme.colors.statusError + '18', borderColor: theme.colors.statusError + '60' },
+            ]}>
+              <Text style={[styles.generateErrorText, { color: theme.colors.statusError }]}>{localGenError}</Text>
+              <TouchableOpacity
+                style={styles.generateRetryButton}
+                onPress={() => router.push('/training-survey' as never)}
+                accessibilityRole="button"
+                accessibilityLabel="Open training profile"
+              >
+                <Text style={[styles.generateRetryText, { color: theme.colors.statusError }]}>Set up</Text>
+              </TouchableOpacity>
             </View>
-          </>
-        )}
+          ) : null}
+        </View>
+
+        {/* ── B. Pro-only soft upsell (cross-device sync), shown for free tier ── */}
+        {!proSync && <UpsellCard />}
+
+        {/* ── C. Server-saved plan list (Pro only — server is the source of truth) ── */}
+        {proSync ? (
+          isLoading ? (
+            <View style={styles.centered}>
+              <ActivityIndicator size="large" color={theme.colors.accentDefault} />
+              <Text style={[styles.loadingText, { color: theme.colors.textTertiary }]}>Loading plans…</Text>
+            </View>
+          ) : error ? (
+            <View style={[
+              styles.errorBanner,
+              { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.statusError },
+            ]}>
+              <Text style={[styles.errorText, { color: theme.colors.statusError }]}>{error}</Text>
+              <TouchableOpacity
+                style={[styles.retryButton, { backgroundColor: theme.colors.statusError }]}
+                onPress={refetch}
+                accessibilityRole="button"
+                accessibilityLabel="Retry loading plans"
+              >
+                <Text style={[styles.retryButtonText, { color: theme.colors.textPrimary }]}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <>
+              {userPlans.length > 0 ? (
+                <View style={styles.section}>
+                  <Text style={[styles.sectionHeader, { color: theme.colors.textTertiary }]}>SAVED PLANS</Text>
+                  {userPlans.map((plan) => (
+                    <PlanCard
+                      key={plan.id}
+                      plan={plan}
+                      onPress={(p) => setSelectedPlanId(p.id)}
+                      onActivate={handleActivatePlan}
+                      isActivating={activatingPlanId === plan.id}
+                    />
+                  ))}
+                </View>
+              ) : null}
+
+              {templates.length > 0 ? (
+                <View style={styles.section}>
+                  <Text style={[styles.sectionHeader, { color: theme.colors.textTertiary }]}>TEMPLATES</Text>
+                  {templates.map((plan) => (
+                    <PlanCard
+                      key={plan.id}
+                      plan={plan}
+                      onPress={(p) => setSelectedPlanId(p.id)}
+                    />
+                  ))}
+                </View>
+              ) : null}
+            </>
+          )
+        ) : null}
+
+        {/* Browse the static workout templates — available to all tiers. */}
+        <View style={{ paddingHorizontal: spacing.s4, paddingBottom: spacing.s3 }}>
+          <PFButton
+            variant="ghost"
+            label="Browse Workout Templates"
+            onPress={() => router.push('/templates')}
+          />
+        </View>
 
         <View style={styles.bottomPad} />
       </ScrollView>
 
-      {/* ── D. Plan detail modal ── */}
+      {/* ── D. Server plan detail modal (Pro) ── */}
       {selectedPlanId ? (
         <PlanDetailModal
           planId={selectedPlanId}
@@ -804,6 +1111,16 @@ export default function PlansScreen(): React.ReactElement {
             setLastGenerated(null);
           }}
           onRegenerate={handleGeneratePress}
+        />
+      ) : null}
+
+      {/* ── E. Local (on-device) plan detail modal — all tiers ── */}
+      {showLocalPlan && localPlan ? (
+        <LocalPlanModal
+          plan={localPlan}
+          isRegenerating={isGeneratingLocal}
+          onClose={() => setShowLocalPlan(false)}
+          onRegenerate={handleGenerateLocal}
         />
       ) : null}
     </View>
@@ -858,6 +1175,19 @@ const styles = StyleSheet.create({
   },
 
   generateSection: { gap: 12 },
+  viewLastPlanButton: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    paddingVertical: spacing.s3,
+    paddingHorizontal: spacing.s4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  viewLastPlanText: {
+    fontSize: fontSize.bodySm,
+    fontWeight: fontWeight.semibold,
+  },
   generateButton: {
     borderRadius: radius.md,
     paddingVertical: spacing.s4,

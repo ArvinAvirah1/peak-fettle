@@ -26,14 +26,18 @@ import { localDb } from '../db/localDb';
 import {
   getHealthMetrics,
   getHealthMetricsSummary,
+  getRecentCardioSessions,
   logHealthMetric,
   DailyHealthMetric,
   HealthMetricsSummary,
+  CardioSessionMetric,
 } from '../api/healthMetrics';
 import {
   isHealthKitAvailable,
   requestHealthKitPermissions,
   fetchHealthKitData,
+  importCardioMetrics,
+  ImportedCardioMetrics,
 } from '../services/healthKit';
 
 // ---------------------------------------------------------------------------
@@ -99,6 +103,13 @@ function computeSummary(
 export interface UseHealthMetricsResult {
   metrics:              DailyHealthMetric[];
   summary:              HealthMetricsSummary | null;
+  /**
+   * Recent cardio sessions logged on-device with their rich metrics
+   * (sets.metrics_json), newest first. Read locally for ALL tiers (no REST),
+   * merged with any efforts the watch-ready adapter (importCardioMetrics)
+   * returns once the native module is re-enabled. Empty until cardio is logged.
+   */
+  cardioSessions:       CardioSessionMetric[];
   isLoading:            boolean;
   error:                string | null;
   refetch:              () => Promise<void>;
@@ -106,6 +117,27 @@ export interface UseHealthMetricsResult {
   isSyncing:            boolean;
   syncError:            string | null;
   isHealthKitAvailable: boolean;
+}
+
+/**
+ * Map an adapter-imported cardio effort (ImportedCardioMetrics, the watch/
+ * HealthKit shape) onto the on-device CardioSessionMetric display shape. Used
+ * so the screen renders imported efforts identically to locally-logged ones.
+ * While the native adapter is stubbed this is never called with data; it keeps
+ * the consumer wired so a native re-enable is a drop-in (P5).
+ */
+function importedToCardioSession(imp: ImportedCardioMetrics): CardioSessionMetric {
+  return {
+    id:                  `hk-cardio-${imp.startedAt}`,
+    exercise_id:         '',
+    exercise_name:       imp.activityType ?? 'Cardio',
+    day_key:             imp.startedAt.slice(0, 10),
+    logged_at:           imp.startedAt,
+    duration_sec:        imp.durationSec ?? null,
+    distance_m:          imp.distanceM ?? null,
+    avg_pace_sec_per_km: imp.avgPaceSecPerKm ?? null,
+    metrics:             imp.metrics ?? null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +150,7 @@ export function useHealthMetrics(): UseHealthMetricsResult {
 
   const [metrics,   setMetrics]   = useState<DailyHealthMetric[]>([]);
   const [summary,   setSummary]   = useState<HealthMetricsSummary | null>(null);
+  const [cardioSessions, setCardioSessions] = useState<CardioSessionMetric[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error,     setError]     = useState<string | null>(null);
 
@@ -159,6 +192,24 @@ export function useHealthMetrics(): UseHealthMetricsResult {
         setMetrics(fetchedMetrics);
         setSummary(fetchedSummary);
       }
+
+      // ── Recent cardio sessions (P5) — ALWAYS on-device + watch adapter ─────
+      // Local-first by construction (getRecentCardioSessions makes no REST
+      // call), so it runs for every tier. The watch-ready adapter is merged in;
+      // while stubbed it returns [], so this is a no-op beyond the local read.
+      // Both calls swallow their own errors, so a cardio read failure can never
+      // mark the whole screen errored.
+      const [localCardio, importedCardio] = await Promise.all([
+        getRecentCardioSessions(30, 50),
+        importCardioMetrics().catch(() => [] as ImportedCardioMetrics[]),
+      ]);
+      const merged = [
+        ...localCardio,
+        ...importedCardio.map(importedToCardioSession),
+      ].sort((a, b) =>
+        (b.logged_at || b.day_key).localeCompare(a.logged_at || a.day_key),
+      );
+      setCardioSessions(merged);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : 'Failed to load health metrics'
@@ -249,6 +300,7 @@ export function useHealthMetrics(): UseHealthMetricsResult {
   return {
     metrics,
     summary,
+    cardioSessions,
     isLoading,
     error,
     refetch: load,

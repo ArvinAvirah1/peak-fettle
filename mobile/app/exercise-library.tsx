@@ -58,6 +58,8 @@ import { PFButton } from '../src/components/ui/PFButton';
 import { PressableCard } from '../src/components/ui/PressableCard';
 import { apiClient } from '../src/api/client';
 import { getExerciseGoal, setExerciseGoal, clearExerciseGoal, ExerciseGoal } from '../src/data/exerciseGoals'; // WIDGET-002
+import { MuscleMap } from '../src/components/MuscleMap';
+import { muscleGroupsForExercise } from '../src/data/muscleRegions';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -699,6 +701,30 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
           contentContainerStyle={{ padding: spacing.s4, paddingBottom: spacing.s8 }}
           showsVerticalScrollIndicator={false}
         >
+          {/* Muscle map — shows front+back with highlighted regions */}
+          {(() => {
+            const muscleGroups = muscleGroupsForExercise(exercise.name, exercise.muscle_groups);
+            return muscleGroups.length > 0 ? (
+              <View
+                style={{
+                  alignItems: 'center',
+                  marginBottom: spacing.s4,
+                  paddingVertical: spacing.s3,
+                  backgroundColor: colors.bgSecondary,
+                  borderRadius: radius.md,
+                  borderWidth: 1,
+                  borderColor: colors.borderDefault,
+                }}
+              >
+                <MuscleMap
+                  groups={muscleGroups}
+                  size={100}
+                  view="both"
+                />
+              </View>
+            ) : null;
+          })()}
+
           {/* Description */}
           {exercise.description ? (
             <View style={{ marginBottom: spacing.s5 }}>

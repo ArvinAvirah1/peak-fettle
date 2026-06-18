@@ -31,8 +31,9 @@ export function roundTo2_5(kg: number): number {
 }
 
 function parseTargetReps(repsStr: string | number): number {
-  const match = String(repsStr).match(/(\d+)/);
-  return match ? parseInt(match[1], 10) : 8;
+  const match = String(repsStr ?? '').match(/(\d+)/);
+  const parsed = match && match[1] != null ? parseInt(match[1], 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 8;
 }
 
 function isLowerBody(pattern: string): boolean {

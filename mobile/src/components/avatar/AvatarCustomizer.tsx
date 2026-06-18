@@ -1,9 +1,15 @@
 /**
- * AvatarCustomizer — TICKET-096 Phase 2.
+ * AvatarCustomizer — TICKET-096 Phase 2 + cosmetic-unlock expansion (P3b).
  *
  * Live preview + per-category pickers + Randomize + Save. Shape categories show a
  * mini PeakAvatar per option (so you see the result); color categories show
  * swatches. Saving persists the CONFIG locally (avatar table) — never an image.
+ *
+ * UNLOCK GATING: every option is checked against cosmeticUnlocks.isUnlocked using
+ * the live { streak, isPaid } context. Locked options render a lock badge + the
+ * unlock requirement (e.g. "30-day streak" / "Pro") and CANNOT be equipped —
+ * tapping one shows the requirement instead of selecting it. streak comes from
+ * useLocalStreak (on-device for free users) and isPaid from the auth user.
  */
 
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
@@ -15,17 +21,22 @@ import {
   TouchableOpacity,
   Pressable,
   StyleSheet,
+  Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '../Icon';
 import { useTheme } from '../../theme/ThemeContext';
 import { fontSize, spacing, radius } from '../../theme/tokens';
+import { useAuth } from '../../hooks/useAuth';
+import { useLocalStreak } from '../../hooks/useStreak';
+import { isUnlocked, unlockLabel } from '../../data/cosmeticUnlocks';
 import PeakAvatar from './PeakAvatar';
 import {
   AvatarConfig,
   AVATAR_CATEGORIES,
   AvatarCategory,
   DEFAULT_AVATAR,
+  COSMETIC_TIERS,
   normalizeAvatar,
   randomizeAvatar,
 } from './peakAvatarOptions';
@@ -41,10 +52,33 @@ function prettify(id: string): string {
   return id.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase());
 }
 
+/**
+ * Resolve the COSMETIC_TIERS key for an option in a given category.
+ *
+ * Wristband streak unlocks are keyed with a `_wristband` suffix in COSMETIC_TIERS
+ * (teal_wristband / gold_wristband / neon_wristband) so they don't collide with
+ * the same-named hair-color / accent ids. For the wristbands category we look the
+ * id up under that suffixed key; every other category uses the plain id.
+ */
+function tierKeyFor(catKey: AvatarCategory['key'], id: string): string {
+  if (catKey === 'wristbands' && (id === 'teal' || id === 'gold' || id === 'neon')) {
+    return `${id}_wristband`;
+  }
+  return id;
+}
+
 export default function AvatarCustomizer({ visible, initial, onClose, onSaved }: Props): React.ReactElement {
   const { theme, fontWeight } = useTheme();
   const c = theme.colors;
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+
+  // Live unlock context. useLocalStreak reads on-device workouts for free users
+  // (timeout-guarded, never hangs); Pro users unlock via isPaid regardless, so
+  // the streak args here are inert pass-throughs (0/false).
+  const { streak } = useLocalStreak(0, false);
+  const isPaid = !!user?.is_paid;
+  const unlockCtx = useMemo(() => ({ streak, isPaid }), [streak, isPaid]);
 
   const [draft, setDraft] = useState<AvatarConfig>(() => normalizeAvatar(initial ?? DEFAULT_AVATAR));
   const [catKey, setCatKey] = useState<AvatarCategory['key']>('background');
@@ -62,9 +96,38 @@ export default function AvatarCustomizer({ visible, initial, onClose, onSaved }:
     setDraft((d) => ({ ...d, [catKey]: id } as AvatarConfig));
   }, [catKey]);
 
+  /**
+   * Select an option only if it is unlocked. A locked option never changes the
+   * draft; instead we surface the unlock requirement so the user knows how to
+   * earn it.
+   */
+  const selectOption = useCallback((id: string, unlocked: boolean, label: string) => {
+    if (unlocked) {
+      setField(id);
+      return;
+    }
+    const how = label === 'Pro'
+      ? 'Unlock it with Peak Fettle Pro.'
+      : `Unlock it by reaching a ${label}.`;
+    Alert.alert(`${prettify(id)} is locked`, how);
+  }, [setField]);
+
   const onSave = useCallback(() => {
-    onSaved(normalizeAvatar(draft));
-  }, [draft, onSaved]);
+    // Defensive: never persist a locked option even if one slipped into the draft
+    // (e.g. a previously-equipped item whose streak later lapsed). Fall back to the
+    // category default for any now-locked field so the saved config is always legal.
+    const safe = { ...draft };
+    const safeRec = safe as unknown as Record<string, unknown>;
+    const defaults = DEFAULT_AVATAR as unknown as Record<string, unknown>;
+    for (const category of AVATAR_CATEGORIES) {
+      const val = safeRec[category.key];
+      if (typeof val !== 'string') continue;
+      if (!isUnlocked(tierKeyFor(category.key, val), unlockCtx)) {
+        safeRec[category.key] = defaults[category.key] ?? category.ids[0];
+      }
+    }
+    onSaved(normalizeAvatar(safe));
+  }, [draft, onSaved, unlockCtx]);
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
@@ -130,35 +193,87 @@ export default function AvatarCustomizer({ visible, initial, onClose, onSaved }:
         <ScrollView contentContainerStyle={styles.grid}>
           {cat.ids.map((id) => {
             const selected = draft[cat.key] === id;
+            const tierKey = tierKeyFor(cat.key, id);
+            const unlocked = isUnlocked(tierKey, unlockCtx);
+            const label = unlockLabel(tierKey);
+            const isProLock = label === 'Pro';
+
+            // Lock badge — Pro uses the warning/gold token, streak uses accent;
+            // both theme-adaptive. Sits over the swatch/mini-avatar.
+            const lockBadge = !unlocked ? (
+              <View style={[styles.lockBadge, { backgroundColor: c.bgElevated, borderColor: c.borderDefault }]}>
+                <Ionicons
+                  name="lock-closed"
+                  size={11}
+                  color={isProLock ? c.statusWarning : c.accentDefault}
+                />
+              </View>
+            ) : null;
+
+            const lockCaption = !unlocked ? (
+              <Text
+                style={[styles.lockLabel, { color: isProLock ? c.statusWarning : c.accentDefault }]}
+                numberOfLines={1}
+              >
+                {label}
+              </Text>
+            ) : null;
+
             if (cat.kind === 'color') {
               const hex = cat.colors?.[id] ?? '#ccc';
               return (
                 <Pressable
                   key={id}
-                  onPress={() => setField(id)}
-                  style={[styles.swatchCell]}
+                  onPress={() => selectOption(id, unlocked, label)}
+                  style={styles.swatchCell}
                   accessibilityRole="button"
-                  accessibilityLabel={`${cat.label}: ${prettify(id)}`}
-                  accessibilityState={{ selected }}
+                  accessibilityLabel={
+                    unlocked
+                      ? `${cat.label}: ${prettify(id)}`
+                      : `${cat.label}: ${prettify(id)}, locked, ${label}`
+                  }
+                  accessibilityState={{ selected, disabled: !unlocked }}
                 >
-                  <View style={[styles.colorSwatch, { backgroundColor: hex, borderColor: selected ? c.accentDefault : c.borderDefault, borderWidth: selected ? 3 : 1 }]} />
-                  <Text style={[styles.optLabel, { color: c.textTertiary }]} numberOfLines={1}>{prettify(id)}</Text>
+                  <View>
+                    <View style={[
+                      styles.colorSwatch,
+                      { backgroundColor: hex, borderColor: selected ? c.accentDefault : c.borderDefault, borderWidth: selected ? 3 : 1 },
+                      !unlocked && styles.lockedVisual,
+                    ]} />
+                    {lockBadge}
+                  </View>
+                  {lockCaption ?? (
+                    <Text style={[styles.optLabel, { color: c.textTertiary }]} numberOfLines={1}>{prettify(id)}</Text>
+                  )}
                 </Pressable>
               );
             }
             return (
               <Pressable
                 key={id}
-                onPress={() => setField(id)}
-                style={[styles.swatchCell]}
+                onPress={() => selectOption(id, unlocked, label)}
+                style={styles.swatchCell}
                 accessibilityRole="button"
-                accessibilityLabel={`${cat.label}: ${prettify(id)}`}
-                accessibilityState={{ selected }}
+                accessibilityLabel={
+                  unlocked
+                    ? `${cat.label}: ${prettify(id)}`
+                    : `${cat.label}: ${prettify(id)}, locked, ${label}`
+                }
+                accessibilityState={{ selected, disabled: !unlocked }}
               >
-                <View style={[styles.miniWrap, { borderColor: selected ? c.accentDefault : c.borderDefault, borderWidth: selected ? 3 : 1, backgroundColor: c.bgSecondary }]}>
-                  <PeakAvatar config={{ ...draft, [cat.key]: id } as AvatarConfig} size={56} />
+                <View>
+                  <View style={[
+                    styles.miniWrap,
+                    { borderColor: selected ? c.accentDefault : c.borderDefault, borderWidth: selected ? 3 : 1, backgroundColor: c.bgSecondary },
+                    !unlocked && styles.lockedVisual,
+                  ]}>
+                    <PeakAvatar config={{ ...draft, [cat.key]: id } as AvatarConfig} size={56} />
+                  </View>
+                  {lockBadge}
                 </View>
-                <Text style={[styles.optLabel, { color: c.textTertiary }]} numberOfLines={1}>{prettify(id)}</Text>
+                {lockCaption ?? (
+                  <Text style={[styles.optLabel, { color: c.textTertiary }]} numberOfLines={1}>{prettify(id)}</Text>
+                )}
               </Pressable>
             );
           })}
@@ -188,4 +303,18 @@ const styles = StyleSheet.create({
   colorSwatch: { width: 56, height: 56, borderRadius: 28 },
   miniWrap: { width: 64, height: 64, borderRadius: 14, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   optLabel: { fontSize: 11, textAlign: 'center', width: 72 },
+  // Locked-state visuals
+  lockedVisual: { opacity: 0.4 },
+  lockBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lockLabel: { fontSize: 10, textAlign: 'center', width: 72, fontWeight: '600' },
 });

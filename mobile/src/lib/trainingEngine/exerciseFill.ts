@@ -77,10 +77,14 @@ function mulberry32(seed: number): () => number {
 
 export function seededShuffle<T>(arr: T[], seed: number): T[] {
   const rng = mulberry32(seed);
-  const result = [...arr];
+  const result = [...(arr || [])];
   for (let i = result.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
-    [result[i], result[j]] = [result[j], result[i]];
+    // Indices i and j are always in-range here; the temp swap (instead of a
+    // destructuring swap) keeps tsc happy under noUncheckedIndexedAccess.
+    const tmp = result[i] as T;
+    result[i] = result[j] as T;
+    result[j] = tmp;
   }
   return result;
 }
@@ -155,8 +159,9 @@ export function exerciseFill(
 
     const filledSlots = (session.slots || [])
       .map((slot: ExerciseSlot): FilledSlot | null => {
+        if (!slot) return null;
         const patternMatch = shuffled.filter(
-          (ex) => ex.movement_pattern === slot.pattern
+          (ex) => ex && ex.movement_pattern === slot.pattern
         );
 
         const equipMatch = patternMatch.filter((ex) =>
@@ -200,7 +205,8 @@ export function exerciseFill(
           }
         }
 
-        if (pool.length === 0) {
+        const chosen = pool[0];
+        if (!chosen) {
           ruleTrace.push(
             `Slot dropped: no viable exercise for pattern "${slot.pattern}" in "${session.archetype}" ` +
               `after constraint/equipment filtering.`
@@ -208,7 +214,6 @@ export function exerciseFill(
           return null;
         }
 
-        const chosen = pool[0];
         usedInSession.add(chosen.id);
 
         const stickyNote =

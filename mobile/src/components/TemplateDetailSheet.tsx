@@ -26,6 +26,8 @@ import {
 } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius, fontSize, fontWeight } from '../theme/tokens';
+import { MuscleMap } from './MuscleMap';
+import { muscleGroupsForRoutine } from '../data/muscleRegions';
 
 export interface SheetExercise {
   /** Display name — may be a template exercise_name or a resolved exercise name */
@@ -58,6 +60,8 @@ export function TemplateDetailSheet({
   startLabel = 'Start Workout',
 }: TemplateDetailSheetProps): React.ReactElement {
   const { theme } = useTheme();
+  // Compute aggregated muscle groups for the whole routine
+  const routineMuscleGroups = muscleGroupsForRoutine(exercises);
 
   return (
     <Modal
@@ -80,8 +84,8 @@ export function TemplateDetailSheet({
           styles.sheet,
           {
             backgroundColor: theme.colors.bgPrimary,
-            borderTopLeftRadius: radius.xl,
-            borderTopRightRadius: radius.xl,
+            borderTopLeftRadius: radius.lg,
+            borderTopRightRadius: radius.lg,
           },
         ]}
       >
@@ -113,6 +117,24 @@ export function TemplateDetailSheet({
           >
             {description}
           </Text>
+        ) : null}
+
+        {/* Routine muscle map — aggregated front+back view */}
+        {routineMuscleGroups.length > 0 ? (
+          <View
+            style={[
+              styles.muscleMapContainer,
+              {
+                borderBottomColor: theme.colors.borderDefault,
+              },
+            ]}
+          >
+            <MuscleMap
+              groups={routineMuscleGroups}
+              size={80}
+              view="both"
+            />
+          </View>
         ) : null}
 
         {/* Exercise list */}
@@ -243,6 +265,11 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     marginTop: spacing.s3,
     marginBottom: spacing.s2,
+  },
+  muscleMapContainer: {
+    alignItems: 'center',
+    paddingVertical: spacing.s3,
+    borderBottomWidth: 1,
   },
   header: {
     flexDirection: 'row',

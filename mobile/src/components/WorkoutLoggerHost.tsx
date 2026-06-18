@@ -55,8 +55,11 @@ import { haptics } from '../utils/haptics';
 import { formatWeight, kgToLbs, roundToNearestQuarterLb, displayToKg, parseWeightInput } from '../constants/units';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getRoutine } from '../data/routines';
+import { getRestTimerDefaultSec } from '../data/appSettings'; // P1b — device-local rest default
+import { updateLiftSet } from '../data/setEditing'; // P1c — in-place edit of a past set
 import { markRoutineCompleted } from '../data/schedule'; // TICKET-097
 import { checkGoalAchieved } from '../data/exerciseGoals'; // WIDGET-002
+import { setSetMetrics, CardioMetrics } from '../data/cardioMetrics'; // P5 — rich cardio metrics
 import { createWorkout } from '../api/workouts';
 import { toDateKey } from '../utils/dateHelpers';
 import { getExercises } from '../api/exercises';
@@ -130,12 +133,57 @@ const pwStyles = StyleSheet.create({
 // Public ref API
 // ---------------------------------------------------------------------------
 
+/**
+ * P1c — one already-logged set from a PAST session, as handed to the stepper for
+ * editing. `weightDisplay`/`reps` are strings in the user's DISPLAY unit (the
+ * stepper shows + edits these verbatim; the host converts back to exact kg on
+ * save). `id`/`workoutId`/`setIndex` identify the real row so the correction
+ * UPDATEs it in place (via setEditing.updateLiftSet) rather than inserting a new
+ * set. Cardio sets are passed through read-only (the stepper can't edit them).
+ */
+export interface HistoryEditSet {
+  id: string;
+  workoutId: string;
+  setIndex: number;
+  weightDisplay: string;
+  reps: string;
+  rir?: string;
+  /** Cardio passthrough so the chip renders; these sets are not stepper-editable. */
+  durationSec?: number;
+  distanceM?: number;
+  avgPaceSecPerKm?: number;
+}
+
+export interface HistoryEditExercise {
+  exerciseId: string;
+  name: string;
+  category?: RoutineSessionExercise['category'];
+  sets: HistoryEditSet[];
+}
+
+export interface HistoryEditArgs {
+  /** Session label shown in the stepper header (e.g. a friendly date). */
+  name: string;
+  exercises: HistoryEditExercise[];
+  /** Index of the exercise to open on first (defaults to the one the user tapped). */
+  startIndex?: number;
+  /** Fired after any in-place edit or delete so the day screen can re-read SQLite. */
+  onChange?: () => void;
+}
+
 export interface WorkoutLoggerRef {
   startWorkout: () => void;
   startRoutine: (routineId: string, routineName: string) => void;
   startWithExercise: (exerciseId: string, exerciseName: string) => void;
   startSession: (session: RoutineSession) => void;
   reopenToday: () => void;
+  /**
+   * P1c — open the stepper seeded from a PAST session's exercises and their
+   * already-logged sets, in edit mode. Tapping a set chip pulls it into the
+   * inputs; saving routes through setEditing.updateLiftSet (tier-branched,
+   * local-first) to UPDATE the existing row. No new set is created.
+   */
+  startHistoryEdit: (args: HistoryEditArgs) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -186,18 +234,36 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
     const [routineSession, setRoutineSession] = useState<RoutineSession | null>(null);
     const [stepperSets, setStepperSets] = useState<Map<string, LoggedSet[]>>(new Map());
 
+    // ── P1c history-edit mode ─────────────────────────────────────────────────
+    // When editing a PAST session, the stepper is seeded from that workout's
+    // logged sets and every correction UPDATEs the real row in place (NOT today's
+    // workout, which is all usePowerSyncLog/handleStepperUpdateSet know about).
+    // `historyMode` flips onLogSet/onUpdateSet to the history handlers; the row
+    // map resolves (exerciseId, setIndex) → the actual set id + owning workout.
+    const [historyMode, setHistoryMode] = useState(false);
+    // Keyed by `${exerciseId}#${chipArrayIndex}` because the stepper's edit
+    // identity (editingIndex) is the chip's POSITION in currentExerciseSets, not
+    // the DB set_index. Value carries the real row id + owning workout + the
+    // actual DB set_index (needed by the Pro re-log path inside updateLiftSet).
+    const historyRowMapRef = useRef<Map<string, { id: string; workoutId: string; setIndex: number }>>(new Map());
+    const historyChangeRef = useRef<(() => void) | undefined>(undefined);
+    const historyRowKey = (exerciseId: string, chipIndex: number) => `${exerciseId}#${chipIndex}`;
+
     // Timer
     const [timerActive, setTimerActive] = useState(false);
     const [elapsedSeconds, setElapsedSeconds] = useState(0);
     const [restSecondsLeft, setRestSecondsLeft] = useState<number | null>(null);
     const [restDefault, setRestDefault] = useState(REST_DEFAULT);
+    // P1b: seed the rest default from the device-local app_settings store
+    // (getRestTimerDefaultSec, built in Foundation — no REST, safe on mount,
+    // fallback 120). The in-session +/- adjust (cycleRestDefault) still works and
+    // keeps the legacy AsyncStorage preset memory in sync as a secondary mirror.
     useEffect(() => {
-      AsyncStorage.getItem(REST_PREF_KEY)
-        .then((raw) => {
-          const v = raw ? parseInt(raw, 10) : NaN;
-          if (REST_PRESETS.includes(v)) setRestDefault(v);
-        })
+      let cancelled = false;
+      getRestTimerDefaultSec()
+        .then((sec) => { if (!cancelled) setRestDefault(sec); })
         .catch(() => {});
+      return () => { cancelled = true; };
     }, []);
     const cycleRestDefault = useCallback(() => {
       setRestDefault((cur) => {
@@ -352,6 +418,10 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
     }, [stepperSets, routineSession, user?.is_paid, recomputeSuggestion]);
 
     useEffect(() => {
+      // Local-first (CLAUDE.md #1): PB enrichment is a Pro-only personal REST call.
+      // Free users must never reach getPersonalBests — the free-session "Add next
+      // exercise" path recomputes suggestions without an is_paid gate, so guard here.
+      if (!user?.is_paid) { setSugPbMap({}); return; }
       const ids = smartSuggestions.map((s) => s.exerciseId).filter(Boolean);
       if (ids.length === 0) { setSugPbMap({}); return; }
       let cancelled = false;
@@ -367,7 +437,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
         .catch(() => {});
       return () => { cancelled = true; };
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [smartSuggestions]);
+    }, [smartSuggestions, user?.is_paid]);
 
     // ── Imperative API ────────────────────────────────────────────────────────
 
@@ -462,6 +532,63 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           exercises,
           currentIndex: exercises.length - 1,
         });
+      },
+
+      startHistoryEdit(args: HistoryEditArgs) {
+        // Build the stepper session + pre-seed its set chips from the PAST
+        // workout's logged sets, and remember which real row each chip maps to.
+        const rowMap = new Map<string, { id: string; workoutId: string; setIndex: number }>();
+        const seededSets = new Map<string, LoggedSet[]>();
+        const exercises: RoutineSessionExercise[] = args.exercises.map((ex) => {
+          const logged: LoggedSet[] = ex.sets.map((s, chipIndex) => {
+            // Map the chip POSITION (what the stepper reports as editingIndex) to
+            // the real row; keep the DB set_index for the in-place UPDATE.
+            rowMap.set(historyRowKey(ex.exerciseId, chipIndex), {
+              id: s.id,
+              workoutId: s.workoutId,
+              setIndex: s.setIndex,
+            });
+            if (s.durationSec != null) {
+              return {
+                weight: '',
+                reps: '',
+                durationSec: s.durationSec,
+                distanceM: s.distanceM,
+                avgPaceSecPerKm: s.avgPaceSecPerKm,
+              };
+            }
+            return { weight: s.weightDisplay, reps: s.reps, rir: s.rir };
+          });
+          seededSets.set(ex.exerciseId, logged);
+          return {
+            exerciseId: ex.exerciseId,
+            name: ex.name,
+            loggedSetCount: logged.length,
+            done: logged.length > 0,
+            category: ex.category,
+          };
+        });
+        if (exercises.length === 0) return;
+
+        // Resolve names on-device so chips/headers never show a UUID.
+        void rememberExerciseNames(
+          args.exercises.map((ex) => ({ exerciseId: ex.exerciseId, name: ex.name })),
+        );
+
+        historyRowMapRef.current = rowMap;
+        historyChangeRef.current = args.onChange;
+        setHistoryMode(true);
+        setRoutineSession({
+          // 'routine' source → routine-style footer (Continue / Select different
+          // exercise); the free/smart "add next exercise / suggestions" paths are
+          // suppressed in history mode (we only correct existing sets).
+          source: 'routine',
+          name: args.name,
+          exercises,
+          currentIndex: Math.max(0, Math.min(args.startIndex ?? 0, exercises.length - 1)),
+        });
+        setStepperSets(seededSets);
+        setStepperVisible(true);
       },
     }));
 
@@ -695,8 +822,57 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
       [workout, selectedExercise, sets, deleteSet, logSet, unitPref],
     );
 
+    // P1c — edit a set from a PAST session. Unlike handleStepperUpdateSet (which
+    // only knows today's workout/sets), this UPDATEs the exact historical row in
+    // place via setEditing.updateLiftSet (tier-branched, local-first), then asks
+    // the day screen to re-read. No row is deleted/re-inserted, so set_index and
+    // identity are preserved.
+    const handleHistoryUpdateSet = useCallback(
+      // `chipIndex` is the stepper's editingIndex (position in currentExerciseSets).
+      async (exerciseId: string, chipIndex: number, weight: string, reps: string, rir?: string) => {
+        // 1) Optimistic chip mirror.
+        setStepperSets((prev) => {
+          const next = new Map(prev);
+          const existing = [...(next.get(exerciseId) ?? [])];
+          if (existing[chipIndex]) {
+            existing[chipIndex] = { ...existing[chipIndex], weight, reps, rir };
+            next.set(exerciseId, existing);
+          }
+          return next;
+        });
+        // 2) Resolve the real row and UPDATE it in place (real DB set_index).
+        const row = historyRowMapRef.current.get(historyRowKey(exerciseId, chipIndex));
+        if (!row) return;
+        const rirNum = rir != null && rir.trim() !== '' ? parseInt(rir, 10) : undefined;
+        try {
+          await updateLiftSet(user, {
+            id: row.id,
+            workoutId: row.workoutId,
+            exerciseId,
+            setIndex: row.setIndex,
+            // Convert DISPLAY → exact kg (same invariant as the log/edit paths —
+            // a user on lbs re-saving 185 must store 83.9 kg, never 185 kg).
+            weightKg: displayToKg(parseWeightInput(weight) ?? 0, unitPref),
+            reps: parseInt(reps, 10) || 0,
+            ...(rirNum !== undefined && !Number.isNaN(rirNum) ? { rir: rirNum } : {}),
+          });
+          haptics.success();
+          historyChangeRef.current?.();
+        } catch (err) {
+          console.warn('[PF] WorkoutLoggerHost/handleHistoryUpdateSet:', err instanceof Error ? err.message : String(err));
+        }
+      },
+      [user, unitPref],
+    );
+
     const handleStepperLogCardioSet = useCallback(
-      async (exerciseId: string, durationSec: number, distanceM?: number, avgPaceSecPerKm?: number) => {
+      async (
+        exerciseId: string,
+        durationSec: number,
+        distanceM?: number,
+        avgPaceSecPerKm?: number,
+        metrics?: CardioMetrics,
+      ) => {
         const setIndex = stepperSets.get(exerciseId)?.length ?? 0;
         setStepperSets((prev) => {
           const next = new Map(prev);
@@ -708,7 +884,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
         const targetId = exerciseId || selectedExercise?.id || '';
         if (!workout?.id || !targetId) return;
         try {
-          await logSet({
+          const logged = await logSet({
             kind: 'cardio',
             workoutId: workout.id,
             exerciseId: targetId,
@@ -717,6 +893,13 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
             ...(distanceM !== undefined ? { distanceM } : {}),
             ...(avgPaceSecPerKm !== undefined ? { avgPaceSecPerKm } : {}),
           });
+          // P5: persist the OPTIONAL rich metrics (avg/max HR, calories, cadence,
+          // elevation, RPE, splits) onto the just-logged set row, keyed by its
+          // id. On-device for ALL tiers (no REST), best-effort — a metrics write
+          // failure never fails the set log. Skipped entirely when undefined.
+          if (metrics && logged?.id) {
+            void setSetMetrics(logged.id, metrics);
+          }
           haptics.success();
           setTimerActive(true);
           setRestSecondsLeft(restDefault);
@@ -980,16 +1163,22 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           {routineSession && (
             <StepperLogger
               routineSession={routineSession}
-              onLogSet={handleStepperLogSet}
-              onUpdateSet={handleStepperUpdateSet}
-              onLogCardioSet={handleStepperLogCardioSet}
+              // P1c: in history-edit mode the only write path is the chip-tap →
+              // "Save set" correction, routed to the in-place UPDATE. We never
+              // append to a past workout through the today-keyed logSet, so
+              // onLogSet is a safe no-op here (the stepper already ignores an
+              // empty-input press); onUpdateSet hits the historical row.
+              onLogSet={historyMode ? (() => {}) : handleStepperLogSet}
+              onUpdateSet={historyMode ? handleHistoryUpdateSet : handleStepperUpdateSet}
+              onLogCardioSet={historyMode ? undefined : handleStepperLogCardioSet}
               onAdvance={handleStepperAdvance}
               onFinish={() => {
                 // TICKET-097: completion-based cycle advance (in-loop routines only).
                 const finishedRoutineId =
-                  routineSession?.source === 'routine' ? routineSession.routineId : undefined;
+                  !historyMode && routineSession?.source === 'routine' ? routineSession.routineId : undefined;
                 setStepperVisible(false);
                 setRoutineSession(null);
+                if (historyMode) { setHistoryMode(false); historyChangeRef.current?.(); }
                 if (finishedRoutineId) markRoutineCompleted(finishedRoutineId).catch(() => {});
               }}
               onBrowseLibrary={() => {
@@ -997,7 +1186,9 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
                 setPickerVisible(true);
               }}
               variant={
-                routineSession?.source === 'routine'
+                historyMode
+                  ? 'routine'
+                  : routineSession?.source === 'routine'
                   ? 'routine'
                   : routineSession?.source === 'free' && user?.is_paid
                     ? 'smart'
@@ -1039,12 +1230,21 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
               currentExerciseSets={
                 stepperSets.get(routineSession.exercises[routineSession.currentIndex]?.exerciseId ?? '') ?? []
               }
-              onAddOffRoutineExercise={handleStepperAddOffRoutine}
-              onClose={() => setStepperVisible(false)}
+              onAddOffRoutineExercise={historyMode ? undefined : handleStepperAddOffRoutine}
+              onClose={() => {
+                setStepperVisible(false);
+                if (historyMode) { setHistoryMode(false); historyChangeRef.current?.(); }
+              }}
               unitPref={unitPref}
-              weekNumber={routineSession.weekNumber ?? null}
+              weekNumber={historyMode ? null : (routineSession.weekNumber ?? null)}
               restSeconds={restDefault}
-              onChooseAlternative={user?.is_paid ? handleChooseAlternative : (() => setShowPaywall(true))}
+              // No "choose alternative" / suggestions when correcting a past
+              // session — those mutate the live routine, not history.
+              onChooseAlternative={
+                historyMode
+                  ? undefined
+                  : user?.is_paid ? handleChooseAlternative : (() => setShowPaywall(true))
+              }
             />
           )}
         </Modal>

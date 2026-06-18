@@ -62,6 +62,8 @@ import axios from 'axios';
 import { setAuthHandlers } from '../api/client';
 import { setAccessToken as setPowerSyncToken } from '../db/connector';
 import * as AuthApi from '../api/auth';
+import { upgradeToProRequest, downgradeToFreeRequest } from '../api/billing';
+import { migrateLocalDataToServer, MigrationOutcome } from '../data/migrateToPro';
 import { User } from '../types/api';
 import {
   registerForPushNotificationsAsync,
@@ -152,6 +154,32 @@ export interface AuthContextValue {
    * without requiring a full re-fetch.
    */
   updateUser: (patch: Partial<User>) => void;
+  /**
+   * Phase 6 — upgrade the current user to Pro.
+   *
+   * SAFE-ORDERING (load-bearing): uploads the user's on-device SQLite data to
+   * the server FIRST (while still tier='free'), then flips the server tier to
+   * 'paid', then reflects Pro in-session, then (re)starts PowerSync sync. The
+   * `is_paid` flip happens LAST so a mid-upload crash leaves the user safely
+   * still-free and the upload (idempotent + resumable via the migration_state
+   * ledger) just continues on the next attempt — never duplicating rows.
+   *
+   * @param onProgress optional (done, total) callback fired as each row/phase of
+   *                   the upload completes, for a determinate progress UI.
+   * @returns the migration tally (uploaded / skipped / failed + error lines).
+   * @throws on a transient upload failure (network/5xx) — the UI can offer a
+   *         "tap to resume" that re-calls this (the ledger skips finished rows).
+   */
+  upgradeToPro: (onProgress?: (done: number, total: number) => void) => Promise<MigrationOutcome>;
+  /**
+   * Phase 6 — downgrade the current user to Free.
+   *
+   * Flips the server tier to 'free' (server data is KEPT, never deleted), then
+   * reflects Free in-session, then pauses PowerSync. The app reverts to
+   * local-first: free mode never reads/writes the server, and the local SQLite
+   * still holds everything so it works offline immediately (no download needed).
+   */
+  downgradeToFree: () => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -534,6 +562,84 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
   }, [persistUser]);
 
   // ---------------------------------------------------------------------------
+  // upgradeToPro() — Phase 6 Free→Pro transition (ORDER is load-bearing)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Free→Pro upgrade. The step order is the whole point — `is_paid` flips LAST
+   * so a mid-upload crash is recoverable as still-free (see AuthContextValue
+   * docs and the Phase-6 design). Idempotent + resumable: the uploader skips
+   * everything already in the migration_state ledger, and POST /user/upgrade is
+   * a no-op on an already-paid user.
+   */
+  const upgradeToPro = useCallback(
+    async (
+      onProgress?: (done: number, total: number) => void,
+    ): Promise<MigrationOutcome> => {
+      if (!user) throw new Error('upgradeToPro: no authenticated user');
+
+      // Fast path: already Pro (e.g. a double-tap, or a prior run flipped the
+      // server tier but the app died before the in-session flip). Don't re-run
+      // the uploader — just make sure sync is (re)authorised and return an empty
+      // tally. The upload is safe to re-run, but skipping it avoids needless work.
+      if (user.is_paid) {
+        setPowerSyncToken(accessTokenRef.current);
+        return { uploaded: 0, skipped: 0, failed: 0, errors: [] };
+      }
+
+      // 1. Upload on-device data FIRST, while the server is still tier='free'.
+      //    Resumable + idempotent; throws on a transient (network/5xx) failure so
+      //    the caller can offer "tap to resume". This is the ONE sanctioned REST
+      //    burst for a former-free user — it runs during an explicit upgrade, not
+      //    on a free mount, so the local-first invariant holds.
+      const result = await migrateLocalDataToServer(onProgress);
+
+      // 2. ONLY after a fully successful upload, flip the server tier to 'paid'.
+      //    Idempotent on the server. Returns the updated User (with derived
+      //    is_paid === true, tier === 'paid').
+      const updated = await upgradeToProRequest();
+
+      // 3. Reflect Pro in-session and persist (this is the is_paid=true flip the
+      //    app actually sees). Spread the explicit derived fields so the local
+      //    state is correct even if the server response shape ever drifts.
+      updateUser({ ...updated, is_paid: true, tier: 'paid' });
+
+      // 4. Start sync LAST. The connector token is already current (set on every
+      //    auth event), but nudge PowerSync so it (re)authorises and begins
+      //    syncing the just-uploaded data now. Safe no-op if unchanged.
+      setPowerSyncToken(accessTokenRef.current);
+
+      return result;
+    },
+    [user, updateUser],
+  );
+
+  // ---------------------------------------------------------------------------
+  // downgradeToFree() — Phase 6 Pro→Free (server data KEPT, never deleted)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Pro→Free downgrade. Flip the server first (authoritative), then the client
+   * `is_paid=false` (so the app stops Pro reads), then pause PowerSync. Server
+   * rows are retained but never read in free mode; the local SQLite remains the
+   * free-tier source of truth, so no download step is needed.
+   */
+  const downgradeToFree = useCallback(async (): Promise<void> => {
+    if (!user) throw new Error('downgradeToFree: no authenticated user');
+
+    // 1. Flip the server tier to 'free' (KEEPS all server rows). Idempotent.
+    const updated = await downgradeToFreeRequest();
+
+    // 2. Reflect Free in-session + persist so the app stops issuing Pro reads.
+    updateUser({ ...updated, is_paid: false, tier: 'free' });
+
+    // 3. Pause PowerSync — free mode is local-first and never reads the server.
+    //    Do NOT clear localDb: it still holds everything, so free mode works
+    //    offline immediately.
+    setPowerSyncToken(null);
+  }, [user, updateUser]);
+
+  // ---------------------------------------------------------------------------
   // Context value
   // ---------------------------------------------------------------------------
 
@@ -551,6 +657,8 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
     loginWithOAuth,
     logout,
     updateUser,
+    upgradeToPro,
+    downgradeToFree,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

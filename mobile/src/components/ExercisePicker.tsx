@@ -33,6 +33,8 @@ import { useTheme } from '../theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
 import { useAuth } from '../hooks/useAuth';
 import { isLocalFirst } from '../data/backup/tierPolicy';
+import { MuscleMap } from './MuscleMap';
+import { muscleGroupsForExercise } from '../data/muscleRegions';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -210,6 +212,7 @@ export function ExercisePicker({
       exercise.muscle_groups.length > 0
         ? exercise.muscle_groups.slice(0, 2).join(', ')
         : null;
+    const muscleGroups = muscleGroupsForExercise(exercise.name, exercise.muscle_groups);
 
     return (
       <TouchableOpacity
@@ -219,6 +222,13 @@ export function ExercisePicker({
         accessibilityRole="button"
         accessibilityLabel={`Select ${exercise.name}`}
       >
+        {/* Compact muscle map — 44 pt tall, front view only */}
+        <MuscleMap
+          groups={muscleGroups}
+          size={44}
+          view="front"
+          style={styles.exerciseRowMap}
+        />
         <View style={styles.exerciseInfo}>
           <Text style={[styles.exerciseName, { color: theme.colors.textPrimary }]}>{exercise.name}</Text>
           {muscleLabel ? (
@@ -453,6 +463,10 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.s4,
     minHeight: 64,
     borderBottomWidth: 1,
+  },
+  exerciseRowMap: {
+    marginRight: spacing.s3,
+    flexShrink: 0,
   },
   exerciseInfo: {
     flex: 1,

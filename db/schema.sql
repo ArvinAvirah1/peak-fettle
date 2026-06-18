@@ -6823,3 +6823,61 @@ ALTER TABLE lifeos_activity_days ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "lifeos_activity_days_self_only" ON lifeos_activity_days
     FOR ALL USING (auth.uid() = user_id);
+
+
+-- ===========================================================================
+-- LOCAL-SCHEMA v5 fold (2026-06-17) — device-local app_settings + workouts idx
+--
+-- These mirror the on-device SQLite schema v5 (mobile/src/db/localSchema.ts,
+-- SCHEMA_V5_STATEMENTS) so db/schema.sql stays the canonical, re-runnable source
+-- of truth for every table the app knows about.
+--
+-- 1. app_settings — a tiny per-INSTALL key/value config store (first consumer:
+--    the rest-timer default). It is DEVICE CONFIG, never user data: it is NOT in
+--    the backup registry (exportEngine BACKUP_TABLES) and the server never reads
+--    or writes it. Defined here only for schema completeness/drift-tolerance; it
+--    carries no user_id and therefore no RLS (it is not a per-user table).
+--
+-- 2. workouts(session_type) / workouts(created_at) — the on-device history and
+--    streak reads filter by session_type and order by created_at. Server-side,
+--    the composite idx_workouts_session_type (user_id, session_type,
+--    created_at DESC) folded above (~L5187) already covers the session_type
+--    predicate and created_at ordering, so only the standalone created_at index
+--    is added here. All CREATE ... IF NOT EXISTS → idempotent, safe to re-run.
+-- ===========================================================================
+
+CREATE TABLE IF NOT EXISTS app_settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT,
+    updated_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_workouts_created_at
+    ON workouts (created_at);
+
+
+-- ===========================================================================
+-- LOCAL-SCHEMA v6 fold (2026-06-17) — rich cardio metrics + persistable username
+--
+-- Mirrors the on-device SQLite schema v6 (mobile/src/db/localSchema.ts,
+-- SCHEMA_V6_STATEMENTS) so db/schema.sql stays the canonical, re-runnable source
+-- of truth. Both ALTERs are ADD COLUMN IF NOT EXISTS → idempotent, safe to re-run.
+--
+-- 1. sets.metrics_json TEXT — a JSON blob for cardio/sport metrics that don't fit
+--    the fixed columns (avg/max HR, calories, cadence, elevation gain, RPE,
+--    per-unit splits, open extras). On-device it is read/written via
+--    mobile/src/data/cardioMetrics.ts for ALL tiers in this wave.
+--    SERVER STATUS: server sync of metrics_json is a later PHASE-6 server task —
+--    no route reads or writes this column yet. It is added here ONLY for schema
+--    completeness / forward drift-tolerance so a future server `remake` already
+--    carries it (the local store is the system of record until Phase 6).
+--
+-- 2. display_name — free (local-first) users persist an edited username on-device
+--    in user_profile.display_name (a LOCAL-only mirror table; there is no server
+--    `user_profile`). The canonical SERVER column is users.display_name, already
+--    declared in CREATE TABLE users (~L71). It is re-asserted idempotently below
+--    so this fold is self-documenting and survives prod schema drift.
+-- ===========================================================================
+
+ALTER TABLE sets  ADD COLUMN IF NOT EXISTS metrics_json TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT;

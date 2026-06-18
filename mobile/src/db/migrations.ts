@@ -17,7 +17,7 @@
  * SPEC-094A Agent L, 2026-06-12.
  */
 
-import { SCHEMA_V2_STATEMENTS, SCHEMA_V3_STATEMENTS, SCHEMA_V4_STATEMENTS, MigrationStatement } from './localSchema';
+import { SCHEMA_V2_STATEMENTS, SCHEMA_V3_STATEMENTS, SCHEMA_V4_STATEMENTS, SCHEMA_V5_STATEMENTS, SCHEMA_V6_STATEMENTS, SCHEMA_V7_STATEMENTS, MigrationStatement } from './localSchema';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -117,7 +117,29 @@ const MIGRATION_V4: MigrationVersion = {
   statements: SCHEMA_V4_STATEMENTS,
 };
 
-export const MIGRATIONS: MigrationVersion[] = [MIGRATION_V2, MIGRATION_V3, MIGRATION_V4];
+// v5: device-local app_settings KV table + workouts(session_type) /
+// workouts(created_at) indexes (all CREATE ... IF NOT EXISTS).
+const MIGRATION_V5: MigrationVersion = {
+  v: 5,
+  statements: SCHEMA_V5_STATEMENTS,
+};
+
+// v6: rich cardio metrics (adds sets.metrics_json TEXT) + a persistable
+// on-device username for free users (adds user_profile.display_name TEXT).
+// Both are guarded ALTER ADD COLUMN statements.
+const MIGRATION_V6: MigrationVersion = {
+  v: 6,
+  statements: SCHEMA_V6_STATEMENTS,
+};
+
+// v7: Pro-upgrade migration ledger (migration_state) — gives the Free→Pro
+// local→server uploader (mobile/src/data/migrateToPro.ts) idempotency + resume.
+const MIGRATION_V7: MigrationVersion = {
+  v: 7,
+  statements: SCHEMA_V7_STATEMENTS,
+};
+
+export const MIGRATIONS: MigrationVersion[] = [MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6, MIGRATION_V7];
 
 // ---------------------------------------------------------------------------
 // Runner

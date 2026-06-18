@@ -87,12 +87,32 @@ const {
 function makeStubDb() {
   const pragmas = { user_version: 0 };
   const createdTables = new Set();
+  // table name → Set of column names. Populated from CREATE TABLE column lists
+  // and from guarded ALTER TABLE ADD COLUMN, so the migration runner's
+  // pragma_table_info idempotency check (getAll below) returns truthfully.
+  const tableColumns = {};
+
+  function ensureCols(table) {
+    if (!tableColumns[table]) tableColumns[table] = new Set();
+    return tableColumns[table];
+  }
 
   return {
     _pragmas: pragmas,
     _createdTables: createdTables,
+    _tableColumns: tableColumns,
 
-    async getAll() { return []; },
+    async getAll(sql, params) {
+      // Emulate: SELECT name FROM pragma_table_info(?) WHERE name = ?
+      // params = [table, column]; return a one-row array iff the column exists.
+      if (/pragma_table_info/i.test(sql)) {
+        const table = params && params[0];
+        const column = params && params[1];
+        const cols = tableColumns[table];
+        return cols && cols.has(column) ? [{ name: column }] : [];
+      }
+      return [];
+    },
 
     async getFirst(sql) {
       if (/PRAGMA user_version/.test(sql)) {
@@ -107,9 +127,27 @@ function makeStubDb() {
         pragmas.user_version = parseInt(pragmaSet[1], 10);
         return;
       }
-      const createMatch = sql.match(/CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+(\w+)/i);
+      const createMatch = sql.match(/CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+(\w+)\s*\(([\s\S]*)\)/i);
       if (createMatch) {
-        createdTables.add(createMatch[1]);
+        const table = createMatch[1];
+        createdTables.add(table);
+        // Record column names from the CREATE body so later guarded ALTERs see
+        // the existing columns (each line's first token is the column name;
+        // skip table-level CHECK/PRIMARY/UNIQUE/FOREIGN constraint clauses).
+        const cols = ensureCols(table);
+        for (const rawLine of createMatch[2].split(',')) {
+          const tok = rawLine.trim().split(/\s+/)[0];
+          if (!tok) continue;
+          if (/^(CHECK|PRIMARY|UNIQUE|FOREIGN|CONSTRAINT)$/i.test(tok)) continue;
+          if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(tok)) continue;
+          cols.add(tok);
+        }
+        return;
+      }
+      const alterMatch = sql.match(/ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(\w+)/i);
+      if (alterMatch) {
+        ensureCols(alterMatch[1]).add(alterMatch[2]);
+        return;
       }
     },
   };
@@ -154,15 +192,15 @@ function eq(a, b, msg) {
     await runMigrations(db);
     const v2 = db._pragmas.user_version;
     eq(v1, v2, 'version changed on second run:');
-    eq(v1, 4, 'expected version 4:');
+    eq(v1, 7, 'expected version 7:');
   });
 
   // 2. Fresh install reaches the latest version
-  await test('fresh install reaches user_version 4', async () => {
+  await test('fresh install reaches user_version 7', async () => {
     const db = makeStubDb();
     eq(db._pragmas.user_version, 0, 'starts at 0:');
     await runMigrations(db);
-    eq(db._pragmas.user_version, 4, 'should be 4 after migration:');
+    eq(db._pragmas.user_version, 7, 'should be 7 after migration:');
   });
 
   // 3. v2 tables created (10 spot-checked)
@@ -177,6 +215,24 @@ function eq(a, b, msg) {
     for (const t of required) {
       assert(db._createdTables.has(t), 'table not created: ' + t);
     }
+    // v5 device-local KV table is created too.
+    assert(db._createdTables.has('app_settings'), 'table not created: app_settings');
+    // v7 Pro-upgrade migration ledger is created too.
+    assert(db._createdTables.has('migration_state'), 'table not created: migration_state');
+  });
+
+  // 3b. v6 guarded ALTERs land their columns on a fresh install.
+  await test('fresh install adds sets.metrics_json and user_profile.display_name (v6)', async () => {
+    const db = makeStubDb();
+    await runMigrations(db);
+    assert(
+      db._tableColumns['sets'] && db._tableColumns['sets'].has('metrics_json'),
+      'sets.metrics_json column missing after migration',
+    );
+    assert(
+      db._tableColumns['user_profile'] && db._tableColumns['user_profile'].has('display_name'),
+      'user_profile.display_name column missing after migration',
+    );
   });
 
   // 4. SCHEMA_V2_STATEMENTS shape

@@ -44,6 +44,8 @@ import {
   fontSize,
 } from '../theme/tokens';
 import { RoutineSession, RoutineSessionExercise } from './RoutineStrip';
+import MuscleMap from '../components/MuscleMap';
+import { muscleGroupsForExercise } from '../data/muscleRegions';
 import ExerciseSwitcherSheet from './ExerciseSwitcherSheet';
 import { SuggestCandidate } from '../utils/smartSuggest';
 import PlateCalculatorSheet from './PlateCalculatorSheet';
@@ -57,6 +59,7 @@ import Animated, {
   withSequence,
 } from 'react-native-reanimated';
 import { computeWarmupPlan, WARMUP_SET_CHOICES } from '../lib/warmup';
+import { CardioMetrics } from '../data/cardioMetrics';
 import { getExercisePrefs, setExercisePrefs } from '../data/exercisePrefs';
 import { getExerciseGoal, setExerciseGoal, clearExerciseGoal, ExerciseGoal } from '../data/exerciseGoals'; // WIDGET-002
 import { REST_TIMER_DEFAULT } from '../hooks/useRestTimer';
@@ -119,6 +122,69 @@ function paceFromDurationAndDistance(durationSec: number, distanceM: number): nu
   return distanceKm > 0 ? durationSec / distanceKm : 0;
 }
 
+// ── Optional cardio-metrics parsing (P5) ─────────────────────────────────────
+
+/** Parse a finite positive number from a free-text field; null when blank/invalid. */
+function parsePositiveNumber(text: string): number | null {
+  const n = parseFloat(String(text).trim().replace(',', '.'));
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/**
+ * Parse a free-text splits list into seconds-per-unit numbers. Accepts entries
+ * separated by comma / space / newline, each either "mm:ss" (→ total seconds)
+ * or a plain seconds value. Invalid entries are skipped; returns undefined when
+ * nothing valid was entered.
+ */
+function parseSplits(text: string): number[] | undefined {
+  const raw = String(text ?? '').trim();
+  if (!raw) return undefined;
+  const out: number[] = [];
+  for (const tok of raw.split(/[\s,]+/)) {
+    if (!tok) continue;
+    if (tok.includes(':')) {
+      const parts = tok.split(':');
+      const m = parseInt(parts[0] ?? '', 10);
+      const s = parseInt(parts[1] ?? '', 10);
+      if (Number.isFinite(m) && Number.isFinite(s) && s >= 0 && s < 60) {
+        out.push(m * 60 + s);
+      }
+    } else {
+      const v = parseFloat(tok);
+      if (Number.isFinite(v) && v > 0) out.push(v);
+    }
+  }
+  return out.length > 0 ? out : undefined;
+}
+
+/**
+ * Assemble a CardioMetrics blob from the optional-field raw strings. Only
+ * defined/valid fields are included, so an all-blank section yields null (the
+ * caller then skips the metrics write entirely — nothing optional is forced).
+ */
+function buildCardioMetrics(args: {
+  hrAvg: string; hrMax: string; calories: string; cadence: string;
+  elevation: string; rpe: string; splits: string;
+}): CardioMetrics | null {
+  const m: CardioMetrics = {};
+  const hrAvg = parsePositiveNumber(args.hrAvg);
+  const hrMax = parsePositiveNumber(args.hrMax);
+  const calories = parsePositiveNumber(args.calories);
+  const cadence = parsePositiveNumber(args.cadence);
+  const elevation = parsePositiveNumber(args.elevation);
+  const rpe = parsePositiveNumber(args.rpe);
+  const splits = parseSplits(args.splits);
+  if (hrAvg != null) m.hrAvgBpm = Math.round(hrAvg);
+  if (hrMax != null) m.hrMaxBpm = Math.round(hrMax);
+  if (calories != null) m.calories = Math.round(calories);
+  if (cadence != null) m.cadenceSpm = Math.round(cadence);
+  if (elevation != null) m.elevationGainM = elevation;
+  // RPE is a 1–10 scale; clamp defensively.
+  if (rpe != null) m.rpe = Math.max(1, Math.min(10, Math.round(rpe)));
+  if (splits) m.splits = splits;
+  return Object.keys(m).length > 0 ? m : null;
+}
+
 /** Where to slot an off-routine exercise into the current routine. */
 export type OffRoutinePlacement = 'after_current' | 'end' | 'pick';
 
@@ -144,12 +210,19 @@ interface Props {
   /**
    * Called when user logs a CARDIO set. The parent should build the LogCardioSetPayload.
    * Separated from onLogSet to keep the lift path unchanged (TICKET-080 §2).
+   *
+   * `metrics` (P5) carries the OPTIONAL rich metrics from the collapsible "More
+   * metrics" section (avg/max HR, calories, cadence, elevation, RPE, splits).
+   * It is undefined when the user logged only duration/distance — the parent
+   * then skips the metrics write entirely. When present the parent persists it
+   * via cardioMetrics.setSetMetrics, keyed to the logged set's id.
    */
   onLogCardioSet?: (
     exerciseId: string,
     durationSec: number,
     distanceM?: number,
     avgPaceSecPerKm?: number,
+    metrics?: CardioMetrics,
   ) => void | Promise<void>;
   /** Called when user advances to a specific index (Continue or switcher tap) */
   onAdvance: (toIndex: number) => void;
@@ -502,6 +575,15 @@ export default function StepperLogger({
   const isCardio = (currentEx?.category ?? 'lift') === 'cardio';
   const distanceLabel = unitPref === 'lbs' ? 'miles' : 'km';
 
+  // ── Muscle map for the current exercise (P2) ───────────────────────────────
+  // Canonical groups for the compact <MuscleMap> shown beside the exercise name.
+  // Empty for movements with no resolvable group (e.g. most cardio) — the map is
+  // then omitted entirely.
+  const exMuscleGroups = useMemo(
+    () => muscleGroupsForExercise(currentEx?.name ?? ''),
+    [currentEx?.name],
+  );
+
   // ── Local form state — LIFT ──────────────────────────────────────────────
   const [weight, setWeight] = useState('');
   const [reps, setReps] = useState('');
@@ -514,6 +596,22 @@ export default function StepperLogger({
   const [cardioDurationMm, setCardioDurationMm] = useState('');
   const [cardioDurationSs, setCardioDurationSs] = useState('');
   const [cardioDistance, setCardioDistance] = useState('');
+
+  // ── Optional "More metrics" (P5) — collapsed by default; all fields optional.
+  // Held as raw strings; parsed into a CardioMetrics blob only on log. `splits`
+  // is a free-text list of per-unit times ("5:10, 5:02, …" or plain seconds).
+  const [showMoreMetrics, setShowMoreMetrics] = useState(false);
+  const [mHrAvg, setMHrAvg] = useState('');
+  const [mHrMax, setMHrMax] = useState('');
+  const [mCalories, setMCalories] = useState('');
+  const [mCadence, setMCadence] = useState('');
+  const [mElevation, setMElevation] = useState('');
+  const [mRpe, setMRpe] = useState('');
+  const [mSplits, setMSplits] = useState('');
+  const resetMoreMetrics = useCallback(() => {
+    setMHrAvg(''); setMHrMax(''); setMCalories(''); setMCadence('');
+    setMElevation(''); setMRpe(''); setMSplits('');
+  }, []);
 
   // ── Inline rest-timer ring (option 4) ─────────────────────────────────────
   // Local, visual-only countdown started on each logged set. The background
@@ -748,14 +846,21 @@ export default function StepperLogger({
       if (durationSec === null) return; // require a valid duration
       const distanceM = cardioDistance.trim() ? distanceToMetres(cardioDistance, unitPref) ?? undefined : undefined;
       const avgPace = durationSec > 0 && distanceM ? paceFromDurationAndDistance(durationSec, distanceM) : undefined;
+      // Optional rich metrics — undefined when the "More metrics" section was
+      // left blank, so the parent skips the metrics write entirely.
+      const metrics = buildCardioMetrics({
+        hrAvg: mHrAvg, hrMax: mHrMax, calories: mCalories, cadence: mCadence,
+        elevation: mElevation, rpe: mRpe, splits: mSplits,
+      }) ?? undefined;
       if (onLogCardioSet) {
         Promise.resolve(
-          onLogCardioSet(currentEx?.exerciseId ?? '', durationSec, distanceM, avgPace) as unknown,
+          onLogCardioSet(currentEx?.exerciseId ?? '', durationSec, distanceM, avgPace, metrics) as unknown,
         ).catch(() => setRetryToast(true));
       }
       setCardioDurationMm('');
       setCardioDurationSs('');
       setCardioDistance('');
+      resetMoreMetrics();
       playLogConfirm();
       setRestLeft(restTotal);
     } else {
@@ -797,6 +902,7 @@ export default function StepperLogger({
     isCardio, cardioDurationMm, cardioDurationSs, cardioDistance, unitPref,
     onLogCardioSet, currentEx, weight, reps, rir, onLogSet, afterLogSet,
     editingIndex, onUpdateSet, playLogConfirm, restTotal,
+    mHrAvg, mHrMax, mCalories, mCadence, mElevation, mRpe, mSplits, resetMoreMetrics,
   ]);
 
   // Retry the last failed lift save (option 14).
@@ -916,6 +1022,51 @@ export default function StepperLogger({
       : `EXERCISE ${currentIndex + 1} OF ${exercises.length}`;
 
   const showInterstitial = variant === 'smart' && showSuggest;
+
+  // ── Primary log/save action (P1a) ──────────────────────────────────────────
+  // The reported bug: while typing weight/reps the keyboard pushed the in-scroll
+  // "Log set" button off-screen, leaving only the sticky Continue / Select-
+  // different actions visible. Fix: render this primary "Log set N" (or
+  // "Save set N" in edit mode) as the TOP button of the sticky bottom actionBar
+  // so it is ALWAYS visible directly above the keyboard. Keeps the existing
+  // onPress (handleLogSet), the scale/check log animation, and the editingIndex
+  // "Save set" copy. Cardio uses the same button (handleLogSet branches on
+  // isCardio internally). Hidden during the smart-suggest interstitial.
+  const primaryLogButton = (
+    <Animated.View style={logBtnStyle}>
+      <TouchableOpacity
+        style={styles.logSetBtn}
+        onPress={handleLogSet}
+        accessibilityRole="button"
+        accessibilityLabel={editingIndex != null ? `Save set ${editingIndex + 1}` : `Log set ${setNumber}`}
+      >
+        {justLoggedTick ? (
+          <View style={styles.logSetConfirm}>
+            <Ionicons name="checkmark" size={18} color={stepperPalette.accentInk} />
+            <Text style={styles.logSetLabel}>Logged</Text>
+          </View>
+        ) : (
+          <Text style={styles.logSetLabel}>
+            {editingIndex != null ? `Save set ${editingIndex + 1}` : `Log set ${setNumber}`}
+          </Text>
+        )}
+      </TouchableOpacity>
+    </Animated.View>
+  );
+
+  // "Cancel edit" link — shown beneath the primary button only while correcting
+  // an already-logged set (drives editingIndex back to null without saving).
+  const cancelEditLink =
+    editingIndex != null ? (
+      <TouchableOpacity
+        onPress={() => { setEditingIndex(null); setWeight(''); setReps(''); setRir(''); }}
+        style={styles.cancelEditLink}
+        accessibilityRole="button"
+        accessibilityLabel="Cancel editing set"
+      >
+        <Text style={styles.cancelEditLabel}>Cancel edit</Text>
+      </TouchableOpacity>
+    ) : null;
 
   return (
     <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
@@ -1046,7 +1197,15 @@ export default function StepperLogger({
           /* ── Logging screen (routine / free / smart pre-interstitial) ────── */
           <>
             <Text style={styles.exLabel}>{kicker}</Text>
-            <Text style={styles.exName}>{currentEx.name}</Text>
+            {/* P2: exercise name + compact muscle map (omitted when no groups,
+                e.g. most cardio). MuscleMap pulls its highlight colour from the
+                theme (accentDefault) so it stays theme-adaptive. */}
+            <View style={styles.exHeaderRow}>
+              <Text style={[styles.exName, styles.exNameFlex]}>{currentEx.name}</Text>
+              {exMuscleGroups.length > 0 ? (
+                <MuscleMap groups={exMuscleGroups} size={40} view="front" />
+              ) : null}
+            </View>
 
             {(pbLabel || repTarget || lastSessionLabel) && (
               <View style={styles.pbCard}>
@@ -1289,6 +1448,148 @@ export default function StepperLogger({
                     />
                   </View>
                 </View>
+
+                {/* ── Optional "More metrics" (P5): avg/max HR, calories,
+                    cadence, elevation, RPE, splits. Collapsed by default behind
+                    a "＋ More metrics" link (mirrors the lift RIR / warm-up
+                    affordances) so the default cardio screen stays the simple
+                    duration/distance flow. Every field is optional — leaving the
+                    whole section blank logs no metrics. */}
+                {showMoreMetrics ? (
+                  <View style={moreStyles.card}>
+                    <View style={moreStyles.headerRow}>
+                      <Text style={moreStyles.title}>MORE METRICS — OPTIONAL</Text>
+                      <TouchableOpacity
+                        onPress={() => setShowMoreMetrics(false)}
+                        accessibilityRole="button"
+                        accessibilityLabel="Hide more metrics"
+                      >
+                        <Text style={moreStyles.hideLink}>hide</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.inputRow}>
+                      <View style={styles.inputGroup}>
+                        <Text style={styles.inputLabel}>AVG HR (BPM)</Text>
+                        <TextInput
+                          style={styles.input}
+                          value={mHrAvg}
+                          onChangeText={setMHrAvg}
+                          keyboardType="number-pad"
+                          placeholder="—"
+                          placeholderTextColor={stepperPalette.muted}
+                          maxLength={3}
+                          selectTextOnFocus
+                          accessibilityLabel="Average heart rate in beats per minute (optional)"
+                        />
+                      </View>
+                      <View style={styles.inputGroup}>
+                        <Text style={styles.inputLabel}>MAX HR (BPM)</Text>
+                        <TextInput
+                          style={styles.input}
+                          value={mHrMax}
+                          onChangeText={setMHrMax}
+                          keyboardType="number-pad"
+                          placeholder="—"
+                          placeholderTextColor={stepperPalette.muted}
+                          maxLength={3}
+                          selectTextOnFocus
+                          accessibilityLabel="Maximum heart rate in beats per minute (optional)"
+                        />
+                      </View>
+                    </View>
+
+                    <View style={styles.inputRow}>
+                      <View style={styles.inputGroup}>
+                        <Text style={styles.inputLabel}>CALORIES (KCAL)</Text>
+                        <TextInput
+                          style={styles.input}
+                          value={mCalories}
+                          onChangeText={setMCalories}
+                          keyboardType="number-pad"
+                          placeholder="—"
+                          placeholderTextColor={stepperPalette.muted}
+                          maxLength={5}
+                          selectTextOnFocus
+                          accessibilityLabel="Calories burned in kilocalories (optional)"
+                        />
+                      </View>
+                      <View style={styles.inputGroup}>
+                        <Text style={styles.inputLabel}>CADENCE (SPM)</Text>
+                        <TextInput
+                          style={styles.input}
+                          value={mCadence}
+                          onChangeText={setMCadence}
+                          keyboardType="number-pad"
+                          placeholder="—"
+                          placeholderTextColor={stepperPalette.muted}
+                          maxLength={3}
+                          selectTextOnFocus
+                          accessibilityLabel="Cadence in steps per minute (optional)"
+                        />
+                      </View>
+                    </View>
+
+                    <View style={styles.inputRow}>
+                      <View style={styles.inputGroup}>
+                        <Text style={styles.inputLabel}>ELEV GAIN (M)</Text>
+                        <TextInput
+                          style={styles.input}
+                          value={mElevation}
+                          onChangeText={setMElevation}
+                          keyboardType="decimal-pad"
+                          placeholder="—"
+                          placeholderTextColor={stepperPalette.muted}
+                          maxLength={6}
+                          selectTextOnFocus
+                          accessibilityLabel="Elevation gain in metres (optional)"
+                        />
+                      </View>
+                      <View style={styles.inputGroup}>
+                        <Text style={styles.inputLabel}>RPE (1–10)</Text>
+                        <TextInput
+                          style={styles.input}
+                          value={mRpe}
+                          onChangeText={setMRpe}
+                          keyboardType="number-pad"
+                          placeholder="—"
+                          placeholderTextColor={stepperPalette.muted}
+                          maxLength={2}
+                          selectTextOnFocus
+                          accessibilityLabel="Rate of perceived exertion, 1 to 10 (optional)"
+                        />
+                      </View>
+                    </View>
+
+                    <View style={styles.inputRow}>
+                      <View style={styles.inputGroup}>
+                        <Text style={styles.inputLabel}>SPLITS (PER {distanceLabel.toUpperCase()})</Text>
+                        <TextInput
+                          style={styles.input}
+                          value={mSplits}
+                          onChangeText={setMSplits}
+                          keyboardType="numbers-and-punctuation"
+                          placeholder="e.g. 5:10, 5:02, 4:58"
+                          placeholderTextColor={stepperPalette.muted}
+                          selectTextOnFocus
+                          accessibilityLabel={`Lap or split times per ${distanceLabel}, comma separated (optional)`}
+                        />
+                      </View>
+                    </View>
+                    <Text style={moreStyles.hint}>
+                      Splits: one per {distanceLabel}, mm:ss or seconds — all fields optional.
+                    </Text>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    onPress={() => setShowMoreMetrics(true)}
+                    style={moreStyles.enableLink}
+                    accessibilityRole="button"
+                    accessibilityLabel="Add more cardio metrics: heart rate, calories, cadence, elevation, RPE, splits"
+                  >
+                    <Text style={moreStyles.enableLabel}>＋ More metrics (optional)</Text>
+                  </TouchableOpacity>
+                )}
               </>
             ) : (
               /* ── Lift inputs: large set readout + steppers (+ optional RIR) ── */
@@ -1400,35 +1701,10 @@ export default function StepperLogger({
               </TouchableOpacity>
             ) : null}
 
-            <Animated.View style={logBtnStyle}>
-              <TouchableOpacity
-                style={styles.logSetBtn}
-                onPress={handleLogSet}
-                accessibilityRole="button"
-                accessibilityLabel={editingIndex != null ? `Save set ${editingIndex + 1}` : `Log set ${setNumber}`}
-              >
-                {justLoggedTick ? (
-                  <View style={styles.logSetConfirm}>
-                    <Ionicons name="checkmark" size={18} color={stepperPalette.accentInk} />
-                    <Text style={styles.logSetLabel}>Logged</Text>
-                  </View>
-                ) : (
-                  <Text style={styles.logSetLabel}>
-                    {editingIndex != null ? `Save set ${editingIndex + 1}` : `Log set ${setNumber}`}
-                  </Text>
-                )}
-              </TouchableOpacity>
-            </Animated.View>
-            {editingIndex != null && (
-              <TouchableOpacity
-                onPress={() => { setEditingIndex(null); setWeight(''); setReps(''); setRir(''); }}
-                style={styles.cancelEditLink}
-                accessibilityRole="button"
-                accessibilityLabel="Cancel editing set"
-              >
-                <Text style={styles.cancelEditLabel}>Cancel edit</Text>
-              </TouchableOpacity>
-            )}
+            {/* P1a: the primary "Log set N" / "Save set N" action now lives in the
+                sticky bottom actionBar (always above the keyboard) — see
+                `primaryLogButton` below. It is no longer rendered in-scroll so
+                the keyboard can never push it out of view. */}
           </>
         )}
       </ScrollView>
@@ -1472,17 +1748,25 @@ export default function StepperLogger({
         </View>
       ) : null}
 
-      {/* ── Bottom action bar — varies by variant / sub-state (sticky, option 12) ── */}
+      {/* ── Bottom action bar — varies by variant / sub-state (sticky, option 12) ──
+          P1a: the PRIMARY action ("Log set N" / "Save set N") is now the top
+          button of this sticky bar across every logging variant, so it stays
+          visible directly above the keyboard while the user types. Continue /
+          Add-next / Done / Select-different are demoted to secondary (outline)
+          beneath it. The smart-suggest interstitial is the one exception — it
+          is past logging, so it keeps Continue / Select-different only. */}
       <View style={[styles.actionBar, { paddingBottom: Math.max(insets.bottom, spacing.s4) + spacing.s2 }]}>
         {variant === 'free' ? (
           <>
+            {primaryLogButton}
+            {cancelEditLink}
             <TouchableOpacity
-              style={styles.continueBtn}
+              style={styles.switchBtn}
               onPress={onAddNextExercise}
               accessibilityRole="button"
               accessibilityLabel="Add next exercise"
             >
-              <Text style={styles.continueBtnLabel}>＋ Add next exercise</Text>
+              <Text style={styles.switchBtnLabel}>＋ Add next exercise</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.switchBtn}
@@ -1517,14 +1801,16 @@ export default function StepperLogger({
             </>
           ) : (
             <>
+              {primaryLogButton}
+              {cancelEditLink}
               <TouchableOpacity
-                style={[styles.continueBtn, currentExerciseSets.length === 0 && styles.btnDisabled]}
+                style={[styles.switchBtn, currentExerciseSets.length === 0 && styles.btnDisabled]}
                 onPress={handleDoneSeeNext}
                 disabled={currentExerciseSets.length === 0}
                 accessibilityRole="button"
                 accessibilityLabel="Done, see what's next"
               >
-                <Text style={styles.continueBtnLabel}>
+                <Text style={styles.switchBtnLabel}>
                   {currentExerciseSets.length === 0 ? 'Log a set to continue' : "Done — see what's next →"}
                 </Text>
               </TouchableOpacity>
@@ -1541,13 +1827,15 @@ export default function StepperLogger({
         ) : (
           /* routine */
           <>
+            {primaryLogButton}
+            {cancelEditLink}
             <TouchableOpacity
-              style={styles.continueBtn}
+              style={styles.switchBtn}
               onPress={handleContinue}
               accessibilityRole="button"
               accessibilityLabel={isLast ? 'Finish workout' : `Continue to ${nextEx?.name ?? 'next'}`}
             >
-              <Text style={styles.continueBtnLabel}>
+              <Text style={styles.switchBtnLabel}>
                 {isLast ? 'Finish workout' : `Continue to ${nextEx?.name ?? 'next'} →`}
               </Text>
             </TouchableOpacity>
@@ -1760,6 +2048,50 @@ const goalStyles = StyleSheet.create({
   editLabel: {
     color: stepperPalette.muted,
     fontSize: fontSize.caption,
+  },
+});
+
+// ── Optional cardio "More metrics" styles (P5) ──────────────────────────────
+
+const moreStyles = StyleSheet.create({
+  card: {
+    backgroundColor: stepperPalette.card,
+    borderWidth: 1,
+    borderColor: stepperPalette.line,
+    borderRadius: radius.md,
+    padding: spacing.s3,
+    marginBottom: spacing.s3,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.s2,
+  },
+  title: {
+    color: stepperPalette.muted,
+    fontSize: fontSize.micro,
+    fontWeight: '600',
+    letterSpacing: 1,
+  },
+  hideLink: {
+    color: stepperPalette.muted,
+    fontSize: fontSize.caption,
+  },
+  hint: {
+    color: stepperPalette.muted,
+    fontSize: fontSize.caption,
+    marginTop: spacing.s1,
+  },
+  enableLink: {
+    alignSelf: 'flex-start',
+    paddingVertical: spacing.s1,
+    marginBottom: spacing.s2,
+  },
+  enableLabel: {
+    color: stepperPalette.accent,
+    fontSize: fontSize.bodySm,
+    fontWeight: '600',
   },
 });
 
@@ -2056,6 +2388,18 @@ const styles = StyleSheet.create({
     fontSize: fontSize.heading3,
     color: stepperPalette.text,
     marginBottom: spacing.s3,
+  },
+  // P2: exercise name + compact muscle map share one row; the row carries the
+  // bottom margin so the name and map stay vertically centred together.
+  exHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s3,
+    marginBottom: spacing.s3,
+  },
+  exNameFlex: {
+    flex: 1,
+    marginBottom: 0,
   },
   pbCard: {
     backgroundColor: stepperPalette.card,
