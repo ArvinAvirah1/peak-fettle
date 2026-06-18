@@ -224,12 +224,18 @@ export async function duplicateRoutine(
  * Best-effort "last performed" date per routine, for the card subtitle.
  *
  * There is no hard routine_id → workout link in the local schema (workouts only
- * carry `session_type` / `notes`). So for local-first users we match a routine
- * by its name appearing in a workout's `session_type` — the value the stepper
- * stamps when a routine workout is started. Anything we can't match is simply
- * omitted (the card hides the line). Pro users get an empty map here because the
- * server routine list does not return last-performed; the UI degrades the same
- * way (line hidden) rather than issuing extra REST calls.
+ * carry `session_type` / `routine_name` / `notes`). So for local-first users we
+ * match a routine by its name appearing in a workout's `session_type` — the
+ * value the stepper stamps when a routine workout is started. Anything we can't
+ * match is simply omitted (the card hides the line). Pro users get an empty map
+ * here because the server routine list does not return last-performed; the UI
+ * degrades the same way (line hidden) rather than issuing extra REST calls.
+ *
+ * Performance: this runs ONE grouped query — `SELECT session_type,
+ * MAX(created_at) … GROUP BY session_type`, backed by `idx_workouts_session_type`
+ * — producing at most one row per distinct session_type. The previous version
+ * pulled every workout row and did an O(routines × workouts) JS `find` scan; this
+ * is O(distinctSessionTypes) to build a name→date lookup, then O(routines) to map.
  *
  * @returns Map of routineId → ISO date string of the most recent session.
  */
@@ -241,16 +247,28 @@ export async function getLastPerformedMap(
   if (!isLocalFirst(user) || routines.length === 0) return out;
   try {
     await localDb.init();
-    const rows = await localDb.getAll<{ session_type: string | null; created_at: string }>(
-      `SELECT session_type, created_at FROM workouts
+    // One grouped pass: the most-recent session per session_type. The GROUP BY
+    // is served by idx_workouts_session_type, and we get at most one row per
+    // distinct label rather than the whole workouts table.
+    const rows = await localDb.getAll<{ session_type: string | null; last_at: string | null }>(
+      `SELECT session_type, MAX(created_at) AS last_at
+         FROM workouts
         WHERE session_type IS NOT NULL AND session_type != ''
-        ORDER BY created_at DESC`,
+        GROUP BY session_type`,
     );
+    // name (lower-cased) → newest ISO date, keeping the max if two labels collide
+    // after normalisation.
+    const byName = new Map<string, string>();
+    for (const r of rows) {
+      const key = (r.session_type ?? '').trim().toLowerCase();
+      const at = r.last_at;
+      if (!key || !at) continue;
+      const prev = byName.get(key);
+      if (!prev || at > prev) byName.set(key, at);
+    }
     for (const r of routines) {
-      const match = rows.find(
-        (w) => (w.session_type ?? '').trim().toLowerCase() === r.name.trim().toLowerCase(),
-      );
-      if (match) out.set(r.id, match.created_at);
+      const at = byName.get(r.name.trim().toLowerCase());
+      if (at) out.set(r.id, at);
     }
   } catch {
     // best-effort — never throw to the UI

@@ -2,21 +2,24 @@
  * Training Survey screen — re-editable Training Engine profile.
  *
  * 2026-06-11 (spec §5, Agent C)
- *
- * Agent K polish (2026-06-11):
- *   - Staggered entrance: sections fade-rise in 60ms steps
- *   - Chip minHeight bumped 40→44 pt for WCAG 2.5.5 compliance
- *   - Save button has press-scale micro-interaction
- *   - Reduce Motion: all entrance animations skipped
- *   - paddingTop bumped to 24 for consistent screen spacing
- *
- * Same steps as onboarding steps 3–8 (training_goal, sessions_per_week,
- * session_minutes, equipment, goal_weight_kg, season_phase), but presented
- * as a standalone settings screen so users can update their answers any time.
+ * 2026-06-17 (P4 survey, cluster "survey-plans"):
+ *   - Expanded into an elaborate multi-step survey: goal, experience level,
+ *     primary focus (discipline), sessions/week, session length, equipment,
+ *     season/phase, goal weight.
+ *   - ALL survey copy + options now live in the SURVEY_CONFIG block below so they
+ *     are easy to refine without touching render/logic.
+ *   - Persists via saveProfile() — tier-branched (free → on-device user_profile,
+ *     Pro → PATCH /user/profile). Local-first: free users make NO REST call here.
  *
  * Pre-fills from the authenticated user profile if those fields are present.
- * On save: PATCH /users/profile with all answered fields.
- * On success: router.back()
+ * On save: saveProfile(user, payload, updateUser) then router.back().
+ *
+ * NOTE on persistence scope: training_goal / sessions_per_week / session_minutes
+ * / equipment_profile / season_phase / experience_level / goal_weight_kg all have
+ * on-device columns (see mobile/src/data/profile.ts LocalColumn). `primary_discipline`
+ * has no local column, so for free users it is kept in the in-session `user` via
+ * updateUser() (which feeds the Plans engine this session) but is not persisted to
+ * SQLite across a cold start — the engine falls back to general_strength if unset.
  */
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
@@ -53,47 +56,136 @@ import type {
   SeasonPhase,
 } from '../src/api/user';
 
-// ---------------------------------------------------------------------------
-// Data
-// ---------------------------------------------------------------------------
+// ===========================================================================
+// SURVEY_CONFIG — all copy + options live here so they're easy to refine.
+// Editing this block changes the survey without touching render/logic below.
+// ===========================================================================
 
-const TRAINING_GOAL_OPTIONS: { label: string; value: TrainingGoal; subtitle?: string }[] = [
-  { label: 'Strength',          value: 'strength',          subtitle: 'Maximise lifts — 1–5 rep focus' },
-  { label: 'Muscle Building',   value: 'hypertrophy',       subtitle: 'Size & definition — 6–15 rep range' },
-  { label: 'Endurance',         value: 'endurance',         subtitle: 'Aerobic capacity & stamina' },
-  { label: 'Sport Performance', value: 'sport_performance', subtitle: 'Power, speed & sport-specific fitness' },
-  { label: 'General Fitness',   value: 'general_fitness',   subtitle: 'Health, movement quality & consistency' },
-];
+type ExperienceLevel = 'beginner' | 'intermediate' | 'advanced';
+/** Discipline keys MUST match the engine template registry (templates.ts). */
+type Discipline =
+  | 'general_strength'
+  | 'powerlifting'
+  | 'weightlifting'
+  | 'running'
+  | 'cycling'
+  | 'swimming'
+  | 'other_mixed';
 
-const SESSIONS_PER_WEEK_OPTIONS: number[] = [1, 2, 3, 4, 5, 6, 7];
+interface OptionDef<T> {
+  label: string;
+  value: T;
+  subtitle?: string;
+}
 
-const SESSION_MINUTES_OPTIONS: { label: string; value: SessionMinutes; subtitle: string }[] = [
-  { label: '15 min', value: 15, subtitle: 'Express' },
-  { label: '30 min', value: 30, subtitle: 'Short' },
-  { label: '45 min', value: 45, subtitle: 'Standard' },
-  { label: '60 min', value: 60, subtitle: 'Full session' },
-  { label: '90 min', value: 90, subtitle: 'Extended' },
-];
+const SURVEY_CONFIG = {
+  screen: {
+    title: 'Training Profile',
+    subtitle:
+      'These answers shape every plan the Training Engine builds for you. ' +
+      'Update them any time — your next plan reflects the change.',
+    saveLabel: 'Save Training Profile',
+  },
 
-const EQUIPMENT_OPTIONS: { label: string; value: EquipmentItem }[] = [
-  { label: 'Barbell',     value: 'barbell'    },
-  { label: 'Dumbbell',    value: 'dumbbell'   },
-  { label: 'Kettlebell',  value: 'kettlebell' },
-  { label: 'Machine',     value: 'machine'    },
-  { label: 'Cable',       value: 'cable'      },
-  { label: 'Bodyweight',  value: 'bodyweight' },
-  { label: 'Bands',       value: 'bands'      },
-  { label: 'Bench',       value: 'bench'      },
-  { label: 'Rack',        value: 'rack'       },
-  { label: 'Pull-up bar', value: 'pullup_bar' },
-  { label: 'Bike',        value: 'bike'       },
-  { label: 'Treadmill',   value: 'treadmill'  },
-  { label: 'Pool',        value: 'pool'       },
-  { label: 'Track',       value: 'track'      },
-];
+  goal: {
+    title: 'Training goal',
+    subtitle: 'What are you optimising for right now?',
+    options: [
+      { label: 'Strength',          value: 'strength',          subtitle: 'Maximise lifts — 1–5 rep focus' },
+      { label: 'Muscle Building',   value: 'hypertrophy',       subtitle: 'Size & definition — 6–15 rep range' },
+      { label: 'Endurance',         value: 'endurance',         subtitle: 'Aerobic capacity & stamina' },
+      { label: 'Sport Performance', value: 'sport_performance', subtitle: 'Power, speed & sport-specific fitness' },
+      { label: 'General Fitness',   value: 'general_fitness',   subtitle: 'Health, movement quality & consistency' },
+    ] as OptionDef<TrainingGoal>[],
+  },
 
-const TEAM_SPORT_DISCIPLINES = new Set([
-  'running', 'cycling', 'swimming', 'other',
+  experience: {
+    title: 'Experience level',
+    subtitle: 'How long have you been training consistently?',
+    options: [
+      { label: 'Beginner',     value: 'beginner',     subtitle: 'New, or returning after a long break (< 1 yr)' },
+      { label: 'Intermediate', value: 'intermediate', subtitle: 'Consistent for 1–3 years; linear gains slowing' },
+      { label: 'Advanced',     value: 'advanced',     subtitle: '3+ years; needs periodised programming' },
+    ] as OptionDef<ExperienceLevel>[],
+  },
+
+  focus: {
+    title: 'Primary focus',
+    subtitle: 'Which discipline should the plan be built around?',
+    options: [
+      { label: 'General Strength', value: 'general_strength', subtitle: 'Balanced full-body barbell training' },
+      { label: 'Powerlifting',     value: 'powerlifting',     subtitle: 'Squat, bench & deadlift specialisation' },
+      { label: 'Weightlifting',    value: 'weightlifting',    subtitle: 'Snatch & clean-and-jerk focus' },
+      { label: 'Running',          value: 'running',          subtitle: 'Run-led conditioning + supporting strength' },
+      { label: 'Cycling',          value: 'cycling',          subtitle: 'Bike-led conditioning + supporting strength' },
+      { label: 'Swimming',         value: 'swimming',         subtitle: 'Swim-led conditioning + supporting strength' },
+      { label: 'Mixed / Other',    value: 'other_mixed',      subtitle: 'Team sport or hybrid training' },
+    ] as OptionDef<Discipline>[],
+  },
+
+  sessions: {
+    title: 'Sessions per week',
+    subtitle: 'How many training sessions can you commit to?',
+    options: [1, 2, 3, 4, 5, 6, 7],
+    hint: 'Engine defaults to 3 sessions if not set.',
+  },
+
+  length: {
+    title: 'Session length',
+    subtitle: 'How long is each training session?',
+    options: [
+      { label: '15 min', value: 15, subtitle: 'Express' },
+      { label: '30 min', value: 30, subtitle: 'Short' },
+      { label: '45 min', value: 45, subtitle: 'Standard' },
+      { label: '60 min', value: 60, subtitle: 'Full session' },
+      { label: '90 min', value: 90, subtitle: 'Extended' },
+    ] as OptionDef<SessionMinutes>[],
+  },
+
+  equipment: {
+    title: 'Available equipment',
+    subtitle: 'The engine only prescribes exercises you can actually perform.',
+    emptyHint: 'None selected — engine uses full gym default.',
+    options: [
+      { label: 'Barbell',     value: 'barbell'    },
+      { label: 'Dumbbell',    value: 'dumbbell'   },
+      { label: 'Kettlebell',  value: 'kettlebell' },
+      { label: 'Machine',     value: 'machine'    },
+      { label: 'Cable',       value: 'cable'      },
+      { label: 'Bodyweight',  value: 'bodyweight' },
+      { label: 'Bands',       value: 'bands'      },
+      { label: 'Bench',       value: 'bench'      },
+      { label: 'Rack',        value: 'rack'       },
+      { label: 'Pull-up bar', value: 'pullup_bar' },
+      { label: 'Bike',        value: 'bike'       },
+      { label: 'Treadmill',   value: 'treadmill'  },
+      { label: 'Pool',        value: 'pool'       },
+      { label: 'Track',       value: 'track'      },
+    ] as OptionDef<EquipmentItem>[],
+  },
+
+  goalWeight: {
+    title: 'Goal weight (optional)',
+    subtitle: 'Target body weight, if applicable. Leave blank to skip.',
+  },
+
+  season: {
+    title: 'Season phase',
+    subtitle:
+      'Your competitive phase affects how the engine balances load and recovery.',
+    options: [
+      { label: 'Off season', value: 'off_season', subtitle: 'Build base fitness and strength' },
+      { label: 'In season',  value: 'in_season',  subtitle: 'Maintain fitness without overloading' },
+    ] as OptionDef<SeasonPhase>[],
+  },
+};
+
+/** Disciplines for which the optional season-phase step is shown. */
+const SEASON_RELEVANT_DISCIPLINES = new Set<Discipline | string>([
+  'running',
+  'cycling',
+  'swimming',
+  'other_mixed',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -124,7 +216,10 @@ function useStaggerFade(count: number, enabled: boolean): Animated.Value[] {
   return anims;
 }
 
-function staggerStyle(anim: Animated.Value): object {
+function staggerStyle(anim: Animated.Value | undefined): object {
+  // anim is indexed out of a fixed-length array; guard for the (impossible at
+  // runtime) undefined slot so this is null-safe under noUncheckedIndexedAccess.
+  if (!anim) return {};
   return {
     opacity: anim,
     transform: [
@@ -319,8 +414,9 @@ export default function TrainingSurveyScreen(): React.ReactElement {
   const { theme } = useTheme();
   const reduceMotion = useReduceMotion();
 
-  // 7 stagger slots: header+subtitle, goal, sessions, length, equipment, goal-weight, save
-  const staggerAnims = useStaggerFade(7, !reduceMotion);
+  // Stagger slots: header, goal, experience, focus, sessions, length, equipment,
+  // goal-weight (+ conditional season under it), save.
+  const staggerAnims = useStaggerFade(9, !reduceMotion);
 
   // Save button press scale
   const saveScale = useRef(new Animated.Value(1)).current;
@@ -328,6 +424,12 @@ export default function TrainingSurveyScreen(): React.ReactElement {
   // Initialise from user profile if available
   const [trainingGoal, setTrainingGoal] = useState<TrainingGoal | null>(
     (user as any)?.training_goal ?? null
+  );
+  const [experienceLevel, setExperienceLevel] = useState<ExperienceLevel | null>(
+    ((user as any)?.experience_level as ExperienceLevel | undefined) ?? null
+  );
+  const [discipline, setDiscipline] = useState<Discipline | null>(
+    ((user?.primary_discipline as Discipline | undefined) ?? null)
   );
   const [sessionsPerWeek, setSessionsPerWeek] = useState<number | null>(
     (user as any)?.sessions_per_week ?? null
@@ -355,8 +457,12 @@ export default function TrainingSurveyScreen(): React.ReactElement {
 
   const [isSaving, setIsSaving] = useState(false);
 
-  const discipline: string | null = user?.primary_discipline ?? null;
-  const showSeasonStep = TEAM_SPORT_DISCIPLINES.has(discipline as string);
+  // Season step is relevant when the chosen focus is an endurance/mixed
+  // discipline (falls back to the stored primary_discipline before a choice).
+  const effectiveDiscipline = discipline ?? (user?.primary_discipline ?? null);
+  const showSeasonStep = SEASON_RELEVANT_DISCIPLINES.has(
+    (effectiveDiscipline ?? '') as string
+  );
 
   const toggleEquipment = useCallback((item: EquipmentItem) => {
     setEquipmentProfile((prev) => {
@@ -392,6 +498,8 @@ export default function TrainingSurveyScreen(): React.ReactElement {
     try {
       const payload: Parameters<typeof saveProfile>[1] = {};
       if (trainingGoal !== null)    payload.training_goal = trainingGoal;
+      if (experienceLevel !== null) payload.experience_level = experienceLevel;
+      if (discipline !== null)      payload.primary_discipline = discipline;
       if (sessionsPerWeek !== null) payload.sessions_per_week = sessionsPerWeek;
       if (sessionMinutes !== null)  payload.session_minutes = sessionMinutes;
       if (equipmentProfile.size > 0) payload.equipment_profile = Array.from(equipmentProfile);
@@ -399,6 +507,7 @@ export default function TrainingSurveyScreen(): React.ReactElement {
       const gw = parseWeightInput(goalWeightInput);
       if (gw !== null && gw > 0)        payload.goal_weight_kg = displayToKg(gw, goalWeightUnit);
       else if (goalWeightInput.trim() === '') payload.goal_weight_kg = null;
+      // Season phase only when the focus discipline makes it meaningful.
       if (showSeasonStep)            payload.season_phase = seasonPhase ?? null;
 
       // Tier-branched: free → local user_profile, Pro → PATCH /user/profile (D-1).
@@ -413,8 +522,8 @@ export default function TrainingSurveyScreen(): React.ReactElement {
       setIsSaving(false);
     }
   }, [
-    trainingGoal, sessionsPerWeek, sessionMinutes, equipmentProfile,
-    goalWeightInput, goalWeightUnit, seasonPhase, showSeasonStep,
+    trainingGoal, experienceLevel, discipline, sessionsPerWeek, sessionMinutes,
+    equipmentProfile, goalWeightInput, goalWeightUnit, seasonPhase, showSeasonStep,
     user, updateUser, router,
   ]);
 
@@ -445,22 +554,21 @@ export default function TrainingSurveyScreen(): React.ReactElement {
 
         <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[0])}>
           <Text style={[styles.screenTitle, { color: theme.colors.textPrimary }]}>
-            Training Profile
+            {SURVEY_CONFIG.screen.title}
           </Text>
           <Text style={[styles.screenSubtitle, { color: theme.colors.textSecondary }]}>
-            These answers shape every plan the Training Engine builds for you.
-            Update them any time — your next plan will reflect the change.
+            {SURVEY_CONFIG.screen.subtitle}
           </Text>
         </Animated.View>
 
         {/* ── Section 1: Training goal ── */}
         <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[1])}>
           <SurveySection
-            title="Training goal"
-            subtitle="What are you optimising for right now?"
+            title={SURVEY_CONFIG.goal.title}
+            subtitle={SURVEY_CONFIG.goal.subtitle}
           >
             <View style={styles.optionGroup}>
-              {TRAINING_GOAL_OPTIONS.map((opt) => (
+              {SURVEY_CONFIG.goal.options.map((opt) => (
                 <OptionButton<TrainingGoal>
                   key={opt.value}
                   label={opt.label}
@@ -474,14 +582,56 @@ export default function TrainingSurveyScreen(): React.ReactElement {
           </SurveySection>
         </Animated.View>
 
-        {/* ── Section 2: Sessions per week ── */}
+        {/* ── Section 2: Experience level ── */}
         <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[2])}>
           <SurveySection
-            title="Sessions per week"
-            subtitle="How many training sessions can you commit to?"
+            title={SURVEY_CONFIG.experience.title}
+            subtitle={SURVEY_CONFIG.experience.subtitle}
+          >
+            <View style={styles.optionGroup}>
+              {SURVEY_CONFIG.experience.options.map((opt) => (
+                <OptionButton<ExperienceLevel>
+                  key={opt.value}
+                  label={opt.label}
+                  subtitle={opt.subtitle}
+                  value={opt.value}
+                  selected={experienceLevel === opt.value}
+                  onPress={setExperienceLevel}
+                />
+              ))}
+            </View>
+          </SurveySection>
+        </Animated.View>
+
+        {/* ── Section 3: Primary focus (discipline) ── */}
+        <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[3])}>
+          <SurveySection
+            title={SURVEY_CONFIG.focus.title}
+            subtitle={SURVEY_CONFIG.focus.subtitle}
+          >
+            <View style={styles.optionGroup}>
+              {SURVEY_CONFIG.focus.options.map((opt) => (
+                <OptionButton<Discipline>
+                  key={opt.value}
+                  label={opt.label}
+                  subtitle={opt.subtitle}
+                  value={opt.value}
+                  selected={discipline === opt.value}
+                  onPress={setDiscipline}
+                />
+              ))}
+            </View>
+          </SurveySection>
+        </Animated.View>
+
+        {/* ── Section 4: Sessions per week ── */}
+        <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[4])}>
+          <SurveySection
+            title={SURVEY_CONFIG.sessions.title}
+            subtitle={SURVEY_CONFIG.sessions.subtitle}
           >
             <View style={styles.chipRow}>
-              {SESSIONS_PER_WEEK_OPTIONS.map((n) => (
+              {SURVEY_CONFIG.sessions.options.map((n) => (
                 <ChipButton
                   key={n}
                   label={String(n)}
@@ -491,19 +641,19 @@ export default function TrainingSurveyScreen(): React.ReactElement {
               ))}
             </View>
             <Text style={[styles.hintText, { color: theme.colors.textTertiary }]}>
-              Engine defaults to 3 sessions if not set.
+              {SURVEY_CONFIG.sessions.hint}
             </Text>
           </SurveySection>
         </Animated.View>
 
-        {/* ── Section 3: Session length ── */}
-        <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[3])}>
+        {/* ── Section 5: Session length ── */}
+        <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[5])}>
           <SurveySection
-            title="Session length"
-            subtitle="How long is each training session?"
+            title={SURVEY_CONFIG.length.title}
+            subtitle={SURVEY_CONFIG.length.subtitle}
           >
             <View style={styles.optionGroup}>
-              {SESSION_MINUTES_OPTIONS.map((opt) => (
+              {SURVEY_CONFIG.length.options.map((opt) => (
                 <OptionButton<SessionMinutes>
                   key={opt.value}
                   label={opt.label}
@@ -517,14 +667,14 @@ export default function TrainingSurveyScreen(): React.ReactElement {
           </SurveySection>
         </Animated.View>
 
-        {/* ── Section 4: Equipment ── */}
-        <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[4])}>
+        {/* ── Section 6: Equipment ── */}
+        <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[6])}>
           <SurveySection
-            title="Available equipment"
-            subtitle="The engine only prescribes exercises you can actually perform."
+            title={SURVEY_CONFIG.equipment.title}
+            subtitle={SURVEY_CONFIG.equipment.subtitle}
           >
             <View style={styles.chipGrid}>
-              {EQUIPMENT_OPTIONS.map((opt) => (
+              {SURVEY_CONFIG.equipment.options.map((opt) => (
                 <MultiChipButton
                   key={opt.value}
                   label={opt.label}
@@ -535,17 +685,17 @@ export default function TrainingSurveyScreen(): React.ReactElement {
             </View>
             {equipmentProfile.size === 0 && (
               <Text style={[styles.hintText, { color: theme.colors.textTertiary }]}>
-                None selected — engine uses full gym default.
+                {SURVEY_CONFIG.equipment.emptyHint}
               </Text>
             )}
           </SurveySection>
         </Animated.View>
 
-        {/* ── Section 5: Goal weight (optional) ── */}
-        <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[5])}>
+        {/* ── Section 7: Goal weight (optional) + conditional Season ── */}
+        <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[7])}>
           <SurveySection
-            title="Goal weight (optional)"
-            subtitle="Target body weight, if applicable. Leave blank to skip."
+            title={SURVEY_CONFIG.goalWeight.title}
+            subtitle={SURVEY_CONFIG.goalWeight.subtitle}
           >
             <KeyboardAvoidingView
               behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -596,27 +746,23 @@ export default function TrainingSurveyScreen(): React.ReactElement {
             </KeyboardAvoidingView>
           </SurveySection>
 
-          {/* ── Section 6: Season phase (conditional) ── */}
+          {/* ── Section 8: Season phase (conditional on focus) ── */}
           {showSeasonStep && (
             <SurveySection
-              title="Season phase"
-              subtitle="Your competitive phase affects how the engine balances load and recovery."
+              title={SURVEY_CONFIG.season.title}
+              subtitle={SURVEY_CONFIG.season.subtitle}
             >
               <View style={styles.optionGroup}>
-                <OptionButton<SeasonPhase>
-                  label="Off season"
-                  subtitle="Build base fitness and strength"
-                  value="off_season"
-                  selected={seasonPhase === 'off_season'}
-                  onPress={setSeasonPhase}
-                />
-                <OptionButton<SeasonPhase>
-                  label="In season"
-                  subtitle="Maintain fitness without overloading"
-                  value="in_season"
-                  selected={seasonPhase === 'in_season'}
-                  onPress={setSeasonPhase}
-                />
+                {SURVEY_CONFIG.season.options.map((opt) => (
+                  <OptionButton<SeasonPhase>
+                    key={opt.value}
+                    label={opt.label}
+                    subtitle={opt.subtitle}
+                    value={opt.value}
+                    selected={seasonPhase === opt.value}
+                    onPress={setSeasonPhase}
+                  />
+                ))}
               </View>
             </SurveySection>
           )}
@@ -625,7 +771,7 @@ export default function TrainingSurveyScreen(): React.ReactElement {
         {/* ── Save button ── */}
         <Animated.View
           style={[
-            reduceMotion ? undefined : staggerStyle(staggerAnims[6]),
+            reduceMotion ? undefined : staggerStyle(staggerAnims[8]),
             { transform: [{ scale: saveScale }] },
           ]}
         >
@@ -652,7 +798,7 @@ export default function TrainingSurveyScreen(): React.ReactElement {
               <ActivityIndicator color={theme.components.buttonPrimaryText} />
             ) : (
               <Text style={[styles.saveButtonText, { color: theme.components.buttonPrimaryText }]}>
-                Save Training Profile
+                {SURVEY_CONFIG.screen.saveLabel}
               </Text>
             )}
           </TouchableOpacity>

@@ -498,3 +498,83 @@ export const SCHEMA_V3_STATEMENTS: MigrationStatement[] = [
 export const SCHEMA_V4_STATEMENTS: MigrationStatement[] = [
   { type: 'alter_add_column', table: 'workouts', column: 'routine_name', definition: 'TEXT' },
 ];
+
+// ---------------------------------------------------------------------------
+// v5 statements — device-local key/value settings + workout query indexes.
+//
+// `app_settings` is a tiny on-device KV store for per-install configuration that
+// is NOT user data and must NEVER sync (it is deliberately excluded from the
+// backup registry / BACKUP_TABLES). First consumer: the rest-timer default
+// (see mobile/src/data/appSettings.ts). One row per key.
+//
+// Plus two covering indexes on the local `workouts` table:
+//   • idx_workouts_session_type — the history/streak reads filter by
+//     session_type ('workout' vs 'rest_day' etc.).
+//   • idx_workouts_created_at   — Recent Activity / history order by created_at.
+// Both CREATE INDEX IF NOT EXISTS, so they are idempotent and need no ALTER
+// guard. Added 2026-06-17.
+export const CREATE_APP_SETTINGS = `
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT,
+  updated_at TEXT
+)`;
+
+export const CREATE_WORKOUTS_SESSION_TYPE_IDX = `
+CREATE INDEX IF NOT EXISTS idx_workouts_session_type ON workouts(session_type)`;
+
+export const CREATE_WORKOUTS_CREATED_AT_IDX = `
+CREATE INDEX IF NOT EXISTS idx_workouts_created_at ON workouts(created_at)`;
+
+export const SCHEMA_V5_STATEMENTS: MigrationStatement[] = [
+  CREATE_APP_SETTINGS,
+  CREATE_WORKOUTS_SESSION_TYPE_IDX,
+  CREATE_WORKOUTS_CREATED_AT_IDX,
+];
+
+// ---------------------------------------------------------------------------
+// v6 statements — rich cardio/sport metrics + a persistable on-device username.
+//
+// (a) sets.metrics_json TEXT (nullable): a JSON blob for cardio/sport metrics
+//     that don't fit the fixed lift/cardio columns (avg/max HR, calories,
+//     cadence, elevation gain, RPE, per-unit splits, and an open `extras` bag).
+//     Read/written via mobile/src/data/cardioMetrics.ts (JSON.stringify/parse,
+//     best-effort). On-device storage for ALL tiers in this wave — server sync
+//     of metrics_json is a later Phase-6 server task, so there is intentionally
+//     no server `sets.metrics_json` column yet.
+//
+// (b) user_profile.display_name TEXT (nullable): so FREE (local-first) users can
+//     persist an edited username on-device. Free users make no personal REST
+//     call, so there is nowhere else for an edited name to live; the server
+//     `users.display_name` (db/schema.sql) is the Pro-path equivalent.
+//
+// Both are guarded ALTERs (same idempotency pattern as v3/v4): SQLite has no
+// "ADD COLUMN IF NOT EXISTS", so the migration runner checks pragma_table_info
+// before executing each. Added 2026-06-17.
+export const SCHEMA_V6_STATEMENTS: MigrationStatement[] = [
+  { type: 'alter_add_column', table: 'sets', column: 'metrics_json', definition: 'TEXT' },
+  { type: 'alter_add_column', table: 'user_profile', column: 'display_name', definition: 'TEXT' },
+];
+
+// ---------------------------------------------------------------------------
+// v7 statements — Pro-upgrade migration ledger (idempotency / resume).
+//
+// migration_state maps each local row uploaded to the server (or permanently
+// skipped) during the Free→Pro migration to its server-assigned id, keyed by
+// (entity, local_id). It lets mobile/src/data/migrateToPro.ts run idempotently
+// and resume safely after a partial failure — a re-run never re-POSTs an
+// already-handled row. Device-local bookkeeping only: like `outbox` /
+// `migration_snapshots` it is intentionally NOT in BACKUP_TABLES.
+// Added 2026-06-17 (Phase 6).
+export const CREATE_MIGRATION_STATE = `
+CREATE TABLE IF NOT EXISTS migration_state (
+  entity      TEXT NOT NULL,
+  local_id    TEXT NOT NULL,
+  server_id   TEXT,
+  status      TEXT NOT NULL DEFAULT 'done',
+  reason      TEXT,
+  uploaded_at TEXT NOT NULL,
+  PRIMARY KEY (entity, local_id)
+)`;
+
+export const SCHEMA_V7_STATEMENTS: MigrationStatement[] = [CREATE_MIGRATION_STATE];

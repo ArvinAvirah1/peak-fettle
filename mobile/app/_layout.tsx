@@ -39,9 +39,11 @@ import { PowerSyncProvider } from '../src/context/PowerSyncContext';
 import { useAuth } from '../src/hooks/useAuth';
 import { ThemeProvider, useTheme, ThemeName } from '../src/theme/ThemeContext';
 import { patchProfile } from '../src/api/user';
+import * as SecureStore from 'expo-secure-store';
 import { registerForPushNotificationsAsync } from '../src/services/pushNotifications';
 import { TourProvider } from '../src/components/tour/WelcomeTour'; // TICKET-095
 import { startWidgetBridge } from '../src/services/widgetBridge'; // WIDGET-001
+import { localDb } from '../src/db/localDb'; // warm on-device SQLite once at root
 
 // ---------------------------------------------------------------------------
 // Root-level Error Boundary (2026-05-28)
@@ -150,6 +152,21 @@ function RootNavigator(): React.ReactElement {
     return () => task.cancel();
   }, [isLoading]);
 
+  // Warm the on-device SQLite database ONCE at the app root so no individual tab
+  // pays the cold open/migrate cost on its first focus (the Routines/Home lists
+  // would otherwise stall on init the first time they mount). Fire-and-forget:
+  // localDb.init() is idempotent and shares a single init promise, so later
+  // callers just await the already-resolved warm-up. Deferred off the boot frame
+  // for the same iOS 26 TurboModule reason as the effects above; runs once on
+  // mount (empty deps) and is auth-agnostic — local data exists for every tier.
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      localDb.init().catch(() => {});
+    });
+    return () => task.cancel();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   if (isLoading) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.colors.bgPrimary }]}>
@@ -221,7 +238,18 @@ export default function RootLayout(): React.ReactElement {
       <BootErrorBoundary>
         <ThemeProvider
           onThemeChange={async (newTheme: ThemeName) => {
-            await patchProfile({ theme_preference: newTheme }).catch(() => {});
+            // Local-first: ThemeProvider already persists the choice to AsyncStorage.
+            // Only SYNC to the server for confirmed Pro users — free/local-first users
+            // must make NO personal REST call. This provider sits above AuthProvider,
+            // so we read the cached profile (written by AuthContext) to get the tier.
+            try {
+              const cached = await SecureStore.getItemAsync('peak_fettle_user_profile');
+              if (cached && JSON.parse(cached)?.is_paid) {
+                await patchProfile({ theme_preference: newTheme }).catch(() => {});
+              }
+            } catch {
+              // unreadable / web / free → no server sync (local-first)
+            }
           }}
         >
           <AuthProvider>

@@ -36,8 +36,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '../../src/components/Icon';
+import MuscleMap from '../../src/components/MuscleMap';
+import { muscleGroupsForRoutine } from '../../src/data/muscleRegions';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { fontFamily, fontSize, spacing, radius, stepperPalette } from '../../src/theme/tokens';
 import { useAuth } from '../../src/hooks/useAuth';
@@ -119,6 +121,15 @@ function templateCounts(tpl: WorkoutTemplate): { days: number; exercises: number
   return { days, exercises };
 }
 
+// ── Module-level cache ─────────────────────────────────────────────────────────
+// Seeded from the previous load so re-entering the tab paints the real list
+// instantly instead of an empty/loading shell. The SELECT is local-first SQLite
+// (free) and resolves in a few ms, but even that flashes on a fast re-focus; the
+// cache removes the flash. Persists for the app session (module scope), survives
+// unmount/remount of the screen, and is updated on every successful load.
+let cachedRoutines: Routine[] = [];
+let cachedLastPerformed: Map<string, string> = new Map();
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export default function RoutinesPage(): React.ReactElement {
@@ -136,10 +147,11 @@ export default function RoutinesPage(): React.ReactElement {
   const [schedule, setSchedule] = useState<Schedule | null>(null);
 
   // ── State ─────────────────────────────────────────────────────────────────
-  const [routines, setRoutines] = useState<Routine[]>([]);
-  const [templates, setTemplates] = useState<WorkoutTemplate[]>([]);
-  const [lastPerformed, setLastPerformed] = useState<Map<string, string>>(new Map());
-  const [loading, setLoading] = useState(true);
+  // Seed from the module cache so re-entry paints the real list immediately —
+  // the page shell + section headers always render (no full-screen spinner gate).
+  const [routines, setRoutines] = useState<Routine[]>(cachedRoutines);
+  const [templates, setTemplates] = useState<WorkoutTemplate[]>(getStarterSplits());
+  const [lastPerformed, setLastPerformed] = useState<Map<string, string>>(cachedLastPerformed);
   const [sheetMode, setSheetMode] = useState<SheetMode>(null);
   const [nameInput, setNameInput] = useState('');
   const [saving, setSaving] = useState(false);
@@ -165,18 +177,30 @@ export default function RoutinesPage(): React.ReactElement {
       // on-device (getStarterSplits), so the page no longer blocks on a cold
       // GET /templates round-trip (the #1 startup-lag complaint).
       const r = await listRoutines(user);
+      cachedRoutines = r; // refresh the module cache for instant re-entry
       setRoutines(r);
       setTemplates(getStarterSplits());
       // Best-effort last-performed (option 5) — never blocks the list render.
-      getLastPerformedMap(user, r).then(setLastPerformed).catch(() => {});
+      getLastPerformedMap(user, r)
+        .then((m) => {
+          cachedLastPerformed = m;
+          setLastPerformed(m);
+        })
+        .catch(() => {});
     } catch {
-      // silently fail; user sees empty list
-    } finally {
-      setLoading(false);
+      // silently fail; user keeps whatever the cache last showed (or empty)
     }
   }, [user]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  // Refresh on every focus (not just first mount). useFocusEffect re-runs each
+  // time the tab regains focus, so the list self-heals the intermittent blank
+  // (e.g. when a routine was created/edited on another screen) without ever
+  // blocking the shell — cached data stays on screen while loadData resolves.
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData]),
+  );
 
   // TICKET-097: load the on-device schedule (+ reload after editing).
   const reloadSchedule = useCallback(async () => {
@@ -501,16 +525,11 @@ export default function RoutinesPage(): React.ReactElement {
           </TouchableOpacity>
         </View>
 
-        {loading ? (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={c.accentDefault} />
-          </View>
-        ) : (
-          <ScrollView
-            style={styles.scroll}
-            contentContainerStyle={styles.scrollContent}
-            showsVerticalScrollIndicator={false}
-          >
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
             {/* ── TICKET-097: Schedule / Next up (scheduling lives here now) ─ */}
             <View style={[styles.nextUpCard, { backgroundColor: c.bgSecondary, borderColor: c.borderDefault }]}>
               {nextUp ? (
@@ -633,6 +652,18 @@ export default function RoutinesPage(): React.ReactElement {
                             </Text>
                           </TouchableOpacity>
                         )}
+                        {/* P2: compact muscle map (right of the name). Non-interactive so
+                            it never intercepts the name tap; shown only when the routine
+                            has exercises to highlight. */}
+                        {routine.exercises.length > 0 ? (
+                          <View pointerEvents="none" style={styles.routineMap}>
+                            <MuscleMap
+                              groups={muscleGroupsForRoutine(routine.exercises)}
+                              size={36}
+                              view="front"
+                            />
+                          </View>
+                        ) : null}
                       </View>
 
                       {/* Meta badges: exercise count · last performed */}
@@ -785,7 +816,6 @@ export default function RoutinesPage(): React.ReactElement {
               })
             )}
           </ScrollView>
-        )}
 
         {/* ── Toast (option 6) ─────────────────────────────────────────────── */}
         {toast ? (
@@ -904,7 +934,6 @@ const styles = StyleSheet.create({
     fontFamily: fontFamily.bold,
     fontSize: fontSize.bodySm,
   },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   scroll: { flex: 1 },
   scrollContent: { padding: spacing.s4, paddingBottom: spacing.s16 },
 
@@ -1031,6 +1060,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.s2,
   },
   routineNameWrap: { flex: 1 },
+  routineMap: { marginLeft: spacing.s2 },
   routineName: {
     fontFamily: fontFamily.bold,
     fontSize: fontSize.bodyMd,

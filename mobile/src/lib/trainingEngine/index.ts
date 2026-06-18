@@ -16,8 +16,19 @@ import { sequence } from './sequence';
 import { exerciseFill } from './exerciseFill';
 import { loading } from './loading';
 import { buildReasoning, applyCoachingNotes } from './reasoning';
+import { ENGINE_EXERCISE_CATALOG } from './exerciseCatalog';
 import type { Exercise, HistoryRow, PBRow, ConstraintRow } from './exerciseFill';
 import type { WeekOutput } from './loading';
+
+// Re-export the on-device catalogue so callers (e.g. the Plans screen) can build
+// a ctx without reaching into a sub-module, and can fall back to it when they
+// have no server exercise list.
+export { ENGINE_EXERCISE_CATALOG, getEngineExerciseCatalog } from './exerciseCatalog';
+
+// Re-export the local-first ctx builder so the Plans screen can generate a plan
+// from on-device data without importing a sub-module directly.
+export { buildLocalPlanContext } from './localContext';
+export type { LocalProfileInput } from './localContext';
 
 // ---------------------------------------------------------------------------
 // Defaults when survey fields are NULL (per spec §3)

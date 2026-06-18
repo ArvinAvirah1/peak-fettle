@@ -59,6 +59,7 @@ import { fetchDataExport, deleteAccount } from '../../src/api/user';
 import { isLocalFirst } from '../../src/data/backup/tierPolicy';
 import { localDb, genId } from '../../src/db/localDb';
 import { saveProfile } from '../../src/data/profile';
+import { BACKUP_TABLES } from '../../src/data/backup/exportEngine';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { ThemeSelectorModal } from '../../src/components/ThemeSelector';
 import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
@@ -70,6 +71,10 @@ import PeakAvatar from '../../src/components/avatar/PeakAvatar'; // TICKET-096
 import AvatarCustomizer from '../../src/components/avatar/AvatarCustomizer';
 import { loadAvatar, saveAvatar } from '../../src/data/avatar';
 import { AvatarConfig } from '../../src/components/avatar/peakAvatarOptions';
+import {
+  getRestTimerDefaultSec,
+  setRestTimerDefaultSec,
+} from '../../src/data/appSettings';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -106,8 +111,124 @@ function SectionHeader({ label }: { label: string }): React.ReactElement {
 // ---------------------------------------------------------------------------
 
 function UserInfoCard({ avatar, onEditAvatar }: { avatar: AvatarConfig | null; onEditAvatar: () => void }): React.ReactElement {
-  const { user } = useAuth();
+  const { user, updateUser, upgradeToPro, downgradeToFree } = useAuth();
   const { theme } = useTheme();
+
+  const isPro = !!user?.is_paid;
+
+  // P3a: inline display-name editor. Tap the pencil to edit; Save persists via
+  // the tier-branched saveProfile (free → on-device user_profile.display_name,
+  // Pro → best-effort PATCH). An inline editor (not a Modal) keeps this a single
+  // tap and sidesteps the in-Modal safe-area inset caveat entirely.
+  const [editingName, setEditingName] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
+  const [savingName, setSavingName] = useState(false);
+
+  const beginEditName = useCallback(() => {
+    setNameDraft(user?.display_name ?? '');
+    setEditingName(true);
+  }, [user?.display_name]);
+
+  const cancelEditName = useCallback(() => {
+    setEditingName(false);
+    setNameDraft('');
+  }, []);
+
+  const saveName = useCallback(async () => {
+    const trimmed = nameDraft.trim();
+    // No-op on an empty or unchanged value — just close the editor.
+    if (trimmed.length === 0 || trimmed === (user?.display_name ?? '')) {
+      cancelEditName();
+      return;
+    }
+    setSavingName(true);
+    try {
+      await saveProfile(user, { display_name: trimmed }, updateUser);
+      setEditingName(false);
+      setNameDraft('');
+    } catch (err) {
+      // Surface a real failure (D-3) — never silently swallow the write.
+      Alert.alert(
+        'Could not save name',
+        err instanceof Error ? err.message : 'Could not save your display name'
+      );
+    } finally {
+      setSavingName(false);
+    }
+  }, [nameDraft, user, updateUser, cancelEditName]);
+
+  // ── Pro toggle ───────────────────────────────────────────────────────────
+  // "Pro for now": NO real payment flow (founder decision). Enabling Pro just
+  // runs the Free→Pro data migration (auth.upgradeToPro uploads the on-device
+  // SQLite rows to the server, then flips is_paid LAST so a partial failure
+  // leaves the user safely still-free). Disabling reverts to local-first.
+  const [isUpgrading, setIsUpgrading] = useState(false);
+  const [upgradeProgress, setUpgradeProgress] = useState<{ done: number; total: number } | null>(null);
+
+  const handleUpgrade = useCallback(async () => {
+    if (isUpgrading || isPro) return;
+    haptics.medium();
+    setIsUpgrading(true);
+    setUpgradeProgress({ done: 0, total: 0 });
+    try {
+      const outcome = await upgradeToPro((done, total) => {
+        setUpgradeProgress({ done, total });
+      });
+      // Success — upgradeToPro has already flipped is_paid in-session, so the UI
+      // reflects Pro automatically. Surface the migration tally so the user knows
+      // what synced. (revert-on-failure is handled in catch; nothing to undo here.)
+      haptics.success();
+      const parts = [`${outcome.uploaded} item${outcome.uploaded === 1 ? '' : 's'} backed up to the cloud.`];
+      if (outcome.skipped > 0) {
+        parts.push(`${outcome.skipped} item${outcome.skipped === 1 ? '' : 's'} stayed on this device (no online match).`);
+      }
+      Alert.alert("You're Pro now", parts.join('\n\n'));
+    } catch (err) {
+      // Transient (network/5xx) failure. upgradeToPro flips is_paid LAST, so the
+      // user is still Free and the local data is untouched — the UI reverts on
+      // its own (is_paid never changed). Offer a resume (the upload is resumable
+      // + idempotent via the migration ledger, so re-running finishes the rest).
+      haptics.error();
+      Alert.alert(
+        'Upgrade incomplete',
+        (err instanceof Error ? err.message : 'Could not back up your data to the cloud.') +
+          '\n\nYour data is safe on this device. You can try again.',
+        [
+          { text: 'Not now', style: 'cancel' },
+          { text: 'Try again', onPress: () => { void handleUpgrade(); } },
+        ]
+      );
+    } finally {
+      setIsUpgrading(false);
+      setUpgradeProgress(null);
+    }
+  }, [isUpgrading, isPro, upgradeToPro]);
+
+  const handleDowngrade = useCallback(() => {
+    if (isUpgrading || !isPro) return;
+    Alert.alert(
+      'Switch to Free?',
+      'Your data stays in the cloud, but Free mode stores everything on this device and stops syncing across your devices. You can switch back to Pro anytime.',
+      [
+        { text: 'Stay on Pro', style: 'cancel' },
+        {
+          text: 'Switch to Free',
+          style: 'destructive',
+          onPress: async () => {
+            haptics.warning();
+            try {
+              await downgradeToFree();
+            } catch (err) {
+              Alert.alert(
+                'Could not switch to Free',
+                err instanceof Error ? err.message : 'Please try again.'
+              );
+            }
+          },
+        },
+      ]
+    );
+  }, [isUpgrading, isPro, downgradeToFree]);
 
   return (
     <View style={[
@@ -126,25 +247,129 @@ function UserInfoCard({ avatar, onEditAvatar }: { avatar: AvatarConfig | null; o
           <Ionicons name="pencil" size={11} color={theme.components.buttonPrimaryText} />
         </View>
       </Pressable>
-      {user?.display_name ? (
-        <Text style={[styles.displayName, { color: theme.colors.textPrimary }]}>{user.display_name}</Text>
-      ) : null}
+
+      {/* P3a: editable display name */}
+      {editingName ? (
+        <View style={styles.nameEditRow}>
+          <View style={styles.nameEditInput}>
+            <PFInput
+              value={nameDraft}
+              onChangeText={setNameDraft}
+              placeholder="Your name"
+              autoFocus
+              maxLength={40}
+              autoCapitalize="words"
+              returnKeyType="done"
+              onSubmitEditing={saveName}
+              editable={!savingName}
+              accessibilityLabel="Edit display name"
+            />
+          </View>
+          <TouchableOpacity
+            onPress={saveName}
+            disabled={savingName}
+            style={[styles.nameEditBtn, { backgroundColor: theme.colors.accentDefault }]}
+            accessibilityRole="button"
+            accessibilityLabel="Save name"
+          >
+            {savingName ? (
+              <ActivityIndicator size="small" color={theme.components.buttonPrimaryText} />
+            ) : (
+              <Ionicons name="checkmark" size={18} color={theme.components.buttonPrimaryText} />
+            )}
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={cancelEditName}
+            disabled={savingName}
+            style={[styles.nameEditBtn, { borderColor: theme.colors.borderDefault, borderWidth: 1 }]}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel editing name"
+          >
+            <Ionicons name="close" size={18} color={theme.colors.textTertiary} />
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <TouchableOpacity
+          onPress={beginEditName}
+          style={styles.nameDisplayRow}
+          accessibilityRole="button"
+          accessibilityLabel={user?.display_name ? `Edit name, currently ${user.display_name}` : 'Add your name'}
+        >
+          <Text style={[styles.displayName, { color: user?.display_name ? theme.colors.textPrimary : theme.colors.textTertiary }]}>
+            {user?.display_name || 'Add your name'}
+          </Text>
+          <Ionicons name="pencil" size={14} color={theme.colors.textTertiary} style={styles.nameEditPencil} />
+        </TouchableOpacity>
+      )}
+
       <Text style={[styles.email, { color: theme.colors.textSecondary }]}>{user?.email ?? '—'}</Text>
+
+      {/* Tier badge */}
       <View style={[
         styles.tierBadge,
-        user?.is_paid
+        isPro
           ? { backgroundColor: theme.colors.accentSecondary }
-          : { backgroundColor: theme.colors.bgSecondary },
+          : { backgroundColor: theme.colors.bgPrimary, borderWidth: 1, borderColor: theme.colors.borderDefault },
       ]}>
         <Text style={[
           styles.tierText,
-          user?.is_paid
+          isPro
             ? { color: theme.colors.accentHover }
             : { color: theme.colors.textTertiary },
         ]}>
-          {user?.is_paid ? '⭐ Pro' : 'Free tier'}
+          {isPro ? '⭐ Pro' : 'Free'}
         </Text>
       </View>
+
+      {/* Phase 6 — Pro toggle. Tier-aware storage copy + an upgrade/downgrade
+          action. "Pro for now" — there is intentionally NO payment flow. */}
+      <Text style={[styles.tierStorageCopy, { color: theme.colors.textTertiary }]}>
+        {isPro
+          ? 'Synced across your devices'
+          : 'Stored on this device'}
+      </Text>
+
+      {isUpgrading ? (
+        <View
+          style={styles.tierUpgradingBox}
+          accessibilityRole="progressbar"
+          accessibilityLabel="Backing up your data to the cloud"
+        >
+          <ActivityIndicator color={theme.colors.accentDefault} />
+          <Text style={[styles.tierUpgradingText, { color: theme.colors.textSecondary }]}>
+            Backing up your data to the cloud…
+          </Text>
+          {upgradeProgress && upgradeProgress.total > 0 ? (
+            <Text style={[styles.tierUpgradingMeta, { color: theme.colors.textTertiary }]}>
+              {Math.min(upgradeProgress.done, upgradeProgress.total)} / {upgradeProgress.total}
+            </Text>
+          ) : null}
+        </View>
+      ) : isPro ? (
+        <TouchableOpacity
+          onPress={handleDowngrade}
+          style={[styles.tierActionGhost, { borderColor: theme.colors.borderDefault }]}
+          accessibilityRole="button"
+          accessibilityLabel="Switch to the Free plan"
+        >
+          <Text style={[styles.tierActionGhostText, { color: theme.colors.textSecondary }]}>
+            Switch to Free
+          </Text>
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity
+          onPress={handleUpgrade}
+          style={[styles.tierActionPrimary, { backgroundColor: theme.colors.accentDefault }]}
+          accessibilityRole="button"
+          accessibilityLabel="Upgrade to Pro and sync across your devices"
+        >
+          <Ionicons name="cloud-upload-outline" size={16} color={theme.components.buttonPrimaryText} />
+          <Text style={[styles.tierActionPrimaryText, { color: theme.components.buttonPrimaryText }]}>
+            Upgrade to Pro
+          </Text>
+        </TouchableOpacity>
+      )}
+
       {user?.experience_level ? (
         <Text style={[styles.experienceLabel, { color: theme.colors.textTertiary }]}>{user.experience_level}</Text>
       ) : null}
@@ -426,6 +651,14 @@ export default function ProfileScreen(): React.ReactElement {
   );
   const [isUpdating1rm, setIsUpdating1rm] = useState(false);
 
+  // Default rest timer setting (seconds)
+  const REST_TIMER_PRESETS = [60, 90, 120, 150, 180, 240] as const;
+  const [restTimerDefault, setRestTimerDefault] = useState<number>(120);
+  const [isUpdatingRestTimer, setIsUpdatingRestTimer] = useState(false);
+  useEffect(() => {
+    getRestTimerDefaultSec().then(setRestTimerDefault).catch(() => {});
+  }, []);
+
   // Notification preferences
   const [streakNotifEnabled, setStreakNotifEnabled] = useState(
     user?.streak_notifications_enabled !== false // default true
@@ -580,6 +813,29 @@ export default function ProfileScreen(): React.ReactElement {
     [user, updateUser]
   );
 
+  // ── B4. Default rest timer ───────────────────────────────────────────────
+
+  const handleRestTimerPreset = useCallback(
+    async (sec: number) => {
+      const prev = restTimerDefault;
+      if (sec === prev) return;
+      setRestTimerDefault(sec); // optimistic
+      setIsUpdatingRestTimer(true);
+      try {
+        await setRestTimerDefaultSec(sec);
+      } catch (err) {
+        setRestTimerDefault(prev);
+        Alert.alert(
+          'Could not save preference',
+          err instanceof Error ? err.message : 'Could not save rest timer setting'
+        );
+      } finally {
+        setIsUpdatingRestTimer(false);
+      }
+    },
+    [restTimerDefault]
+  );
+
   // ── C. Constraints ───────────────────────────────────────────────────────
 
   const handleAddConstraint = useCallback(
@@ -715,7 +971,22 @@ export default function ProfileScreen(): React.ReactElement {
                   onPress: async () => {
                     setIsDeletingAccount(true);
                     try {
-                      await deleteAccount('DELETE MY ACCOUNT');
+                      if (isLocalFirst(user)) {
+                        // Free / local-first: there is NO server account to delete.
+                        // Wipe all on-device personal data, then sign out — never a REST call.
+                        try {
+                          await localDb.init();
+                          for (const t of BACKUP_TABLES) {
+                            await localDb
+                              .execute(`DELETE FROM ${t}`, [], { tables: [t] })
+                              .catch(() => {});
+                          }
+                        } catch {
+                          // best-effort wipe — still sign the user out below
+                        }
+                      } else {
+                        await deleteAccount('DELETE MY ACCOUNT');
+                      }
                       // logout() clears auth state and redirects to login
                       await logout();
                     } catch (err) {
@@ -733,7 +1004,7 @@ export default function ProfileScreen(): React.ReactElement {
         },
       ]
     );
-  }, [logout]);
+  }, [logout, user]);
 
   // ── E. Sign out ──────────────────────────────────────────────────────────
 
@@ -803,6 +1074,57 @@ export default function ProfileScreen(): React.ReactElement {
                 thumbColor={use1rmConfirmation ? theme.colors.accentDefault : theme.colors.textTertiary}
                 accessibilityLabel="Confirm estimated maxes"
               />
+            )}
+          </View>
+
+          {/* Default rest timer preset row */}
+          <View style={[
+            styles.settingRow,
+            styles.settingRowTop,
+            styles.restTimerRow,
+            { borderTopColor: theme.colors.borderDefault },
+          ]}>
+            <View style={styles.settingLabelGroup}>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Default rest timer</Text>
+              <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
+                {restTimerDefault}s between sets
+              </Text>
+            </View>
+            {isUpdatingRestTimer ? (
+              <ActivityIndicator color={theme.colors.accentDefault} style={styles.toggleSpinner} />
+            ) : (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.restTimerPresetsContent}
+                style={styles.restTimerPresets}
+              >
+                {REST_TIMER_PRESETS.map((sec) => {
+                  const selected = restTimerDefault === sec;
+                  return (
+                    <TouchableOpacity
+                      key={sec}
+                      style={[
+                        styles.restTimerChip,
+                        { borderColor: theme.colors.borderDefault },
+                        selected && { backgroundColor: theme.colors.accentDefault, borderColor: theme.colors.accentDefault },
+                      ]}
+                      onPress={() => handleRestTimerPreset(sec)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Set rest timer to ${sec} seconds`}
+                      accessibilityState={{ selected }}
+                    >
+                      <Text style={[
+                        styles.restTimerChipText,
+                        { color: theme.colors.textTertiary },
+                        selected && { color: theme.components.buttonPrimaryText },
+                      ]}>
+                        {(sec % 60 === 0) ? `${sec / 60}m` : `${sec}s`}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
             )}
           </View>
         </View>
@@ -1271,6 +1593,32 @@ const styles = StyleSheet.create({
     fontSize: fontSize.heading3,  // E-003: was 20
     fontWeight: fontWeight.bold,  // E-003: was '700'
   },
+  // P3a: display-name display + inline edit affordances
+  nameDisplayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s2,
+    minHeight: 32,
+  },
+  nameEditPencil: {
+    opacity: 0.8,
+  },
+  nameEditRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s2,
+    alignSelf: 'stretch',
+  },
+  nameEditInput: {
+    flex: 1,
+  },
+  nameEditBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.sm,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   email: {
     fontSize: fontSize.bodySm,  // E-003: was 14
   },
@@ -1287,6 +1635,56 @@ const styles = StyleSheet.create({
   experienceLabel: {
     fontSize: fontSize.bodySm,  // E-003: was 13
     textTransform: 'capitalize',
+  },
+
+  // Tier / Pro toggle (Phase 6)
+  tierStorageCopy: {
+    fontSize: fontSize.caption,
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  tierActionPrimary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.s2,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.s4,
+    paddingVertical: 10,
+    marginTop: spacing.s2,
+    minHeight: 44,
+  },
+  tierActionPrimaryText: {
+    fontSize: fontSize.bodySm,
+    fontWeight: fontWeight.semibold,
+  },
+  tierActionGhost: {
+    borderRadius: radius.full,
+    borderWidth: 1,
+    paddingHorizontal: spacing.s4,
+    paddingVertical: 10,
+    marginTop: spacing.s2,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tierActionGhostText: {
+    fontSize: fontSize.bodySm,
+    fontWeight: fontWeight.medium,
+  },
+  tierUpgradingBox: {
+    alignItems: 'center',
+    gap: 6,
+    marginTop: spacing.s2,
+    paddingVertical: spacing.s2,
+  },
+  tierUpgradingText: {
+    fontSize: fontSize.bodySm,
+    fontWeight: fontWeight.medium,
+    textAlign: 'center',
+  },
+  tierUpgradingMeta: {
+    fontSize: fontSize.caption,
   },
 
   // Settings card
@@ -1310,6 +1708,35 @@ const styles = StyleSheet.create({
   },
   toggleSpinner: {
     marginLeft: 10,
+  },
+  restTimerRow: {
+    flexWrap: 'wrap',
+    minHeight: 72,
+    alignItems: 'flex-start',
+    paddingTop: spacing.s4,
+    paddingBottom: spacing.s3,
+  },
+  restTimerPresets: {
+    // flex-shrink so it doesn't overflow when the label is wide
+    flexShrink: 1,
+  },
+  restTimerPresetsContent: {
+    gap: 6,
+    paddingVertical: 2,
+    alignItems: 'center',
+  },
+  restTimerChip: {
+    borderWidth: 1,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.s3,
+    paddingVertical: 7,
+    minWidth: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  restTimerChipText: {
+    fontSize: fontSize.bodySm,
+    fontWeight: fontWeight.semibold,
   },
   settingRowDestructive: {
     // No extra border needed — last row in the card

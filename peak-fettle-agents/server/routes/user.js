@@ -789,4 +789,89 @@ router.get('/profile', async (req, res, next) => {
     } catch (err) { next(err); }
 });
 
+// ---------------------------------------------------------------------------
+// POST /user/upgrade  — flip the current user to Pro (tier='paid').
+// POST /user/downgrade — flip the current user to Free (tier='free').
+//
+// PHASE-6 (per-user Pro toggle): the canonical tier flag is `users.tier`
+// ('free'|'paid'); there is NO `is_paid` column — it is DERIVED as `(tier =
+// 'paid')` (see requirePaid.js + auth.js USER_PROFILE_SELECT). Both routes set
+// `tier` and RETURN the SAME shape GET /user/profile returns (id, email,
+// display_name, tier, unit_pref, experience_level, + derived is_paid /
+// lifeos_access) so the client can drop the result straight into its `User`.
+//
+// Both are IDEMPOTENT: re-calling on an already-paid / already-free user is a
+// harmless no-op that still returns the current user object. The `updated_at`
+// bump is also handled by the trg_users_updated trigger; we set it explicitly
+// to match scripts/grant-pro.js and stay correct even if the trigger is absent
+// on a drifted DB.
+//
+// Drift tolerance: the RETURNING list uses only core `users` columns that exist
+// in both the canonical schema and GET /user/profile's own SELECT, so a 42703
+// is not expected — but per the PHASE-6 mandate we still catch 42P01/42703 and
+// degrade to a minimal UPDATE + re-SELECT rather than 500. Any other DB error
+// propagates via next(err).
+//
+// upgrade() deliberately does NOT touch `comp_pro` (comps are managed only by
+// scripts/grant-pro.js); downgrade() likewise leaves `comp_pro` as-is and NEVER
+// deletes any server data — Free mode simply stops reading/writing the server
+// (local-first), so all rows are retained for a later re-upgrade.
+// ---------------------------------------------------------------------------
+
+// Columns returned by both tier-toggle routes — mirrors GET /user/profile and
+// the client `User` shape. `is_paid` is derived; never selected as a column.
+const TIER_RETURNING = `id, email, display_name, tier, unit_pref, experience_level,
+                        (tier = 'paid') AS is_paid`;
+
+// Bare fallback used only if the full RETURNING above hits a drifted/missing
+// column (42703) — still enough to drive the client's is_paid/tier flip.
+const TIER_RETURNING_MIN = `id, tier, (tier = 'paid') AS is_paid`;
+
+async function setTier(req, res, next, nextTier) {
+    try {
+        let rows;
+        try {
+            ({ rows } = await pool.query(
+                `UPDATE users SET tier = $2, updated_at = NOW()
+                 WHERE id = $1 AND deleted_at IS NULL
+                 RETURNING ${TIER_RETURNING}`,
+                [req.user.id, nextTier]
+            ));
+        } catch (colErr) {
+            // 42703 undefined_column / 42P01 undefined_table → degrade: perform a
+            // minimal update that cannot reference a drifted optional column.
+            if (colErr && (colErr.code === '42703' || colErr.code === '42P01')) {
+                ({ rows } = await pool.query(
+                    `UPDATE users SET tier = $2
+                     WHERE id = $1 AND deleted_at IS NULL
+                     RETURNING ${TIER_RETURNING_MIN}`,
+                    [req.user.id, nextTier]
+                ));
+            } else {
+                throw colErr;
+            }
+        }
+
+        if (rows.length === 0) {
+            return res.status(404).json({ error: 'user_not_found' });
+        }
+
+        const user = rows[0];
+        res.json({
+            user: {
+                ...user,
+                // Match GET /user/profile exactly so the client can reuse either field.
+                lifeos_access: user.tier === 'paid',
+            },
+        });
+    } catch (err) { next(err); }
+}
+
+// POST /user/upgrade — set tier='paid'. Idempotent. Does NOT touch comp_pro.
+router.post('/upgrade', (req, res, next) => setTier(req, res, next, 'paid'));
+
+// POST /user/downgrade — set tier='free'. Idempotent. KEEPS all server data
+// (no DELETE); Free mode is local-first and simply stops touching the server.
+router.post('/downgrade', (req, res, next) => setTier(req, res, next, 'free'));
+
 module.exports = router;

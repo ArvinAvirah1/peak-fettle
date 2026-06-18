@@ -35,10 +35,11 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useHealthMetrics } from '../src/hooks/useHealthMetrics';
-import { DailyHealthMetric } from '../src/api/healthMetrics';
+import { DailyHealthMetric, CardioSessionMetric } from '../src/api/healthMetrics';
 import { useTheme } from '../src/theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../src/theme/tokens';
 import { ScreenLayout } from '../src/components/ui';
+import { useAuth } from '../src/hooks/useAuth';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -62,6 +63,32 @@ function formatDate(dateStr: string): string {
 function fmt(value: number | null, unit: string, decimals = 0): string {
   if (value === null) return '—';
   return `${value.toFixed(decimals)}${unit}`;
+}
+
+// ── Cardio formatting (P5) ──────────────────────────────────────────────────
+
+/** Seconds → "m:ss" (e.g. 1350 → "22:30"). Long efforts roll into minutes. */
+function formatDuration(sec: number | null): string {
+  if (sec == null || sec <= 0) return '—';
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+/** Metres → distance string in the user's unit (km or mi), 2 dp. */
+function formatDistance(distanceM: number | null, unitPref: 'kg' | 'lbs'): string | null {
+  if (distanceM == null || distanceM <= 0) return null;
+  if (unitPref === 'lbs') return `${(distanceM / 1609.344).toFixed(2)} mi`;
+  return `${(distanceM / 1000).toFixed(2)} km`;
+}
+
+/** Seconds-per-km → "m:ss /km" (or "/mi" for lbs users, converting the rate). */
+function formatPace(paceSecPerKm: number | null, unitPref: 'kg' | 'lbs'): string | null {
+  if (paceSecPerKm == null || paceSecPerKm <= 0) return null;
+  const perUnit = unitPref === 'lbs' ? paceSecPerKm * 1.609344 : paceSecPerKm;
+  const m = Math.floor(perUnit / 60);
+  const s = Math.round(perUnit % 60);
+  return `${m}:${String(s).padStart(2, '0')} /${unitPref === 'lbs' ? 'mi' : 'km'}`;
 }
 
 // Colour coding for HRV and HR (higher HRV = better; lower resting HR = better)
@@ -151,15 +178,81 @@ function DayRow({ metric }: DayRowProps): React.ReactElement {
 }
 
 // ---------------------------------------------------------------------------
+// Cardio row (P5)
+// ---------------------------------------------------------------------------
+
+interface CardioRowProps {
+  session: CardioSessionMetric;
+  unitPref: 'kg' | 'lbs';
+}
+
+function CardioRow({ session, unitPref }: CardioRowProps): React.ReactElement {
+  const { theme } = useTheme();
+  const m = session.metrics;
+
+  // Primary line: duration · distance · pace (only the parts that exist).
+  const dist = formatDistance(session.distance_m, unitPref);
+  const pace = formatPace(session.avg_pace_sec_per_km, unitPref);
+  const primaryParts = [formatDuration(session.duration_sec), dist, pace].filter(Boolean) as string[];
+
+  // Metric pills: each rendered only when the underlying value is present, so a
+  // session logged without "More metrics" shows just the primary line.
+  const pills: { label: string; value: string }[] = [];
+  if (m?.hrAvgBpm != null) pills.push({ label: 'avg HR', value: `${m.hrAvgBpm}` });
+  if (m?.hrMaxBpm != null) pills.push({ label: 'max HR', value: `${m.hrMaxBpm}` });
+  if (m?.calories != null) pills.push({ label: 'kcal', value: `${m.calories}` });
+  if (m?.cadenceSpm != null) pills.push({ label: 'spm', value: `${m.cadenceSpm}` });
+  if (m?.elevationGainM != null) pills.push({ label: 'elev', value: `${Math.round(m.elevationGainM)} m` });
+  if (m?.rpe != null) pills.push({ label: 'RPE', value: `${m.rpe}` });
+  if (m?.splits && m.splits.length > 0) {
+    pills.push({ label: 'splits', value: `${m.splits.length}` });
+  }
+
+  return (
+    <View style={[styles.cardioRow, { borderBottomColor: theme.colors.borderDefault }]}>
+      <View style={styles.cardioRowHeader}>
+        <Text style={[styles.cardioName, { color: theme.colors.textPrimary }]} numberOfLines={1}>
+          {session.exercise_name}
+        </Text>
+        <Text style={[styles.cardioDate, { color: theme.colors.textTertiary }]}>
+          {session.day_key ? formatDate(session.day_key) : ''}
+        </Text>
+      </View>
+      <Text style={[styles.cardioPrimary, { color: theme.colors.textSecondary, fontVariant: ['tabular-nums'] }]}>
+        {primaryParts.length > 0 ? primaryParts.join('  ·  ') : '—'}
+      </Text>
+      {pills.length > 0 ? (
+        <View style={styles.cardioPills}>
+          {pills.map((p) => (
+            <View
+              key={p.label}
+              style={[styles.cardioPill, { backgroundColor: theme.colors.bgPrimary, borderColor: theme.colors.borderDefault }]}
+            >
+              <Text style={[styles.cardioPillValue, { color: theme.colors.textPrimary, fontVariant: ['tabular-nums'] }]}>
+                {p.value}
+              </Text>
+              <Text style={[styles.cardioPillLabel, { color: theme.colors.textTertiary }]}>{p.label}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Screen
 // ---------------------------------------------------------------------------
 
 export default function HealthMetricsScreen(): React.ReactElement {
   const router = useRouter();
   const { theme } = useTheme();
+  const { user } = useAuth();
+  const unitPref: 'kg' | 'lbs' = user?.unit_pref === 'lbs' ? 'lbs' : 'kg';
   const {
     metrics,
     summary,
+    cardioSessions,
     isLoading,
     error,
     refetch,
@@ -351,6 +444,24 @@ export default function HealthMetricsScreen(): React.ReactElement {
             </View>
           )}
         </View>
+
+        {/* ── D. Recent cardio sessions (P5) ──
+            On-device read (sets + cardioMetrics) for ALL tiers — local-first,
+            no REST. Rendered only when at least one cardio set has been logged,
+            so it stays out of the way for lift-only users. */}
+        {cardioSessions.length > 0 ? (
+          <View style={styles.section}>
+            <Text style={[styles.sectionHeader, { color: theme.colors.textTertiary }]}>RECENT CARDIO</Text>
+            <View style={[
+              styles.dayList,
+              { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
+            ]}>
+              {cardioSessions.map((s) => (
+                <CardioRow key={s.id} session={s} unitPref={unitPref} />
+              ))}
+            </View>
+          </View>
+        ) : null}
 
         <View style={styles.bottomPad} />
       </ScrollView>
@@ -598,6 +709,54 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     fontSize: fontSize.bodySm,
+  },
+
+  // Cardio session rows (P5)
+  cardioRow: {
+    paddingHorizontal: spacing.s4,
+    paddingVertical: spacing.s3,
+    borderBottomWidth: 1,
+    gap: 4,
+  },
+  cardioRowHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.s2,
+  },
+  cardioName: {
+    flex: 1,
+    fontSize: fontSize.bodyMd,
+    fontWeight: fontWeight.semibold,
+  },
+  cardioDate: {
+    fontSize: fontSize.caption,
+  },
+  cardioPrimary: {
+    fontSize: fontSize.bodySm,
+    fontWeight: fontWeight.medium,
+  },
+  cardioPills: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 2,
+  },
+  cardioPill: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 3,
+    borderWidth: 1,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.s2,
+    paddingVertical: 2,
+  },
+  cardioPillValue: {
+    fontSize: fontSize.caption,
+    fontWeight: fontWeight.semibold,
+  },
+  cardioPillLabel: {
+    fontSize: fontSize.micro,
   },
 
   bottomPad: { height: 40 },

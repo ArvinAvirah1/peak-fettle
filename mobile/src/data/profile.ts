@@ -30,6 +30,22 @@ import { User } from '../types/api';
 const ROW_ID = 'active';
 
 /**
+ * Profile payload this writer accepts. It is PatchProfilePayload plus the few
+ * fields that have an on-device column but are not (yet) part of the server
+ * PATCH contract — currently just `display_name`.
+ *
+ * `display_name` is editable on the Profile screen (P3a). FREE users persist it
+ * to the on-device `user_profile.display_name` column (added by migration v6);
+ * for PRO users it is forwarded to patchProfile() best-effort — server
+ * `users.display_name` write support is a later Phase-6 task. Keeping the extra
+ * field here (rather than widening PatchProfilePayload) avoids touching the API
+ * module while still letting saveProfile route a username edit by tier.
+ */
+export type ProfilePayload = PatchProfilePayload & {
+  display_name?: string | null;
+};
+
+/**
  * Columns that physically exist on the local `user_profile` table
  * (see CREATE_USER_PROFILE in mobile/src/db/localSchema.ts). Any payload field
  * NOT in this map is still propagated in-session via updateUser(), but has no
@@ -38,6 +54,7 @@ const ROW_ID = 'active';
  * write. `equipment_profile` is stored as a JSON string.
  */
 type LocalColumn =
+  | 'display_name'
   | 'unit_pref'
   | 'theme_preference'
   | 'experience_level'
@@ -58,7 +75,7 @@ type LocalColumn =
  * still updates the in-session user.
  */
 function localColumnsFor(
-  payload: PatchProfilePayload
+  payload: ProfilePayload
 ): { columns: LocalColumn[]; values: unknown[] } | null {
   const columns: LocalColumn[] = [];
   const values: unknown[] = [];
@@ -68,6 +85,7 @@ function localColumnsFor(
     values.push(value);
   };
 
+  if (payload.display_name !== undefined) put('display_name', payload.display_name);
   if (payload.unit_pref !== undefined) put('unit_pref', payload.unit_pref);
   if (payload.theme_preference !== undefined) put('theme_preference', payload.theme_preference);
   if (payload.experience_level !== undefined) put('experience_level', payload.experience_level);
@@ -92,7 +110,7 @@ function localColumnsFor(
  * table (id='active'). Uses INSERT … ON CONFLICT so it works whether or not the
  * row already exists (the row is not auto-seeded by the migrations).
  */
-async function writeLocalProfile(payload: PatchProfilePayload): Promise<void> {
+async function writeLocalProfile(payload: ProfilePayload): Promise<void> {
   const mapped = localColumnsFor(payload);
   if (!mapped) return; // nothing local to persist (e.g. notification toggle)
 
@@ -125,7 +143,7 @@ async function writeLocalProfile(payload: PatchProfilePayload): Promise<void> {
  * extended (any-cast) user shape the survey screens read, so they're forwarded
  * verbatim.
  */
-function userPatchFor(payload: PatchProfilePayload): Partial<User> {
+function userPatchFor(payload: ProfilePayload): Partial<User> {
   // PatchProfilePayload is a structural superset of the User fields we touch.
   // Forwarding the whole payload keeps in-memory state in lockstep with what was
   // requested (the survey/onboarding screens read training_* off `user as any`).
@@ -146,7 +164,7 @@ function userPatchFor(payload: PatchProfilePayload): Partial<User> {
  */
 export async function saveProfile(
   user: User | null | undefined,
-  payload: PatchProfilePayload,
+  payload: ProfilePayload,
   updateUser?: (patch: Partial<User>) => void
 ): Promise<void> {
   if (isLocalFirst(user)) {
@@ -154,7 +172,13 @@ export async function saveProfile(
     await writeLocalProfile(payload);
   } else {
     // Pro: server is the source of truth (live multi-device sync).
-    await patchProfile(payload);
+    // NOTE: `payload` may carry `display_name` (P3a), which is not yet part of
+    // the server PATCH /user/profile contract. It is forwarded best-effort — the
+    // server ignores unknown fields today.
+    // TODO(Phase-6): add server-side `users.display_name` write support so a Pro
+    // username edit persists + syncs across devices; until then it survives only
+    // in-session via updateUser() below.
+    await patchProfile(payload as PatchProfilePayload);
   }
 
   // Both branches: reflect the change in the in-memory user immediately.

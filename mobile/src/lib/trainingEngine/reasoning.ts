@@ -154,9 +154,13 @@ function pickCoachingNote(
   ctx: CtxForReasoning,
   slotIndex: number
 ): string {
-  const bank = coachingNoteBank[slot.pattern] || coachingNoteBank['_default'];
-  const fn = bank[slotIndex % bank.length];
-  return fn(slot, ctx);
+  const bank =
+    coachingNoteBank[slot?.pattern] ||
+    coachingNoteBank['_default'] ||
+    [];
+  if (bank.length === 0) return '';
+  const fn = bank[((slotIndex % bank.length) + bank.length) % bank.length];
+  return fn ? fn(slot, ctx) : '';
 }
 
 // ---------------------------------------------------------------------------

@@ -1,15 +1,29 @@
 /**
- * peakAvatarOptions — TICKET-096 Phase 2 (art direction: "Peak Pals", founder pick 2026-06-06)
+ * peakAvatarOptions — TICKET-096 Phase 2 + cosmetic-unlock expansion
  *
  * The parametric option catalog for the customizable cartoon avatar. Every
  * feature category from the ticket is represented with a generous option count:
  * face/head, skin, hair, hair color, facial hair, eyes, brows, mouth, glasses,
- * headwear, background.
+ * headwear, outfits/tops, accessories (headband, wristbands), background/accent themes.
+ *
+ * BACKWARD COMPATIBILITY: AvatarConfig v:1 is preserved with all original fields.
+ * New fields (outfit, wristbands, accentTheme) are OPTIONAL — normalizeAvatar()
+ * defaults every new field, so existing saved avatars still load without any
+ * migration. v remains 1; a v:2 bump would only be needed for a breaking rename.
+ *
+ * UNLOCK TIERS: each option id may be tagged in COSMETIC_TIERS with:
+ *   'free'         — always available (default, no tag needed)
+ *   { streak: N }  — unlocked after N consecutive days (7 / 30 / 100)
+ *   'pro'          — requires active Pro subscription
  *
  * We serialize the CONFIG (this small option-set), never a rendered image — so it
  * ships in the TICKET-094 local-first backup and re-renders identically anywhere.
  * `v` is a config schema version for forward-compatible restores.
  */
+
+// ---------------------------------------------------------------------------
+// AvatarConfig — the stored selection. Only ADD optional fields; never rename.
+// ---------------------------------------------------------------------------
 
 export interface AvatarConfig {
   v: 1;
@@ -24,45 +38,315 @@ export interface AvatarConfig {
   mouth: string;
   glasses: string;
   headwear: string;
+  // v1 additions (optional → backward-compatible, defaulted by normalizeAvatar)
+  outfit?: string;
+  wristbands?: string;
+  accentTheme?: string;
 }
 
 // ---------------------------------------------------------------------------
-// Color palettes (ordered id lists + id→hex). Used for swatch pickers.
+// Skin tones — 16 tones ordered light-to-deep with warm/cool/neutral variants.
 // ---------------------------------------------------------------------------
 
 export const SKIN: Record<string, string> = {
-  porcelain: '#ffe0bd', light: '#f5cfa0', tan: '#e0ac69', warm: '#c68642',
-  brown: '#8d5524', deep: '#5c3a21', olive: '#d8b27a', rosy: '#f1c0a8',
+  // Existing (kept identical)
+  porcelain: '#ffe0bd',
+  light:     '#f5cfa0',
+  tan:       '#e0ac69',
+  warm:      '#c68642',
+  brown:     '#8d5524',
+  deep:      '#5c3a21',
+  olive:     '#d8b27a',
+  rosy:      '#f1c0a8',
+  // New
+  ivory:     '#fdecd4',
+  peach:     '#f7c89b',
+  caramel:   '#c07b47',
+  toffee:    '#a0622b',
+  espresso:  '#3e1f0f',
+  ebony:     '#2a1109',
+  ashBrown:  '#aa7752',
+  reddish:   '#c4805a',
 };
-export const SKIN_IDS = ['porcelain', 'light', 'tan', 'warm', 'brown', 'deep', 'olive', 'rosy'];
+export const SKIN_IDS = [
+  'porcelain', 'ivory', 'light', 'peach', 'rosy', 'tan', 'olive', 'warm',
+  'caramel', 'toffee', 'brown', 'ashBrown', 'reddish', 'deep', 'espresso', 'ebony',
+];
+
+// ---------------------------------------------------------------------------
+// Hair colors — 18 colors including bold fashion hues.
+// ---------------------------------------------------------------------------
 
 export const HAIR_COLOR: Record<string, string> = {
-  black: '#1b1b1b', darkBrown: '#3a2417', brown: '#6b4226', chestnut: '#8d5524',
-  blonde: '#e0b34a', sandy: '#c9a35a', red: '#b5532a', gray: '#b8b8b8',
-  teal: '#0fb5a6', pink: '#e36bae',
+  // Existing (kept identical)
+  black:     '#1b1b1b',
+  darkBrown: '#3a2417',
+  brown:     '#6b4226',
+  chestnut:  '#8d5524',
+  blonde:    '#e0b34a',
+  sandy:     '#c9a35a',
+  red:       '#b5532a',
+  gray:      '#b8b8b8',
+  teal:      '#0fb5a6',
+  pink:      '#e36bae',
+  // New
+  platinum:  '#e8e4d0',
+  ashBlonde: '#d6c48b',
+  auburn:    '#9e3d19',
+  copper:    '#b85a1e',
+  strawberry:'#e07a5f',
+  silver:    '#d4d4e3',
+  violet:    '#7c3aed',
+  skyBlue:   '#38bdf8',
 };
-export const HAIR_COLOR_IDS = ['black', 'darkBrown', 'brown', 'chestnut', 'blonde', 'sandy', 'red', 'gray', 'teal', 'pink'];
+export const HAIR_COLOR_IDS = [
+  'black', 'darkBrown', 'brown', 'chestnut', 'auburn', 'copper', 'red', 'strawberry',
+  'blonde', 'sandy', 'ashBlonde', 'platinum', 'gray', 'silver', 'pink', 'teal',
+  'violet', 'skyBlue',
+];
 
-// Background base colors. 'peaks' draws a mountain silhouette over a base.
+// ---------------------------------------------------------------------------
+// Backgrounds — 18 options including night-mode and gradient/peaks variants.
+// 'gradient_*' and 'animated_*' ids are marked 'pro' in COSMETIC_TIERS.
+// ---------------------------------------------------------------------------
+
 export const BG: Record<string, string> = {
-  mint: '#eaf7f5', sky: '#cdeafe', peach: '#ffe3d3', lavender: '#ece7ff',
-  sand: '#fff1d6', rose: '#fde2e4', slate: '#d7dee8', teal: '#bfe9e2',
-  night: '#13343b', peaks: '#eaf7f5',
+  // Existing (kept identical)
+  mint:            '#eaf7f5',
+  sky:             '#cdeafe',
+  peach:           '#ffe3d3',
+  lavender:        '#ece7ff',
+  sand:            '#fff1d6',
+  rose:            '#fde2e4',
+  slate:           '#d7dee8',
+  teal:            '#bfe9e2',
+  night:           '#13343b',
+  peaks:           '#eaf7f5',
+  // New – standard
+  dusk:            '#2d3561',
+  forest:          '#d4edda',
+  sunsetOrange:    '#ffe0b2',
+  indigo:          '#e8eaf6',
+  charcoal:        '#2c2c2c',
+  snowfield:       '#eef4fb',
+  // New – gradient/premium (pro)
+  gradient_aurora: '#1a1a2e',
+  gradient_sunset: '#ff6b6b',
+  gradient_ocean:  '#0077b6',
+  // New – animated (pro)
+  animated_confetti: '#f8f9fa',
+  animated_sparkles: '#0a0a23',
 };
-export const BG_IDS = ['mint', 'sky', 'peach', 'lavender', 'sand', 'rose', 'slate', 'teal', 'night', 'peaks'];
+export const BG_IDS = [
+  'mint', 'sky', 'peach', 'lavender', 'sand', 'rose', 'slate', 'teal',
+  'night', 'dusk', 'charcoal', 'forest', 'sunsetOrange', 'indigo', 'snowfield', 'peaks',
+  'gradient_aurora', 'gradient_sunset', 'gradient_ocean',
+  'animated_confetti', 'animated_sparkles',
+];
 
 // ---------------------------------------------------------------------------
-// Shape option id lists.
+// Accent themes — color used for glow/highlight ring around the avatar.
+// 'pro' items are premium palette entries.
 // ---------------------------------------------------------------------------
 
-export const FACE_IDS = ['round', 'oval', 'square', 'wide'];
-export const HAIR_IDS = ['none', 'short', 'buzz', 'curlyTop', 'bun', 'ponytail', 'mohawk', 'long', 'afro', 'sidePart'];
-export const FACIAL_HAIR_IDS = ['none', 'stubble', 'mustache', 'goatee', 'fullBeard'];
-export const EYES_IDS = ['dots', 'round', 'happy', 'wink', 'sleepy'];
-export const BROWS_IDS = ['none', 'flat', 'raised', 'angry'];
-export const MOUTH_IDS = ['smile', 'grin', 'smirk', 'open', 'flat', 'tongue'];
-export const GLASSES_IDS = ['none', 'round', 'square', 'sunglasses'];
-export const HEADWEAR_IDS = ['none', 'headband', 'beanie', 'cap', 'visor'];
+export const ACCENT_THEME: Record<string, string> = {
+  none:         'transparent',
+  gold:         '#f59e0b',
+  silver:       '#9ca3af',
+  teal:         '#0fb5a6',
+  rose:         '#f43f5e',
+  violet:       '#7c3aed',
+  sky:          '#38bdf8',
+  // pro
+  flame:        '#ff4500',
+  neonGreen:    '#39ff14',
+  neonPink:     '#ff69b4',
+  obsidian:     '#1a1a2e',
+  prismatic:    '#e040fb',
+};
+export const ACCENT_THEME_IDS = [
+  'none', 'teal', 'gold', 'silver', 'rose', 'sky', 'violet',
+  'flame', 'neonGreen', 'neonPink', 'obsidian', 'prismatic',
+];
+
+// ---------------------------------------------------------------------------
+// Shape option id lists — all original ids preserved in same position.
+// ---------------------------------------------------------------------------
+
+export const FACE_IDS = ['round', 'oval', 'square', 'wide', 'heart', 'diamond'];
+
+export const HAIR_IDS = [
+  // Existing (in original order)
+  'none', 'short', 'buzz', 'curlyTop', 'bun', 'ponytail', 'mohawk', 'long', 'afro', 'sidePart',
+  // New
+  'pixie', 'bob', 'wavyLong', 'dreadlocks', 'cornrows', 'twoStrandTwists',
+  'undercut', 'quiff', 'slickedBack', 'messy', 'ringlets', 'topKnot',
+];
+
+export const FACIAL_HAIR_IDS = [
+  // Existing
+  'none', 'stubble', 'mustache', 'goatee', 'fullBeard',
+  // New
+  'chinStrap', 'handlebar', 'soul_patch', 'shortBoxBeard', 'vikingBeard',
+];
+
+export const EYES_IDS = [
+  // Existing
+  'dots', 'round', 'happy', 'wink', 'sleepy',
+  // New
+  'stars', 'determined', 'surprised', 'catEye', 'halfLid', 'fire',
+];
+
+export const BROWS_IDS = [
+  // Existing
+  'none', 'flat', 'raised', 'angry',
+  // New
+  'arched', 'bushy', 'thin', 'worried',
+];
+
+export const MOUTH_IDS = [
+  // Existing
+  'smile', 'grin', 'smirk', 'open', 'flat', 'tongue',
+  // New
+  'bigSmile', 'pursed', 'whistle', 'determined', 'cheeky',
+];
+
+export const GLASSES_IDS = [
+  // Existing
+  'none', 'round', 'square', 'sunglasses',
+  // New
+  'aviator', 'catEye', 'sport', 'monocle',
+];
+
+export const HEADWEAR_IDS = [
+  // Existing
+  'none', 'headband', 'beanie', 'cap', 'visor',
+  // New
+  'beretFlat', 'sweatband', 'snapback', 'cowboy', 'crownGold',
+];
+
+// ---------------------------------------------------------------------------
+// Outfits / tops — new category.
+// ---------------------------------------------------------------------------
+
+export const OUTFIT_IDS = [
+  // Free basics
+  'none', 'tank', 'tee', 'racerback',
+  // Streak unlocks
+  'compression', 'hoodie', 'zipUp',
+  // Pro
+  'proKit', 'eliteCompression', 'teamJersey', 'goldTrim', 'animatedRainbow',
+];
+
+// ---------------------------------------------------------------------------
+// Wristbands — new accessory category.
+// ---------------------------------------------------------------------------
+
+export const WRISTBANDS_IDS = [
+  'none', 'white', 'black',        // free
+  'teal', 'gold', 'neon',          // streak unlocks
+  'proGlitter', 'animatedPulse',   // pro
+];
+
+// ---------------------------------------------------------------------------
+// COSMETIC_TIERS — single source of truth for unlock assignments.
+//
+// Any option id NOT listed here is implicitly 'free'.
+// Adjustable: change a tier assignment in ONE place here to affect all UI.
+// ---------------------------------------------------------------------------
+
+export type UnlockTier = 'free' | { streak: number } | 'pro';
+
+export type CosmeticTiersMap = Record<string, UnlockTier>;
+
+/** Complete adjustable tier assignment map. */
+export const COSMETIC_TIERS: CosmeticTiersMap = {
+  // ── Skin tones ──────────────────────────────────────────────────────────
+  // All skin tones are free (no barriers to representation).
+
+  // ── Hair styles ─────────────────────────────────────────────────────────
+  dreadlocks:       { streak: 7 },
+  cornrows:         { streak: 7 },
+  twoStrandTwists:  { streak: 7 },
+  ringlets:         { streak: 30 },
+  topKnot:          { streak: 30 },
+  wavyLong:         { streak: 30 },
+  undercut:         { streak: 100 },
+  quiff:            { streak: 100 },
+  slickedBack:      { streak: 100 },
+
+  // ── Hair colors ─────────────────────────────────────────────────────────
+  teal:             { streak: 7 },
+  pink:             { streak: 7 },
+  silver:           { streak: 30 },
+  platinum:         { streak: 30 },
+  violet:           'pro',
+  skyBlue:          'pro',
+
+  // ── Facial hair ─────────────────────────────────────────────────────────
+  handlebar:        { streak: 7 },
+  vikingBeard:      { streak: 30 },
+
+  // ── Eyes ────────────────────────────────────────────────────────────────
+  stars:            { streak: 7 },
+  fire:             { streak: 30 },
+  catEye:           { streak: 30 },
+
+  // ── Glasses ─────────────────────────────────────────────────────────────
+  aviator:          { streak: 7 },
+  sport:            { streak: 30 },
+  monocle:          'pro',
+
+  // ── Headwear ────────────────────────────────────────────────────────────
+  sweatband:        { streak: 7 },
+  snapback:         { streak: 30 },
+  cowboy:           { streak: 30 },
+  crownGold:        'pro',
+
+  // ── Outfits ─────────────────────────────────────────────────────────────
+  compression:      { streak: 7 },
+  hoodie:           { streak: 30 },
+  zipUp:            { streak: 30 },
+  proKit:           'pro',
+  eliteCompression: 'pro',
+  teamJersey:       'pro',
+  goldTrim:         'pro',
+  animatedRainbow:  'pro',
+
+  // ── Wristbands ──────────────────────────────────────────────────────────
+  teal_wristband:   { streak: 7 },    // keyed with suffix to avoid clash with hair
+  gold_wristband:   { streak: 30 },
+  neon_wristband:   { streak: 30 },
+  proGlitter:       'pro',
+  animatedPulse:    'pro',
+
+  // ── Backgrounds ─────────────────────────────────────────────────────────
+  night:            { streak: 7 },
+  dusk:             { streak: 7 },
+  charcoal:         { streak: 7 },
+  forest:           { streak: 30 },
+  sunsetOrange:     { streak: 30 },
+  snowfield:        { streak: 30 },
+  indigo:           { streak: 30 },
+  peaks:            { streak: 100 },
+  gradient_aurora:  'pro',
+  gradient_sunset:  'pro',
+  gradient_ocean:   'pro',
+  animated_confetti:'pro',
+  animated_sparkles:'pro',
+
+  // ── Accent themes ────────────────────────────────────────────────────────
+  gold:             { streak: 7 },
+  silver:           { streak: 30 },
+  rose:             { streak: 30 },
+  sky:              { streak: 30 },
+  violet:           { streak: 100 },
+  flame:            'pro',
+  neonGreen:        'pro',
+  neonPink:         'pro',
+  obsidian:         'pro',
+  prismatic:        'pro',
+};
 
 // ---------------------------------------------------------------------------
 // Category descriptor — drives the customizer UI generically.
@@ -80,17 +364,20 @@ export interface AvatarCategory {
 }
 
 export const AVATAR_CATEGORIES: AvatarCategory[] = [
-  { key: 'background', label: 'Background', kind: 'color', ids: BG_IDS, colors: BG },
-  { key: 'face', label: 'Face shape', kind: 'options', ids: FACE_IDS },
-  { key: 'skin', label: 'Skin', kind: 'color', ids: SKIN_IDS, colors: SKIN },
-  { key: 'hair', label: 'Hair', kind: 'options', ids: HAIR_IDS },
-  { key: 'hairColor', label: 'Hair color', kind: 'color', ids: HAIR_COLOR_IDS, colors: HAIR_COLOR },
-  { key: 'facialHair', label: 'Facial hair', kind: 'options', ids: FACIAL_HAIR_IDS },
-  { key: 'eyes', label: 'Eyes', kind: 'options', ids: EYES_IDS },
-  { key: 'brows', label: 'Brows', kind: 'options', ids: BROWS_IDS },
-  { key: 'mouth', label: 'Mouth', kind: 'options', ids: MOUTH_IDS },
-  { key: 'glasses', label: 'Glasses', kind: 'options', ids: GLASSES_IDS },
-  { key: 'headwear', label: 'Headwear', kind: 'options', ids: HEADWEAR_IDS },
+  { key: 'background',   label: 'Background',   kind: 'color',   ids: BG_IDS,           colors: BG },
+  { key: 'accentTheme',  label: 'Accent',        kind: 'color',   ids: ACCENT_THEME_IDS, colors: ACCENT_THEME },
+  { key: 'face',         label: 'Face shape',    kind: 'options', ids: FACE_IDS },
+  { key: 'skin',         label: 'Skin',          kind: 'color',   ids: SKIN_IDS,         colors: SKIN },
+  { key: 'hair',         label: 'Hair',          kind: 'options', ids: HAIR_IDS },
+  { key: 'hairColor',    label: 'Hair color',    kind: 'color',   ids: HAIR_COLOR_IDS,   colors: HAIR_COLOR },
+  { key: 'facialHair',   label: 'Facial hair',   kind: 'options', ids: FACIAL_HAIR_IDS },
+  { key: 'eyes',         label: 'Eyes',          kind: 'options', ids: EYES_IDS },
+  { key: 'brows',        label: 'Brows',         kind: 'options', ids: BROWS_IDS },
+  { key: 'mouth',        label: 'Mouth',         kind: 'options', ids: MOUTH_IDS },
+  { key: 'glasses',      label: 'Glasses',       kind: 'options', ids: GLASSES_IDS },
+  { key: 'headwear',     label: 'Headwear',      kind: 'options', ids: HEADWEAR_IDS },
+  { key: 'outfit',       label: 'Outfit',        kind: 'options', ids: OUTFIT_IDS },
+  { key: 'wristbands',   label: 'Wristbands',    kind: 'options', ids: WRISTBANDS_IDS },
 ];
 
 // ---------------------------------------------------------------------------
@@ -99,17 +386,21 @@ export const AVATAR_CATEGORIES: AvatarCategory[] = [
 
 export const DEFAULT_AVATAR: AvatarConfig = {
   v: 1,
-  background: 'mint',
-  face: 'round',
-  skin: 'tan',
-  hair: 'short',
-  hairColor: 'brown',
-  facialHair: 'none',
-  eyes: 'round',
-  brows: 'flat',
-  mouth: 'smile',
-  glasses: 'none',
-  headwear: 'headband', // the Peak Pals signature, on by default
+  background:  'mint',
+  face:        'round',
+  skin:        'tan',
+  hair:        'short',
+  hairColor:   'brown',
+  facialHair:  'none',
+  eyes:        'round',
+  brows:       'flat',
+  mouth:       'smile',
+  glasses:     'none',
+  headwear:    'headband', // the Peak Pals signature, on by default
+  // new optional fields — free defaults
+  outfit:      'tank',
+  wristbands:  'none',
+  accentTheme: 'none',
 };
 
 function pick<T>(arr: T[], i: number): T {
@@ -124,36 +415,53 @@ export function normalizeAvatar(raw: Partial<AvatarConfig> | null | undefined): 
     typeof val === 'string' && ids.includes(val) ? val : def;
   return {
     v: 1,
-    background: valid(BG_IDS, raw.background, DEFAULT_AVATAR.background),
-    face: valid(FACE_IDS, raw.face, DEFAULT_AVATAR.face),
-    skin: valid(SKIN_IDS, raw.skin, DEFAULT_AVATAR.skin),
-    hair: valid(HAIR_IDS, raw.hair, DEFAULT_AVATAR.hair),
-    hairColor: valid(HAIR_COLOR_IDS, raw.hairColor, DEFAULT_AVATAR.hairColor),
-    facialHair: valid(FACIAL_HAIR_IDS, raw.facialHair, DEFAULT_AVATAR.facialHair),
-    eyes: valid(EYES_IDS, raw.eyes, DEFAULT_AVATAR.eyes),
-    brows: valid(BROWS_IDS, raw.brows, DEFAULT_AVATAR.brows),
-    mouth: valid(MOUTH_IDS, raw.mouth, DEFAULT_AVATAR.mouth),
-    glasses: valid(GLASSES_IDS, raw.glasses, DEFAULT_AVATAR.glasses),
-    headwear: valid(HEADWEAR_IDS, raw.headwear, DEFAULT_AVATAR.headwear),
+    background:  valid(BG_IDS,           raw.background,  DEFAULT_AVATAR.background),
+    face:        valid(FACE_IDS,          raw.face,        DEFAULT_AVATAR.face),
+    skin:        valid(SKIN_IDS,          raw.skin,        DEFAULT_AVATAR.skin),
+    hair:        valid(HAIR_IDS,          raw.hair,        DEFAULT_AVATAR.hair),
+    hairColor:   valid(HAIR_COLOR_IDS,    raw.hairColor,   DEFAULT_AVATAR.hairColor),
+    facialHair:  valid(FACIAL_HAIR_IDS,   raw.facialHair,  DEFAULT_AVATAR.facialHair),
+    eyes:        valid(EYES_IDS,          raw.eyes,        DEFAULT_AVATAR.eyes),
+    brows:       valid(BROWS_IDS,         raw.brows,       DEFAULT_AVATAR.brows),
+    mouth:       valid(MOUTH_IDS,         raw.mouth,       DEFAULT_AVATAR.mouth),
+    glasses:     valid(GLASSES_IDS,       raw.glasses,     DEFAULT_AVATAR.glasses),
+    headwear:    valid(HEADWEAR_IDS,      raw.headwear,    DEFAULT_AVATAR.headwear),
+    // new optional fields — safe defaults if absent
+    outfit:      valid(OUTFIT_IDS,        raw.outfit,      DEFAULT_AVATAR.outfit!),
+    wristbands:  valid(WRISTBANDS_IDS,    raw.wristbands,  DEFAULT_AVATAR.wristbands!),
+    accentTheme: valid(ACCENT_THEME_IDS,  raw.accentTheme, DEFAULT_AVATAR.accentTheme!),
   };
 }
 
 /** Always returns a valid, fully-populated config. */
 export function randomizeAvatar(): AvatarConfig {
-  const r = (n: number) => Math.floor(Math.random() * n);
+  // Exclude pro/streak items from randomization so a new user always gets a
+  // legal free config. Filter to ids that have no tier tag or are 'free'.
+  const freePick = (ids: string[]): string => {
+    const freeIds = ids.filter(id => {
+      const t = COSMETIC_TIERS[id];
+      return t === undefined || t === 'free';
+    });
+    const pool = freeIds.length > 0 ? freeIds : ids;
+    const i = Math.floor(Math.random() * pool.length);
+    return pick(pool, i);
+  };
   return {
     v: 1,
-    background: pick(BG_IDS, r(BG_IDS.length)),
-    face: pick(FACE_IDS, r(FACE_IDS.length)),
-    skin: pick(SKIN_IDS, r(SKIN_IDS.length)),
-    hair: pick(HAIR_IDS, r(HAIR_IDS.length)),
-    hairColor: pick(HAIR_COLOR_IDS, r(HAIR_COLOR_IDS.length)),
-    facialHair: pick(FACIAL_HAIR_IDS, r(FACIAL_HAIR_IDS.length)),
-    eyes: pick(EYES_IDS, r(EYES_IDS.length)),
-    brows: pick(BROWS_IDS, r(BROWS_IDS.length)),
-    mouth: pick(MOUTH_IDS, r(MOUTH_IDS.length)),
-    glasses: pick(GLASSES_IDS, r(GLASSES_IDS.length)),
-    headwear: pick(HEADWEAR_IDS, r(HEADWEAR_IDS.length)),
+    background:  freePick(BG_IDS),
+    face:        freePick(FACE_IDS),
+    skin:        freePick(SKIN_IDS),
+    hair:        freePick(HAIR_IDS),
+    hairColor:   freePick(HAIR_COLOR_IDS),
+    facialHair:  freePick(FACIAL_HAIR_IDS),
+    eyes:        freePick(EYES_IDS),
+    brows:       freePick(BROWS_IDS),
+    mouth:       freePick(MOUTH_IDS),
+    glasses:     freePick(GLASSES_IDS),
+    headwear:    freePick(HEADWEAR_IDS),
+    outfit:      freePick(OUTFIT_IDS),
+    wristbands:  freePick(WRISTBANDS_IDS),
+    accentTheme: freePick(ACCENT_THEME_IDS),
   };
 }
 

@@ -24,18 +24,12 @@
  * fontVariant: ['tabular-nums'] on all numeric cells (weights, reps, e1RM).
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  Pressable,
   SectionList,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -52,12 +46,18 @@ import {
   ensureExerciseCatalogCached,
   displayExerciseName,
 } from '../src/data/exerciseNames';
-import { updateLiftSet, deleteSetById } from '../src/data/setEditing';
+import { deleteSetById } from '../src/data/setEditing';
+import {
+  WorkoutLoggerHost,
+  WorkoutLoggerRef,
+  HistoryEditArgs,
+  HistoryEditExercise,
+} from '../src/components/WorkoutLoggerHost';
+import MuscleMap from '../src/components/MuscleMap';
+import { muscleGroupsForRoutine } from '../src/data/muscleRegions';
 import {
   formatWeight,
   kgToInputValue,
-  parseWeightInput,
-  displayToKg,
 } from '../src/constants/units';
 import { UnitSystem } from '../src/constants/units';
 
@@ -517,7 +517,7 @@ function ExerciseHeader({ name, exerciseId, volumeKg, unitPref, onPress }: Exerc
 export default function WorkoutDayScreen(): React.ReactElement {
   const { date } = useLocalSearchParams<{ date: string }>();
   const router = useRouter();
-  const { theme: { colors, components }, spacing, fontSize, fontWeight, radius } = useTheme();
+  const { theme: { colors }, spacing, fontSize, fontWeight, radius } = useTheme();
   const { user } = useAuth();
   const unitPref: UnitSystem = (user?.unit_pref as UnitSystem) ?? 'kg';
 
@@ -525,11 +525,12 @@ export default function WorkoutDayScreen(): React.ReactElement {
   const [error, setError] = useState<string | null>(null);
   const [dayData, setDayData] = useState<DayData | null>(null);
 
-  // ── Set editing (tap a set to fix a mistyped weight/reps, or delete it) ──────
-  const [editingSet, setEditingSet] = useState<ApiSet | null>(null);
-  const [editWeight, setEditWeight] = useState('');
-  const [editReps, setEditReps] = useState('');
-  const [editSaving, setEditSaving] = useState(false);
+  // ── Editing a past set now opens the FULL stepper flow (P1c) ─────────────────
+  // Tapping a logged set opens StepperLogger (via WorkoutLoggerHost) seeded with
+  // THIS session's exercises + already-logged sets, in edit mode; saving routes
+  // through setEditing.updateLiftSet to UPDATE the existing row. Long-press still
+  // deletes. Both paths are tier-branched/local-first inside their data modules.
+  const loggerRef = useRef<WorkoutLoggerRef>(null);
 
   const localFirst = isLocalFirst(user);
 
@@ -551,78 +552,77 @@ export default function WorkoutDayScreen(): React.ReactElement {
     load();
   }, [load]);
 
-  // ── Set-edit handlers ──────────────────────────────────────────────────────
+  // ── Build the stepper's history-edit payload from the loaded day ────────────
+  // Each logged set is converted kg → DISPLAY string (the stepper edits display
+  // units and the host converts back to exact kg on save). Order is preserved so
+  // the chip position maps to the right DB row.
+  const buildHistoryExercises = useCallback((): HistoryEditExercise[] => {
+    if (!dayData) return [];
+    return dayData.exerciseGroups.map((g) => {
+      const isCardio = g.sets.some((s) => s.kind === 'cardio');
+      return {
+        exerciseId: g.exerciseId,
+        name: g.exerciseName,
+        category: isCardio ? 'cardio' : 'lift',
+        sets: g.sets.map((s) => {
+          if (s.kind === 'cardio') {
+            return {
+              id: s.id,
+              workoutId: s.workout_id,
+              setIndex: s.set_index ?? 0,
+              weightDisplay: '',
+              reps: '',
+              durationSec: s.duration_sec ?? undefined,
+              distanceM: s.distance_m ?? undefined,
+            };
+          }
+          const kg = s.weight_kg ?? (s.weight_raw != null ? s.weight_raw / 8 : 0);
+          return {
+            id: s.id,
+            workoutId: s.workout_id,
+            setIndex: s.set_index ?? 0,
+            weightDisplay: kgToInputValue(kg, unitPref),
+            reps: String(s.reps ?? 0),
+            rir: s.rir != null ? String(s.rir) : undefined,
+          };
+        }),
+      };
+    });
+  }, [dayData, unitPref]);
 
   const openSetEditor = useCallback((set: ApiSet) => {
-    if (set.kind === 'lift') {
-      const kg = set.weight_kg ?? (set.weight_raw != null ? set.weight_raw / 8 : 0);
-      setEditWeight(kgToInputValue(kg, unitPref));
-      setEditReps(String(set.reps ?? 0));
-    } else {
-      setEditWeight('');
-      setEditReps('');
-    }
-    setEditingSet(set);
-  }, [unitPref]);
+    const exercises = buildHistoryExercises();
+    if (exercises.length === 0) return;
+    const startIndex = Math.max(
+      0,
+      exercises.findIndex((ex) => ex.exerciseId === set.exercise_id),
+    );
+    const args: HistoryEditArgs = {
+      name: friendlyDate(date ?? ''),
+      exercises,
+      startIndex,
+      onChange: load, // re-read SQLite after an in-place edit / finish
+    };
+    loggerRef.current?.startHistoryEdit(args);
+  }, [buildHistoryExercises, date, load]);
 
-  const closeSetEditor = useCallback(() => {
-    if (editSaving) return;
-    setEditingSet(null);
-  }, [editSaving]);
-
-  const handleSaveEdit = useCallback(async () => {
-    if (!editingSet || editingSet.kind !== 'lift') return;
-    const weightVal = parseWeightInput(editWeight);
-    const repsVal = parseInt(editReps, 10);
-    if (weightVal == null || weightVal < 0 || !Number.isFinite(repsVal) || repsVal <= 0) {
-      Alert.alert('Check your entry', 'Enter a valid weight and a rep count of at least 1.');
-      return;
-    }
-    setEditSaving(true);
-    try {
-      await updateLiftSet(user, {
-        id: editingSet.id,
-        workoutId: editingSet.workout_id,
-        exerciseId: editingSet.exercise_id,
-        setIndex: editingSet.set_index ?? 0,
-        // Convert the display value to exact kg — a user on lbs editing "185"
-        // must store 83.9 kg, never 185 kg (the CLAUDE.md weight-unit invariant).
-        weightKg: displayToKg(weightVal, unitPref),
-        reps: repsVal,
-        rir: editingSet.rir ?? null,
-      });
-      setEditingSet(null);
-      await load();
-    } catch {
-      Alert.alert('Could not save', 'Please try again.');
-    } finally {
-      setEditSaving(false);
-    }
-  }, [editingSet, editWeight, editReps, unitPref, user, load]);
-
-  const handleDeleteSet = useCallback(() => {
-    const target = editingSet;
-    if (!target) return;
+  const handleDeleteSet = useCallback((set: ApiSet) => {
     Alert.alert('Delete set', 'Remove this set? This cannot be undone.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
         style: 'destructive',
         onPress: async () => {
-          setEditSaving(true);
           try {
-            await deleteSetById(user, target.id);
-            setEditingSet(null);
+            await deleteSetById(user, set.id);
             await load();
           } catch {
             Alert.alert('Could not delete', 'Please try again.');
-          } finally {
-            setEditSaving(false);
           }
         },
       },
     ]);
-  }, [editingSet, user, load]);
+  }, [user, load]);
 
   // ── Derived display values ─────────────────────────────────────────────────
 
@@ -638,6 +638,16 @@ export default function WorkoutDayScreen(): React.ReactElement {
     const setLabel = totalSets === 1 ? '1 set' : `${totalSets} sets`;
     return `${exLabel} · ${setLabel} · ${volDisplay} total`;
   }, [dayData, unitPref]);
+
+  // ── P2: muscles worked this session → drives the header MuscleMap ───────────
+  // Derived from the session's exercise names via muscleGroupsForRoutine. No
+  // network: name-keyword resolution is fully on-device (local-first safe).
+  const sessionMuscleGroups = useMemo(() => {
+    if (!dayData || dayData.isRestDay) return [];
+    return muscleGroupsForRoutine(
+      dayData.exerciseGroups.map((g) => ({ name: g.exerciseName })),
+    );
+  }, [dayData]);
 
   // ── Best-set map per exercise ─────────────────────────────────────────────
 
@@ -722,6 +732,8 @@ export default function WorkoutDayScreen(): React.ReactElement {
         style={[
           styles.headingBlock,
           {
+            flexDirection: 'row',
+            alignItems: 'center',
             paddingHorizontal: spacing.s5,
             paddingTop: spacing.s4,
             paddingBottom: spacing.s3,
@@ -730,38 +742,49 @@ export default function WorkoutDayScreen(): React.ReactElement {
           },
         ]}
       >
-        <Text
-          style={{
-            fontSize: fontSize.heading2,
-            fontWeight: fontWeight.bold,
-            color: colors.textPrimary,
-            letterSpacing: -0.3,
-          }}
-        >
-          {friendlyDateStr}
-        </Text>
-        {summaryLine ? (
+        <View style={{ flex: 1 }}>
           <Text
             style={{
-              fontSize: fontSize.bodySm,
-              color: colors.textSecondary,
-              marginTop: spacing.s1,
-              fontVariant: ['tabular-nums'],
+              fontSize: fontSize.heading2,
+              fontWeight: fontWeight.bold,
+              color: colors.textPrimary,
+              letterSpacing: -0.3,
             }}
           >
-            {summaryLine}
+            {friendlyDateStr}
           </Text>
-        ) : null}
-        {summaryLine ? (
-          <Text
-            style={{
-              fontSize: fontSize.caption,
-              color: colors.textTertiary,
-              marginTop: spacing.s1,
-            }}
-          >
-            Tap a set to edit or delete it.
-          </Text>
+          {summaryLine ? (
+            <Text
+              style={{
+                fontSize: fontSize.bodySm,
+                color: colors.textSecondary,
+                marginTop: spacing.s1,
+                fontVariant: ['tabular-nums'],
+              }}
+            >
+              {summaryLine}
+            </Text>
+          ) : null}
+          {summaryLine ? (
+            <Text
+              style={{
+                fontSize: fontSize.caption,
+                color: colors.textTertiary,
+                marginTop: spacing.s1,
+              }}
+            >
+              Tap a set to edit · long-press to delete.
+            </Text>
+          ) : null}
+        </View>
+        {/* P2: muscles worked this session (front + back silhouette). */}
+        {sessionMuscleGroups.length > 0 ? (
+          <MuscleMap
+            groups={sessionMuscleGroups}
+            size={84}
+            view="both"
+            style={{ marginLeft: spacing.s3 }}
+          />
         ) : null}
       </View>
 
@@ -869,8 +892,10 @@ export default function WorkoutDayScreen(): React.ReactElement {
             <TouchableOpacity
               activeOpacity={0.6}
               onPress={() => openSetEditor(item)}
+              onLongPress={() => handleDeleteSet(item)}
+              delayLongPress={350}
               accessibilityRole="button"
-              accessibilityLabel={`Edit set ${index + 1}`}
+              accessibilityLabel={`Set ${index + 1}. Tap to edit, long-press to delete.`}
               style={[
                 styles.setRowContainer,
                 {
@@ -907,97 +932,11 @@ export default function WorkoutDayScreen(): React.ReactElement {
         />
       )}
 
-      {/* ── Set edit sheet (tap a set row to open) ──────────────────────────── */}
-      <Modal
-        visible={editingSet !== null}
-        transparent
-        animationType="slide"
-        onRequestClose={closeSetEditor}
-      >
-        <KeyboardAvoidingView
-          style={styles.editKav}
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        >
-          <Pressable style={styles.editBackdrop} onPress={closeSetEditor} />
-          <View style={[styles.editSheet, { backgroundColor: colors.bgSecondary, borderColor: colors.borderDefault }]}>
-            <View style={[styles.editHandle, { backgroundColor: colors.borderDefault }]} />
-            <Text style={{ fontSize: fontSize.bodyLg, fontWeight: fontWeight.bold, color: colors.textPrimary, marginBottom: spacing.s4 }}>
-              Edit set
-            </Text>
-
-            {editingSet?.kind === 'lift' ? (
-              <>
-                <View style={{ flexDirection: 'row', gap: spacing.s3 }}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.editLabel, { color: colors.textTertiary }]}>{`Weight (${unitPref})`}</Text>
-                    <TextInput
-                      style={[styles.editInput, { color: colors.textPrimary, borderColor: colors.borderDefault, backgroundColor: colors.bgPrimary }]}
-                      value={editWeight}
-                      onChangeText={setEditWeight}
-                      keyboardType="decimal-pad"
-                      selectTextOnFocus
-                      returnKeyType="done"
-                      accessibilityLabel="Weight"
-                    />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.editLabel, { color: colors.textTertiary }]}>Reps</Text>
-                    <TextInput
-                      style={[styles.editInput, { color: colors.textPrimary, borderColor: colors.borderDefault, backgroundColor: colors.bgPrimary }]}
-                      value={editReps}
-                      onChangeText={setEditReps}
-                      keyboardType="number-pad"
-                      selectTextOnFocus
-                      returnKeyType="done"
-                      accessibilityLabel="Reps"
-                    />
-                  </View>
-                </View>
-                <TouchableOpacity
-                  style={[styles.editSaveBtn, { backgroundColor: colors.accentDefault, borderRadius: radius.md }]}
-                  onPress={handleSaveEdit}
-                  disabled={editSaving}
-                  accessibilityRole="button"
-                  accessibilityLabel="Save changes"
-                >
-                  {editSaving ? (
-                    <ActivityIndicator size="small" color={components.buttonPrimaryText} />
-                  ) : (
-                    <Text style={{ fontSize: fontSize.bodyMd, fontWeight: fontWeight.bold, color: components.buttonPrimaryText }}>
-                      Save
-                    </Text>
-                  )}
-                </TouchableOpacity>
-              </>
-            ) : (
-              <Text style={{ fontSize: fontSize.bodySm, color: colors.textSecondary, marginBottom: spacing.s4 }}>
-                Cardio sets can't be edited yet — you can remove this one below.
-              </Text>
-            )}
-
-            <TouchableOpacity
-              style={styles.editDeleteBtn}
-              onPress={handleDeleteSet}
-              disabled={editSaving}
-              accessibilityRole="button"
-              accessibilityLabel="Delete set"
-            >
-              <Text style={{ fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold, color: colors.statusError }}>
-                Delete set
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={{ paddingVertical: spacing.s3, alignItems: 'center' }}
-              onPress={closeSetEditor}
-              disabled={editSaving}
-              accessibilityRole="button"
-              accessibilityLabel="Cancel"
-            >
-              <Text style={{ fontSize: fontSize.bodySm, color: colors.textTertiary }}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+      {/* ── P1c: editing a past set runs through the FULL stepper flow ──────────
+          The host renders StepperLogger as its own full-screen modal; we open it
+          via loggerRef.startHistoryEdit(...) when a set is tapped. onChange/
+          onFinish re-read SQLite so corrections show immediately. */}
+      <WorkoutLoggerHost ref={loggerRef} onFinish={load} />
     </ScreenLayout>
   );
 }
@@ -1020,50 +959,6 @@ const styles = StyleSheet.create({
   },
   exerciseHeader: {},
   setRowContainer: {},
-  // Set edit sheet
-  editKav: { flex: 1, justifyContent: 'flex-end' },
-  editBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)' },
-  editSheet: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    borderTopWidth: 1,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 36,
-  },
-  editHandle: {
-    width: 34,
-    height: 4,
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: 16,
-  },
-  editLabel: {
-    fontSize: 12,
-    marginBottom: 4,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  editInput: {
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    fontSize: 18,
-    fontVariant: ['tabular-nums'],
-  },
-  editSaveBtn: {
-    marginTop: 16,
-    paddingVertical: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 48,
-  },
-  editDeleteBtn: {
-    marginTop: 12,
-    paddingVertical: 12,
-    alignItems: 'center',
-  },
   setRow: {
     flexDirection: 'row',
     alignItems: 'center',
