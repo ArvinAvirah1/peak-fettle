@@ -6881,3 +6881,26 @@ CREATE INDEX IF NOT EXISTS idx_workouts_created_at
 
 ALTER TABLE sets  ADD COLUMN IF NOT EXISTS metrics_json TEXT;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name TEXT;
+
+
+-- ===========================================================================
+-- LOCAL-SCHEMA v8 fold + Pro server sync (Task 3, 2026-06-19) — expanded survey
+--
+-- Mirrors the on-device SQLite user_profile columns (localSchema v8) on the
+-- server `users` table so a PRO user's training-survey answers persist + sync via
+-- PATCH /user/profile (peak-fettle-agents/server/routes/user.js). FREE users are
+-- local-first and need none of this (no server row). birth_date already exists on
+-- users (DATE, see CREATE TABLE users above) and is intentionally NOT re-added.
+-- Arrays mirror the local JSON arrays: injuries / muscle_priorities are string[]
+-- (TEXT[]); training_days is number[] 0–6 (INTEGER[]); bodyweight_kg is canonical
+-- exact kg (NUMERIC — never the legacy kg×8). All ADD COLUMN IF NOT EXISTS →
+-- idempotent, safe to re-run.
+-- Source: peak-fettle-agents/server/migrations/20260619_expanded_survey_fields.sql
+-- ===========================================================================
+
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS primary_focus     TEXT,
+  ADD COLUMN IF NOT EXISTS injuries          TEXT[],
+  ADD COLUMN IF NOT EXISTS muscle_priorities TEXT[],
+  ADD COLUMN IF NOT EXISTS bodyweight_kg     NUMERIC(5,2),
+  ADD COLUMN IF NOT EXISTS training_days     INTEGER[];

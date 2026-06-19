@@ -137,6 +137,22 @@ export interface PatchProfilePayload {
   goal_weight_kg?: number | null;
   /** Competitive season phase — only relevant for team/mixed-sport disciplines. */
   season_phase?: SeasonPhase | null;
+
+  // Expanded survey fields (Task 3, 2026-06-19) - synced for PRO via the
+  // 20260619_expanded_survey_fields.sql `users` columns; persisted on-device for
+  // all tiers (localSchema v8). Mirrors mobile/src/data/profile.ts ProfilePayload.
+  /** Chosen discipline the plan is built around (general_strength, powerlifting, ...). */
+  primary_focus?: string | null;
+  /** Injury/limitation region tokens (lower_back, knees, ...). */
+  injuries?: string[] | null;
+  /** Prioritised muscle-group labels (chest, back, legs, ...). */
+  muscle_priorities?: string[] | null;
+  /** Current body weight in canonical kg. */
+  bodyweight_kg?: number | null;
+  /** Weekdays the user trains (0=Sun ... 6=Sat). */
+  training_days?: number[] | null;
+  /** Date of birth, ISO yyyy-mm-dd. */
+  birth_date?: string | null;
 }
 
 export async function patchProfile(payload: PatchProfilePayload): Promise<void> {

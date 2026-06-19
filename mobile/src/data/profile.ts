@@ -46,10 +46,11 @@ export type ProfilePayload = PatchProfilePayload & {
   /**
    * Expanded Training-Engine survey fields (2026-06-19). These have on-device
    * `user_profile` columns (schema v8) and feed the on-device plan engine; the
-   * array fields are JSON-encoded for SQLite. They are NOT yet part of the
-   * server PATCH /user/profile contract — for Pro users they are forwarded
-   * best-effort (the server ignores unknown fields) and persist locally; see
-   * the report's "server fields to whitelist" note.
+   * array fields are JSON-encoded for SQLite. As of Task 3 (2026-06-19) they are
+   * ALSO part of the server PATCH /user/profile contract: for PRO users they sync
+   * to the matching `users` columns (20260619_expanded_survey_fields.sql); the
+   * handler degrades gracefully if that migration has not run yet. FREE users
+   * persist them on-device only (local-first).
    */
   /** Chosen discipline the plan is built around (general_strength, powerlifting, …). */
   primary_focus?: string | null;
