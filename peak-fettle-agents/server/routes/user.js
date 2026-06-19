@@ -22,6 +22,55 @@ const { supabaseAdmin } = require('../lib/supabaseAdmin');
 
 const router = express.Router();
 
+// PATCH /profile helpers (Task 3, 2026-06-19) -------------------------------
+// DRIFTABLE_PROFILE_COLUMNS: optional survey columns a drifted prod DB may not
+// have yet. If the profile UPDATE hits 42703/42P01 we drop these and retry.
+const DRIFTABLE_PROFILE_COLUMNS = new Set([
+    'primary_focus', 'injuries', 'muscle_priorities', 'bodyweight_kg', 'training_days',
+]);
+
+// buildProfileUpdate - assemble the UPDATE sql + params, RETURNING only the
+// touched columns (plus id, unit_pref) so a missing optional column can never
+// break an unrelated update. params[0] is the user id ($1); params[i+1] pairs
+// with clauses[i].
+function buildProfileUpdate(clauses, params) {
+    const updatedColumns = clauses.map((c) => c.split('=')[0].trim());
+    const returningList = [...new Set(['id', 'unit_pref', ...updatedColumns])].join(', ');
+    return {
+        sql: `UPDATE users SET ${clauses.join(', ')} WHERE id = $1 RETURNING ${returningList}`,
+        params,
+    };
+}
+
+// dropUpdateColumns - return a new {setClauses, params} with `drop` columns
+// removed and $N placeholders renumbered. params[0] (uid) is preserved as $1.
+function dropUpdateColumns(clauses, params, drop) {
+    const outClauses = [];
+    const outParams = [params[0]];
+    for (let i = 0; i < clauses.length; i++) {
+        const col = clauses[i].split('=')[0].trim();
+        if (drop.has(col)) continue;
+        outParams.push(params[i + 1]);
+        outClauses.push(`${col} = $${outParams.length}`);
+    }
+    return { setClauses: outClauses, params: outParams };
+}
+
+// isShortStringArray - true if v is an array of <=maxItems strings, each 1..maxLen chars.
+function isShortStringArray(v, maxItems, maxLen) {
+    return Array.isArray(v) && v.length <= maxItems &&
+        v.every((x) => typeof x === 'string' && x.length >= 1 && x.length <= maxLen);
+}
+
+// isIsoDate - true if s is a real calendar date in 'YYYY-MM-DD' form, year 1900..now.
+function isIsoDate(s) {
+    if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+    const [y, mo, da] = s.split('-').map(Number);
+    if (y < 1900 || y > new Date().getUTCFullYear()) return false;
+    const dt = new Date(Date.UTC(y, mo - 1, da));
+    return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === da;
+}
+
 // users has NO stored age_band / is_paid columns — both are derived (see
 // USER_PROFILE_SELECT in auth.js). Selecting them bare crashes with 42703.
 // (Found 2026-06-12 by the LIFEOS review sweep; bug predates the Life OS work
@@ -358,6 +407,18 @@ router.delete('/push-token', async (req, res, next) => {
 //   equipment_profile    — TEXT[] from the closed equipment vocabulary (spec §2)
 //   season_phase         — 'off_season'|'in_season' (nullable)
 //
+//   primary_focus        - chosen discipline string, <=50 chars (nullable) [survey]
+//   injuries             - string[] of injury/limitation tokens (nullable) [survey]
+//   muscle_priorities    - string[] of prioritised muscle labels (nullable) [survey]
+//   bodyweight_kg        - number 20-400, canonical kg (nullable) [survey]
+//   training_days        - number[] of weekday indices 0-6 (nullable) [survey]
+//   birth_date           - ISO 'YYYY-MM-DD' date (nullable) [survey]
+//
+// Task 3 (2026-06-19): the six [survey] fields above mirror the on-device
+// user_profile columns (localSchema v8) so a PRO user's survey answers sync to
+// the server. They need the 20260619_expanded_survey_fields.sql migration; until
+// it runs the UPDATE degrades (drops them) rather than failing the whole request.
+//
 // E-002: theme_preference is written by the mobile ThemeProvider whenever the
 // user changes their theme. It is read at login and merged into the session so
 // the selected theme follows the user across devices.
@@ -385,6 +446,13 @@ router.patch('/profile', async (req, res, next) => {
             goal_weight_kg,
             equipment_profile,
             season_phase,
+            // Expanded Training-Engine survey fields (Task 3, 2026-06-19)
+            primary_focus,
+            injuries,
+            muscle_priorities,
+            bodyweight_kg,
+            training_days,
+            birth_date,
         } = req.body ?? {};
 
         // Build SET clause dynamically — only update fields that were provided.
@@ -591,6 +659,82 @@ router.patch('/profile', async (req, res, next) => {
             setClauses.push(`season_phase = $${params.length}`);
         }
 
+        // Expanded Training-Engine survey fields (Task 3, 2026-06-19) ----------
+        // Mirror the on-device user_profile columns (localSchema v8) so a Pro
+        // user's survey answers sync server-side. Arrays arrive as real JSON
+        // arrays (mobile saveProfile forwards the payload verbatim); node-pg maps
+        // a JS string[] -> TEXT[] and number[] -> INTEGER[], like equipment_profile.
+        // Each is nullable (null clears it).
+        if (primary_focus !== undefined) {
+            if (primary_focus !== null &&
+                (typeof primary_focus !== 'string' || primary_focus.length < 1 || primary_focus.length > 50)) {
+                return res.status(400).json({
+                    error: 'invalid_primary_focus',
+                    message: 'primary_focus must be a string of 1-50 characters, or null.',
+                });
+            }
+            params.push(primary_focus);
+            setClauses.push(`primary_focus = $${params.length}`);
+        }
+
+        if (injuries !== undefined) {
+            if (injuries !== null && !isShortStringArray(injuries, 30, 50)) {
+                return res.status(400).json({
+                    error: 'invalid_injuries',
+                    message: 'injuries must be null or an array of up to 30 strings (max 50 chars each).',
+                });
+            }
+            params.push(injuries);
+            setClauses.push(`injuries = $${params.length}`);
+        }
+
+        if (muscle_priorities !== undefined) {
+            if (muscle_priorities !== null && !isShortStringArray(muscle_priorities, 30, 50)) {
+                return res.status(400).json({
+                    error: 'invalid_muscle_priorities',
+                    message: 'muscle_priorities must be null or an array of up to 30 strings (max 50 chars each).',
+                });
+            }
+            params.push(muscle_priorities);
+            setClauses.push(`muscle_priorities = $${params.length}`);
+        }
+
+        if (bodyweight_kg !== undefined) {
+            const bw = Number(bodyweight_kg);
+            if (bodyweight_kg !== null && (!Number.isFinite(bw) || bw < 20 || bw > 400)) {
+                return res.status(400).json({
+                    error: 'invalid_bodyweight_kg',
+                    message: 'bodyweight_kg must be a number between 20 and 400, or null.',
+                });
+            }
+            params.push(bodyweight_kg === null ? null : bw);
+            setClauses.push(`bodyweight_kg = $${params.length}`);
+        }
+
+        if (training_days !== undefined) {
+            const okDays = Array.isArray(training_days) && training_days.length <= 7 &&
+                training_days.every((d) => Number.isInteger(d) && d >= 0 && d <= 6);
+            if (training_days !== null && !okDays) {
+                return res.status(400).json({
+                    error: 'invalid_training_days',
+                    message: 'training_days must be null or an array of weekday integers 0-6 (max 7).',
+                });
+            }
+            params.push(training_days);
+            setClauses.push(`training_days = $${params.length}`);
+        }
+
+        if (birth_date !== undefined) {
+            if (birth_date !== null && !isIsoDate(birth_date)) {
+                return res.status(400).json({
+                    error: 'invalid_birth_date',
+                    message: 'birth_date must be an ISO date (YYYY-MM-DD), or null.',
+                });
+            }
+            params.push(birth_date);
+            setClauses.push(`birth_date = $${params.length}`);
+        }
+
         if (setClauses.length === 0) {
             return res.status(400).json({
                 error: 'no_fields',
@@ -608,17 +752,35 @@ router.patch('/profile', async (req, res, next) => {
         // columns means a missing optional column can never break an update
         // that does not involve it. `id` and `unit_pref` are always included so
         // the response always carries the user's unit preference.
-        const updatedColumns = setClauses.map((clause) => clause.split('=')[0].trim());
-        const returningSet = new Set(['id', 'unit_pref', ...updatedColumns]);
-        const returningList = [...returningSet].join(', ');
-
-        const { rows } = await pool.query(
-            `UPDATE users
-             SET ${setClauses.join(', ')}
-             WHERE id = $1
-             RETURNING ${returningList}`,
-            params
-        );
+        // Task 3 (2026-06-19) drift tolerance (CLAUDE.md invariant #4): the new
+        // survey columns may be absent on a prod DB where
+        // 20260619_expanded_survey_fields.sql has not run. If the UPDATE hits
+        // 42703/42P01 we retry once with those columns dropped + renumbered, so a
+        // Pro profile/survey save degrades instead of 500ing; the new fields begin
+        // persisting as soon as the migration runs (no server restart needed).
+        let rows;
+        const primaryUpdate = buildProfileUpdate(setClauses, params);
+        try {
+            ({ rows } = await pool.query(primaryUpdate.sql, primaryUpdate.params));
+        } catch (dbErr) {
+            if (!dbErr || (dbErr.code !== '42703' && dbErr.code !== '42P01')) throw dbErr;
+            const degraded = dropUpdateColumns(setClauses, params, DRIFTABLE_PROFILE_COLUMNS);
+            if (degraded.setClauses.length === 0) {
+                // Only un-migrated survey columns were supplied - nothing to persist
+                // server-side yet. Return 200 with id/unit_pref so the client's
+                // optimistic update is not reverted; it syncs once the migration runs.
+                const sel = await pool.query(
+                    `SELECT id, unit_pref FROM users WHERE id = $1`,
+                    [uid]
+                );
+                if (sel.rows.length === 0) {
+                    return res.status(404).json({ error: 'user_not_found', message: 'User not found.' });
+                }
+                return res.json({ profile: sel.rows[0], degraded: true });
+            }
+            const retryUpdate = buildProfileUpdate(degraded.setClauses, degraded.params);
+            ({ rows } = await pool.query(retryUpdate.sql, retryUpdate.params));
+        }
 
         if (rows.length === 0) {
             return res.status(404).json({ error: 'user_not_found', message: 'User not found.' });
@@ -901,3 +1063,11 @@ router.post('/upgrade', (req, res, next) => setTier(req, res, next, 'paid'));
 router.post('/downgrade', (req, res, next) => setTier(req, res, next, 'free'));
 
 module.exports = router;
+// Exported for unit tests (no DB needed) - see __tests__/userProfilePatch.test.js.
+module.exports.__test = {
+    buildProfileUpdate,
+    dropUpdateColumns,
+    isShortStringArray,
+    isIsoDate,
+    DRIFTABLE_PROFILE_COLUMNS,
+};
