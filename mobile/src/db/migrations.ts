@@ -6,11 +6,18 @@
  *   2. Applies any pending migrations in a transaction (where possible).
  *   3. Sets PRAGMA user_version to the new version.
  *
- * Pre-migration snapshot:
- *   Before applying a migration, the runner attempts to snapshot the DB via
- *   expo-file-system (dynamic require) into documentDirectory as
- *   pf_premigration_v<N>.json. If FS is unavailable, the snapshot payload is
- *   written into migration_snapshots (best-effort, never blocks migration).
+ * Migration safety snapshot (deferred, off the first-paint path):
+ *   When one or more migrations are applied, the runner writes a best-effort
+ *   snapshot of the DB via expo-file-system (dynamic require) into
+ *   documentDirectory as pf_premigration_v<N>.json (falling back to the
+ *   migration_snapshots table when FS is unavailable). The v2..v8 migrations are
+ *   additive + guarded (CREATE IF NOT EXISTS / guarded ALTER ADD COLUMN), so the
+ *   snapshot is taken immediately AFTER the migrations commit, is scheduled on a
+ *   later macrotask, and is never awaited. This keeps a full ~21-table serialize
+ *   OFF the init/first-query path: a populated FREE DB previously rendered empty
+ *   until a tab switch on the first launch after a schema bump because the
+ *   snapshot ran (blocking) before the first query could resolve. No snapshot is
+ *   taken when the schema is already current (no pending migration).
  *
  * Wire-up: localDb.init() calls runMigrations(db) after the base SCHEMA_STATEMENTS.
  *
@@ -39,10 +46,12 @@ export interface MigrationVersion {
 // ---------------------------------------------------------------------------
 
 /**
- * Best-effort pre-migration snapshot. Tries expo-file-system first (device),
- * falls back to the migration_snapshots table (testable in node).
+ * Best-effort migration safety snapshot. Tries expo-file-system first (device),
+ * falls back to the migration_snapshots table (testable in node). Scheduled by
+ * runMigrations AFTER the migrations commit and OFF the first-paint path (see the
+ * file header); never throws into its caller (all failures are swallowed).
  */
-async function snapshotBeforeMigration(
+async function writeMigrationSnapshot(
   db: MigrationDb,
   version: number,
   buildBackup: (() => Promise<string>) | null,
@@ -159,7 +168,9 @@ export const MIGRATIONS: MigrationVersion[] = [MIGRATION_V2, MIGRATION_V3, MIGRA
  * @param db         - minimal DB interface (same shape as localDb)
  * @param buildBackup - optional async fn that returns a JSON string snapshot of
  *                      current DB state (passed from exportEngine.buildBackupFromDb).
- *                      Called BEFORE each migration for the pre-migration snapshot.
+ *                      Used for the deferred post-migration safety snapshot, which
+ *                      is scheduled off the first-paint path and never awaited (see
+ *                      the file header). Omitted by the node test suite.
  */
 export async function runMigrations(
   db: MigrationDb,
@@ -171,15 +182,14 @@ export async function runMigrations(
     .catch(() => null);
   let currentVersion = row?.user_version ?? 0;
 
+  // Track whether we apply anything this launch so the safety snapshot (below)
+  // runs only when the schema actually changed.
+  let migratedAny = false;
+
   for (const migration of MIGRATIONS) {
     if (migration.v <= currentVersion) {
       continue; // already applied
     }
-
-    // Pre-migration snapshot (best-effort).
-    await snapshotBeforeMigration(db, migration.v, buildBackup ?? null).catch(
-      () => undefined,
-    );
 
     // Apply all statements for this migration version inside a single
     // transaction so that a mid-migration crash leaves the DB unchanged.
@@ -222,5 +232,25 @@ export async function runMigrations(
       throw err;
     }
     currentVersion = migration.v;
+    migratedAny = true;
+  }
+
+  // Safety snapshot — deferred and OFF the first-paint path (see file header).
+  // Runs only when a migration actually ran AND a backup builder was provided
+  // (the node test suite calls runMigrations without one). Scheduled on a later
+  // macrotask and never awaited, so the app's first queries reach the serial
+  // SQLite connection before the full ~21-table serialize begins.
+  if (migratedAny && buildBackup) {
+    const snapshotVersion = currentVersion;
+    const runSnapshot = (): void => {
+      void writeMigrationSnapshot(db, snapshotVersion, buildBackup).catch(
+        () => undefined,
+      );
+    };
+    if (typeof setTimeout === 'function') {
+      setTimeout(runSnapshot, 0);
+    } else {
+      void Promise.resolve().then(runSnapshot);
+    }
   }
 }
