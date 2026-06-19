@@ -41,7 +41,7 @@ import { useAuth } from '../src/hooks/useAuth';
 import { useTheme } from '../src/theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../src/theme/tokens';
 import { ScreenLayout } from '../src/components/ui';
-import { saveProfile } from '../src/data/profile';
+import { saveProfile, loadLocalProfile } from '../src/data/profile';
 import {
   displayToKg,
   kgToInputValue,
@@ -177,6 +177,75 @@ const SURVEY_CONFIG = {
       { label: 'Off season', value: 'off_season', subtitle: 'Build base fitness and strength' },
       { label: 'In season',  value: 'in_season',  subtitle: 'Maintain fitness without overloading' },
     ] as OptionDef<SeasonPhase>[],
+  },
+
+  trainingDays: {
+    title: 'Which days do you train?',
+    subtitle:
+      'Pick the weekdays that suit you and your plan maps onto real days ' +
+      '("Mon – Push") instead of generic "Day 1". Optional — skip to keep it generic.',
+    // value = JS getDay() index (0=Sun … 6=Sat).
+    options: [
+      { label: 'Mon', value: 1 },
+      { label: 'Tue', value: 2 },
+      { label: 'Wed', value: 3 },
+      { label: 'Thu', value: 4 },
+      { label: 'Fri', value: 5 },
+      { label: 'Sat', value: 6 },
+      { label: 'Sun', value: 0 },
+    ] as OptionDef<number>[],
+    emptyHint: 'None selected — sessions are labelled Day 1, Day 2, …',
+  },
+
+  injuries: {
+    title: 'Injuries or limitations',
+    subtitle:
+      'We leave out movements that could aggravate these and pick safer ' +
+      'alternatives. Select any that apply — skip if none.',
+    emptyHint: 'None selected — no movements excluded.',
+    // value tokens MUST match the engine contraindication vocabulary
+    // (exerciseCatalog contraindications + constraints.ts built-ins).
+    options: [
+      { label: 'Lower back', value: 'lower_back' },
+      { label: 'Knees',      value: 'knees'      },
+      { label: 'Shoulders',  value: 'shoulders'  },
+      { label: 'Wrists',     value: 'wrists'     },
+      { label: 'Elbows',     value: 'elbows'     },
+      { label: 'Ankles',     value: 'ankles'     },
+      { label: 'Neck',       value: 'neck'       },
+      { label: 'Hip',        value: 'hip'        },
+      { label: 'Upper back', value: 'upper_back' },
+    ] as OptionDef<string>[],
+  },
+
+  priorities: {
+    title: 'Muscle-group priorities',
+    subtitle:
+      'Want to bring up specific areas? The plan leans extra volume and ' +
+      'exercise choice toward what you pick. Optional.',
+    emptyHint: 'None selected — balanced across the whole body.',
+    // value tokens are canonical MuscleMap labels (see muscleRegions.ts) so the
+    // engine's muscle-priority bias matches the catalogue's muscle_groups.
+    options: [
+      { label: 'Chest',      value: 'chest'      },
+      { label: 'Back',       value: 'back'       },
+      { label: 'Shoulders',  value: 'shoulders'  },
+      { label: 'Arms',       value: 'biceps'     },
+      { label: 'Legs',       value: 'legs'       },
+      { label: 'Glutes',     value: 'glutes'     },
+      { label: 'Core',       value: 'core'       },
+      { label: 'Calves',     value: 'calves'     },
+    ] as OptionDef<string>[],
+  },
+
+  bodyweight: {
+    title: 'Current body weight (optional)',
+    subtitle: 'Helps set sensible starting loads and recovery. Leave blank to skip.',
+  },
+
+  age: {
+    title: 'Date of birth (optional)',
+    subtitle: 'Used only to tune recovery defaults. Leave blank to skip.',
   },
 };
 
@@ -414,9 +483,10 @@ export default function TrainingSurveyScreen(): React.ReactElement {
   const { theme } = useTheme();
   const reduceMotion = useReduceMotion();
 
-  // Stagger slots: header, goal, experience, focus, sessions, length, equipment,
-  // goal-weight (+ conditional season under it), save.
-  const staggerAnims = useStaggerFade(9, !reduceMotion);
+  // Stagger slots: header(0), goal(1), experience(2), focus(3), sessions(4),
+  // length(5), equipment(6), goal-weight + conditional season(7),
+  // training-days(8), injuries + priorities(9), body-weight + DOB(10), save(11).
+  const staggerAnims = useStaggerFade(12, !reduceMotion);
 
   // Save button press scale
   const saveScale = useRef(new Animated.Value(1)).current;
@@ -455,7 +525,76 @@ export default function TrainingSurveyScreen(): React.ReactElement {
     (user as any)?.season_phase ?? null
   );
 
+  // ── Expanded survey state (2026-06-19) ──────────────────────────────────
+  // Training days: JS getDay() indices (0=Sun … 6=Sat).
+  const [trainingDays, setTrainingDays] = useState<Set<number>>(
+    () => new Set<number>(((user as any)?.training_days as number[] | undefined) ?? [])
+  );
+  // Injuries: region tokens (lower_back, knees, …).
+  const [injuries, setInjuries] = useState<Set<string>>(
+    () => new Set<string>(((user as any)?.injuries as string[] | undefined) ?? [])
+  );
+  // Muscle priorities: canonical MuscleMap labels.
+  const [musclePriorities, setMusclePriorities] = useState<Set<string>>(
+    () => new Set<string>(((user as any)?.muscle_priorities as string[] | undefined) ?? [])
+  );
+  // Body weight: canonical kg, entered/displayed in the user's preferred unit.
+  const [bodyweightUnit, setBodyweightUnit] = useState<UnitSystem>(
+    user?.unit_pref ?? 'kg'
+  );
+  const [bodyweightInput, setBodyweightInput] = useState<string>(
+    (user as any)?.bodyweight_kg != null
+      ? kgToInputValue((user as any).bodyweight_kg, user?.unit_pref ?? 'kg')
+      : ''
+  );
+  // Date of birth (ISO yyyy-mm-dd), entered as free text.
+  const [birthDateInput, setBirthDateInput] = useState<string>(
+    (user as any)?.birth_date != null ? String((user as any).birth_date).slice(0, 10) : ''
+  );
+
   const [isSaving, setIsSaving] = useState(false);
+
+  // ── Hydrate from the on-device profile on mount ─────────────────────────
+  // Free/local-first users' survey answers live ONLY in SQLite — the in-session
+  // `user` (restored from SecureStore) carries the cached server profile, not
+  // the local survey fields, so on a cold start the form would otherwise show
+  // blank even though a plan is generated from the saved values. We read the
+  // saved row once and seed any field the in-memory user didn't already provide.
+  // Runs before the user interacts, and only fills EMPTY fields, so it never
+  // clobbers a fresh edit. Critically this also means re-saving won't wipe
+  // previously-saved injuries/priorities/days (the save sends null when empty).
+  const hydratedRef = useRef(false);
+  useEffect(() => {
+    if (hydratedRef.current) return;
+    hydratedRef.current = true;
+    let cancelled = false;
+    (async () => {
+      const saved = await loadLocalProfile().catch(() => null);
+      if (!saved || cancelled) return;
+      setTrainingGoal((cur) => cur ?? (saved.training_goal as TrainingGoal | null) ?? null);
+      setExperienceLevel((cur) => cur ?? (saved.experience_level as ExperienceLevel | null) ?? null);
+      setDiscipline((cur) => cur ?? (saved.primary_focus as Discipline | null) ?? null);
+      setSessionsPerWeek((cur) => cur ?? saved.sessions_per_week ?? null);
+      setSessionMinutes((cur) => cur ?? (saved.session_minutes as SessionMinutes | null) ?? null);
+      setEquipmentProfile((cur) =>
+        cur.size > 0 ? cur : new Set<EquipmentItem>((saved.equipment_profile as EquipmentItem[] | null) ?? []));
+      setSeasonPhase((cur) => cur ?? (saved.season_phase as SeasonPhase | null) ?? null);
+      setTrainingDays((cur) => (cur.size > 0 ? cur : new Set<number>(saved.training_days ?? [])));
+      setInjuries((cur) => (cur.size > 0 ? cur : new Set<string>(saved.injuries ?? [])));
+      setMusclePriorities((cur) => (cur.size > 0 ? cur : new Set<string>(saved.muscle_priorities ?? [])));
+      setGoalWeightInput((cur) =>
+        cur !== '' ? cur : saved.goal_weight_kg != null
+          ? kgToInputValue(saved.goal_weight_kg, (saved.unit_pref as UnitSystem) ?? user?.unit_pref ?? 'kg')
+          : '');
+      setBodyweightInput((cur) =>
+        cur !== '' ? cur : saved.bodyweight_kg != null
+          ? kgToInputValue(saved.bodyweight_kg, (saved.unit_pref as UnitSystem) ?? user?.unit_pref ?? 'kg')
+          : '');
+      setBirthDateInput((cur) => (cur !== '' ? cur : saved.birth_date ? saved.birth_date.slice(0, 10) : ''));
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Season step is relevant when the chosen focus is an endurance/mixed
   // discipline (falls back to the stored primary_discipline before a choice).
@@ -475,6 +614,35 @@ export default function TrainingSurveyScreen(): React.ReactElement {
       return next;
     });
   }, []);
+
+  // Generic Set<T> toggle for the multi-select sections (days/injuries/priorities).
+  const toggleInSet = useCallback(
+    <T,>(setter: React.Dispatch<React.SetStateAction<Set<T>>>, item: T) => {
+      setter((prev) => {
+        const next = new Set(prev);
+        if (next.has(item)) next.delete(item);
+        else next.add(item);
+        return next;
+      });
+    },
+    []
+  );
+
+  // Switch bodyweight unit, re-expressing the entered value in the new unit.
+  const handleBodyweightUnitChange = useCallback(
+    (nextUnit: UnitSystem) => {
+      setBodyweightUnit((prevUnit) => {
+        if (nextUnit === prevUnit) return prevUnit;
+        const parsed = parseWeightInput(bodyweightInput);
+        if (parsed !== null) {
+          const kg = displayToKg(parsed, prevUnit);
+          setBodyweightInput(kgToInputValue(kg, nextUnit));
+        }
+        return nextUnit;
+      });
+    },
+    [bodyweightInput]
+  );
 
   // Switch goal-weight unit, re-expressing the currently entered value in the
   // new unit (canonical kg round-trips back to a clean display string).
@@ -499,7 +667,10 @@ export default function TrainingSurveyScreen(): React.ReactElement {
       const payload: Parameters<typeof saveProfile>[1] = {};
       if (trainingGoal !== null)    payload.training_goal = trainingGoal;
       if (experienceLevel !== null) payload.experience_level = experienceLevel;
-      if (discipline !== null)      payload.primary_discipline = discipline;
+      if (discipline !== null) {
+        payload.primary_discipline = discipline; // in-session (engine this session)
+        payload.primary_focus = discipline;      // persisted locally (v8 column)
+      }
       if (sessionsPerWeek !== null) payload.sessions_per_week = sessionsPerWeek;
       if (sessionMinutes !== null)  payload.session_minutes = sessionMinutes;
       if (equipmentProfile.size > 0) payload.equipment_profile = Array.from(equipmentProfile);
@@ -509,6 +680,22 @@ export default function TrainingSurveyScreen(): React.ReactElement {
       else if (goalWeightInput.trim() === '') payload.goal_weight_kg = null;
       // Season phase only when the focus discipline makes it meaningful.
       if (showSeasonStep)            payload.season_phase = seasonPhase ?? null;
+
+      // ── Expanded survey fields (always send so deselect-all clears them) ──
+      payload.training_days = trainingDays.size > 0 ? Array.from(trainingDays).sort((a, b) => a - b) : null;
+      payload.injuries = injuries.size > 0 ? Array.from(injuries) : null;
+      payload.muscle_priorities = musclePriorities.size > 0 ? Array.from(musclePriorities) : null;
+      // Body weight → canonical kg (or clear when blank).
+      const bw = parseWeightInput(bodyweightInput);
+      if (bw !== null && bw > 0)               payload.bodyweight_kg = displayToKg(bw, bodyweightUnit);
+      else if (bodyweightInput.trim() === '')  payload.bodyweight_kg = null;
+      // Date of birth: only persist a plausible ISO yyyy-mm-dd; blank clears it.
+      const dob = birthDateInput.trim();
+      if (dob === '') {
+        payload.birth_date = null;
+      } else if (/^\d{4}-\d{2}-\d{2}$/.test(dob) && !Number.isNaN(new Date(dob).getTime())) {
+        payload.birth_date = dob;
+      }
 
       // Tier-branched: free → local user_profile, Pro → PATCH /user/profile (D-1).
       await saveProfile(user, payload, updateUser);
@@ -524,6 +711,7 @@ export default function TrainingSurveyScreen(): React.ReactElement {
   }, [
     trainingGoal, experienceLevel, discipline, sessionsPerWeek, sessionMinutes,
     equipmentProfile, goalWeightInput, goalWeightUnit, seasonPhase, showSeasonStep,
+    trainingDays, injuries, musclePriorities, bodyweightInput, bodyweightUnit, birthDateInput,
     user, updateUser, router,
   ]);
 
@@ -768,10 +956,162 @@ export default function TrainingSurveyScreen(): React.ReactElement {
           )}
         </Animated.View>
 
+        {/* ── Section 9: Training days ── */}
+        <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[8])}>
+          <SurveySection
+            title={SURVEY_CONFIG.trainingDays.title}
+            subtitle={SURVEY_CONFIG.trainingDays.subtitle}
+          >
+            <View style={styles.chipRow}>
+              {SURVEY_CONFIG.trainingDays.options.map((opt) => (
+                <MultiChipButton
+                  key={opt.value}
+                  label={opt.label}
+                  selected={trainingDays.has(opt.value)}
+                  onPress={() => toggleInSet(setTrainingDays, opt.value)}
+                />
+              ))}
+            </View>
+            {trainingDays.size === 0 && (
+              <Text style={[styles.hintText, { color: theme.colors.textTertiary }]}>
+                {SURVEY_CONFIG.trainingDays.emptyHint}
+              </Text>
+            )}
+          </SurveySection>
+        </Animated.View>
+
+        {/* ── Section 10: Injuries + Muscle priorities ── */}
+        <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[9])}>
+          <SurveySection
+            title={SURVEY_CONFIG.injuries.title}
+            subtitle={SURVEY_CONFIG.injuries.subtitle}
+          >
+            <View style={styles.chipGrid}>
+              {SURVEY_CONFIG.injuries.options.map((opt) => (
+                <MultiChipButton
+                  key={opt.value}
+                  label={opt.label}
+                  selected={injuries.has(opt.value)}
+                  onPress={() => toggleInSet(setInjuries, opt.value)}
+                />
+              ))}
+            </View>
+            {injuries.size === 0 && (
+              <Text style={[styles.hintText, { color: theme.colors.textTertiary }]}>
+                {SURVEY_CONFIG.injuries.emptyHint}
+              </Text>
+            )}
+          </SurveySection>
+
+          <SurveySection
+            title={SURVEY_CONFIG.priorities.title}
+            subtitle={SURVEY_CONFIG.priorities.subtitle}
+          >
+            <View style={styles.chipGrid}>
+              {SURVEY_CONFIG.priorities.options.map((opt) => (
+                <MultiChipButton
+                  key={opt.value}
+                  label={opt.label}
+                  selected={musclePriorities.has(opt.value)}
+                  onPress={() => toggleInSet(setMusclePriorities, opt.value)}
+                />
+              ))}
+            </View>
+            {musclePriorities.size === 0 && (
+              <Text style={[styles.hintText, { color: theme.colors.textTertiary }]}>
+                {SURVEY_CONFIG.priorities.emptyHint}
+              </Text>
+            )}
+          </SurveySection>
+        </Animated.View>
+
+        {/* ── Section 11: Body weight + Date of birth (both optional) ── */}
+        <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[10])}>
+          <SurveySection
+            title={SURVEY_CONFIG.bodyweight.title}
+            subtitle={SURVEY_CONFIG.bodyweight.subtitle}
+          >
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            >
+              <View style={[
+                styles.inputRow,
+                { borderColor: theme.colors.borderDefault, backgroundColor: theme.colors.bgElevated },
+              ]}>
+                <TextInput
+                  style={[styles.weightInput, { color: theme.colors.textPrimary }]}
+                  placeholder={bodyweightUnit === 'lbs' ? 'e.g. 165' : 'e.g. 75'}
+                  placeholderTextColor={theme.colors.textTertiary}
+                  keyboardType="decimal-pad"
+                  value={bodyweightInput}
+                  onChangeText={setBodyweightInput}
+                  accessibilityLabel={`Current body weight in ${bodyweightUnit === 'lbs' ? 'pounds' : 'kilograms'}`}
+                  maxLength={6}
+                />
+                <View style={[
+                  styles.unitToggle,
+                  { borderColor: theme.colors.borderDefault, backgroundColor: theme.colors.bgPrimary },
+                ]}>
+                  {(['kg', 'lbs'] as const).map((u) => {
+                    const active = bodyweightUnit === u;
+                    return (
+                      <TouchableOpacity
+                        key={u}
+                        style={[
+                          styles.unitToggleButton,
+                          active && { backgroundColor: theme.colors.accentDefault },
+                        ]}
+                        onPress={() => handleBodyweightUnitChange(u)}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: active }}
+                        accessibilityLabel={`Use ${u === 'lbs' ? 'pounds' : 'kilograms'}`}
+                      >
+                        <Text style={[
+                          styles.unitToggleText,
+                          { color: active ? theme.components.buttonPrimaryText : theme.colors.textTertiary },
+                        ]}>
+                          {u}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            </KeyboardAvoidingView>
+          </SurveySection>
+
+          <SurveySection
+            title={SURVEY_CONFIG.age.title}
+            subtitle={SURVEY_CONFIG.age.subtitle}
+          >
+            <KeyboardAvoidingView
+              behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            >
+              <View style={[
+                styles.inputRow,
+                { borderColor: theme.colors.borderDefault, backgroundColor: theme.colors.bgElevated },
+              ]}>
+                <TextInput
+                  style={[styles.weightInput, { color: theme.colors.textPrimary }]}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={theme.colors.textTertiary}
+                  keyboardType="numbers-and-punctuation"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  value={birthDateInput}
+                  onChangeText={setBirthDateInput}
+                  accessibilityLabel="Date of birth, year month day"
+                  maxLength={10}
+                />
+              </View>
+            </KeyboardAvoidingView>
+          </SurveySection>
+        </Animated.View>
+
         {/* ── Save button ── */}
         <Animated.View
           style={[
-            reduceMotion ? undefined : staggerStyle(staggerAnims[8]),
+            reduceMotion ? undefined : staggerStyle(staggerAnims[11]),
             { transform: [{ scale: saveScale }] },
           ]}
         >

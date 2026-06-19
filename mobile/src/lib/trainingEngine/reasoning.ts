@@ -229,6 +229,199 @@ export function buildReasoning(ctx: CtxForReasoning, _ruleTrace: string[]): stri
   );
 }
 
+// ===========================================================================
+// buildRuleTrace — the USER-FACING "Here's why" list (plain language).
+// ---------------------------------------------------------------------------
+// The pipeline stages still accumulate a verbose, technical debug trace (kept
+// for the server path + unit tests). That raw trace is NOT shown to users — it
+// reads like engine logs ("Engine spec: discipline=…, tier=…, sessions=3").
+// This function instead turns the STRUCTURED plan facts into a short, curated,
+// human-readable list grouped as: intent → structure → recovery → selection →
+// loading. Every line is a full sentence citing the user's real numbers, with
+// NO internal jargon and NO "AI"/engine-name strings (branding rule §7).
+// ===========================================================================
+
+export interface RuleTraceFacts {
+  discipline: string;
+  tier: string;
+  trainingGoal: string;
+  sessionsPerWeek: number;
+  sessionMinutes: number;
+  seasonPhase: string | null;
+  equipmentProfile: string[];
+  musclePriorities: string[];
+  constraints: Array<{ constraint_type: string; custom_note?: string | null }>;
+  progressionModel: string;
+  weeks: WeekOutput[];
+  history: HistoryRow[];
+  pbs: PBRow[];
+}
+
+/** Title-case a snake/space token for prose ("general_strength" → "General strength"). */
+function humanize(token: string | null | undefined): string {
+  if (!token) return '';
+  const s = token.replace(/_/g, ' ').trim();
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+const TIER_WORD: Record<string, string> = {
+  beginner: 'beginner',
+  intermediate: 'intermediate',
+  advanced: 'advanced',
+};
+
+const GOAL_PHRASE: Record<string, string> = {
+  strength: 'maximal strength (low reps, heavier loads)',
+  hypertrophy: 'muscle growth (moderate reps, controlled tempo)',
+  endurance: 'aerobic endurance and stamina',
+  sport_performance: 'sport performance (power and speed)',
+  general_fitness: 'all-round fitness and movement quality',
+};
+
+const PROGRESSION_PHRASE: Record<string, string> = {
+  linear: 'Loads climb a little each week (linear progression) — the simplest way to keep adding weight while reps hold.',
+  dup: 'Intensity is varied through the week (undulating periodisation): heavier, lower-rep work is balanced with lighter, higher-rep volume so you progress without burning out.',
+  block: 'Training is organised into focused blocks that build volume first, then sharpen intensity toward the end of the cycle.',
+};
+
+/** Count distinct training (non-recovery) sessions in week 1. */
+function describeStructure(weeks: WeekOutput[]): {
+  total: number;
+  training: number;
+  recovery: number;
+  labels: string[];
+} {
+  const wk1 = weeks[0]?.sessions ?? [];
+  const labels: string[] = [];
+  let recovery = 0;
+  for (const s of wk1) {
+    const label = (s as { day_label?: string; archetype?: string }).day_label
+      || (s as { archetype?: string }).archetype
+      || 'Session';
+    labels.push(label);
+    if (/recovery|active rest/i.test(label)) recovery++;
+  }
+  return { total: wk1.length, training: wk1.length - recovery, recovery, labels };
+}
+
+/** Find the most informative loaded lift in week 1 to cite a concrete number. */
+function describeLoadingExample(weeks: WeekOutput[]): string | null {
+  const wk1 = weeks[0]?.sessions ?? [];
+  for (const session of wk1) {
+    for (const slot of session.slots ?? []) {
+      if (slot.weight_kg != null && slot.weight_kg > 0 && slot.name) {
+        return `${slot.name} at ${slot.weight_kg}kg`;
+      }
+    }
+  }
+  return null;
+}
+
+export function buildRuleTrace(facts: RuleTraceFacts): string[] {
+  const {
+    discipline, tier, trainingGoal, sessionsPerWeek, sessionMinutes,
+    seasonPhase, equipmentProfile, musclePriorities, constraints,
+    progressionModel, weeks, history, pbs,
+  } = facts;
+
+  const lines: string[] = [];
+  const struct = describeStructure(weeks);
+  const tierWord = TIER_WORD[tier] || tier;
+  const disciplineWord = humanize(discipline).toLowerCase();
+  const goalPhrase = GOAL_PHRASE[trainingGoal] || humanize(trainingGoal).toLowerCase();
+
+  // 1. INTENT — what this plan is and who it's for. Cite the user's chosen
+  //    weekly frequency (struct.total), not just the hard-training count, so a
+  //    6-day request reads as "6-day" even when 2 of those are recovery days.
+  const weekDayCount = struct.total > 0 ? struct.total : sessionsPerWeek;
+  lines.push(
+    `Built a ${weekDayCount}-day ${disciplineWord} plan for your ${tierWord} level, ` +
+    `around ${sessionMinutes} minutes per session, focused on ${goalPhrase}.`
+  );
+
+  // 2. STRUCTURE — the split and how days were laid out.
+  const splitLabels = struct.labels
+    .filter((l) => !/recovery|active rest/i.test(l))
+    .map((l) => l.replace(/^Day\s*\d+\s*[–-]\s*/i, '').replace(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*\s*[–-]\s*/i, ''));
+  const uniqueArchetypes = Array.from(new Set(splitLabels));
+  if (uniqueArchetypes.length > 0) {
+    lines.push(
+      `Your week is split into: ${uniqueArchetypes.join(', ')} — chosen to train each ` +
+      `area hard, then give it time to recover before the next time you hit it.`
+    );
+  }
+
+  // 3. SESSION-LENGTH / SCALING — only when the schedule was adapted.
+  if (sessionMinutes <= 30) {
+    lines.push(
+      `Because each session is short (${sessionMinutes} min), we keep the big compound ` +
+      `lifts that give the most return and trim accessory work — intensity is never cut.`
+    );
+  }
+  if (struct.recovery > 0) {
+    lines.push(
+      `You asked for ${sessionsPerWeek} days, which is more than this plan needs for hard ` +
+      `training, so ${struct.recovery} day(s) are light recovery/mobility rather than extra volume — that protects your progress.`
+    );
+  }
+
+  // 4. RECOVERY / SEQUENCING.
+  lines.push(
+    `Hard and easy days alternate and the same muscles get at least ~48 hours between ` +
+    `sessions, so you show up fresh and recover properly.`
+  );
+  if (seasonPhase === 'in_season') {
+    lines.push(
+      `You're in-season, so accessory volume is dialled back to keep you fresh for ` +
+      `competition while maintaining your strength base.`
+    );
+  }
+
+  // 5. SELECTION — equipment, muscle priorities, injuries.
+  if (equipmentProfile.length > 0) {
+    lines.push(
+      `Every exercise was picked from the equipment you have (${equipmentProfile.map(humanize).map((s) => s.toLowerCase()).join(', ')}).`
+    );
+  }
+  if (musclePriorities.length > 0) {
+    lines.push(
+      `You flagged ${musclePriorities.map(humanize).map((s) => s.toLowerCase()).join(' and ')} as a ` +
+      `priority, so the plan leans extra volume toward those areas.`
+    );
+  }
+  const injuryTokens = (constraints || [])
+    .map((c) => c.constraint_type)
+    .filter((t) => t && t !== 'custom');
+  if (injuryTokens.length > 0) {
+    lines.push(
+      `Movements that could aggravate your ${injuryTokens.map(humanize).map((s) => s.toLowerCase()).join(', ')} ` +
+      `were left out and safer alternatives chosen instead.`
+    );
+  }
+
+  // 6. LOADING — how weights were chosen (cite a real number if available).
+  const loadExample = describeLoadingExample(weeks);
+  const hasData = (history?.length ?? 0) >= 1 || (pbs?.length ?? 0) >= 1;
+  if (loadExample) {
+    lines.push(
+      `Starting weights come from your logged history — e.g. ${loadExample} in week 1, set at ` +
+      `~87.5% of your estimated max so the first sessions feel strong, not crushing.`
+    );
+  } else if (!hasData) {
+    lines.push(
+      `You haven't logged much yet, so loads start with RPE targets ("leave ~3 reps in the tank") ` +
+      `and the plan calibrates real weights as you log your first sessions.`
+    );
+  }
+  lines.push(
+    PROGRESSION_PHRASE[progressionModel] ||
+      PROGRESSION_PHRASE.linear ||
+      'Loads climb gradually across the cycle.'
+  );
+
+  return lines;
+}
+
 // ---------------------------------------------------------------------------
 // Apply coaching notes to all slots in all weeks
 // ---------------------------------------------------------------------------

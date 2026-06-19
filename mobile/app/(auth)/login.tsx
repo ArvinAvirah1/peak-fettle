@@ -62,6 +62,11 @@ export default function LoginScreen(): React.ReactElement {
   const [serverError, setServerError] = useState<string | null>(null);
 
   const handleLogin = useCallback(async () => {
+    // Re-entrancy guard: ignore a second tap while a submit is already in
+    // flight. With this AND the auth-call timeout, the button can never get
+    // wedged "doing nothing" — it always re-enables in finally{}.
+    if (isSubmitting) return;
+
     // Client-side validation before hitting the network.
     const emailErr = validateEmail(email);
     const passwordErr = validatePassword(password);
@@ -77,14 +82,19 @@ export default function LoginScreen(): React.ReactElement {
 
     try {
       await login(email.trim().toLowerCase(), password);
-      // On success, AuthContext calls router.replace('/(tabs)/') — no local nav needed.
+      // AuthContext.login() calls router.replace('/(tabs)/'). Navigate here too
+      // as a belt-and-braces fallback: if that first replace is ever swallowed
+      // (router not ready right after a forced sign-out), this guarantees we
+      // leave the login screen instead of silently sitting on a re-enabled
+      // button. Replacing to the same target twice is an idempotent no-op.
+      router.replace('/(tabs)/');
     } catch (err: unknown) {
       const message = extractErrorMessage(err);
       setServerError(message);
     } finally {
       setIsSubmitting(false);
     }
-  }, [email, password, login]);
+  }, [email, password, login, isSubmitting, router]);
 
   return (
     <ScreenLayout scrollable keyboardAvoiding contentStyle={styles.content}>

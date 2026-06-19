@@ -70,6 +70,10 @@ export default function RegisterScreen(): React.ReactElement {
   const [serverError, setServerError] = useState<string | null>(null);
 
   const handleRegister = useCallback(async () => {
+    // Re-entrancy guard — see login.tsx. With the auth-call timeout, the button
+    // can never get wedged disabled: it always re-enables in finally{}.
+    if (isSubmitting) return;
+
     const errors = validate(email, password);
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
@@ -86,13 +90,16 @@ export default function RegisterScreen(): React.ReactElement {
         password,
         displayName.trim() || undefined
       );
-      // On success, AuthContext calls router.replace('/(tabs)/').
+      // AuthContext.register() routes new users through /splash (intro →
+      // onboarding). Navigate here too as an idempotent fallback so a swallowed
+      // first replace can't leave the user stranded on a re-enabled button.
+      router.replace('/splash');
     } catch (err: unknown) {
       setServerError(extractErrorMessage(err));
     } finally {
       setIsSubmitting(false);
     }
-  }, [email, password, displayName, register]);
+  }, [email, password, displayName, register, isSubmitting, router]);
 
   return (
     <ScreenLayout scrollable keyboardAvoiding contentStyle={styles.content}>

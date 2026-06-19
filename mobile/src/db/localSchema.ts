@@ -378,6 +378,12 @@ CREATE TABLE IF NOT EXISTS user_profile (
   equipment_profile TEXT,
   season_phase TEXT,
   last_deload_at TEXT,
+  -- v8 expanded-survey columns (also added by guarded ALTER for existing rows):
+  primary_focus TEXT,
+  injuries TEXT,
+  muscle_priorities TEXT,
+  bodyweight_kg REAL,
+  training_days TEXT,
   created_at TEXT,
   updated_at TEXT
 )`;
@@ -578,3 +584,36 @@ CREATE TABLE IF NOT EXISTS migration_state (
 )`;
 
 export const SCHEMA_V7_STATEMENTS: MigrationStatement[] = [CREATE_MIGRATION_STATE];
+
+// ---------------------------------------------------------------------------
+// v8 statements — expanded Training-Engine survey fields on user_profile.
+//
+// The training survey (mobile/app/training-survey.tsx) now collects, in
+// addition to the existing goal/experience/sessions/length/equipment/season:
+//   • primary_focus    TEXT  — the chosen discipline (general_strength,
+//                              powerlifting, …). Previously had no local column,
+//                              so a free user's discipline was lost on cold start
+//                              and the engine fell back to general_strength.
+//   • injuries         TEXT  — JSON-encoded string[] of region tokens
+//                              (lower_back, knees, …); fed into the engine's
+//                              contraindication filter so unsafe patterns are
+//                              excluded.
+//   • muscle_priorities TEXT — JSON-encoded string[] of canonical muscle labels
+//                              (chest, back, legs, …); biases exercise selection
+//                              and accessory volume toward those groups.
+//   • bodyweight_kg    REAL  — current body weight (canonical kg) for loading /
+//                              recovery defaults.
+//   • training_days    TEXT  — JSON-encoded number[] (0=Sun … 6=Sat) of the
+//                              specific weekdays the user trains, so the schedule
+//                              maps onto real days ("Mon – Push") not "Day 1".
+//
+// All guarded ALTER ADD COLUMN (SQLite has no IF NOT EXISTS for ADD COLUMN; the
+// migration runner checks pragma_table_info first). All nullable — every survey
+// step stays skippable and older rows simply read back null. Added 2026-06-19.
+export const SCHEMA_V8_STATEMENTS: MigrationStatement[] = [
+  { type: 'alter_add_column', table: 'user_profile', column: 'primary_focus', definition: 'TEXT' },
+  { type: 'alter_add_column', table: 'user_profile', column: 'injuries', definition: 'TEXT' },
+  { type: 'alter_add_column', table: 'user_profile', column: 'muscle_priorities', definition: 'TEXT' },
+  { type: 'alter_add_column', table: 'user_profile', column: 'bodyweight_kg', definition: 'REAL' },
+  { type: 'alter_add_column', table: 'user_profile', column: 'training_days', definition: 'TEXT' },
+];

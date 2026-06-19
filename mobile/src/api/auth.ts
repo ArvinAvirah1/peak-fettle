@@ -14,19 +14,28 @@ import { AuthResponse, AuthTokens } from '../types/api';
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3001';
 
-// We use plain axios for auth calls (not apiClient) because:
+// Every auth call MUST have an explicit timeout. These use plain axios (not the
+// shared apiClient, whose 15s timeout they'd otherwise inherit) because:
 //   - login/register have no Bearer token to attach.
 //   - refresh must not trigger the 401 interceptor (would loop).
+// Without a timeout a hung/unreachable server leaves the calling screen's
+// `isSubmitting` true forever → the Sign In / Create Account button stays
+// disabled (spinner) and "does nothing" until the app is force-quit. That was
+// the reported "button does nothing after being signed out" bug. A bounded
+// timeout makes the request reject, the screen's finally{} re-enables the
+// button, and the error surfaces. (AUTH-RELIABILITY, 2026-06-19)
+const AUTH_TIMEOUT_MS = 15_000;
 
 /**
  * POST /auth/login
  * @throws ApiError with `error` field on failure (e.g. 'invalid_credentials').
  */
 export async function login(email: string, password: string): Promise<AuthResponse> {
-  const response = await axios.post<AuthResponse>(`${BASE_URL}/auth/login`, {
-    email,
-    password,
-  });
+  const response = await axios.post<AuthResponse>(
+    `${BASE_URL}/auth/login`,
+    { email, password },
+    { timeout: AUTH_TIMEOUT_MS },
+  );
   return response.data;
 }
 
@@ -39,11 +48,11 @@ export async function register(
   password: string,
   displayName?: string
 ): Promise<AuthResponse> {
-  const response = await axios.post<AuthResponse>(`${BASE_URL}/auth/signup`, {
-    email,
-    password,
-    displayName,
-  });
+  const response = await axios.post<AuthResponse>(
+    `${BASE_URL}/auth/signup`,
+    { email, password, displayName },
+    { timeout: AUTH_TIMEOUT_MS },
+  );
   return response.data;
 }
 
@@ -66,15 +75,18 @@ export async function oauthLogin(
 ): Promise<AuthResponse & { isNew?: boolean }> {
   const response = await axios.post<AuthResponse & { isNew?: boolean }>(
     `${BASE_URL}/auth/oauth`,
-    { provider, idToken }
+    { provider, idToken },
+    { timeout: AUTH_TIMEOUT_MS },
   );
   return response.data;
 }
 
 export async function refreshTokens(refreshToken: string): Promise<AuthTokens> {
-  const response = await axios.post<AuthTokens>(`${BASE_URL}/auth/refresh`, {
-    refreshToken,
-  });
+  const response = await axios.post<AuthTokens>(
+    `${BASE_URL}/auth/refresh`,
+    { refreshToken },
+    { timeout: AUTH_TIMEOUT_MS },
+  );
   return response.data;
 }
 

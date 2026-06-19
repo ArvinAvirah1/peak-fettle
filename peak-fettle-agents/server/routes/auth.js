@@ -65,6 +65,88 @@ function hashToken(rawToken) {
 }
 
 /**
+ * Derive a human-friendly display name from an email's local-part, or return
+ * null when the local-part is an opaque/random handle that should NOT be shown
+ * as a name (e.g. Apple "Hide My Email" relay addresses).
+ *
+ * Heuristic — treat as opaque (→ null) when the local-part:
+ *   • belongs to a known private-relay domain (appleid relay, gmail privaterelay), OR
+ *   • has no separators (., _, -, +) AND mixes letters+digits AND is long (≥8),
+ *     which is the shape of a generated token like "64t9tvkymn" — while still
+ *     accepting normal handles like "arvin", "arvin.avirah", "john_doe", "jdoe23".
+ */
+function deriveDisplayNameFromEmail(email) {
+    const at = String(email || '').indexOf('@');
+    if (at <= 0) return null;
+    const local = email.slice(0, at);
+    const domain = email.slice(at + 1).toLowerCase();
+
+    // Known opaque relay domains → always treat the local-part as a random token.
+    if (/(?:^|\.)privaterelay\.appleid\.com$/.test(domain) ||
+        /(?:^|\.)privaterelay\.gmail\.com$/.test(domain)) {
+        return null;
+    }
+
+    const hasSeparator = /[._+\-]/.test(local);
+    const hasLetter = /[a-z]/i.test(local);
+    const hasDigit = /\d/.test(local);
+    // Long, separator-less, letter+digit mash → looks generated (e.g. 64t9tvkymn).
+    if (!hasSeparator && hasLetter && hasDigit && local.length >= 8) {
+        return null;
+    }
+    return local;
+}
+
+// ---------------------------------------------------------------------------
+// refresh-rotation-race grace window (AUTH-RELIABILITY, 2026-06-19)
+//
+// Single-use rotation means /refresh DELETEs the presented token and issues a
+// fresh pair. But the client legitimately fires /refresh from TWO places that
+// can race with the SAME stored token within a few hundred ms:
+//   • AuthContext cold-start bootstrap (silent refresh), and
+//   • the apiClient 401 interceptor (a Pro data call that went out before the
+//     bootstrap had set the in-memory access token).
+// Whichever hits the DELETE first wins; the loser found 0 rows and got a 401,
+// which tripped the client's onLogout → the refresh token was WIPED → the user
+// was forced to sign in on the NEXT launch. This was the #1 forced-relogin bug.
+//
+// Fix: when a token is successfully rotated, remember its hash -> the freshly
+// issued pair for a short grace window. If the SAME token is presented again
+// inside that window (the racing caller), replay the SAME new pair instead of
+// 401ing. This keeps rotation single-use against attackers (a token reused
+// AFTER the window, or a *different* already-rotated token, still 401s) while
+// making the two concurrent honest callers converge on one pair.
+//
+// In-memory only (no schema change — drift-tolerant per CLAUDE.md). A replay is
+// only useful for a few seconds anyway; a multi-instance deployment just means
+// the racing call falls through to the normal 401 → the client's bootstrap path
+// still holds the session via the cached user, so this degrades safely.
+// ---------------------------------------------------------------------------
+const ROTATION_GRACE_MS = 30 * 1000;
+const _recentlyRotated = new Map(); // tokenHash -> { tokens, at }
+
+function _rememberRotation(oldHash, tokens) {
+    _recentlyRotated.set(oldHash, { tokens, at: Date.now() });
+    // Opportunistic prune so the map can't grow unbounded.
+    if (_recentlyRotated.size > 5000) {
+        const cutoff = Date.now() - ROTATION_GRACE_MS;
+        for (const [k, v] of _recentlyRotated) {
+            if (v.at < cutoff) _recentlyRotated.delete(k);
+        }
+    }
+}
+
+function _replayRotation(oldHash) {
+    const hit = _recentlyRotated.get(oldHash);
+    if (!hit) return null;
+    if (Date.now() - hit.at > ROTATION_GRACE_MS) {
+        _recentlyRotated.delete(oldHash);
+        return null;
+    }
+    return hit.tokens;
+}
+
+/**
  * Issue a new access + refresh token pair.
  * Stores the refresh token hash in the refresh_tokens table.
  * Refresh tokens expire in 30 days (matching the JWT expiresIn).
@@ -75,8 +157,13 @@ async function issueTokens(user) {
         process.env.JWT_SECRET,
         { expiresIn: '15m' }
     );
+    // jti: a random unique id so two refresh tokens minted for the same user in
+    // the same second are NOT byte-identical. Without it, the payload
+    // {sub,type,iat,exp} collides → identical SHA-256 → the ON CONFLICT below
+    // silently dropped the second insert, leaving a freshly-issued token whose
+    // hash was never stored (instant invalid_token on its first use).
     const refreshToken = jwt.sign(
-        { sub: user.id, type: 'refresh' },
+        { sub: user.id, type: 'refresh', jti: crypto.randomBytes(16).toString('hex') },
         process.env.JWT_SECRET,
         { expiresIn: '30d' }
     );
@@ -152,7 +239,9 @@ router.post('/refresh', async (req, res, next) => {
             return res.status(401).json({ error: 'invalid_token' });
         }
 
-        // T-02: verify the token hash is in the active-tokens list.
+        // T-02: verify the token hash is in the active-tokens list and rotate
+        // it (single-use). The DELETE…RETURNING atomically consumes the token —
+        // exactly one concurrent caller can win.
         const hash = hashToken(refreshToken);
         const { rows: tokenRows } = await pool.query(
             `DELETE FROM refresh_tokens
@@ -163,7 +252,15 @@ router.post('/refresh', async (req, res, next) => {
             [hash, payload.sub]
         );
         if (tokenRows.length === 0) {
-            // Token was already used, revoked, or expired.
+            // We didn't win the DELETE. Two honest cases land here:
+            //   1. This exact token was rotated moments ago by the racing caller
+            //      (bootstrap vs 401 interceptor). Replay the pair we issued for
+            //      it so both callers converge instead of forcing a re-login.
+            //   2. Genuinely already-used / revoked / expired token → 401.
+            const replay = _replayRotation(hash);
+            if (replay) {
+                return res.json(replay);
+            }
             return res.status(401).json({ error: 'invalid_token' });
         }
 
@@ -173,8 +270,11 @@ router.post('/refresh', async (req, res, next) => {
         );
         if (!userRows[0]) return res.status(401).json({ error: 'invalid_token' });
 
-        // Issue a new rotated pair.
+        // Issue a new rotated pair and remember it against the just-consumed
+        // token hash, so a racing duplicate of THIS request (the other honest
+        // caller) replays the same pair within the grace window.
         const tokens = await issueTokens(userRows[0]);
+        _rememberRotation(hash, tokens);
         res.json(tokens);
     } catch (_err) {
         return res.status(401).json({ error: 'invalid_token' });
@@ -209,6 +309,9 @@ router.post('/logout', async (req, res, next) => {
             `DELETE FROM refresh_tokens WHERE token_hash = $1`,
             [hash]
         );
+        // Explicit logout must also drop any grace-window replay for this token
+        // so it can't be revived after the user signed out.
+        _recentlyRotated.delete(hash);
 
         res.status(204).end();
     } catch (err) { next(err); }
@@ -259,7 +362,14 @@ router.post('/oauth', async (req, res, next) => {
             // OAuth accounts have no usable password: store a random hash so the
             // NOT-NULL column is satisfied and password login is impossible.
             const randomHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
-            const displayName = claims.name || email.split('@')[0];
+            // display_name: prefer the provider's real name. Otherwise derive a
+            // sensible default from the email local-part — BUT never store an
+            // opaque random token. Apple "Hide My Email" addresses look like
+            // 64t9tvkymn@privaterelay.appleid.com, whose local-part is a random
+            // handle; using it verbatim is exactly the "64t9tvkymn" greeting bug.
+            // For those, store NULL and let the client onboarding ask for a name
+            // (greeting falls back to "there" until then).
+            const displayName = claims.name || deriveDisplayNameFromEmail(email);
             const created = await pool.query(
                 `INSERT INTO users (email, password_hash, display_name)
                  VALUES ($1, $2, $3)

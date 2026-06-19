@@ -132,6 +132,31 @@ function isContraindicated(
 // ---------------------------------------------------------------------------
 // Main export
 // ---------------------------------------------------------------------------
+/**
+ * Does an exercise hit any prioritised muscle group? Survey priorities are
+ * canonical labels (e.g. 'chest','legs'); the catalogue tags muscle_groups with
+ * the same vocabulary (plus the 'legs' alias covering quads/hams/glutes/calves).
+ */
+function matchesPriority(
+  exercise: Exercise,
+  priorities: Set<string>,
+): boolean {
+  if (priorities.size === 0) return false;
+  const groups = exercise.muscle_groups || [];
+  for (const g of groups) {
+    const gl = (g || '').toLowerCase();
+    if (priorities.has(gl)) return true;
+    // 'legs' priority covers the individual leg groups.
+    if (
+      priorities.has('legs') &&
+      ['quads', 'hamstrings', 'glutes', 'calves'].includes(gl)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 export function exerciseFill(
   sessions: SequencedSession[],
   exercises: Exercise[],
@@ -141,7 +166,8 @@ export function exerciseFill(
   constraints: ConstraintRow[],
   userId: string | number,
   weekISO: string,
-  ruleTrace: string[]
+  ruleTrace: string[],
+  musclePriorities?: string[] | null
 ): FilledSession[] {
   const seed = buildSeed(userId, weekISO);
 
@@ -150,6 +176,9 @@ export function exerciseFill(
   );
   const pbNames = new Set(
     (pbs || []).map((p) => (p.exercise_name || '').toLowerCase())
+  );
+  const priorities = new Set(
+    (musclePriorities || []).map((m) => (m || '').toLowerCase()).filter(Boolean)
   );
 
   const shuffled = seededShuffle(exercises || [], seed);
@@ -181,6 +210,15 @@ export function exerciseFill(
         let pool = (sticky.length > 0 ? sticky : safePool).filter(
           (ex) => !usedInSession.has(ex.id)
         );
+
+        // Muscle-priority bias: if the user flagged priority groups and any
+        // candidate in the pool hits one, narrow to those so prioritised areas
+        // get the selection (and, via accessory slots, extra volume). Skipped
+        // when it would empty the pool, so it never blocks a valid slot.
+        if (priorities.size > 0) {
+          const prioritised = pool.filter((ex) => matchesPriority(ex, priorities));
+          if (prioritised.length > 0) pool = prioritised;
+        }
 
         if (slot.priority === 1) {
           const compound = pool.filter((ex) => ex.is_compound);

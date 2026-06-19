@@ -369,6 +369,7 @@ router.patch('/profile', async (req, res, next) => {
     try {
         const uid = req.user.id;
         const {
+            display_name,
             unit_pref,
             experience_level,
             weight_class_kg,
@@ -389,6 +390,31 @@ router.patch('/profile', async (req, res, next) => {
         // Build SET clause dynamically — only update fields that were provided.
         const setClauses = [];
         const params = [uid]; // $1 is always user id
+
+        // Display name — the username shown in the greeting + profile card. A Pro
+        // user renaming themselves PATCHes ONLY { display_name }; before this
+        // branch existed the handler recognised nothing, setClauses stayed empty,
+        // and the request 400'd with `no_fields` (the confirmed root cause of the
+        // "changing username returns 400" bug). Trim, then enforce 1–50 chars and
+        // reject control characters so a stray newline/tab can't land in the name.
+        if (display_name !== undefined) {
+            if (typeof display_name !== 'string') {
+                return res.status(400).json({
+                    error: 'invalid_display_name',
+                    message: 'display_name must be a string.',
+                });
+            }
+            const trimmed = display_name.trim();
+            // eslint-disable-next-line no-control-regex
+            if (trimmed.length < 1 || trimmed.length > 50 || /[\u0000-\u001f\u007f]/.test(trimmed)) {
+                return res.status(400).json({
+                    error: 'invalid_display_name',
+                    message: 'display_name must be 1–50 characters and contain no control characters.',
+                });
+            }
+            params.push(trimmed);
+            setClauses.push(`display_name = $${params.length}`);
+        }
 
         if (unit_pref !== undefined) {
             if (!['kg', 'lbs'].includes(unit_pref)) {

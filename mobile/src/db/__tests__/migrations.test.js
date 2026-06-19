@@ -192,15 +192,15 @@ function eq(a, b, msg) {
     await runMigrations(db);
     const v2 = db._pragmas.user_version;
     eq(v1, v2, 'version changed on second run:');
-    eq(v1, 7, 'expected version 7:');
+    eq(v1, 8, 'expected version 8:');
   });
 
   // 2. Fresh install reaches the latest version
-  await test('fresh install reaches user_version 7', async () => {
+  await test('fresh install reaches user_version 8', async () => {
     const db = makeStubDb();
     eq(db._pragmas.user_version, 0, 'starts at 0:');
     await runMigrations(db);
-    eq(db._pragmas.user_version, 7, 'should be 7 after migration:');
+    eq(db._pragmas.user_version, 8, 'should be 8 after migration:');
   });
 
   // 3. v2 tables created (10 spot-checked)
@@ -233,6 +233,17 @@ function eq(a, b, msg) {
       db._tableColumns['user_profile'] && db._tableColumns['user_profile'].has('display_name'),
       'user_profile.display_name column missing after migration',
     );
+  });
+
+  // 3c. v8 guarded ALTERs land the expanded survey columns on user_profile.
+  await test('fresh install adds v8 expanded-survey columns on user_profile', async () => {
+    const db = makeStubDb();
+    await runMigrations(db);
+    const cols = db._tableColumns['user_profile'];
+    assert(cols, 'user_profile has no recorded columns');
+    for (const c of ['primary_focus', 'injuries', 'muscle_priorities', 'bodyweight_kg', 'training_days']) {
+      assert(cols.has(c), 'user_profile.' + c + ' column missing after v8 migration');
+    }
   });
 
   // 4. SCHEMA_V2_STATEMENTS shape

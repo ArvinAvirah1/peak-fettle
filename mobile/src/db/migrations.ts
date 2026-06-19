@@ -17,7 +17,7 @@
  * SPEC-094A Agent L, 2026-06-12.
  */
 
-import { SCHEMA_V2_STATEMENTS, SCHEMA_V3_STATEMENTS, SCHEMA_V4_STATEMENTS, SCHEMA_V5_STATEMENTS, SCHEMA_V6_STATEMENTS, SCHEMA_V7_STATEMENTS, MigrationStatement } from './localSchema';
+import { SCHEMA_V2_STATEMENTS, SCHEMA_V3_STATEMENTS, SCHEMA_V4_STATEMENTS, SCHEMA_V5_STATEMENTS, SCHEMA_V6_STATEMENTS, SCHEMA_V7_STATEMENTS, SCHEMA_V8_STATEMENTS, MigrationStatement } from './localSchema';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -139,7 +139,15 @@ const MIGRATION_V7: MigrationVersion = {
   statements: SCHEMA_V7_STATEMENTS,
 };
 
-export const MIGRATIONS: MigrationVersion[] = [MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6, MIGRATION_V7];
+// v8: expanded Training-Engine survey columns on user_profile (primary_focus,
+// injuries, muscle_priorities, bodyweight_kg, training_days) — all guarded
+// ALTER ADD COLUMN, all nullable.
+const MIGRATION_V8: MigrationVersion = {
+  v: 8,
+  statements: SCHEMA_V8_STATEMENTS,
+};
+
+export const MIGRATIONS: MigrationVersion[] = [MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6, MIGRATION_V7, MIGRATION_V8];
 
 // ---------------------------------------------------------------------------
 // Runner
