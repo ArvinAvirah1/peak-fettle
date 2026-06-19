@@ -45,6 +45,7 @@ import {
   parseWeightInput,
   type UnitSystem,
 } from '../src/constants/units';
+import { defaultUnitForLocale } from '../src/constants/locale';
 import type {
   TrainingGoal,
   SessionMinutes,
@@ -137,12 +138,14 @@ const TEAM_SPORT_DISCIPLINES: Set<Discipline> = new Set([
 ]);
 
 // Total step count — used for progress dots
-// 1:sex 2:discipline 3:training_goal 4:sessions_per_week 5:session_minutes
-// 6:equipment 7:goal_weight_kg 8:season_phase(conditional) 9:theme 10:healthkit
+// 1:name 2:sex 3:discipline 4:training_goal 5:sessions_per_week 6:session_minutes
+// 7:equipment 8:goal_weight_kg 9:season_phase(conditional) 10:theme 11:healthkit
 // We compute dynamically based on whether season_phase applies.
-const STEP_THEME = (showSeason: boolean): number => showSeason ? 9 : 8;
-const STEP_HEALTHKIT = (showSeason: boolean): number => showSeason ? 10 : 9;
-const TOTAL_STEPS = (showSeason: boolean): number => showSeason ? 10 : 9;
+// The conditional season_phase step is step 9 (only shown for team-sport disciplines).
+const STEP_SEASON = 9;
+const STEP_THEME = (showSeason: boolean): number => showSeason ? 10 : 9;
+const STEP_HEALTHKIT = (showSeason: boolean): number => showSeason ? 11 : 10;
+const TOTAL_STEPS = (showSeason: boolean): number => showSeason ? 11 : 10;
 
 // ---------------------------------------------------------------------------
 // HealthKit stub (P0-003)
@@ -312,10 +315,21 @@ export default function OnboardingScreen(): React.ReactElement {
   const { theme } = useTheme();
   const { user, updateUser } = useAuth();
 
-  // Step state — 1..10 (season_phase step is skipped for non-team disciplines)
+  // Step state — 1..11 (season_phase step is skipped for non-team disciplines)
   const [step, setStep] = useState<number>(1);
 
-  // Step 1: sex
+  // The email local-part (before "@") is our display-name fallback / prefill.
+  // New accounts otherwise show a random server-generated handle (e.g.
+  // "64t9tvkymn"); asking at signup with a sensible default avoids that.
+  const emailLocalPart = (user?.email ?? '').split('@')[0] ?? '';
+
+  // The locale-derived default weight unit (US → lbs, else kg). Applied only as
+  // a default when the user has not explicitly chosen a unit (founder decision).
+  const localeDefaultUnit = defaultUnitForLocale();
+
+  // Step 1: display name (prefilled with the email local-part).
+  const [displayName, setDisplayName] = useState<string>(emailLocalPart);
+  // Step 2: sex
   const [sex, setSex] = useState<SexOption>(null);
   // Step 2: discipline
   const [discipline, setDiscipline] = useState<Discipline>(null);
@@ -327,10 +341,11 @@ export default function OnboardingScreen(): React.ReactElement {
   const [sessionMinutes, setSessionMinutes] = useState<SessionMinutes | null>(null);
   // Step 6: equipment multi-select
   const [equipmentProfile, setEquipmentProfile] = useState<Set<EquipmentItem>>(new Set());
-  // Step 7: goal weight (optional). Stored canonically in kg at submit time; the
-  // text field holds the display value for `goalWeightUnit` (D-2).
+  // Step 8: goal weight (optional). Stored canonically in kg at submit time; the
+  // text field holds the display value for `goalWeightUnit` (D-2). Defaults to
+  // the user's saved unit, else the locale default (US → lbs, else kg).
   const [goalWeightUnit, setGoalWeightUnit] = useState<UnitSystem>(
-    user?.unit_pref ?? 'kg'
+    user?.unit_pref ?? localeDefaultUnit
   );
   const [goalWeightInput, setGoalWeightInput] = useState<string>('');
   // Step 8 (conditional): season phase
@@ -377,8 +392,26 @@ export default function OnboardingScreen(): React.ReactElement {
     async (skipAll = false) => {
       setIsSubmitting(true);
       try {
+        // `display_name` is not part of PatchProfilePayload (it has no server
+        // PATCH field yet) — saveProfile accepts it as an extra field and routes
+        // it by tier (free → on-device user_profile, Pro → best-effort PATCH).
+        const payload: PatchProfilePayload & { display_name?: string; unit_pref?: UnitSystem } = {};
+
+        // Display name + unit default are saved even on a full skip, so a new
+        // account never lands on a random server handle or the wrong unit.
+        // Display name: entered value, falling back to the email local-part.
+        // Trimmed + capped to 50 to match the server validation.
+        const nameTrimmed = (displayName ?? '').trim();
+        const resolvedName = (nameTrimmed.length > 0 ? nameTrimmed : emailLocalPart).slice(0, 50);
+        if (resolvedName.length > 0) payload.display_name = resolvedName;
+
+        // Weight unit: only set a default when the user has NOT already chosen
+        // one (so onboarding never overrides an explicit Settings choice). New
+        // accounts get the locale default (US → lbs, else kg); existing prefs
+        // are left untouched.
+        if (user?.unit_pref == null) payload.unit_pref = localeDefaultUnit;
+
         if (!skipAll) {
-          const payload: PatchProfilePayload = {};
           if (sex !== null)           payload.sex = sex;
           if (discipline !== null)    payload.primary_discipline = discipline;
           if (trainingGoal !== null)  payload.training_goal = trainingGoal;
@@ -389,14 +422,14 @@ export default function OnboardingScreen(): React.ReactElement {
           const gw = parseWeightInput(goalWeightInput);
           if (gw !== null && gw > 0)  payload.goal_weight_kg = displayToKg(gw, goalWeightUnit);
           if (showSeasonStep && seasonPhase !== null) payload.season_phase = seasonPhase;
+        }
 
-          if (Object.keys(payload).length > 0) {
-            // Tier-branched: free → local user_profile, Pro → PATCH /user/profile.
-            // (The personal REST path is mounted only at app.use('/user', …) —
-            // the plural '/users/profile' 404s, which silently lost answers for
-            // every new account before the writer existed.)
-            await saveProfile(user, payload, updateUser);
-          }
+        if (Object.keys(payload).length > 0) {
+          // Tier-branched: free → local user_profile, Pro → PATCH /user/profile.
+          // (The personal REST path is mounted only at app.use('/user', …) —
+          // the plural '/users/profile' 404s, which silently lost answers for
+          // every new account before the writer existed.)
+          await saveProfile(user, payload, updateUser);
         }
       } catch (err) {
         // Non-fatal: profile can be filled in from Training Profile in Settings later.
@@ -406,7 +439,8 @@ export default function OnboardingScreen(): React.ReactElement {
         router.replace('/(tabs)/');
       }
     },
-    [sex, discipline, trainingGoal, sessionsPerWeek, sessionMinutes,
+    [displayName, emailLocalPart, localeDefaultUnit,
+     sex, discipline, trainingGoal, sessionsPerWeek, sessionMinutes,
      equipmentProfile, goalWeightInput, goalWeightUnit, seasonPhase,
      showSeasonStep, user, updateUser, router]
   );
@@ -425,11 +459,10 @@ export default function OnboardingScreen(): React.ReactElement {
   // Advance one step, skipping season_phase if discipline doesn't need it
   const advanceStep = useCallback((fromStep: number) => {
     const nextRaw = fromStep + 1;
-    // Season phase step is step 8 only when showSeasonStep is true
-    // If discipline has changed since selecting, re-evaluate
-    const seasonStepNum = 8;
-    if (nextRaw === seasonStepNum && !TEAM_SPORT_DISCIPLINES.has(discipline)) {
-      // Skip season_phase step
+    // Season phase step (STEP_SEASON) is only shown for team-sport disciplines.
+    // If discipline doesn't need it, skip over it. Re-evaluated here in case the
+    // discipline changed since it was selected.
+    if (nextRaw === STEP_SEASON && !TEAM_SPORT_DISCIPLINES.has(discipline)) {
       setStep(nextRaw + 1);
     } else {
       setStep(nextRaw);
@@ -453,6 +486,43 @@ export default function OnboardingScreen(): React.ReactElement {
 
   const renderStep = () => {
     if (step === 1) {
+      return (
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={{ flex: 1 }}
+        >
+          <Text style={[styles.heading, { color: theme.colors.textPrimary }]}>
+            What should we call you?
+          </Text>
+          <Text style={[styles.explanation, { color: theme.colors.textSecondary }]}>
+            This is the name shown on your home screen and profile. You can change
+            it any time in Settings.
+          </Text>
+          <View style={[styles.inputRow, { borderColor: theme.colors.borderDefault, backgroundColor: theme.colors.bgElevated }]}>
+            <TextInput
+              style={[styles.weightInput, { color: theme.colors.textPrimary }]}
+              placeholder="Your name"
+              placeholderTextColor={theme.colors.textTertiary}
+              value={displayName}
+              onChangeText={setDisplayName}
+              autoCapitalize="words"
+              autoCorrect={false}
+              returnKeyType="next"
+              maxLength={50}
+              onSubmitEditing={() => advanceStep(1)}
+              accessibilityLabel="Display name"
+            />
+          </View>
+          <Text style={[styles.hintText, { color: theme.colors.textTertiary }]}>
+            {emailLocalPart
+              ? `Leave it as “${emailLocalPart}” or pick something else.`
+              : 'Pick any name you like.'}
+          </Text>
+        </KeyboardAvoidingView>
+      );
+    }
+
+    if (step === 2) {
       return (
         <>
           <Text style={[styles.heading, { color: theme.colors.textPrimary }]}>
@@ -482,7 +552,7 @@ export default function OnboardingScreen(): React.ReactElement {
       );
     }
 
-    if (step === 2) {
+    if (step === 3) {
       return (
         <>
           <Text style={[styles.heading, { color: theme.colors.textPrimary }]}>
@@ -507,7 +577,7 @@ export default function OnboardingScreen(): React.ReactElement {
       );
     }
 
-    if (step === 3) {
+    if (step === 4) {
       return (
         <>
           <Text style={[styles.heading, { color: theme.colors.textPrimary }]}>
@@ -532,7 +602,7 @@ export default function OnboardingScreen(): React.ReactElement {
       );
     }
 
-    if (step === 4) {
+    if (step === 5) {
       return (
         <>
           <Text style={[styles.heading, { color: theme.colors.textPrimary }]}>
@@ -558,7 +628,7 @@ export default function OnboardingScreen(): React.ReactElement {
       );
     }
 
-    if (step === 5) {
+    if (step === 6) {
       return (
         <>
           <Text style={[styles.heading, { color: theme.colors.textPrimary }]}>
@@ -583,7 +653,7 @@ export default function OnboardingScreen(): React.ReactElement {
       );
     }
 
-    if (step === 6) {
+    if (step === 7) {
       return (
         <>
           <Text style={[styles.heading, { color: theme.colors.textPrimary }]}>
@@ -612,7 +682,7 @@ export default function OnboardingScreen(): React.ReactElement {
       );
     }
 
-    if (step === 7) {
+    if (step === 8) {
       return (
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -669,8 +739,8 @@ export default function OnboardingScreen(): React.ReactElement {
       );
     }
 
-    // Step 8: season phase (only shown when showSeasonStep is true)
-    if (step === 8 && showSeasonStep) {
+    // Step 9: season phase (only shown when showSeasonStep is true)
+    if (step === STEP_SEASON && showSeasonStep) {
       return (
         <>
           <Text style={[styles.heading, { color: theme.colors.textPrimary }]}>
@@ -803,7 +873,7 @@ export default function OnboardingScreen(): React.ReactElement {
               </Text>
             </TouchableOpacity>
 
-            {step < 3 ? (
+            {step > 1 && step < 4 ? (
               <Text style={[styles.privacyNote, { color: theme.colors.borderDefault }]}>
                 Your selections are used only to calculate your percentile rank.
                 You can update these any time in Settings.

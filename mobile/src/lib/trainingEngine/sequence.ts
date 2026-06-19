@@ -31,10 +31,49 @@ function hardnessScore(session: SessionTemplate): number {
   return slotScore + cardioScore;
 }
 
+const WEEKDAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+/**
+ * Pick which calendar days to place sessions on. When the user gave explicit
+ * training days (`trainingDays`, 0=Sun…6=Sat), honour them — but if they chose
+ * more days than there are sessions, drop the most clustered days so sessions
+ * stay spread out (≥48h goal). When they gave fewer days than sessions, fall
+ * back to generic numbering so no session is lost.
+ */
+function resolveDayLabels(
+  count: number,
+  trainingDays: number[] | null | undefined,
+): { labels: (string | null)[]; usedRealDays: boolean } {
+  const valid = (trainingDays || []).filter(
+    (d) => Number.isInteger(d) && d >= 0 && d <= 6,
+  );
+  const uniqueSorted = Array.from(new Set(valid)).sort((a, b) => a - b);
+  if (uniqueSorted.length < count) {
+    // Not enough named days for every session — use generic Day N.
+    return { labels: Array.from({ length: count }, () => null), usedRealDays: false };
+  }
+  // Spread sessions evenly across the chosen days when more days than sessions.
+  const chosen: number[] = [];
+  if (uniqueSorted.length === count) {
+    chosen.push(...uniqueSorted);
+  } else {
+    const step = uniqueSorted.length / count;
+    for (let i = 0; i < count; i++) {
+      const day = uniqueSorted[Math.floor(i * step)];
+      if (day != null) chosen.push(day);
+    }
+  }
+  return {
+    labels: chosen.map((d) => WEEKDAY_NAMES[d] ?? null),
+    usedRealDays: true,
+  };
+}
+
 export function sequence(
   sessions: SessionTemplate[],
   availableDays: number,
-  ruleTrace: string[]
+  ruleTrace: string[],
+  trainingDays?: number[] | null
 ): SequencedSession[] {
   if (!sessions || sessions.length === 0) return [];
 
@@ -65,17 +104,27 @@ export function sequence(
     }
   }
 
+  // Map sessions onto the user's real training days when they provided them.
+  const { labels: dayNameLabels, usedRealDays } = resolveDayLabels(
+    ordered.length,
+    trainingDays,
+  );
+
   const result: SequencedSession[] = ordered.map(
     (session: SessionTemplate, idx: number) => {
-      const dayNum = daySlots[idx] ?? idx + 1;
-      const label = `Day ${dayNum} – ${session?.archetype ?? 'Session'}`;
+      const archetype = session?.archetype ?? 'Session';
+      const dayName = dayNameLabels[idx];
+      const label = dayName
+        ? `${dayName} – ${archetype}`
+        : `Day ${daySlots[idx] ?? idx + 1} – ${archetype}`;
       return { ...session, day_label: label };
     }
   );
 
   ruleTrace.push(
-    `Sequencing: ${result.length} session(s) placed across ${days} day(s). ` +
-      `Priority sessions scheduled first (freshest days); hard/easy alternation applied.`
+    `Sequencing: ${result.length} session(s) placed across ${days} day(s)` +
+      (usedRealDays ? ' on your chosen weekdays' : '') +
+      `. Priority sessions scheduled first (freshest days); hard/easy alternation applied.`
   );
 
   ruleTrace.push(

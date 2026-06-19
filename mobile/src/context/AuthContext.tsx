@@ -43,6 +43,21 @@ import { router } from 'expo-router';
 // ---------------------------------------------------------------------------
 
 const _webStore = new Map<string, string>();
+
+// keychainAccessible = AFTER_FIRST_UNLOCK: the refresh token (and cached
+// profile) MUST survive across launches and be readable even when the app is
+// woken/launched while the device is locked (background launch, push wake,
+// boot-then-open-from-lock-screen). expo-secure-store's DEFAULT is
+// WHEN_UNLOCKED, under which a read returns null whenever the device is locked
+// at access time — which silently dropped the refresh token and forced a fresh
+// sign-in on the next launch. AFTER_FIRST_UNLOCK is the same level the backup
+// keyStore.ts uses for its key material, and is the correct durability tier for
+// a long-lived credential. (No requireAuthentication — must never gate on
+// biometrics here.)
+const SECURE_STORE_OPTS: SecureStore.SecureStoreOptions = {
+  keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
+};
+
 const safeSecureStore = {
   async getItemAsync(key: string): Promise<string | null> {
     if (Platform.OS === 'web') return _webStore.get(key) ?? null;
@@ -50,7 +65,7 @@ const safeSecureStore = {
   },
   async setItemAsync(key: string, value: string): Promise<void> {
     if (Platform.OS === 'web') { _webStore.set(key, value); return; }
-    return SecureStore.setItemAsync(key, value);
+    return SecureStore.setItemAsync(key, value, SECURE_STORE_OPTS);
   },
   async deleteItemAsync(key: string): Promise<void> {
     if (Platform.OS === 'web') { _webStore.delete(key); return; }
@@ -205,6 +220,13 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
   // it synchronously without triggering a re-render.
   const refreshTokenRef = useRef<string | null>(null);
 
+  // True only during the cold-start silent refresh. While set, the apiClient
+  // 401 interceptor must NOT log the user out: the bootstrap owns the
+  // authoritative refresh on launch, and a Pro data call that raced ahead of it
+  // (fired before the in-memory access token existed) would otherwise trip a
+  // 401 → onLogout and wipe a perfectly good session. See the bootstrap effect.
+  const bootstrappingRef = useRef<boolean>(false);
+
   // ---------------------------------------------------------------------------
   // Helpers for persisting refresh token
   // ---------------------------------------------------------------------------
@@ -289,6 +311,15 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
         persistRefreshToken(newRefreshToken);
       },
       onLogout: () => {
+        // Suppress logout while the cold-start bootstrap is still running its
+        // own authoritative refresh. A Pro data call that raced ahead of the
+        // bootstrap (no in-memory access token yet) can 401 → land here; wiping
+        // the session now is the forced-relogin bug. The bootstrap will set a
+        // valid token momentarily (or itself classify a definitive failure).
+        if (bootstrappingRef.current) {
+          console.warn('[PF] AuthContext/onLogout: suppressed during cold-start bootstrap');
+          return;
+        }
         _clearAuthState().then(() => {
           router.replace('/(auth)/login');
         });
@@ -318,6 +349,9 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
         }
 
         refreshTokenRef.current = storedRefreshToken;
+        // Guard the cold-start refresh window: a racing Pro 401 must not log us
+        // out while this authoritative refresh is in flight (see onLogout).
+        bootstrappingRef.current = true;
 
         // STARTUP PERF: restore the cached user profile and release the splash
         // IMMEDIATELY — do NOT block the whole app behind the /auth/refresh
@@ -400,6 +434,10 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
         // but free/local-first users won't need it, and any authenticated call
         // will hit the 401 interceptor which retries the refresh.
       } finally {
+        // Cold-start refresh is done (success, definitive failure, or transient
+        // keep-token). Re-enable the 401 interceptor's logout path: from here a
+        // genuine 401 means the session really is gone.
+        bootstrappingRef.current = false;
         if (!cancelled) {
           setIsLoading(false);
         }
@@ -407,7 +445,7 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
     }
 
     bootstrap();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; bootstrappingRef.current = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Empty deps: runs once on mount. persistRefreshToken and clearRefreshToken
   // are stable (useCallback with no deps). Adding them would make the linter

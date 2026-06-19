@@ -44,8 +44,18 @@ import {
   fontSize,
 } from '../theme/tokens';
 import { RoutineSession, RoutineSessionExercise } from './RoutineStrip';
-import MuscleMap from '../components/MuscleMap';
+import MuscleMapBase, { MuscleMapProps } from '../components/MuscleMap';
 import { muscleGroupsForExercise } from '../data/muscleRegions';
+import { useAuth } from '../hooks/useAuth';
+
+// MuscleMap is gaining an optional `sex` prop (owned by another agent). Until
+// MuscleMapProps declares it, alias the component to a forward-compatible type
+// so we can pass `sex` without editing MuscleMap.tsx or widening to `any`.
+// `sex` is harmless to the current component (an unknown extra prop is ignored
+// at runtime); once MuscleMapProps adds `sex?`, this alias becomes redundant.
+const MuscleMap = MuscleMapBase as React.ComponentType<
+  MuscleMapProps & { sex?: 'male' | 'female' | null }
+>;
 import ExerciseSwitcherSheet from './ExerciseSwitcherSheet';
 import { SuggestCandidate } from '../utils/smartSuggest';
 import PlateCalculatorSheet from './PlateCalculatorSheet';
@@ -371,6 +381,49 @@ function isBodyweightExercise(name?: string): boolean {
   return !!name && BODYWEIGHT_NAME_RE.test(name);
 }
 
+/**
+ * Posterior (back-of-body) canonical muscle labels — used to decide which side
+ * of the body model to show. `muscleGroupsForExercise` returns canonical labels
+ * (see data/muscleRegions.ts): back (incl. lower_back), lats, traps, glutes,
+ * hamstrings, triceps, calves. Shoulders are intentionally excluded — the label
+ * collapses front/side/rear delts together, so it can't be called posterior.
+ */
+const POSTERIOR_GROUPS = new Set([
+  'back',
+  'lats',
+  'traps',
+  'glutes',
+  'hamstrings',
+  'triceps',
+  'calves',
+]);
+
+/**
+ * Choose the body-model view for an exercise from its canonical muscle groups.
+ * Returns 'back' only when the movement is clearly posterior-dominant (more of
+ * its groups are posterior than anterior); otherwise 'front'. Mixed/compound or
+ * no-group exercises default to 'front'.
+ */
+function viewForMuscleGroups(groups: string[]): 'front' | 'back' {
+  if (groups.length === 0) return 'front';
+  let posterior = 0;
+  let anterior = 0;
+  for (const g of groups) {
+    if (POSTERIOR_GROUPS.has(g)) posterior += 1;
+    else anterior += 1;
+  }
+  return posterior > anterior ? 'back' : 'front';
+}
+
+/**
+ * Normalise the auth user's `sex` (which may be 'MALE'/'FEMALE'/'male'/'female'/
+ * 'UNDISCLOSED'/null) to the 'male' | 'female' the body model expects.
+ * UNDISCLOSED / null / anything unrecognised → 'male' (sensible default for now).
+ */
+function normaliseSex(raw: string | null | undefined): 'male' | 'female' {
+  return String(raw ?? '').toLowerCase() === 'female' ? 'female' : 'male';
+}
+
 /** "3 sets · top 100×6" summary for the JUST LOGGED interstitial. */
 function topSetLabel(sets: LoggedSet[]): string {
   const first = sets[0];
@@ -583,6 +636,11 @@ export default function StepperLogger({
     () => muscleGroupsForExercise(currentEx?.name ?? ''),
     [currentEx?.name],
   );
+  // P2: pick the body-model side from the exercise's muscles (posterior-dominant
+  // → back, else front) and match the figure to the user's sex.
+  const muscleView = useMemo(() => viewForMuscleGroups(exMuscleGroups), [exMuscleGroups]);
+  const { user: authUser } = useAuth();
+  const muscleSex = useMemo(() => normaliseSex(authUser?.sex), [authUser?.sex]);
 
   // ── Local form state — LIFT ──────────────────────────────────────────────
   const [weight, setWeight] = useState('');
@@ -980,8 +1038,11 @@ export default function StepperLogger({
   // ── Empty state (option 13): session has no exercises yet. ─────────────────
   if (!currentEx || exercises.length === 0) {
     return (
-      <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
-        <View style={styles.header}>
+      // See the main render below — no top/bottom inset on the container; the
+      // header row carries paddingTop: Math.max(insets.top, 12) so the close
+      // control clears the Dynamic Island inside the hosting <Modal>.
+      <SafeAreaView style={styles.root} edges={[]}>
+        <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
           <TouchableOpacity
             onPress={onClose}
             style={styles.closeBtn}
@@ -1069,15 +1130,22 @@ export default function StepperLogger({
     ) : null;
 
   return (
-    <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
+    // CLAUDE.md #3: SafeAreaView's `top` edge does NOT reliably propagate inside
+    // a <Modal> (this logger is hosted in one) — a prior "fix" added edges=['top']
+    // here, which pushed the WHOLE page down yet still left the header jammed
+    // under the Dynamic Island. Correct fix: no top inset on the container, and
+    // apply paddingTop: Math.max(insets.top, 12) to the HEADER ROW only (below).
+    // `bottom` is dropped too because the sticky actionBar already adds
+    // Math.max(insets.bottom, …) — keeping it here would double-pad the bottom.
+    <SafeAreaView style={styles.root} edges={[]}>
     <KeyboardAvoidingView
       style={styles.flex}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
       {...swipeResponder.panHandlers}
     >
-      {/* ── Header ────────────────────────────────────────────────────────── */}
-      <View style={styles.header}>
+      {/* ── Header (clears the status bar / Dynamic Island on its own row) ──── */}
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
         <TouchableOpacity
           onPress={onClose}
           style={styles.closeBtn}
@@ -1203,7 +1271,7 @@ export default function StepperLogger({
             <View style={styles.exHeaderRow}>
               <Text style={[styles.exName, styles.exNameFlex]}>{currentEx.name}</Text>
               {exMuscleGroups.length > 0 ? (
-                <MuscleMap groups={exMuscleGroups} size={40} view="front" />
+                <MuscleMap groups={exMuscleGroups} size={64} view={muscleView} sex={muscleSex} />
               ) : null}
             </View>
 

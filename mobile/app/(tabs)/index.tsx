@@ -45,6 +45,7 @@ import { useWorkoutHistory } from '../../src/hooks/useWorkoutHistory';
 import { useLocalStreak } from '../../src/hooks/useStreak';
 import { SyncStatusIndicator } from '../../src/components/SyncStatusIndicator';
 import { formatWeight } from '../../src/constants/units';
+import { defaultUnitForLocale } from '../../src/constants/locale';
 import { formatWorkoutLabel, toDateKey } from '../../src/utils/dateHelpers';
 import { LiftSet, PlanWithStructure } from '../../src/types/api';
 import { useTheme } from '../../src/theme/ThemeContext';
@@ -78,11 +79,54 @@ import { useTour, useTourAnchor } from '../../src/components/tour/WelcomeTour';
 // Helpers
 // ---------------------------------------------------------------------------
 
-function getGreeting(name: string | null): string {
+/**
+ * True when `name` looks like a machine-generated handle/id rather than a real
+ * display name, e.g. the legacy random handles ("64t9tvkymn") or a raw UUID. We
+ * only reject the clearly-synthetic cases so ordinary names (including short or
+ * lowercase ones) are always kept:
+ *   - it equals the user id (a UUID leaked into the name slot), OR
+ *   - it's a single all-lowercase alphanumeric token, ≥8 chars, with no spaces,
+ *     that contains a digit OR has no vowels (random strings rarely read as a
+ *     pronounceable word). A normal lowercase first name like "sam" or "arvin"
+ *     has vowels and no digits, so it passes.
+ */
+function looksLikeRandomToken(name: string, userId?: string | null): boolean {
+  const n = name.trim();
+  if (n.length === 0) return true;
+  if (userId && n === userId) return true;
+  // Raw UUID anywhere in the name slot.
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(n)) return true;
+  // Single lowercase alphanumeric token (no spaces), reasonably long.
+  if (/^[a-z0-9]{8,}$/.test(n)) {
+    const hasDigit = /[0-9]/.test(n);
+    const hasVowel = /[aeiou]/.test(n);
+    if (hasDigit || !hasVowel) return true;
+  }
+  return false;
+}
+
+/**
+ * Pick the name to greet with. Prefers a real `display_name`, but never shows a
+ * raw id/UUID/random token — falling back to the email local-part, then a
+ * friendly "there". (The server no longer generates random handles, but older
+ * accounts may still carry one, so this stays defensive.)
+ */
+function resolveGreetingName(
+  displayName: string | null | undefined,
+  email: string | null | undefined,
+  userId?: string | null
+): string {
+  const name = (displayName ?? '').trim();
+  if (name.length > 0 && !looksLikeRandomToken(name, userId)) return name;
+  const localPart = (email ?? '').split('@')[0]?.trim() ?? '';
+  if (localPart.length > 0) return localPart;
+  return 'there';
+}
+
+function getGreeting(name: string): string {
   const hour = new Date().getHours();
   const period = hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
-  const firstName = name ?? 'there';
-  return `Good ${period}, ${firstName}`;
+  return `Good ${period}, ${name}`;
 }
 
 function getFullDateLabel(): string {
@@ -339,7 +383,9 @@ export default function HomeScreen(): React.ReactElement {
   const { theme, fontSize, fontWeight, radius, spacing: sp } = useTheme();
   const loggerRef = useRef<WorkoutLoggerRef>(null);
 
-  const unitPref = user?.unit_pref ?? 'kg';
+  // Fall back to the locale default (US → lbs, else kg) only when the user has
+  // no explicit saved preference; an explicit choice always wins.
+  const unitPref = user?.unit_pref ?? defaultUnitForLocale();
 
   // ── Workstream B (SPEC-094A): hang-proof loading ──────────────────────────
   // Free/local-first users have no PowerSync/server to wait on. If a local read
@@ -897,7 +943,7 @@ export default function HomeScreen(): React.ReactElement {
         <View style={styles.headerRow}>
           <Text style={{ fontSize: fontSize.heading2, fontWeight: fontWeight.bold, color: theme.colors.textPrimary, letterSpacing: -0.3 }}>
           {/* E-003: was fontWeight '700' */}
-            {getGreeting(user?.display_name ?? null)}
+            {getGreeting(resolveGreetingName(user?.display_name, user?.email, user?.id))}
           </Text>
           <SyncStatusIndicator />
         </View>

@@ -15,7 +15,7 @@ import { scaleDown } from './scaleDown';
 import { sequence } from './sequence';
 import { exerciseFill } from './exerciseFill';
 import { loading } from './loading';
-import { buildReasoning, applyCoachingNotes } from './reasoning';
+import { buildReasoning, applyCoachingNotes, buildRuleTrace } from './reasoning';
 import { ENGINE_EXERCISE_CATALOG } from './exerciseCatalog';
 import type { Exercise, HistoryRow, PBRow, ConstraintRow } from './exerciseFill';
 import type { WeekOutput } from './loading';
@@ -97,6 +97,19 @@ export interface PlanCtx {
     sleep_hours?: number;
   }>;
   constraints?: ConstraintRow[];
+  /**
+   * Survey muscle-group priorities (canonical labels, e.g. ['chest','back']).
+   * exerciseFill biases selection toward exercises that hit a prioritised group.
+   */
+  musclePriorities?: string[] | null;
+  /**
+   * Survey-chosen training days of the week (0=Sun … 6=Sat). When present, the
+   * schedule maps sessions onto the user's REAL days ("Mon – Push") instead of
+   * generic "Day 1 – Push".
+   */
+  trainingDays?: number[] | null;
+  /** Current bodyweight in kg — used for bodyweight-exercise loading defaults. */
+  bodyweightKg?: number | null;
   userId?: string | number;
   today?: Date | string;
 }
@@ -128,7 +141,11 @@ export interface GeneratePlanResult {
 // generatePlan(ctx) — main entry point
 // ---------------------------------------------------------------------------
 export function generatePlan(ctx: PlanCtx): GeneratePlanResult {
-  const ruleTrace: string[] = [];
+  // Internal/debug trace — verbose, technical. The pipeline stages still append
+  // to this so the server path + unit tests keep their detailed chain. It is NOT
+  // shown to the user; the user-facing "Here's why" is the curated list built by
+  // buildRuleTrace() below from the structured facts collected here.
+  const debugTrace: string[] = [];
 
   const profile = ctx.profile || {};
   const exercises = ctx.exercises || [];
@@ -136,6 +153,8 @@ export function generatePlan(ctx: PlanCtx): GeneratePlanResult {
   const pbs = ctx.pbs || [];
   const metrics = ctx.metrics || [];
   const constraints = ctx.constraints || [];
+  const musclePriorities = ctx.musclePriorities || [];
+  const trainingDays = ctx.trainingDays || null;
   const userId = ctx.userId || 'anon';
   const today = ctx.today || new Date();
 
@@ -153,8 +172,8 @@ export function generatePlan(ctx: PlanCtx): GeneratePlanResult {
   const seasonPhase = profile.season_phase || null;
   const weekISO = isoWeek(today);
 
-  ruleTrace.push(
-    `Engine start: discipline="${discipline}", tier="${tier}", goal="${trainingGoal}", ` +
+  debugTrace.push(
+    `Engine spec: discipline="${discipline}", tier="${tier}", goal="${trainingGoal}", ` +
       `sessions_per_week=${sessionsPerWeek}, session_minutes=${sessionMinutes}, ` +
       `week="${weekISO}", equipment=[${(equipmentProfile || []).join(',')}].`
   );
@@ -166,7 +185,7 @@ export function generatePlan(ctx: PlanCtx): GeneratePlanResult {
       `No template found for discipline="${discipline}", tier="${tier}"`
     );
   }
-  ruleTrace.push(
+  debugTrace.push(
     `Template selected: ${discipline}/${tier}` +
       (trainingGoal === 'hypertrophy' ? ' (hypertrophy variant)' : '') +
       `. idealDays=${template.idealDays}, deloadEvery=${template.deloadEvery}, ` +
@@ -174,25 +193,31 @@ export function generatePlan(ctx: PlanCtx): GeneratePlanResult {
   );
 
   if (seasonPhase === 'in_season') {
-    ruleTrace.push(
+    debugTrace.push(
       `Season phase = in_season: reducing optional accessory volume in favour of ` +
         `sport-specific sessions and recovery.`
     );
   }
 
   // ── Step 2: Scale down to user's days/time ───────────────────────────────
+  // Endurance disciplines benefit from extra EASY aerobic volume when the user
+  // trains more days than ideal; strength disciplines instead repeat their
+  // quality training sessions (handled inside scaleDown).
+  const isEndurance = ['running', 'cycling', 'swimming'].includes(discipline);
   const scaledTemplate = scaleDown(
     template,
     sessionsPerWeek,
     sessionMinutes,
-    ruleTrace
+    debugTrace,
+    isEndurance
   );
 
   // ── Step 3: Sequence sessions across the week ────────────────────────────
   const sequenced = sequence(
     scaledTemplate.sessions,
     sessionsPerWeek,
-    ruleTrace
+    debugTrace,
+    trainingDays
   );
 
   // ── Step 4: Fill exercise slots ──────────────────────────────────────────
@@ -205,19 +230,36 @@ export function generatePlan(ctx: PlanCtx): GeneratePlanResult {
     constraints,
     userId,
     weekISO,
-    ruleTrace
+    debugTrace,
+    musclePriorities
   );
 
   // ── Step 5: Apply loading (produces 3 weeks) ─────────────────────────────
   const progressionModel = template.progression?.model || 'linear';
-  const weeksRaw = loading(filled, history, pbs, progressionModel, ruleTrace);
+  const weeksRaw = loading(filled, history, pbs, progressionModel, debugTrace);
 
   // ── Step 6: Apply coaching notes + build reasoning ──────────────────────
   const fullCtx = { profile: profile as Record<string, unknown>, history, pbs, metrics, constraints };
-  const weeks = applyCoachingNotes(weeksRaw, fullCtx, ruleTrace);
+  const weeks = applyCoachingNotes(weeksRaw, fullCtx, debugTrace);
 
-  const reasoningText = buildReasoning(fullCtx, ruleTrace);
-  ruleTrace.push(`Reasoning: "${reasoningText.slice(0, 80)}..."`);
+  const reasoningText = buildReasoning(fullCtx, debugTrace);
+
+  // ── Build the user-facing "Here's why" from structured plan facts ─────────
+  const rule_trace = buildRuleTrace({
+    discipline,
+    tier,
+    trainingGoal,
+    sessionsPerWeek,
+    sessionMinutes,
+    seasonPhase,
+    equipmentProfile: equipmentProfile || [],
+    musclePriorities,
+    constraints,
+    progressionModel,
+    weeks,
+    history,
+    pbs,
+  });
 
   // ── Backward-compat session field (first session of week 1) ─────────────
   const firstSession = weeks[0]?.sessions?.[0] ?? null;
@@ -242,7 +284,7 @@ export function generatePlan(ctx: PlanCtx): GeneratePlanResult {
     weeks,
     session: sessionCompat,
     reasoning: reasoningText,
-    rule_trace: ruleTrace,
+    rule_trace,
     engine: 'pf-engine-v1',
   };
 }

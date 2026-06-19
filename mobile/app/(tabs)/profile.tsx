@@ -65,6 +65,7 @@ import { ThemeSelectorModal } from '../../src/components/ThemeSelector';
 import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
 import { haptics } from '../../src/utils/haptics';
 import { ScreenLayout, PFInput } from '../../src/components/ui';
+import { defaultUnitForLocale } from '../../src/constants/locale';
 import { useReduceMotion } from '../../src/hooks/useReduceMotion';
 import { useTour } from '../../src/components/tour/WelcomeTour'; // TICKET-095
 import PeakAvatar from '../../src/components/avatar/PeakAvatar'; // TICKET-096
@@ -642,7 +643,11 @@ export default function ProfileScreen(): React.ReactElement {
   };
   const activeThemeDisplayName = THEME_DISPLAY_NAMES[themeName] ?? 'Deep Ocean';
 
-  const [unitPref, setUnitPref] = useState<'kg' | 'lbs'>(user?.unit_pref ?? 'kg');
+  // Default the toggle to the user's saved unit, else the locale default
+  // (US → lbs, else kg). This only sets the INITIAL displayed value when no
+  // explicit choice exists; tapping the toggle persists an explicit choice that
+  // always wins thereafter.
+  const [unitPref, setUnitPref] = useState<'kg' | 'lbs'>(user?.unit_pref ?? defaultUnitForLocale());
   const [isUpdatingUnit, setIsUpdatingUnit] = useState(false);
 
   // Option C — 1RM confirmation preference (TICKET-041)

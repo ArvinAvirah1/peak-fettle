@@ -71,11 +71,30 @@ function applyLengthRecipe(
 // ---------------------------------------------------------------------------
 // Main export
 // ---------------------------------------------------------------------------
+function makeRecoverySession(): SessionTemplate {
+  return {
+    archetype: 'Recovery / Active Rest',
+    isRecovery: true,
+    slots: [
+      { pattern: 'core', sets: 2, reps: '10-15', rpe: 5, rest_seconds: 60, priority: 3 },
+    ],
+    cardio: [
+      {
+        zone: 'Easy (Zone 1 / Active Recovery)',
+        minutes: 20,
+        description:
+          'Light aerobic activity or mobility/foam-rolling session. 60–65% HRmax maximum.',
+      },
+    ],
+  };
+}
+
 export function scaleDown(
   template: Template,
   sessionsPerWeek: number,
   sessionMinutes: number,
-  ruleTrace: string[]
+  ruleTrace: string[],
+  isEndurance?: boolean
 ): Template {
   if (!template) throw new Error('scaleDown: template is null/undefined');
 
@@ -91,26 +110,41 @@ export function scaleDown(
   if (days >= idealDays) {
     if (days > idealDays) {
       const extra = days - idealDays;
-      ruleTrace.push(
-        `User has ${days} days vs ideal ${idealDays}: adding ${extra} recovery/easy session(s). ` +
-        `Not adding volume — recovery only.`
-      );
-      for (let i = 0; i < extra; i++) {
-        tpl.sessions.push({
-          archetype: 'Recovery / Active Rest',
-          isRecovery: true,
-          slots: [
-            { pattern: 'core', sets: 2, reps: '10-15', rpe: 5, rest_seconds: 60, priority: 3 },
-          ],
-          cardio: [
-            {
-              zone: 'Easy (Zone 1 / Active Recovery)',
-              minutes: 20,
-              description:
-                'Light aerobic activity or mobility/foam-rolling session. 60–65% HRmax maximum.',
-            },
-          ],
-        });
+      const baseSessions = [...tpl.sessions];
+
+      if (isEndurance) {
+        // Endurance: extra aerobic volume is appropriate — add easy sessions.
+        ruleTrace.push(
+          `User has ${days} days vs ideal ${idealDays}: adding ${extra} easy/recovery aerobic ` +
+          `session(s) (endurance benefits from extra easy volume).`
+        );
+        for (let i = 0; i < extra; i++) tpl.sessions.push(makeRecoverySession());
+      } else {
+        // Strength / hypertrophy / power: a user who asked for MORE days than the
+        // template's ideal wants to TRAIN those days, not pad with filler. Adding
+        // 2+ "active rest" days made a 6-day request look like a 4-day plan (the
+        // "based on nothing" complaint). Instead: keep ONE recovery day to honour
+        // §3 (≥1 rest day/week) when the schedule is dense, then REPEAT the
+        // existing training sessions — cycling the archetypes so the same muscle
+        // group still gets ~48h between hits. This is standard high-frequency
+        // practice (e.g. an Upper/Lower run 3× across 6 days). No NEW volume is
+        // invented; we re-expose the template's own quality sessions.
+        const recoveryDays = days >= 6 ? 1 : 0;
+        const trainingToAdd = extra - recoveryDays;
+
+        for (let i = 0; i < trainingToAdd; i++) {
+          // Clone a base session in rotation so we don't share object refs.
+          const src = baseSessions[i % baseSessions.length];
+          if (src) tpl.sessions.push(JSON.parse(JSON.stringify(src)));
+        }
+        for (let i = 0; i < recoveryDays; i++) tpl.sessions.push(makeRecoverySession());
+
+        ruleTrace.push(
+          `User has ${days} days vs ideal ${idealDays}: repeating ${trainingToAdd} of the ` +
+          `template's training session(s) across the extra day(s)` +
+          (recoveryDays > 0 ? ` plus 1 recovery day` : '') +
+          ` — same proven structure run at higher frequency, not invented volume.`
+        );
       }
     } else {
       ruleTrace.push(

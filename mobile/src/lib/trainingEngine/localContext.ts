@@ -46,9 +46,174 @@ export interface LocalProfileInput {
   id?: string | number | null;
 }
 
+/**
+ * Merge the in-session profile with the saved survey row. The saved survey is
+ * authoritative: for each field we take the in-memory value only when it is
+ * present (non-null/undefined), otherwise the saved value. This makes a fresh
+ * cold-start (in-memory survey fields null) still reflect the user's last saved
+ * answers instead of silently falling back to the 3-day beginner default.
+ */
+function pick<T>(memValue: T | null | undefined, savedValue: T | null | undefined): T | null {
+  if (memValue !== null && memValue !== undefined) return memValue;
+  if (savedValue !== null && savedValue !== undefined) return savedValue;
+  return null;
+}
+
+function mergeProfile(
+  mem: LocalProfileInput,
+  saved: SavedSurvey,
+): LocalProfileInput {
+  return {
+    experience_level: pick(mem.experience_level, saved.experience_level),
+    sex: pick(mem.sex, saved.sex),
+    age_band: pick(mem.age_band, ageBandFromBirthDate(saved.birth_date)),
+    weight_class_kg: pick(mem.weight_class_kg, saved.weight_class_kg),
+    training_goal: pick(mem.training_goal, saved.training_goal),
+    sessions_per_week: pick(mem.sessions_per_week, saved.sessions_per_week),
+    session_minutes: pick(mem.session_minutes, saved.session_minutes),
+    goal_weight_kg: pick(mem.goal_weight_kg, saved.goal_weight_kg),
+    equipment_profile: pick(mem.equipment_profile, saved.equipment_profile),
+    season_phase: pick(mem.season_phase, saved.season_phase),
+    primary_discipline: pick(mem.primary_discipline, saved.primary_discipline),
+    id: mem.id ?? null,
+  };
+}
+
+/** Derive a coarse age band from an ISO birth_date, for recovery defaults. */
+function ageBandFromBirthDate(birthDate: string | null | undefined): string | null {
+  if (!birthDate) return null;
+  const born = new Date(birthDate);
+  if (Number.isNaN(born.getTime())) return null;
+  const now = new Date();
+  let age = now.getFullYear() - born.getFullYear();
+  const m = now.getMonth() - born.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < born.getDate())) age--;
+  if (age < 18 || age > 100) return null; // implausible — ignore
+  if (age < 30) return 'under_30';
+  if (age < 40) return '30_39';
+  if (age < 50) return '40_49';
+  if (age < 60) return '50_59';
+  return '60_plus';
+}
+
 function epley(weightKg: number, reps: number): number {
   const r = Math.min(Math.max(reps, 1), 12);
   return weightKg * (1 + r / 30);
+}
+
+// ---------------------------------------------------------------------------
+// Saved survey (local `user_profile` row, id='active')
+// ---------------------------------------------------------------------------
+// The survey screen (training-survey.tsx → saveProfile) persists the user's
+// answers to the on-device `user_profile` table for free/local-first users.
+// On a COLD start those values are NOT rehydrated into the in-session `user`
+// object (AuthContext only restores the cached server user from SecureStore),
+// so `user.sessions_per_week` etc. read back as null and the engine fell back
+// to its 3-day beginner default — the "plan based on nothing" bug. We therefore
+// read the saved row here and treat it as authoritative, merging it OVER the
+// passed-in profile (the saved survey wins whenever the in-memory value is
+// missing). Best-effort: a missing table / empty install yields {} and the
+// in-memory profile is used unchanged.
+
+/** The subset of `user_profile` columns the engine consumes. */
+interface SavedProfileRow {
+  experience_level: string | null;
+  sex: string | null;
+  weight_class_kg: number | null;
+  training_goal: string | null;
+  sessions_per_week: number | null;
+  session_minutes: number | null;
+  goal_weight_kg: number | null;
+  equipment_profile: string | null; // JSON-encoded string[]
+  season_phase: string | null;
+  birth_date: string | null;
+  primary_focus: string | null;
+  injuries: string | null; // JSON-encoded string[]
+  muscle_priorities: string | null; // JSON-encoded string[]
+  bodyweight_kg: number | null;
+  training_days: string | null; // JSON-encoded number[] (0=Sun … 6=Sat)
+}
+
+/** Parsed survey values, normalised to the engine's expected shapes. */
+export interface SavedSurvey {
+  experience_level?: string | null;
+  sex?: string | null;
+  weight_class_kg?: number | null;
+  training_goal?: string | null;
+  sessions_per_week?: number | null;
+  session_minutes?: number | null;
+  goal_weight_kg?: number | null;
+  equipment_profile?: string[] | null;
+  season_phase?: string | null;
+  primary_discipline?: string | null;
+  injuries?: string[] | null;
+  muscle_priorities?: string[] | null;
+  bodyweight_kg?: number | null;
+  training_days?: number[] | null;
+  birth_date?: string | null;
+}
+
+/** Parse a JSON-encoded array column; tolerate nulls / malformed values. */
+function parseJsonArray<T>(raw: string | null | undefined): T[] | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? (parsed as T[]) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read the saved survey row (id='active') from the local `user_profile` table.
+ * Returns {} when the table/row/columns are absent so callers can spread it
+ * safely. Newer survey columns (primary_focus/injuries/muscle_priorities/
+ * bodyweight_kg/training_days) are selected defensively: if the migration that
+ * adds them has not yet run, the SELECT throws and we fall back to the legacy
+ * column set so older installs still benefit from the core wiring fix.
+ */
+async function loadSavedSurvey(): Promise<SavedSurvey> {
+  const legacyCols =
+    'experience_level, sex, weight_class_kg, training_goal, sessions_per_week, ' +
+    'session_minutes, goal_weight_kg, equipment_profile, season_phase, birth_date';
+  const extendedCols =
+    legacyCols +
+    ', primary_focus, injuries, muscle_priorities, bodyweight_kg, training_days';
+
+  let row: Partial<SavedProfileRow> | null = null;
+  try {
+    row = await localDb.getFirst<Partial<SavedProfileRow>>(
+      `SELECT ${extendedCols} FROM user_profile WHERE id = 'active'`,
+    );
+  } catch {
+    // Extended columns not present yet (pre-v8 install) — retry legacy set.
+    try {
+      row = await localDb.getFirst<Partial<SavedProfileRow>>(
+        `SELECT ${legacyCols} FROM user_profile WHERE id = 'active'`,
+      );
+    } catch {
+      row = null; // missing table / empty DB
+    }
+  }
+  if (!row) return {};
+
+  return {
+    experience_level: row.experience_level ?? null,
+    sex: row.sex ?? null,
+    weight_class_kg: row.weight_class_kg ?? null,
+    training_goal: row.training_goal ?? null,
+    sessions_per_week: row.sessions_per_week ?? null,
+    session_minutes: row.session_minutes ?? null,
+    goal_weight_kg: row.goal_weight_kg ?? null,
+    equipment_profile: parseJsonArray<string>(row.equipment_profile),
+    season_phase: row.season_phase ?? null,
+    primary_discipline: row.primary_focus ?? null,
+    injuries: parseJsonArray<string>(row.injuries),
+    muscle_priorities: parseJsonArray<string>(row.muscle_priorities),
+    bodyweight_kg: row.bodyweight_kg ?? null,
+    training_days: parseJsonArray<number>(row.training_days),
+    birth_date: row.birth_date ?? null,
+  };
 }
 
 /** Resolve exercise_id → display name from the local `exercise_names` cache. */
@@ -177,7 +342,37 @@ function toPlanProfile(p: LocalProfileInput): PlanProfile {
 }
 
 /**
+ * Merge survey-declared injuries (free-text region tokens) into the constraint
+ * list, de-duplicating against rows already in `user_constraints`. Survey
+ * injuries use the same closed token set as PRESET constraints (lower_back,
+ * knees, shoulders, …) so they slot straight into the engine's contraindication
+ * filter (exerciseFill.isContraindicated).
+ */
+function mergeInjuryConstraints(
+  base: ConstraintRow[],
+  injuries: string[] | null | undefined,
+): ConstraintRow[] {
+  if (!injuries || injuries.length === 0) return base;
+  const seen = new Set(base.map((c) => c.constraint_type));
+  const out = [...base];
+  for (const inj of injuries) {
+    if (typeof inj === 'string' && inj.length > 0 && !seen.has(inj)) {
+      seen.add(inj);
+      out.push({ constraint_type: inj, custom_note: null });
+    }
+  }
+  return out;
+}
+
+/**
  * Build a complete on-device PlanCtx from the in-session profile + local SQLite.
+ *
+ * The passed-in `profile` (from the in-session `user`) is MERGED with the saved
+ * survey row (mergeProfile): the saved survey wins for any field the in-memory
+ * user is missing, so a cold start still reflects the user's real answers
+ * (goal / days-per-week / session length / equipment / experience / discipline)
+ * instead of the engine's default. This is the fix for the "plan based on
+ * nothing" bug.
  *
  * Safe to call for any tier: every DB read is best-effort and degrades to []
  * on a missing table or empty install. The returned ctx always carries the
@@ -194,21 +389,33 @@ export async function buildLocalPlanContext(
     // continue with empty local data
   }
 
+  // Read the saved survey FIRST so it can backfill any field the in-session
+  // user is missing (the central wiring fix).
+  const saved = await loadSavedSurvey().catch(() => ({}) as SavedSurvey);
+  const merged = mergeProfile(profile, saved);
+
   const nameMap = await loadNameMap();
-  const [history, pbs, constraints] = await Promise.all([
+  const [history, pbs, baseConstraints] = await Promise.all([
     loadHistory(nameMap),
     loadPBs(nameMap),
     loadConstraints(),
   ]);
 
+  // Survey-declared injuries become constraints alongside the user_constraints
+  // table so the engine excludes contraindicated movement patterns.
+  const constraints = mergeInjuryConstraints(baseConstraints, saved.injuries);
+
   return {
-    profile: toPlanProfile(profile),
+    profile: toPlanProfile(merged),
     exercises: ENGINE_EXERCISE_CATALOG,
     history,
     pbs,
     metrics: [],
     constraints,
-    userId: profile.id != null ? profile.id : 'anon',
+    musclePriorities: saved.muscle_priorities ?? null,
+    trainingDays: saved.training_days ?? null,
+    bodyweightKg: saved.bodyweight_kg ?? merged.weight_class_kg ?? null,
+    userId: merged.id != null ? merged.id : 'anon',
     today: new Date(),
   };
 }
