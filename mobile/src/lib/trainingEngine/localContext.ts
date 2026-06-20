@@ -89,11 +89,11 @@ function ageBandFromBirthDate(birthDate: string | null | undefined): string | nu
   const m = now.getMonth() - born.getMonth();
   if (m < 0 || (m === 0 && now.getDate() < born.getDate())) age--;
   if (age < 18 || age > 100) return null; // implausible — ignore
-  if (age < 30) return 'under_30';
-  if (age < 40) return '30_39';
-  if (age < 50) return '40_49';
-  if (age < 60) return '50_59';
-  return '60_plus';
+  if (age < 25) return '18-24';
+  if (age < 35) return '25-34';
+  if (age < 45) return '35-44';
+  if (age < 55) return '45-54';
+  return '55+';
 }
 
 function epley(weightKg: number, reps: number): number {
