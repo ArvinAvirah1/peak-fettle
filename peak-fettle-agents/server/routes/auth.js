@@ -276,8 +276,22 @@ router.post('/refresh', async (req, res, next) => {
         const tokens = await issueTokens(userRows[0]);
         _rememberRotation(hash, tokens);
         res.json(tokens);
-    } catch (_err) {
-        return res.status(401).json({ error: 'invalid_token' });
+    } catch (err) {
+        // INVARIANT 5 (AUTH-RELIABILITY, 2026-06-19): a 401 is a *definitive*
+        // auth failure to the client and makes it WIPE the refresh token →
+        // forced re-login. Only genuine bad-token cases may return 401.
+        // jsonwebtoken throws TokenExpiredError / JsonWebTokenError /
+        // NotBeforeError (all subclasses of JsonWebTokenError) for a bad,
+        // expired, or malformed token — those are real auth failures → 401.
+        if (err instanceof jwt.JsonWebTokenError ||
+            err instanceof jwt.TokenExpiredError ||
+            err instanceof jwt.NotBeforeError) {
+            return res.status(401).json({ error: 'invalid_token' });
+        }
+        // Everything else (DB outage, pool timeout, unexpected exception) is
+        // TRANSIENT — delegate to the app error handler (→ 500) so the client
+        // keeps the session and retries, instead of being logged out.
+        return next(err);
     }
 });
 
