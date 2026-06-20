@@ -36,7 +36,7 @@ import {
   AVATAR_CATEGORIES,
   AvatarCategory,
   DEFAULT_AVATAR,
-  COSMETIC_TIERS,
+  tierKeyForId,
   normalizeAvatar,
   randomizeAvatar,
 } from './peakAvatarOptions';
@@ -50,21 +50,6 @@ interface Props {
 
 function prettify(id: string): string {
   return id.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase());
-}
-
-/**
- * Resolve the COSMETIC_TIERS key for an option in a given category.
- *
- * Wristband streak unlocks are keyed with a `_wristband` suffix in COSMETIC_TIERS
- * (teal_wristband / gold_wristband / neon_wristband) so they don't collide with
- * the same-named hair-color / accent ids. For the wristbands category we look the
- * id up under that suffixed key; every other category uses the plain id.
- */
-function tierKeyFor(catKey: AvatarCategory['key'], id: string): string {
-  if (catKey === 'wristbands' && (id === 'teal' || id === 'gold' || id === 'neon')) {
-    return `${id}_wristband`;
-  }
-  return id;
 }
 
 export default function AvatarCustomizer({ visible, initial, onClose, onSaved }: Props): React.ReactElement {
@@ -122,7 +107,7 @@ export default function AvatarCustomizer({ visible, initial, onClose, onSaved }:
     for (const category of AVATAR_CATEGORIES) {
       const val = safeRec[category.key];
       if (typeof val !== 'string') continue;
-      if (!isUnlocked(tierKeyFor(category.key, val), unlockCtx)) {
+      if (!isUnlocked(tierKeyForId(category.key, val), unlockCtx)) {
         safeRec[category.key] = defaults[category.key] ?? category.ids[0];
       }
     }
@@ -193,7 +178,7 @@ export default function AvatarCustomizer({ visible, initial, onClose, onSaved }:
         <ScrollView contentContainerStyle={styles.grid}>
           {cat.ids.map((id) => {
             const selected = draft[cat.key] === id;
-            const tierKey = tierKeyFor(cat.key, id);
+            const tierKey = tierKeyForId(cat.key, id);
             const unlocked = isUnlocked(tierKey, unlockCtx);
             const label = unlockLabel(tierKey);
             const isProLock = label === 'Pro';
