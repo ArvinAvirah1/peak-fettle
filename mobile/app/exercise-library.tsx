@@ -58,6 +58,14 @@ import { PFButton } from '../src/components/ui/PFButton';
 import { PressableCard } from '../src/components/ui/PressableCard';
 import { apiClient } from '../src/api/client';
 import { getExerciseGoal, setExerciseGoal, clearExerciseGoal, ExerciseGoal } from '../src/data/exerciseGoals'; // WIDGET-002
+import { isLocalFirst } from '../src/data/backup/tierPolicy'; // A4-01
+import { localDb } from '../src/db/localDb'; // A4-01
+import {
+  displayToKg,
+  parseWeightInput,
+  kgToInputValue,
+  formatWeight,
+} from '../src/constants/units'; // A4-03
 import { MuscleMap } from '../src/components/MuscleMap';
 import { muscleGroupsForExercise } from '../src/data/muscleRegions';
 
@@ -560,15 +568,17 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
 
   const handleSaveGoal = useCallback(() => {
     if (!exercise) return;
-    const w = parseFloat(goalWeight);
+    // A4-03 (Invariant 2): the input is in the user's display unit; store EXACT kg.
+    const displayW = parseWeightInput(goalWeight);
     const r = parseInt(goalReps, 10);
-    if (!Number.isFinite(w) || w <= 0 || !Number.isInteger(r) || r <= 0) return;
+    if (displayW == null || displayW <= 0 || !Number.isInteger(r) || r <= 0) return;
+    const kg = displayToKg(displayW, unitPref);
     setGoalEditing(false);
-    setExerciseGoal(exercise.id, w, r, exercise.name)
+    setExerciseGoal(exercise.id, kg, r, exercise.name)
       .then(() => getExerciseGoal(exercise.id))
       .then((g) => setGoal(g))
       .catch(() => {});
-  }, [exercise, goalWeight, goalReps]);
+  }, [exercise, goalWeight, goalReps, unitPref]);
 
   const handleRemoveGoal = useCallback(() => {
     if (!exercise) return;
@@ -591,12 +601,56 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
     setSetsError(null);
     setSets([]);
 
-    apiClient
-      .get<{ sets: SetRecord[] }>('/sets', {
-        params: { exercise_id: exercise.id, limit: SET_HISTORY_LIMIT },
-      })
-      .then((res) => {
-        if (!cancelled) setSets(res.data.sets ?? []);
+    // A4-01 (Invariant 1): free / local-first users must NOT hit GET /sets — that
+    // personal round-trip hangs/500s for them. Read this exercise's sets straight
+    // from on-device SQLite (mirroring localProgress.ts / the LiftProgressChart
+    // local branch in this same modal) and map to the SetRecord shape. Pro users
+    // keep the server fetch for live multi-device sync.
+    const loadSets = (): Promise<SetRecord[]> => {
+      if (isLocalFirst(user)) {
+        return localDb
+          .init()
+          .then(() =>
+            localDb.getAll<{
+              id: string;
+              workout_id: string | null;
+              weight_kg: number | null;
+              weight_raw: number | null;
+              reps: number | null;
+              logged_at: string | null;
+            }>(
+              `SELECT id, workout_id, weight_kg, weight_raw, reps, logged_at
+                 FROM sets
+                WHERE exercise_id = ? AND kind = 'lift'
+                ORDER BY logged_at DESC
+                LIMIT ?`,
+              [exercise.id, SET_HISTORY_LIMIT],
+            ),
+          )
+          .then((rows) =>
+            rows.map(
+              (r): SetRecord => ({
+                id: r.id,
+                workout_id: r.workout_id ?? '',
+                weight_kg: r.weight_kg ?? undefined,
+                // legacy fallback so setKg() can still resolve via weight_raw/8
+                weight_raw: r.weight_raw ?? 0,
+                reps: r.reps ?? 0,
+                logged_at: r.logged_at ?? undefined,
+              }),
+            ),
+          );
+      }
+      return apiClient
+        .get<{ sets: SetRecord[] }>('/sets', {
+          params: { exercise_id: exercise.id, limit: SET_HISTORY_LIMIT },
+        })
+        .then((res) => res.data.sets ?? []);
+    };
+
+    loadSets()
+      .then((rows) => {
+        if (!cancelled) setSets(rows);
       })
       .catch(() => {
         if (!cancelled) setSetsError('Could not load history.');
@@ -608,7 +662,7 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
     return () => {
       cancelled = true;
     };
-  }, [exercise?.id, visible]);
+  }, [exercise?.id, visible, user]);
 
   const personalBest = useMemo(() => computePersonalBest(sets), [sets]);
   const sessionVolumes = useMemo(() => computeSessionVolumes(sets), [sets]);
@@ -848,9 +902,9 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
                     value={goalWeight}
                     onChangeText={setGoalWeight}
                     keyboardType="decimal-pad"
-                    placeholder="Weight (kg)"
+                    placeholder={`Weight (${unitPref})`}
                     placeholderTextColor={colors.textTertiary}
-                    accessibilityLabel="Goal weight in kilograms"
+                    accessibilityLabel={`Goal weight in ${unitPref === 'lbs' ? 'pounds' : 'kilograms'}`}
                     style={{
                       flex: 1,
                       minHeight: 48,
@@ -932,7 +986,7 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
                   }}
                 >
                   {goal.achieved_at ? '🏆 ' : '🎯 '}
-                  {goal.target_weight_kg} kg × {goal.target_reps}
+                  {formatWeight(goal.target_weight_kg, unitPref, 0)} × {goal.target_reps}
                 </Text>
                 <Text
                   style={{
@@ -947,7 +1001,7 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
                 </Text>
                 <Pressable
                   onPress={() => {
-                    setGoalWeight(String(goal.target_weight_kg));
+                    setGoalWeight(kgToInputValue(goal.target_weight_kg, unitPref));
                     setGoalReps(String(goal.target_reps));
                     setGoalEditing(true);
                   }}
