@@ -69,6 +69,32 @@ export const MODEL_VERSION = 3;
 export type Sex = 'M' | 'F';
 export type LiftId = 'squat' | 'bench' | 'deadlift' | 'ohp';
 
+/**
+ * Robustness (SRV-FIX-SEX-DOTS, 2026-06-19): a value supplied for `sex` may be
+ * undisclosed/unknown/garbage at runtime (the profile field is nullable and the
+ * server has historically sent free-text). The sex-keyed tables (DOTS_COEF,
+ * REF_BW, STANDARDS_XBW) would throw a TypeError on an unrecognised key. Every
+ * percentile/score entry point therefore widens its `sex` parameter to this
+ * loose type and, when the value is not a recognised 'M'/'F', returns the MEAN
+ * of the male and female results — the same 50/50-mixture policy the existing
+ * undisclosed-sex handler already used (D5). No entry point may throw on an
+ * unknown sex.
+ */
+export type SexInput = Sex | string | null | undefined;
+
+/** True only for the two recognised, table-keyed sex values. */
+export function isKnownSex(sex: SexInput): sex is Sex {
+  return sex === 'M' || sex === 'F';
+}
+
+/**
+ * Sentinel returned by dotsScore when the DOTS multiplier is non-positive or
+ * non-finite (extreme-but-finite bodyweight can drive the quartic polynomial
+ * ≤ 0). Callers MUST treat a non-finite DOTS as "no estimate" and fall back to
+ * their own provisional/no-estimate sentinel — NOT feed it into Math.log, which
+ * would yield NaN that clampPct silently masks as a confident 0th percentile.
+ */
+
 // ---------------------------------------------------------------------------
 // Normal CDF (Φ) and inverse CDF (Φ⁻¹)
 // ---------------------------------------------------------------------------
@@ -131,8 +157,23 @@ export function dotsCoefficient(bwKg: number, sex: Sex): number {
   return 500 / denom;
 }
 
-export function dotsScore(totalKg: number, bwKg: number, sex: Sex): number {
-  return totalKg * dotsCoefficient(bwKg, sex);
+export function dotsScore(totalKg: number, bwKg: number, sex: SexInput): number {
+  // Unknown/undisclosed sex → mean of the male and female DOTS scores.
+  if (!isKnownSex(sex)) {
+    const m = dotsScore(totalKg, bwKg, 'M');
+    const f = dotsScore(totalKg, bwKg, 'F');
+    // Propagate the no-estimate sentinel if either branch is unusable.
+    if (!Number.isFinite(m) || !Number.isFinite(f)) return NaN;
+    return 0.5 * m + 0.5 * f;
+  }
+  const dots = totalKg * dotsCoefficient(bwKg, sex);
+  // DOTS poly guard: for extreme-but-finite bodyweights the quartic denominator
+  // can go ≤ 0 (or non-finite), making dots ≤ 0. A later Math.log(dots) would be
+  // NaN and clampPct would mask it as a confident 0th percentile. Return NaN as
+  // the "no estimate" sentinel (mirrors the bwKg <= 0 guard in the overall lens)
+  // so callers degrade to provisional/no-estimate instead of a false 0th.
+  if (!(dots > 0) || !Number.isFinite(dots)) return NaN;
+  return dots;
 }
 
 // ---------------------------------------------------------------------------
@@ -239,12 +280,19 @@ export function dotsPopParams(sex: Sex): LognormalFit {
 
 export function computeRankedPercentile(
   lift: LiftId,
-  sex: Sex,
+  sex: SexInput,
   e1rmKg: number,
   bwKg: number,
   alpha: number = ALPHA_PER_LIFT[lift] ?? ALPHA_DEFAULT,
 ): number {
   if (e1rmKg <= 0 || bwKg <= 0) return 0;
+  // Unknown/undisclosed sex → mean of the male and female ranked percentiles
+  // (same 50/50 mixture as computeRankedPercentileUndisclosed; never throws).
+  if (!isKnownSex(sex)) {
+    const m = computeRankedPercentile(lift, 'M', e1rmKg, bwKg, alpha);
+    const f = computeRankedPercentile(lift, 'F', e1rmKg, bwKg, alpha);
+    return clampPct(0.5 * m + 0.5 * f);
+  }
   const { mu, sigma } = liftPopParams(lift, sex);
   const expected = mu + alpha * Math.log(bwKg / REF_BW[sex]);
   const z = (Math.log(e1rmKg) - expected) / sigma;
@@ -269,7 +317,7 @@ export function overallStrengthPercentile(
   benchE1rm: number,
   deadliftE1rm: number,
   bwKg: number,
-  sex: Sex,
+  sex: SexInput,
 ): OverallResult {
   const total = squatE1rm + benchE1rm + deadliftE1rm;
   // LIB-01: guard a missing/zero/non-finite bodyweight (or a non-positive total).
@@ -281,10 +329,22 @@ export function overallStrengthPercentile(
   if (!(total > 0) || !(bwKg > 0) || !Number.isFinite(bwKg)) {
     return { pct: 0, provisional: false, dots: 0 };
   }
+  // Unknown/undisclosed sex → mean of the male and female overall results.
+  if (!isKnownSex(sex)) {
+    const m = overallStrengthPercentile(squatE1rm, benchE1rm, deadliftE1rm, bwKg, 'M');
+    const f = overallStrengthPercentile(squatE1rm, benchE1rm, deadliftE1rm, bwKg, 'F');
+    const dots = sanitizeDots(0.5 * m.dots + 0.5 * f.dots);
+    return { pct: clampPct(0.5 * m.pct + 0.5 * f.pct), provisional: m.provisional || f.provisional, dots };
+  }
   const dots = dotsScore(total, bwKg, sex);
+  // dotsScore returns NaN when its polynomial guard trips (extreme BW). Degrade
+  // to the no-estimate result rather than logging NaN into a false 0th percentile.
+  if (!Number.isFinite(dots)) {
+    return { pct: 0, provisional: false, dots: 0 };
+  }
   const { mu, sigma } = dotsPopParams(sex);
   const pct = clampPct(100 * normCdf((Math.log(dots) - mu) / sigma));
-  return { pct, provisional: false, dots };
+  return { pct, provisional: false, dots: sanitizeDots(dots) };
 }
 
 /**
@@ -294,7 +354,7 @@ export function overallStrengthPercentile(
 export function overallStrengthPercentilePartial(
   lifts: Partial<Record<'squat' | 'bench' | 'deadlift', number>>,
   bwKg: number,
-  sex: Sex,
+  sex: SexInput,
 ): OverallResult | null {
   const present = (['squat', 'bench', 'deadlift'] as const).filter((l) => (lifts[l] ?? 0) > 0);
   if (present.length === 0) return null;
@@ -303,6 +363,14 @@ export function overallStrengthPercentilePartial(
   // 0th percentile. This function already uses null as its no-estimate sentinel
   // (TierLadderCard null-checks the result), so reuse it here.
   if (!(bwKg > 0) || !Number.isFinite(bwKg)) return null;
+  // Unknown/undisclosed sex → mean of the male and female partial results.
+  if (!isKnownSex(sex)) {
+    const m = overallStrengthPercentilePartial(lifts, bwKg, 'M');
+    const f = overallStrengthPercentilePartial(lifts, bwKg, 'F');
+    if (!m || !f) return m ?? f ?? null;
+    const dots = sanitizeDots(0.5 * m.dots + 0.5 * f.dots);
+    return { pct: clampPct(0.5 * m.pct + 0.5 * f.pct), provisional: m.provisional || f.provisional, dots };
+  }
   if (present.length === 3) {
     return overallStrengthPercentile(lifts.squat!, lifts.bench!, lifts.deadlift!, bwKg, sex);
   }
@@ -315,8 +383,10 @@ export function overallStrengthPercentilePartial(
   const { mu, sigma } = fitLognormal(subsetDots);
   const userSubtotal = present.reduce((s, l) => s + (lifts[l] ?? 0), 0);
   const dots = dotsScore(userSubtotal, bwKg, sex);
+  // dotsScore NaN sentinel (poly guard / extreme BW) → no estimate (null).
+  if (!Number.isFinite(dots)) return null;
   const pct = clampPct(100 * normCdf((Math.log(dots) - mu) / sigma));
-  return { pct, provisional: true, dots };
+  return { pct, provisional: true, dots: sanitizeDots(dots) };
 }
 
 // ---------------------------------------------------------------------------
@@ -402,15 +472,35 @@ export function heteroscedasticSigma(popSigma: number, trainingYears: number | n
  * OFF (returns 1.0) when age_band is null or unrecognised.
  * Reference: McCulloch 1994 / Foster 2011 masters factor tables (adapted).
  */
-export type AgeBand = 'under-18' | '18-24' | '25-34' | '35-44' | '45-54' | '55+';
+export type AgeBand =
+  | 'under-18'
+  | '18-24'
+  | '25-34'
+  | '35-44'
+  | '45-49'
+  | '50-54'
+  | '55-59'
+  | '60-64'
+  | '65-69'
+  | '70+'
+  | '45-54' // legacy coarse band (server-provided) — retained
+  | '55+';  // legacy coarse band (server-provided) — retained
 
+// McCulloch masters age coefficients: expected strength relative to the 25-40
+// prime reference. Finer masters bands added; coarse server-sent keys retained.
 export const AGE_MULT: Record<AgeBand, number> = {
   'under-18': 0.96,
   '18-24':    0.98,
   '25-34':    1.00, // prime reference
   '35-44':    0.97,
-  '45-54':    0.93,
-  '55+':      0.86,
+  '45-49':    0.91,
+  '50-54':    0.84,
+  '55-59':    0.77,
+  '60-64':    0.70,
+  '65-69':    0.62,
+  '70+':      0.54,
+  '45-54':    0.88, // legacy coarse band (server-provided) — retained
+  '55+':      0.72, // legacy coarse band (server-provided) — retained
 };
 
 /**
@@ -426,7 +516,11 @@ export const AGE_MULT: Record<AgeBand, number> = {
  * conform, with its return annotated as AgeBand or null so tsc enforces the
  * contract. Exported here so there is a single source of truth.
  */
-export const AGE_BANDS: readonly AgeBand[] = ['under-18', '18-24', '25-34', '35-44', '45-54', '55+'];
+export const AGE_BANDS: readonly AgeBand[] = [
+  'under-18', '18-24', '25-34', '35-44',
+  '45-49', '50-54', '55-59', '60-64', '65-69', '70+',
+  '45-54', '55+', // legacy coarse bands (server-provided) — retained
+];
 
 export function ageMultiplier(ageBand: string | null | undefined): number {
   if (!ageBand) return 1.0;
@@ -454,13 +548,20 @@ export function ageMultiplier(ageBand: string | null | undefined): number {
  */
 export function computePercentile(
   lift: LiftId,
-  sex: Sex,
+  sex: SexInput,
   e1rmKg: number,
   bwKg: number,
   experienceLevel: string | null | undefined,
   ageBand: string | null | undefined,
 ): number {
   if (e1rmKg <= 0 || bwKg <= 0) return 0;
+  // Unknown/undisclosed sex → mean of the male and female experience-adjusted
+  // percentiles (same 50/50 mixture policy; never throws on an unknown key).
+  if (!isKnownSex(sex)) {
+    const m = computePercentile(lift, 'M', e1rmKg, bwKg, experienceLevel, ageBand);
+    const f = computePercentile(lift, 'F', e1rmKg, bwKg, experienceLevel, ageBand);
+    return clampPct(0.5 * m + 0.5 * f);
+  }
   const { mu, sigma: popSigma } = liftPopParams(lift, sex);
   const alpha = ALPHA_PER_LIFT[lift] ?? ALPHA_DEFAULT;
   const trainingYears = experienceLevel ? (EXPERIENCE_TO_YEARS[experienceLevel] ?? null) : null;
@@ -477,4 +578,13 @@ export function computePercentile(
 function clampPct(p: number): number {
   if (!Number.isFinite(p)) return 0;
   return Math.max(0, Math.min(100, p));
+}
+
+/**
+ * Ensure a returned `dots` field is always finite. NaN/Infinity (e.g. from the
+ * DOTS poly guard or an unknown-sex average where one branch was unusable) is
+ * coerced to 0 so consumers never render NaN. (SRV-FIX-SEX-DOTS, 2026-06-19)
+ */
+function sanitizeDots(d: number): number {
+  return Number.isFinite(d) ? d : 0;
 }
