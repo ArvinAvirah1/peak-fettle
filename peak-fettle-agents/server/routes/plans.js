@@ -313,14 +313,14 @@ router.post('/generate', async (req, res, next) => {
         const { rows: historyRows } = await pool.query(
             `SELECT
                 e.name                      AS exercise_name,
-                s.weight_raw / 8.0          AS weight_kg,
+                COALESCE(s.weight_kg, s.weight_raw / 8.0)          AS weight_kg,
                 s.reps,
                 s.rir,
                 CASE
-                    WHEN s.kind = 'lift' AND s.weight_raw > 0 AND s.reps >= 1 THEN
+                    WHEN s.kind = 'lift' AND COALESCE(s.weight_kg, s.weight_raw / 8.0) > 0 AND s.reps >= 1 THEN
                         CASE
-                            WHEN s.reps = 1 THEN s.weight_raw / 8.0
-                            ELSE (s.weight_raw / 8.0) * (1.0 + LEAST(s.reps, 12)::float / 30.0)
+                            WHEN s.reps = 1 THEN COALESCE(s.weight_kg, s.weight_raw / 8.0)
+                            ELSE (COALESCE(s.weight_kg, s.weight_raw / 8.0)) * (1.0 + LEAST(s.reps, 12)::float / 30.0)
                         END
                     ELSE NULL
                 END                         AS e1rm_kg,
@@ -340,16 +340,16 @@ router.post('/generate', async (req, res, next) => {
         const { rows: pbRows } = await pool.query(
             `SELECT DISTINCT ON (s.exercise_id)
                 e.name                         AS exercise_name,
-                s.weight_raw / 8.0             AS weight_kg,
+                COALESCE(s.weight_kg, s.weight_raw / 8.0)             AS weight_kg,
                 s.reps
              FROM sets s
              JOIN exercises e ON e.id = s.exercise_id
              JOIN workouts w  ON w.id = s.workout_id
              WHERE w.user_id = $1
                AND s.kind = 'lift'
-               AND s.weight_raw > 0
+               AND COALESCE(s.weight_kg, s.weight_raw / 8.0) > 0
              ORDER BY s.exercise_id,
-                      (s.weight_raw / 8.0) * (1.0 + LEAST(s.reps, 12)::float / 30.0) DESC`,
+                      (COALESCE(s.weight_kg, s.weight_raw / 8.0)) * (1.0 + LEAST(s.reps, 12)::float / 30.0) DESC`,
             [req.user.id]
         );
 

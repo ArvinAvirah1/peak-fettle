@@ -117,8 +117,8 @@ router.get('/', async (req, res, next) => {
                 (
                     SELECT MAX(
                         CASE
-                            WHEN s.reps = 1 THEN s.weight_raw / 8.0
-                            ELSE (s.weight_raw / 8.0) * (1.0 + s.reps::float / 30.0)
+                            WHEN s.reps = 1 THEN COALESCE(s.weight_kg, s.weight_raw / 8.0)
+                            ELSE COALESCE(s.weight_kg, s.weight_raw / 8.0) * (1.0 + s.reps::float / 30.0)
                         END
                     )
                     FROM sets s
@@ -131,7 +131,7 @@ router.get('/', async (req, res, next) => {
                       -- GET /percentile, surfacing as the Rankings error banner (TICKET-051).
                       AND REPLACE(LOWER(e.name), ' ', '_') = upr.lift_id
                       AND s.kind = 'lift'
-                      AND s.weight_raw > 0
+                      AND COALESCE(s.weight_kg, s.weight_raw / 8.0) > 0
                       AND s.reps >= 1
                 )                                                       AS epley_estimate_kg,
                 -- OD-2: wilks_score deferred — compute_wilks_score() DB function not
@@ -206,8 +206,8 @@ async function percentileByLift(req, res, next) {
                 (
                     SELECT MAX(
                         CASE
-                            WHEN s.reps = 1 THEN s.weight_raw / 8.0
-                            ELSE (s.weight_raw / 8.0) * (1.0 + s.reps::float / 30.0)
+                            WHEN s.reps = 1 THEN COALESCE(s.weight_kg, s.weight_raw / 8.0)
+                            ELSE COALESCE(s.weight_kg, s.weight_raw / 8.0) * (1.0 + s.reps::float / 30.0)
                         END
                     )
                     FROM sets s
@@ -220,7 +220,7 @@ async function percentileByLift(req, res, next) {
                       -- GET /percentile, surfacing as the Rankings error banner (TICKET-051).
                       AND REPLACE(LOWER(e.name), ' ', '_') = upr.lift_id
                       AND s.kind = 'lift'
-                      AND s.weight_raw > 0
+                      AND COALESCE(s.weight_kg, s.weight_raw / 8.0) > 0
                       AND s.reps >= 1
                 )                AS epley_estimate_kg,
                 -- OD-2: wilks_score deferred — compute_wilks_score() not yet deployed.

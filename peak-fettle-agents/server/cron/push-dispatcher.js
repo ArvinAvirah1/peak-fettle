@@ -54,13 +54,34 @@ const MAX_RETRIES      = 5;    // mark failed_permanently after this many failed
 // ---------------------------------------------------------------------------
 
 /**
- * Returns true if the Expo error code / message indicates the device token
- * is no longer valid and should be cleared from the users table.
+ * Returns true ONLY when Expo reports the device token is permanently gone —
+ * i.e. the user uninstalled / the registration was revoked. This is the only
+ * condition under which we may NULL users.fcm_token. (SRV-ENGINE-02 / PUSH-001:
+ * never clear a token on a transport/format rejection — that silently erases
+ * valid registrations.)
+ *
+ * `DeviceNotRegistered` is the Expo Push API's definitive "this token no longer
+ * points at a real device" code; `NotRegistered` is the underlying FCM/APNs
+ * equivalent that can surface in the message text.
  */
-function isStaleTokenError(errMsg) {
+function isDeviceGone(errMsg) {
     return (
         errMsg.includes('DeviceNotRegistered') ||
-        errMsg.includes('NotRegistered') ||
+        errMsg.includes('NotRegistered')
+    );
+}
+
+/**
+ * Returns true when retrying this notification can never succeed, so it should
+ * be marked failed_permanently and stop consuming retries. This is a SUPERSET
+ * of isDeviceGone: it also covers `InvalidRegistration` (a malformed / wrong-
+ * format token). Crucially, an InvalidRegistration is a permanent *delivery*
+ * failure but NOT a device-gone signal, so the token is left intact and logged
+ * for human investigation rather than erased.
+ */
+function isPermanentFailure(errMsg) {
+    return (
+        isDeviceGone(errMsg) ||
         errMsg.includes('InvalidRegistration')
     );
 }
@@ -143,16 +164,17 @@ async function markSent(client, id) {
 
 /**
  * Record a delivery failure. Increments retry_count and sets failed_permanently
- * if MAX_RETRIES is reached or the error indicates a stale token.
+ * if MAX_RETRIES is reached or the error is permanent (device gone or invalid
+ * token format). Clears users.fcm_token ONLY on a device-gone signal.
  *
  * @param {object} client   - pg client
  * @param {object} notif    - row from notification_queue (must include retry_count)
  * @param {string} errMsg   - error message to store
  */
 async function markFailed(client, notif, errMsg) {
-    const stale      = isStaleTokenError(errMsg);
+    const deviceGone = isDeviceGone(errMsg);
     const newCount   = (notif.retry_count ?? 0) + 1;
-    const permanent  = stale || newCount >= MAX_RETRIES;
+    const permanent  = isPermanentFailure(errMsg) || newCount >= MAX_RETRIES;
 
     await client.query(
         `UPDATE notification_queue
@@ -163,20 +185,33 @@ async function markFailed(client, notif, errMsg) {
         [errMsg.slice(0, 500), newCount, permanent, notif.id]
     );
 
-    if (stale) {
-        // Clear the stale device token so future runs skip this user
-        // until they re-register on a new device install.
+    if (deviceGone) {
+        // Clear the device token ONLY on a definitive DeviceNotRegistered /
+        // NotRegistered signal — the device is permanently unreachable (app
+        // uninstalled or registration revoked). NEVER clear on a transport,
+        // HTTP/network, 5xx, rate-limit, or format/InvalidRegistration error:
+        // those are transient or config faults, and wiping the token here is
+        // the PUSH-001 silent-erasure bug that destroys valid registrations.
         await client.query(
             `UPDATE users SET fcm_token = NULL WHERE id = $1`,
             [notif.user_id]
         );
-        console.log(`[push-dispatcher] cleared stale token for user ${notif.user_id}`);
+        console.log(`[push-dispatcher] cleared unregistered device token for user ${notif.user_id}`);
+    } else if (permanent && isPermanentFailure(errMsg)) {
+        // Permanent *delivery* failure that is NOT device-gone (e.g.
+        // InvalidRegistration = wrong token format). Stop retrying, but leave
+        // the token in place and surface it for human investigation rather
+        // than erasing a possibly-valid registration.
+        console.warn(
+            `[push-dispatcher] permanent delivery failure for user ${notif.user_id} ` +
+            `(token left intact for investigation): ${errMsg.slice(0, 120)}`
+        );
     }
 
     if (permanent) {
         console.warn(
             `[push-dispatcher] permanently failed ${notif.id} ` +
-            `(retries: ${newCount}, stale: ${stale}): ${errMsg.slice(0, 120)}`
+            `(retries: ${newCount}, deviceGone: ${deviceGone}): ${errMsg.slice(0, 120)}`
         );
     }
 }
