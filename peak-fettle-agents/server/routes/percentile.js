@@ -328,7 +328,15 @@ router.post('/confirm-1rm', async (req, res, next) => {
             confirmed_at: rows[0].confirmed_at,
             message:      'Confirmed. Your ranking will update on the next weekly run.',
         });
-    } catch (err) { next(err); }
+    } catch (err) {
+        // SRV-PLANS-04: user_confirmed_1rm is deprecated and may be absent on a
+        // drifted prod DB — degrade gracefully instead of 500 (the on-device
+        // model is the source of truth; this row is a best-effort ranking hint).
+        if (isMissingSchema(err)) {
+            return res.status(200).json({ degraded: true, message: 'Confirmation accepted; server ranking store unavailable.' });
+        }
+        return next(err);
+    }
 });
 
 module.exports = router;

@@ -234,7 +234,7 @@ router.post('/refresh', async (req, res, next) => {
         if (!refreshToken) return res.status(400).json({ error: 'missing_refresh_token' });
 
         // Verify JWT signature and type before hitting the DB.
-        const payload = jwt.verify(refreshToken, process.env.JWT_SECRET);
+        const payload = jwt.verify(refreshToken, process.env.JWT_SECRET, { algorithms: ['HS256'] }); // SRV-AUTH-03
         if (payload.type !== 'refresh') {
             return res.status(401).json({ error: 'invalid_token' });
         }
@@ -276,8 +276,22 @@ router.post('/refresh', async (req, res, next) => {
         const tokens = await issueTokens(userRows[0]);
         _rememberRotation(hash, tokens);
         res.json(tokens);
-    } catch (_err) {
-        return res.status(401).json({ error: 'invalid_token' });
+    } catch (err) {
+        // INVARIANT 5 (AUTH-RELIABILITY, 2026-06-19): a 401 is a *definitive*
+        // auth failure to the client and makes it WIPE the refresh token →
+        // forced re-login. Only genuine bad-token cases may return 401.
+        // jsonwebtoken throws TokenExpiredError / JsonWebTokenError /
+        // NotBeforeError (all subclasses of JsonWebTokenError) for a bad,
+        // expired, or malformed token — those are real auth failures → 401.
+        if (err instanceof jwt.JsonWebTokenError ||
+            err instanceof jwt.TokenExpiredError ||
+            err instanceof jwt.NotBeforeError) {
+            return res.status(401).json({ error: 'invalid_token' });
+        }
+        // Everything else (DB outage, pool timeout, unexpected exception) is
+        // TRANSIENT — delegate to the app error handler (→ 500) so the client
+        // keeps the session and retries, instead of being logged out.
+        return next(err);
     }
 });
 
@@ -346,6 +360,13 @@ router.post('/oauth', async (req, res, next) => {
 
         const email = (claims.email || '').toLowerCase();
         if (!email) return res.status(400).json({ error: 'provider_no_email' });
+
+        // SRV-AUTH-02: never find-or-create on an UNVERIFIED provider email. An
+        // attacker holding a token whose email is unverified could otherwise take
+        // over an existing account that owns that same email address.
+        if (!claims.emailVerified) {
+            return res.status(401).json({ error: 'provider_email_not_verified' });
+        }
 
         // Find-or-create by verified email. NOTE: a dedicated oauth_identities
         // table mapping provider `sub` -> account is the proper long-term store

@@ -176,7 +176,7 @@ export default function RecoveryCodeScreen(): React.ReactElement {
           </Text>
           <View
             style={[
-              styles.card,
+              styles.codeCard,
               {
                 backgroundColor: colors.bgSecondary,
                 borderRadius: r.lg,

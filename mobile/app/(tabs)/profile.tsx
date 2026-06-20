@@ -691,10 +691,13 @@ export default function ProfileScreen(): React.ReactElement {
     saveAvatar(cfg).catch(() => {});
   }, []);
 
-  // Load constraints on mount
+  // S3-14: reload on mount AND whenever the user (login / tier switch) changes,
+  // not only once on mount. (Effect precedes the loadConstraints useCallback, so
+  // we key on `user` — its sole dependency — rather than the callback identity.)
   useEffect(() => {
     loadConstraints();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
 
   const loadConstraints = useCallback(async () => {
     setConstraintsLoading(true);

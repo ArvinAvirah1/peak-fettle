@@ -138,6 +138,12 @@ export default function LiftProgressChart({
         loadedForId.current = exerciseId;
         setLoading(false);
       }
+    }).catch(() => {
+      // S3-11: without a catch, a rejected fetch leaves loading=true forever.
+      if (!cancelled) {
+        setSeries(null);
+        setLoading(false);
+      }
     });
 
     return () => {

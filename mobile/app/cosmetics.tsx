@@ -558,7 +558,9 @@ export default function CosmeticsScreen(): React.ReactElement {
       const key = `${slot}:${optionId}`;
       setEquippingKey(key);
       try {
-        await setEquipped(user.id, { [slot]: optionId });
+        // Pass the unlock ctx so the persistence layer is the authoritative gate,
+        // not just the UI disabled/locked check (reviewer P2: cosmetics setEquipped).
+        await setEquipped(user.id, { [slot]: optionId }, { streak, isPaid: isPaidUser });
         setEquippedMap((prev) => ({ ...prev, [slot]: optionId }));
       } catch {
         // Fail silently — next getEquipped call will restore truth
@@ -566,7 +568,7 @@ export default function CosmeticsScreen(): React.ReactElement {
         setEquippingKey(null);
       }
     },
-    [user?.id]
+    [user?.id, streak, isPaidUser]
   );
 
   // Separate categories into: has any non-pro items, and has any pro items

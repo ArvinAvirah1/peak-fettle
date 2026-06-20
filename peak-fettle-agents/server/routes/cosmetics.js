@@ -83,6 +83,7 @@ router.get('/owned', async (req, res, next) => {
         const { rows } = await pool.query(
             `SELECT ci.id, ci.name, ci.description, ci.category, ci.rarity,
                     ci.price_credits, ci.is_default, ci.metadata, ci.sort_order,
+                    (NOT ci.is_default) AS requires_pro, -- SOCIAL-06: server-authoritative lock signal
                     CASE WHEN ci.is_default THEN TRUE
                          ELSE (uc.item_id IS NOT NULL)
                     END AS owned,
@@ -156,7 +157,7 @@ router.get('/equipped', async (req, res, next) => {
 //   2. item must exist, be active, and match the slot's category.
 //   3. item must be owned by the caller OR be a default item.
 // ---------------------------------------------------------------------------
-router.put('/equipped/:slot', async (req, res, next) => {
+router.put('/equipped/:slot', async (req, res, next) => { // SOCIAL-01: entitlement = ownership (enforced in-body), NOT a blanket Pro gate
     try {
         const { slot } = z.object({
             slot: z.enum(VALID_SLOTS),
@@ -183,8 +184,16 @@ router.put('/equipped/:slot', async (req, res, next) => {
             });
         }
 
-        // Ownership check: default items are equippable by anyone; non-defaults
-        // require a user_cosmetics row.
+        // ── SOCIAL-01 entitlement gate (server-authoritative) ──────────
+        // The ONLY way to be entitled to a non-default item is to OWN it:
+        // a user_cosmetics row, which is written exclusively by a credit
+        // purchase (atomic balance debit below) or an admin_grant. Default
+        // items are free to everyone. This is the real server-side gate that
+        // makes the client-side cosmetic lock non-bypassable — a free user
+        // can equip ONLY defaults + items they actually earned/purchased.
+        // NOTE: per-item Pro/streak requirements are NOT modelled on the
+        // server catalog (cosmetic_items has only is_default); entitlement is
+        // therefore enforced via ownership, never a blanket tier check.
         if (!item.is_default) {
             const { rows: ownedRows } = await pool.query(
                 `SELECT 1 FROM user_cosmetics
@@ -321,6 +330,7 @@ router.get('/', async (req, res, next) => {
         const { rows } = await pool.query(
             `SELECT ci.id, ci.name, ci.description, ci.category, ci.rarity,
                     ci.price_credits, ci.is_default, ci.metadata, ci.sort_order,
+                    (NOT ci.is_default) AS requires_pro, -- SOCIAL-06: server-authoritative lock signal
                     -- owned: true if the caller has this item OR it is a default
                     CASE WHEN ci.is_default THEN TRUE
                          ELSE (uc.item_id IS NOT NULL)
@@ -355,7 +365,7 @@ router.get('/', async (req, res, next) => {
 //
 // Idempotency: attempting to purchase an already-owned item returns 409.
 // ---------------------------------------------------------------------------
-router.post('/:id/purchase', async (req, res, next) => {
+router.post('/:id/purchase', async (req, res, next) => { // SOCIAL-01: entitlement = atomic credit-balance check (in-body), NOT a blanket Pro gate
     try {
         const { id: itemId } = z.object({ id: z.string().uuid() }).parse(req.params);
         const userId = req.user.id;
@@ -454,6 +464,7 @@ router.get('/:id', async (req, res, next) => {
         const { rows } = await pool.query(
             `SELECT ci.id, ci.name, ci.description, ci.category, ci.rarity,
                     ci.price_credits, ci.is_default, ci.metadata, ci.sort_order,
+                    (NOT ci.is_default) AS requires_pro, -- SOCIAL-06: server-authoritative lock signal
                     ci.created_at,
                     CASE WHEN ci.is_default THEN TRUE
                          ELSE (uc.item_id IS NOT NULL)
