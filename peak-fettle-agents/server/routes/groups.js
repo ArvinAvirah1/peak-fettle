@@ -219,6 +219,44 @@ async function executeJoin(res, group, joiningUserId) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// SRV-SOCIAL-02 (2026-06-20): atomic admin reassignment when an admin leaves
+// or is kicked. MUST be called inside an already-open transaction on `client`.
+// Locks the group row AND the chosen successor's membership row FOR UPDATE so a
+// concurrent leave/kick for the same group cannot (a) flip the picked member to
+// 'left'/'kicked' between our SELECT and UPDATE, nor (b) strand admin_user_id on
+// a departed user. Any concurrent reassignment blocks on the locked group row
+// until this tx commits. No-op unless `departingUserId` is the current admin and
+// an active member remains.
+// ---------------------------------------------------------------------------
+async function reassignAdminLocked(client, groupId, departingUserId) {
+    // Lock the group row; serialises concurrent admin hand-offs for this group.
+    const { rows: gRows } = await client.query(
+        `SELECT admin_user_id FROM groups WHERE id = $1 FOR UPDATE`,
+        [groupId]
+    );
+    if (gRows.length === 0) return;                       // group gone
+    if (gRows[0].admin_user_id !== departingUserId) return; // someone else is admin
+
+    // Pick AND lock the longest-tenured remaining active member. FOR UPDATE here
+    // means a concurrent leave/kick of this same member blocks until we commit,
+    // so the row we promote is guaranteed still 'active' at UPDATE time.
+    const { rows: nextRows } = await client.query(
+        `SELECT user_id FROM group_memberships
+          WHERE group_id = $1 AND status = 'active'
+          ORDER BY joined_at ASC
+          LIMIT 1
+          FOR UPDATE`,
+        [groupId]
+    );
+    if (nextRows.length === 0) return; // no successor; leave admin_user_id as-is
+
+    await client.query(
+        `UPDATE groups SET admin_user_id = $1, updated_at = NOW() WHERE id = $2`,
+        [nextRows[0].user_id, groupId]
+    );
+}
+
 // handleAdminLeave() was removed (SOCIAL-02): the admin hand-off is now done
 // atomically inside the /leave and /:id/members/:userId transactions below,
 // via a single conditional UPDATE that re-reads remaining members under lock.
@@ -556,28 +594,38 @@ groupsRouter.post('/:id/members', async (req, res, next) => {
 //   (the cron reads left_at vs the 48h window), not here.
 // ---------------------------------------------------------------------------
 groupsRouter.delete('/:id/members/:userId', async (req, res, next) => {
-    try {
-        const { id: groupId, userId: targetId } = req.params;
+    const { id: groupId, userId: targetId } = req.params;
 
-        // Verify caller is admin
-        const { rows: adminRows } = await pool.query(
+    // Cannot kick yourself; use /leave instead (cheap pre-check, no DB needed).
+    if (targetId === req.user.id) {
+        return res.status(400).json({ error: 'cannot_kick_yourself_use_leave' });
+    }
+
+    // SRV-SOCIAL-02: the membership change AND the admin hand-off must be ONE
+    // transaction on a dedicated client. Previously the kick UPDATE and the
+    // reassignment ran as two separate auto-committed pool.query() calls, so a
+    // concurrent leave/kick could race past the status='active' filter or strand
+    // admin_user_id on a departed user. Now both run under BEGIN…COMMIT with the
+    // candidate rows locked FOR UPDATE (see reassignAdminLocked).
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        // Verify caller is admin (inside the tx for a consistent snapshot).
+        const { rows: adminRows } = await client.query(
             `SELECT id FROM groups WHERE id = $1 AND admin_user_id = $2`,
             [groupId, req.user.id]
         );
         if (adminRows.length === 0) {
+            await client.query('ROLLBACK');
             return res.status(403).json({ error: 'not_admin' });
-        }
-
-        // Cannot kick yourself; use /leave instead
-        if (targetId === req.user.id) {
-            return res.status(400).json({ error: 'cannot_kick_yourself_use_leave' });
         }
 
         const cooldownUntil = new Date(
             Date.now() + KICK_COOLDOWN_WEEKS * 7 * 24 * 3600 * 1000
         ).toISOString();
 
-        const { rows } = await pool.query(
+        const { rows } = await client.query(
             `UPDATE group_memberships
              SET status              = 'kicked',
                  left_at             = NOW(),
@@ -587,29 +635,24 @@ groupsRouter.delete('/:id/members/:userId', async (req, res, next) => {
             [cooldownUntil, groupId, targetId]
         );
         if (rows.length === 0) {
+            await client.query('ROLLBACK');
             return res.status(404).json({ error: 'member_not_found_or_not_active' });
         }
 
-        // If the kicked member was admin (shouldn't happen — can't kick yourself —
-        // but guard anyway), transfer admin to next member.
-        // SOCIAL-02: race-free, single-statement guard. A kicked member is never
-        // the admin (you cannot kick yourself, and the caller is verified admin
-        // above), so this is defensive and normally a no-op.
-        await pool.query(
-            `UPDATE groups g
-                SET admin_user_id = (
-                        SELECT m.user_id FROM group_memberships m
-                         WHERE m.group_id = g.id AND m.status = 'active'
-                         ORDER BY m.joined_at ASC LIMIT 1),
-                    updated_at = NOW()
-              WHERE g.id = $1 AND g.admin_user_id = $2
-                AND EXISTS (SELECT 1 FROM group_memberships m2
-                            WHERE m2.group_id = g.id AND m2.status = 'active')`,
-            [groupId, targetId]
-        );
+        // If the kicked member was somehow the admin (you cannot kick yourself and
+        // the caller is the verified admin above, so this is defensive), hand admin
+        // off to the longest-tenured remaining active member — atomically, with the
+        // successor row locked so it can't concurrently leave.
+        await reassignAdminLocked(client, groupId, targetId);
 
+        await client.query('COMMIT');
         res.json({ kicked: true, cooldown_until: rows[0].kick_cooldown_until });
-    } catch (err) { next(err); }
+    } catch (err) {
+        try { await client.query('ROLLBACK'); } catch (_) { /* already aborted */ }
+        return next(err);
+    } finally {
+        client.release();
+    }
 });
 
 // ---------------------------------------------------------------------------
@@ -635,22 +678,12 @@ groupsRouter.post('/:id/leave', async (req, res, next) => {
             return res.status(404).json({ error: 'not_an_active_member' });
         }
 
-        // SOCIAL-02: atomic admin hand-off in the SAME tx. Only fires if the
-        // leaver was the admin AND an active member remains; the subquery picks
-        // the longest-tenured remaining active member under the same snapshot,
-        // so concurrent leaves can't strand admin on a departed user.
-        await client.query(
-            `UPDATE groups g
-                SET admin_user_id = (
-                        SELECT m.user_id FROM group_memberships m
-                         WHERE m.group_id = g.id AND m.status = 'active'
-                         ORDER BY m.joined_at ASC LIMIT 1),
-                    updated_at = NOW()
-              WHERE g.id = $1 AND g.admin_user_id = $2
-                AND EXISTS (SELECT 1 FROM group_memberships m2
-                            WHERE m2.group_id = g.id AND m2.status = 'active')`,
-            [req.params.id, req.user.id]
-        );
+        // SRV-SOCIAL-02: atomic admin hand-off in the SAME tx. Locks the group
+        // row + the chosen successor's membership row FOR UPDATE, so concurrent
+        // leaves can neither strand admin on a departed user nor pick a member
+        // who is simultaneously leaving. No-op unless the leaver was the admin
+        // and an active member remains.
+        await reassignAdminLocked(client, req.params.id, req.user.id);
 
         await client.query('COMMIT');
         res.json({ left: true });
