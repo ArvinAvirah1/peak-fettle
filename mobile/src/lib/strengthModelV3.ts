@@ -272,6 +272,15 @@ export function overallStrengthPercentile(
   sex: Sex,
 ): OverallResult {
   const total = squatE1rm + benchE1rm + deadliftE1rm;
+  // LIB-01: guard a missing/zero/non-finite bodyweight (or a non-positive total).
+  // Without it, dotsScore drives the DOTS denominator negative, so dots < 0 and
+  // Math.log(dots) is NaN, which clampPct silently reports as the 0th percentile.
+  // Return the same no-estimate result the sibling lenses use for bwKg <= 0
+  // (computeRankedPercentile / computePercentile both return 0). Callers read
+  // .pct / .provisional off this object, so it must stay non-null.
+  if (!(total > 0) || !(bwKg > 0) || !Number.isFinite(bwKg)) {
+    return { pct: 0, provisional: false, dots: 0 };
+  }
   const dots = dotsScore(total, bwKg, sex);
   const { mu, sigma } = dotsPopParams(sex);
   const pct = clampPct(100 * normCdf((Math.log(dots) - mu) / sigma));
@@ -289,6 +298,11 @@ export function overallStrengthPercentilePartial(
 ): OverallResult | null {
   const present = (['squat', 'bench', 'deadlift'] as const).filter((l) => (lifts[l] ?? 0) > 0);
   if (present.length === 0) return null;
+  // LIB-01: same bodyweight guard as overallStrengthPercentile. A missing/zero/
+  // non-finite bwKg would make dotsScore yield NaN, which clampPct masks as the
+  // 0th percentile. This function already uses null as its no-estimate sentinel
+  // (TierLadderCard null-checks the result), so reuse it here.
+  if (!(bwKg > 0) || !Number.isFinite(bwKg)) return null;
   if (present.length === 3) {
     return overallStrengthPercentile(lifts.squat!, lifts.bench!, lifts.deadlift!, bwKg, sex);
   }
@@ -398,6 +412,21 @@ export const AGE_MULT: Record<AgeBand, number> = {
   '45-54':    0.93,
   '55+':      0.86,
 };
+
+/**
+ * Canonical age-band tokens (youngest to oldest), the exact key set of AGE_MULT
+ * above. These are the ONLY tokens ageMultiplier recognises.
+ *
+ * LIB-02: any producer of an age_band value MUST emit one of these exact dash
+ * tokens. The birth-date deriver ageBandFromBirthDate in
+ * mobile/src/lib/trainingEngine/localContext.ts historically emitted underscore
+ * tokens (under_30, 30_39, and so on) that match nothing here, so age adjustment
+ * was silently disabled on that path. That producer lives in a separate file
+ * (outside this module's edit scope) and should import the AgeBand type and
+ * conform, with its return annotated as AgeBand or null so tsc enforces the
+ * contract. Exported here so there is a single source of truth.
+ */
+export const AGE_BANDS: readonly AgeBand[] = ['under-18', '18-24', '25-34', '35-44', '45-54', '55+'];
 
 export function ageMultiplier(ageBand: string | null | undefined): number {
   if (!ageBand) return 1.0;
