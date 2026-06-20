@@ -82,7 +82,8 @@ interface ApiWorkout {
 interface ApiSet {
   exercise_id: string;
   exercise_name: string;
-  weight_raw: number; // SMALLINT — divide by 8 to get kg
+  weight_kg: number; // exact kg — the server REST path returns this (weight_raw stripped)
+  weight_raw?: number; // legacy SMALLINT (kg×8); may be absent on the server path
   reps: number;
   created_at: string;
   workout_id: string;
@@ -165,9 +166,13 @@ function shortMonth(monthStart: string): string {
   return months[m] ?? '?';
 }
 
-function epley(weightRaw: number, reps: number): number {
-  const kg = weightRaw / 8;
+function epley(kg: number, reps: number): number {
   return kg * (1 + reps / 30);
+}
+
+/** Resolve a set's weight to exact kg, tolerating the server path (weight_raw stripped). */
+function setKg(s: { weight_kg?: number; weight_raw?: number }): number {
+  return s.weight_kg ?? (s.weight_raw != null ? s.weight_raw / 8 : 0);
 }
 
 function formatDate(iso: string): string {
@@ -216,7 +221,7 @@ async function fetchProgressData(): Promise<ProgressData> {
   for (const s of sets) {
     const wk = workoutIdToWeek.get(s.workout_id);
     if (!wk) continue;
-    const vol = (s.weight_raw / 8) * s.reps;
+    const vol = setKg(s) * s.reps;
     volumePerWeek.set(wk, (volumePerWeek.get(wk) ?? 0) + vol);
   }
 
@@ -235,7 +240,7 @@ async function fetchProgressData(): Promise<ProgressData> {
   const thirtyDaysAgo = Date.now() - 30 * 86_400_000;
 
   for (const s of sets) {
-    const e1rm = epley(s.weight_raw, s.reps);
+    const e1rm = epley(setKg(s), s.reps);
     const existing = prMap.get(s.exercise_id);
     if (!existing || e1rm > existing.e1rmKg) {
       prMap.set(s.exercise_id, {

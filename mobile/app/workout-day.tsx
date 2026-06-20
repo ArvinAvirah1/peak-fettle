@@ -106,21 +106,25 @@ interface SectionData {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Epley e1RM from weight_raw (SMALLINT / 8 = kg) and reps. */
-function computeE1rm(weightRaw: number, reps: number): number {
-  const kg = weightRaw / 8;
+/** Epley e1RM from exact kg and reps. */
+function computeE1rm(kg: number, reps: number): number {
   return kg * (1 + reps / 30);
 }
 
-/** Weight in kg from weight_raw SMALLINT. */
-function rawToKg(weightRaw: number): number {
-  return weightRaw / 8;
+/**
+ * Resolve a set's weight to exact kg. Prefers weight_kg (the server REST path
+ * strips weight_raw and returns only weight_kg); falls back to legacy kg×8.
+ */
+function setKg(s: ApiSet): number {
+  return s.weight_kg ?? (s.weight_raw != null ? s.weight_raw / 8 : 0);
 }
 
 /** Volume for a single set in kg. */
 function setVolumeKg(s: ApiSet): number {
-  if (s.kind !== 'lift' || !s.weight_raw || !s.reps) return 0;
-  return rawToKg(s.weight_raw) * s.reps;
+  if (s.kind !== 'lift' || !s.reps) return 0;
+  const kg = setKg(s);
+  if (!kg) return 0;
+  return kg * s.reps;
 }
 
 const LONG_DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
@@ -411,10 +415,9 @@ function SetRow({ set, setNumber, isBest, unitPref }: SetRowProps): React.ReactE
   }
 
   // Lift set
-  const weightRaw = set.weight_raw ?? 0;
   const reps = set.reps ?? 0;
-  const weightKg = rawToKg(weightRaw);
-  const e1rmKg = computeE1rm(weightRaw, reps);
+  const weightKg = setKg(set);
+  const e1rmKg = computeE1rm(weightKg, reps);
   const weightDisplay = formatWeight(weightKg, unitPref, 1);
   const e1rmDisplay = formatWeight(e1rmKg, unitPref, 0);
 
@@ -658,8 +661,9 @@ export default function WorkoutDayScreen(): React.ReactElement {
       let bestE1rm = -Infinity;
       let bestId: string | null = null;
       for (const s of group.sets) {
-        if (s.kind === 'lift' && s.weight_raw && s.reps) {
-          const e = computeE1rm(s.weight_raw, s.reps);
+        const kg = setKg(s);
+        if (s.kind === 'lift' && kg && s.reps) {
+          const e = computeE1rm(kg, s.reps);
           if (e > bestE1rm) {
             bestE1rm = e;
             bestId = s.id;
