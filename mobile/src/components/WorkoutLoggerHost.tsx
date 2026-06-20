@@ -211,6 +211,16 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
       paywallTriggered,
     } = usePowerSyncLog();
 
+    // Component-scoped mounted flag. `startRoutine` (an imperative-handle method)
+    // awaits getRoutine() and then setStates via handleStartStepper; a function
+    // RETURNED from a useImperativeHandle method is never invoked by React, so
+    // the old per-call `cancelled` flag was dead and the fetch was effectively
+    // uncancellable. On a slow network the host can unmount before getRoutine
+    // resolves → setState-after-unmount. This ref, cleared by a real unmount
+    // effect, is the cancel signal. (S3-02 / unmount-guard.)
+    const mountedRef = useRef(true);
+    useEffect(() => () => { mountedRef.current = false; }, []);
+
     // Paywall
     const [showPaywall, setShowPaywall] = useState(false);
     useEffect(() => {
@@ -448,10 +458,11 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
       },
 
       startRoutine(routineId: string, routineName: string) {
-        let cancelled = false;
+        // NOTE: a cleanup returned from here would be discarded by React, so the
+        // cancel signal is the component-scoped mountedRef instead (S3-02).
         getRoutine(user, routineId)
           .then((routine) => {
-            if (cancelled) return;
+            if (!mountedRef.current) return;
             let wkNum: number | undefined;
             if ((routine as { created_at?: string }).created_at) {
               const created = new Date((routine as { created_at: string }).created_at);
@@ -476,9 +487,9 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
             });
           })
           .catch(() => {
+            if (!mountedRef.current) return;
             Alert.alert('Could not load routine', 'Please try again.');
           });
-        return () => { cancelled = true; };
       },
 
       startWithExercise(exerciseId: string, exerciseName: string) {

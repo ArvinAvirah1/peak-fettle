@@ -135,6 +135,14 @@ export default function InsightsScreen(): React.ReactElement {
   const [refreshing, setRefreshing] = useState(false);
   const [deloadAcking, setDeloadAcking] = useState(false);
 
+  // Tracks whether the screen is still mounted. The data fetch (`load`) and the
+  // deload-ack Alert callback both setState AFTER an `await`; on a slow Pro
+  // network the user can leave the screen first, so every post-await setState
+  // must be gated on this to avoid the React "setState on unmounted component"
+  // warning + a wasted render. (S3-01 / unmount-guard.)
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
+
   // 4 stagger slots: deload banner (conditional), readiness, heatmap, trace
   const staggerAnims = useStaggerFade(4, !reduceMotion);
 
@@ -144,6 +152,7 @@ export default function InsightsScreen(): React.ReactElement {
     // fetch just hung (15s each) and then showed empty cards. Skip it for them —
     // the screen renders a Pro upsell instead.
     if (!user?.is_paid) {
+      if (!mountedRef.current) return;
       setReadiness(null);
       setRecovery(null);
       setDeload(null);
@@ -154,20 +163,28 @@ export default function InsightsScreen(): React.ReactElement {
       getRecovery(),
       getDeload(),
     ]);
+    // Guard against setState-after-unmount and against a stale concurrent
+    // load() (pull-to-refresh during an in-flight initial load) clobbering
+    // fresher state once it finally settles.
+    if (!mountedRef.current) return;
     setReadiness(rd);
     setRecovery(rec);
     setDeload(dl);
   }, [user?.is_paid]);
 
   useEffect(() => {
+    let ignore = false;
     setLoading(true);
-    load().finally(() => setLoading(false));
+    load().finally(() => {
+      if (!ignore && mountedRef.current) setLoading(false);
+    });
+    return () => { ignore = true; };
   }, [load]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await load();
-    setRefreshing(false);
+    if (mountedRef.current) setRefreshing(false);
   }, [load]);
 
   const handleAckDeload = useCallback(async () => {
@@ -181,6 +198,10 @@ export default function InsightsScreen(): React.ReactElement {
           onPress: async () => {
             setDeloadAcking(true);
             const ok = await ackDeload();
+            // The Alert can outlive the screen (user backgrounds / navigates
+            // while the ack POST is in flight). Gate every post-await setState
+            // on the mounted ref. (S3-01 / unmount-guard.)
+            if (!mountedRef.current) return;
             if (ok) {
               setDeload((prev) => (prev ? { ...prev, recommended: false } : prev));
             }
