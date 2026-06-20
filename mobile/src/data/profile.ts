@@ -290,12 +290,14 @@ export async function loadLocalProfile(): Promise<LocalProfileSnapshot | null> {
   let row: Record<string, unknown> | null = null;
   try {
     row = await localDb.getFirst<Record<string, unknown>>(
-      `SELECT ${extended} FROM user_profile WHERE id = '${ROW_ID}'`,
+      `SELECT ${extended} FROM user_profile WHERE id = ?`,
+      [ROW_ID],
     );
   } catch {
     try {
       row = await localDb.getFirst<Record<string, unknown>>(
-        `SELECT ${legacy} FROM user_profile WHERE id = '${ROW_ID}'`,
+        `SELECT ${legacy} FROM user_profile WHERE id = ?`,
+        [ROW_ID],
       );
     } catch {
       return null;

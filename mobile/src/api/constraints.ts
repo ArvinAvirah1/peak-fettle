@@ -37,7 +37,7 @@ export interface ConstraintsResponse {
  */
 export async function getConstraints(): Promise<UserConstraint[]> {
   const response = await apiClient.get<ConstraintsResponse>('/constraints');
-  return response.data.constraints;
+  return response.data?.constraints ?? [];
 }
 
 /**

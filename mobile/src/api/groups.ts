@@ -52,7 +52,7 @@ import {
  */
 export async function getGroups(): Promise<Group[]> {
   const response = await apiClient.get<GroupsResponse>('/groups');
-  return response.data.groups;
+  return response.data?.groups ?? [];
 }
 
 // ---------------------------------------------------------------------------
@@ -172,7 +172,7 @@ export async function getGroupEvaluations(
     `/groups/${groupId}/history`,
     { params: { limit } }
   );
-  return response.data.history;
+  return response.data?.history ?? [];
 }
 
 // ---------------------------------------------------------------------------
