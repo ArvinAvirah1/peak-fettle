@@ -221,6 +221,12 @@ router.get('/personal-best/:exerciseId', async (req, res, next) => {
     try {
         const { exerciseId } = req.params;
 
+        // SRV-DATA-03: reject a non-UUID :exerciseId before it hits the UUID cast
+        // ($2) and 22P02-500s; return the same empty shape as "never logged".
+        if (!z.string().uuid().safeParse(exerciseId).success) {
+            return res.json({ all_time_best: null, last_session: null });
+        }
+
         // All-time best: highest Epley e1rm across all sets for this exercise.
         const atbResult = await pool.query(
             `SELECT

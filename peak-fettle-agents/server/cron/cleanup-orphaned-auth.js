@@ -65,6 +65,18 @@ async function run() {
         for (const orphan of orphans) {
             const { auth_uid } = orphan;
 
+            // SRV-AUTH-05: never delete a Supabase auth record whose users row
+            // still exists — a bad orphan insert must not destroy a live account.
+            const { rows: liveRows } = await client.query(
+                `SELECT 1 FROM users WHERE id = $1`,
+                [auth_uid]
+            );
+            if (liveRows.length > 0) {
+                console.warn(`[cleanup-orphaned-auth] SKIP auth_uid=${auth_uid}: users row still present — leaving resolved_at NULL for manual review`);
+                failed++;
+                continue;
+            }
+
             // Attempt to delete the Supabase auth record.
             const { error } = await supabaseAdmin.auth.admin.deleteUser(auth_uid);
 
