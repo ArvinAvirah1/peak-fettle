@@ -29,6 +29,15 @@ const router = express.Router();
 // or admin tool). Secure-by-default: if the env secret is unset, the route is
 // closed (403). This prevents a free user self-promoting to tier='paid'.
 function requireServiceSecret(req, res, next) {
+    // Beta escape-hatch (founder decision 2026-06-20): there is no real payment
+    // integration yet, so the in-app free Pro toggle is kept working by setting
+    // ALLOW_CLIENT_TIER_TOGGLE=true on the server. Default (unset) is SECURE —
+    // self-promotion then requires the server-to-server secret. Deliberate and
+    // reversible: flip the env var off the moment real billing (RevenueCat/IAP)
+    // lands and calls this endpoint with the secret instead.
+    if (process.env.ALLOW_CLIENT_TIER_TOGGLE === 'true') {
+        return next();
+    }
     const secret = process.env.TIER_SERVICE_SECRET || '';
     if (secret.length === 0) {
         // Ops visibility: a missing env secret closes /upgrade entirely (secure
