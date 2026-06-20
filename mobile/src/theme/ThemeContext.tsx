@@ -36,6 +36,7 @@ import {
   spacing,
 } from './tokens';
 import { Theme, ThemeContextValue, ThemeName } from './types';
+import { refreshWidget } from '../services/widgetBridge';
 
 // ---------------------------------------------------------------------------
 // Storage key
@@ -111,6 +112,10 @@ export function ThemeProvider({
         // Non-fatal: theme is still applied in memory
         console.warn('[PF] ThemeContext/setTheme persist:', err instanceof Error ? err.message : String(err));
       }
+
+      // Re-skin the home/lock-screen widgets to the new theme (iOS only; no-op
+      // elsewhere, never throws — WIDGET-003).
+      void refreshWidget();
 
       // Persist to Supabase if callback provided (E-002)
       if (onThemeChange) {

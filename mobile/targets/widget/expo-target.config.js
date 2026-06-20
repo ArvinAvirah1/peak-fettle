@@ -16,10 +16,12 @@ module.exports = {
   displayName: 'Peak Fettle',
   // ".widget" → com.peakfettle.app.widget (appended to the app bundle id).
   bundleIdentifier: '.widget',
-  // Matches the app's minimum (RN 0.81 / Expo SDK 54). Lock-screen accessory
-  // families are gated at runtime with #available(iOS 16).
-  deploymentTarget: '15.1',
-  frameworks: ['SwiftUI', 'WidgetKit'],
+  // WIDGET-003 (2026-06-20): bumped 15.1 → 16.1. The lock-screen accessory
+  // families need iOS 16, and the configurable "Custom" widget uses
+  // AppIntentConfiguration (gated to iOS 17 at the bundle). The app itself still
+  // ships at 15.1; iOS 15 devices simply won't be offered the widget extension.
+  deploymentTarget: '16.1',
+  frameworks: ['SwiftUI', 'WidgetKit', 'AppIntents'],
   colors: {
     $accent: { color: '#00D4C8', darkColor: '#00D4C8' },
     $widgetBackground: { color: '#0A0E1A', darkColor: '#0A0E1A' },
