@@ -16,9 +16,24 @@
 import { localDb } from '../db/localDb';
 import {
   COSMETIC_TIERS,
+  AVATAR_CATEGORIES,
+  tierKeyForId,
   type UnlockTier,
   type CosmeticTiersMap,
+  type AvatarCategory,
 } from '../components/avatar/peakAvatarOptions';
+
+declare const __DEV__: boolean | undefined;
+
+// Every id that is a legitimate catalog option, across all categories. An id that is
+// NOT in this set is unknown/garbage (typo, removed item, tampered persisted value)
+// and is treated as LOCKED — we must not silently default an unrecognized id to 'free'
+// and let it be equipped. A *known* id that simply has no COSMETIC_TIERS entry is a
+// free option (most ids) and remains unlocked. The accent ids are namespaced (accent*)
+// and the bare wristband ids live here too, so both resolve correctly.
+const KNOWN_OPTION_IDS: ReadonlySet<string> = new Set(
+  AVATAR_CATEGORIES.flatMap((cat) => cat.ids),
+);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,16 +67,25 @@ interface OwnedRow {
  * Returns true if the given option id is accessible to the user.
  *
  * Tier ladder:
- *   'free' (or no entry in COSMETIC_TIERS) → always true
+ *   unknown id (not a known catalog option) → LOCKED (false) — never default to free
+ *   known id, no entry in COSMETIC_TIERS    → 'free' → always true
  *   { streak: N }                           → ctx.streak >= N
  *   'pro'                                   → ctx.isPaid === true
+ *
+ * An UNKNOWN id resolves to LOCKED, not free: a typo'd, removed, or tampered
+ * persisted id must never be silently equippable. (Pass ids through
+ * `tierKeyForId(cat.key, id)` from peakAvatarOptions before calling this.)
  */
 export function isUnlocked(
   optionId: string,
   ctx: UnlockCtx,
   tiers: CosmeticTiersMap = COSMETIC_TIERS,
 ): boolean {
-  const tier: UnlockTier = tiers[optionId] ?? 'free';
+  const tier: UnlockTier | undefined = tiers[optionId];
+  if (tier === undefined) {
+    // No tier entry: free ONLY if it's a recognized catalog id; otherwise locked.
+    return KNOWN_OPTION_IDS.has(optionId);
+  }
   if (tier === 'free') return true;
   if (tier === 'pro')  return ctx.isPaid;
   // { streak: N }
@@ -139,18 +163,48 @@ export async function getEquipped(userId: string): Promise<Record<string, string
 
 /**
  * Persists the user's equipped cosmetic selection. Upserts one row per slot in
- * `user_equipped_cosmetics`. Does NOT validate unlock status — callers are
- * responsible for ensuring only unlocked items are equipped.
+ * `user_equipped_cosmetics`.
+ *
+ * GATING (P0): this now ENFORCES unlock status — a locked item is NEVER persisted.
+ * Pass the live `UnlockCtx` ({ streak, isPaid }) as the 3rd arg to fully validate
+ * streak/Pro tiers. Even when `ctx` is omitted (legacy callers), an UNKNOWN/garbage
+ * id is still rejected, so a tampered or stale id can never be equipped. The set of
+ * rejected ids is returned so callers can surface "still locked" feedback.
+ *
+ * Ids are resolved through `tierKeyForId(slot, id)` so category-specific tier keys
+ * (e.g. wristbands) gate correctly.
  *
  * @param userId    The current user id.
  * @param selection A map of slot → item_id (e.g. { outfit: 'hoodie', headwear: 'cap' }).
+ * @param ctx       Live unlock context. STRONGLY recommended — without it only the
+ *                  unknown-id guard runs (streak/Pro tiers can't be evaluated).
+ * @returns the item_ids that were refused (locked / unknown).
  */
 export async function setEquipped(
   userId: string,
   selection: Record<string, string>,
-): Promise<void> {
+  ctx?: UnlockCtx,
+): Promise<{ rejected: string[] }> {
   const now = new Date().toISOString();
+  const rejected: string[] = [];
   for (const [slot, itemId] of Object.entries(selection)) {
+    const tierKey = tierKeyForId(slot as AvatarCategory['key'], itemId);
+    // With a ctx: full tier check. Without: only block truly unknown ids (can't
+    // evaluate streak/Pro), and warn so the caller gets wired to pass a ctx.
+    const allowed = ctx
+      ? isUnlocked(tierKey, ctx)
+      : KNOWN_OPTION_IDS.has(tierKey);
+    if (!allowed) {
+      rejected.push(itemId);
+      if (!ctx && typeof __DEV__ !== 'undefined' && __DEV__) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[cosmeticUnlocks] setEquipped called without ctx; could not fully ` +
+            `gate '${itemId}' in slot '${slot}'. Pass { streak, isPaid } to enforce tiers.`,
+        );
+      }
+      continue;
+    }
     await localDb.execute(
       `INSERT INTO user_equipped_cosmetics (user_id, slot, item_id, equipped_at)
          VALUES (?, ?, ?, ?)
@@ -160,6 +214,7 @@ export async function setEquipped(
       { tables: ['user_equipped_cosmetics'] },
     );
   }
+  return { rejected };
 }
 
 // ---------------------------------------------------------------------------

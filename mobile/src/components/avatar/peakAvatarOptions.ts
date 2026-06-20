@@ -149,14 +149,18 @@ export const BG_IDS = [
 // 'pro' items are premium palette entries.
 // ---------------------------------------------------------------------------
 
+// NOTE: accent ids are NAMESPACED with an `accent*` prefix (accentGold, accentTeal,
+// …) so they are globally unique across COSMETIC_TIERS and never collide with the
+// same-named hair-color ids (teal/silver/violet/…). Hex values are unchanged from
+// the original palette — only the keys were renamed to fix the tier-bypass.
 export const ACCENT_THEME: Record<string, string> = {
-  none:         'transparent',
-  gold:         '#f59e0b',
-  silver:       '#9ca3af',
-  teal:         '#0fb5a6',
-  rose:         '#f43f5e',
-  violet:       '#7c3aed',
-  sky:          '#38bdf8',
+  none:          'transparent',
+  accentGold:    '#f59e0b',
+  accentSilver:  '#9ca3af',
+  accentTeal:    '#0fb5a6',
+  accentRose:    '#f43f5e',
+  accentViolet:  '#7c3aed',
+  accentSky:     '#38bdf8',
   // pro
   flame:        '#ff4500',
   neonGreen:    '#39ff14',
@@ -165,7 +169,7 @@ export const ACCENT_THEME: Record<string, string> = {
   prismatic:    '#e040fb',
 };
 export const ACCENT_THEME_IDS = [
-  'none', 'teal', 'gold', 'silver', 'rose', 'sky', 'violet',
+  'none', 'accentTeal', 'accentGold', 'accentSilver', 'accentRose', 'accentSky', 'accentViolet',
   'flame', 'neonGreen', 'neonPink', 'obsidian', 'prismatic',
 ];
 
@@ -242,9 +246,17 @@ export const OUTFIT_IDS = [
 // Wristbands — new accessory category.
 // ---------------------------------------------------------------------------
 
+// Wristband DISPLAY ids stay bare ('teal'/'gold'/'neon') because PeakAvatar.tsx
+// renders the band by looking the id up in its WRISTBAND_COLORS map keyed by these
+// bare ids. Their COSMETIC_TIERS entries are therefore ALSO keyed by the bare id
+// (see below) — previously the tier map used a `_wristband` suffix that no consumer
+// passed, so isUnlocked('neon') missed the map and fell through to 'free' (and
+// 'teal'/'gold' collided with the hair/accent tiers). With accent ids now namespaced
+// (accent*), the bare 'gold'/'neon' keys are unique; 'teal' is shared only with the
+// hair 'teal', which carries the SAME { streak: 7 } tier, so the gate is consistent.
 export const WRISTBANDS_IDS = [
   'none', 'white', 'black',        // free
-  'teal', 'gold', 'neon',          // streak unlocks
+  'teal', 'gold', 'neon',          // streak unlocks (tiered under bare ids in COSMETIC_TIERS)
   'proGlitter', 'animatedPulse',   // pro
 ];
 
@@ -314,9 +326,12 @@ export const COSMETIC_TIERS: CosmeticTiersMap = {
   animatedRainbow:  'pro',
 
   // ── Wristbands ──────────────────────────────────────────────────────────
-  teal_wristband:   { streak: 7 },    // keyed with suffix to avoid clash with hair
-  gold_wristband:   { streak: 30 },
-  neon_wristband:   { streak: 30 },
+  // Keyed by the BARE display id (matches WRISTBANDS_IDS + PeakAvatar's WRISTBAND_COLORS).
+  // The wristband 'teal' resolves via the hair-color 'teal' key above (same { streak: 7 }
+  // tier) — we do NOT redeclare it here, to keep every key in this object unique (TS1117).
+  // 'gold'/'neon' are unique now that accent ids are namespaced (accentGold/…).
+  gold:             { streak: 30 },   // wristband only (accent gold is now 'accentGold')
+  neon:             { streak: 30 },   // wristband only
   proGlitter:       'pro',
   animatedPulse:    'pro',
 
@@ -336,11 +351,16 @@ export const COSMETIC_TIERS: CosmeticTiersMap = {
   animated_sparkles:'pro',
 
   // ── Accent themes ────────────────────────────────────────────────────────
-  gold:             { streak: 7 },
-  silver:           { streak: 30 },
-  rose:             { streak: 30 },
-  sky:              { streak: 30 },
-  violet:           { streak: 100 },
+  // NAMESPACED keys (accent*) — previously these were bare gold/silver/rose/sky/violet
+  // and collided with the hair-color keys above. The collision DEMOTED the 'pro' violet
+  // HAIR color to a { streak: 100 } accent (JS keeps the last duplicate key), letting
+  // free users earn a paid item. Namespacing restores hair `violet: 'pro'` and gives
+  // each accent its own gate. Keys here must match ACCENT_THEME / ACCENT_THEME_IDS.
+  accentGold:       { streak: 7 },
+  accentSilver:     { streak: 30 },
+  accentRose:       { streak: 30 },
+  accentSky:        { streak: 30 },
+  accentViolet:     { streak: 100 },
   flame:            'pro',
   neonGreen:        'pro',
   neonPink:         'pro',
@@ -379,6 +399,74 @@ export const AVATAR_CATEGORIES: AvatarCategory[] = [
   { key: 'outfit',       label: 'Outfit',        kind: 'options', ids: OUTFIT_IDS },
   { key: 'wristbands',   label: 'Wristbands',    kind: 'options', ids: WRISTBANDS_IDS },
 ];
+
+// ---------------------------------------------------------------------------
+// Tier-key resolver — maps a category + display id to its COSMETIC_TIERS key.
+//
+// Every option id in the *_IDS arrays is now globally unique and keyed DIRECTLY in
+// COSMETIC_TIERS, so this resolver is the identity. It exists as the single, explicit
+// place to add any future per-category key remapping, and so callers in OTHER files
+// (e.g. app/cosmetics.tsx, which currently passes the bare id) have a canonical hook
+// to route through. Prefer `tierKeyForId(cat.key, id)` over passing a bare id to
+// isUnlocked/unlockLabel.
+//
+// MIGRATION NOTE (one-shot, NOT written here): the accent-theme ids were renamed
+// gold->accentGold, silver->accentSilver, teal->accentTeal, rose->accentRose,
+// sky->accentSky, violet->accentViolet. Any existing rows in `user_equipped_cosmetics`
+// with slot='accentTheme' and item_id IN ('gold','silver','teal','rose','sky','violet')
+// must be UPDATEd to the new accent* ids, or those users lose their equipped accent on
+// next load (normalizeAvatar will reject the stale id and fall back to 'none').
+// ---------------------------------------------------------------------------
+
+export function tierKeyForId(_catKey: keyof Omit<AvatarConfig, 'v'>, id: string): string {
+  // Identity today — all ids are uniquely keyed in COSMETIC_TIERS. Kept as the
+  // explicit seam for future cross-category disambiguation.
+  return id;
+}
+
+// ---------------------------------------------------------------------------
+// Dev-time integrity check — guards against the regression class this file just
+// fixed: a duplicate key in COSMETIC_TIERS (TS1117) silently demoting a tier, or an
+// id in a *_IDS array whose tier key doesn't resolve (falling through to 'free').
+// Runs only under __DEV__; throws loudly so it surfaces in development, never ships.
+// ---------------------------------------------------------------------------
+
+declare const __DEV__: boolean | undefined;
+
+if (typeof __DEV__ !== 'undefined' && __DEV__) {
+  // 1) Every accent / wristband display id must resolve to a tier key that EXISTS
+  //    in COSMETIC_TIERS (or is implicitly 'free' by design). This catches a rename
+  //    that updates one of the *_IDS arrays but forgets the COSMETIC_TIERS entry.
+  const intentionallyFree = new Set<string>([
+    // bare wristband 'teal' is gated via the shared hair 'teal' key, which exists;
+    // these ids are deliberately implicit-free and need no COSMETIC_TIERS entry.
+    'none', 'white', 'black',
+  ]);
+  const gatedArrays: Array<[string, string[]]> = [
+    ['ACCENT_THEME_IDS', ACCENT_THEME_IDS],
+    ['WRISTBANDS_IDS', WRISTBANDS_IDS],
+  ];
+  for (const [name, ids] of gatedArrays) {
+    for (const id of ids) {
+      const key = tierKeyForId('accentTheme', id);
+      const resolves =
+        COSMETIC_TIERS[key] !== undefined || intentionallyFree.has(id) || id === 'teal';
+      if (!resolves) {
+        throw new Error(
+          `[peakAvatarOptions] ${name} id '${id}' has no COSMETIC_TIERS entry — ` +
+            `it would silently fall through to 'free'. Add a tier or mark it intentionally free.`,
+        );
+      }
+    }
+  }
+  // 2) ACCENT_THEME_IDS and ACCENT_THEME keys must agree (no id without a color and
+  //    no orphan color), so a namespaced rename can't drift between the two.
+  for (const id of ACCENT_THEME_IDS) {
+    if (!(id in ACCENT_THEME)) {
+      throw new Error(`[peakAvatarOptions] ACCENT_THEME_IDS '${id}' missing from ACCENT_THEME map.`);
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Default + validation + randomize.
