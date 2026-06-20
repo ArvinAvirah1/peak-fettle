@@ -31,7 +31,7 @@ export interface CreateRoutinePayload {
 /** Fetch all routines for the current user (ordered by last updated). */
 export async function getRoutines(): Promise<Routine[]> {
   const res = await apiClient.get<{ routines: Routine[] }>('/routines');
-  return res.data.routines;
+  return res.data?.routines ?? [];
 }
 
 /** Fetch a single routine by ID. */

@@ -40,7 +40,8 @@ const UpsertMetricsSchema = z.object({
 // ---------------------------------------------------------------------------
 router.get('/', async (req, res, next) => {
     try {
-        const days = Math.min(parseInt(req.query.days ?? '30', 10) || 30, 365);
+        // SRV-USER-04: clamp to >=1 so a negative ?days can't become a future date.
+        const days = Math.max(1, Math.min(parseInt(req.query.days ?? '30', 10) || 30, 365));
 
         const { rows } = await pool.query(
             `SELECT metric_id, date, resting_hr_bpm, hrv_ms, sleep_hours,

@@ -466,6 +466,21 @@ router.post('/generate', async (req, res, next) => {
 // ---------------------------------------------------------------------------
 router.post('/:id/regenerate', async (req, res, next) => {
     try {
+        // SRV-PLANS-03: explicit paid gate — don't rely solely on the
+        // router.handle('/generate') delegation re-checking it (fragile if the
+        // internal dispatch is ever refactored).
+        const { rows: paidRows } = await pool.query(
+            `SELECT (tier = 'paid') AS is_paid FROM users WHERE id = $1`,
+            [req.user.id]
+        );
+        if (!paidRows[0]?.is_paid) {
+            return res.status(403).json({
+                error:   'paid_tier_required',
+                message: 'Training Engine plans are a paid-tier feature. ' +
+                         'Upgrade to Peak Fettle Pro to unlock personalised training.',
+            });
+        }
+
         // Verify ownership.
         const { rows: ownerRows } = await pool.query(
             `SELECT id FROM plans WHERE id = $1 AND user_id = $2 AND is_ai_generated = FALSE`,
@@ -486,7 +501,9 @@ router.post('/:id/regenerate', async (req, res, next) => {
         // Throttle check.
         const { rows: throttleRows } = await pool.query(
             `SELECT COUNT(*) AS cnt FROM plans
-             WHERE user_id = $1 AND created_at >= CURRENT_DATE`,
+             WHERE user_id = $1
+               AND name LIKE 'Training Engine Plan%' -- SRV-PLANS-05: scope to engine plans
+               AND created_at >= CURRENT_DATE`,
             [req.user.id]
         );
         if (parseInt(throttleRows[0]?.cnt ?? 0, 10) >= 20) {

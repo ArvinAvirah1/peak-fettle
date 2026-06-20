@@ -54,20 +54,57 @@
  *   (1) Per-lift α — biomechanical priors from Jaric 2002, bounded [0.62,0.72];
  *       to be re-fit on first-party OPL data when cohorts are large.
  *       squat=0.670  bench=0.643  deadlift=0.671  ohp=0.640
- *   (2) Heteroscedastic σ(t) = σ_nov+(σ_adv−σ_nov)·(1−e^{−t/τ_σ})
- *       σ_nov=0.20  τ_σ=4yr  σ_adv=pop_sigma (lift×sex fitted value above).
- *       Falls back to pop_sigma when training_years is unknown.
+ *   (2) Training-age EXPECTATION shift (SRV-FIX-EXP-REDESIGN, 2026-06-20).
+ *       SUPERSEDES the old heteroscedastic σ(t) that widened the spread with
+ *       experience — that mechanism could INVERT rankings (a beginner out-ranking
+ *       an elite at the same lift) and was gameable. Experience now shifts the
+ *       EXPECTED CENTER, never the spread: a more-experienced lifter is EXPECTED
+ *       to be stronger, so at the same lift they rank SAME-or-LOWER (never higher).
+ *       L₅₀_adj = L₅₀ · expFactor(t); σ stays the FIXED population pop_sigma.
+ *       expFactor(t) = (1 + gain(t)/100) / 1.4957, established 4-yr lifter = 1.00,
+ *       saturating (10/15 yr within ~1 pt). Research: audits/full-review-2026-06-19/
+ *       math-validation/TRAINING-AGE-RESEARCH.md. Falls back to 1.0 (no shift)
+ *       when training_years is unknown. MONOTONIC: percentile is non-increasing
+ *       in training years.
  *   (3) Age adjustment (McCulloch/Foster-style): multiplicative on user e1RM
  *       before percentile lookup; OFF when age_band is null.
  *       Multipliers (divide user load to normalise to prime-age cohort):
  *       under-18=0.96  18-24=0.98  25-34=1.00  35-44=0.97  45-54=0.93  55+=0.86
- *   All three feed computePercentile (Lens 1, experience-adjusted).
+ *   All three feed computePercentile (Lens 1, experience-adjusted). The HEADLINE
+ *   overall tier (overallStrengthPercentile → tierForOverall) stays the pure
+ *   ABSOLUTE sex+bodyweight percentile and is NOT experience-adjusted.
  */
 
 export const MODEL_VERSION = 3;
 
 export type Sex = 'M' | 'F';
 export type LiftId = 'squat' | 'bench' | 'deadlift' | 'ohp';
+
+/**
+ * Robustness (SRV-FIX-SEX-DOTS, 2026-06-19): a value supplied for `sex` may be
+ * undisclosed/unknown/garbage at runtime (the profile field is nullable and the
+ * server has historically sent free-text). The sex-keyed tables (DOTS_COEF,
+ * REF_BW, STANDARDS_XBW) would throw a TypeError on an unrecognised key. Every
+ * percentile/score entry point therefore widens its `sex` parameter to this
+ * loose type and, when the value is not a recognised 'M'/'F', returns the MEAN
+ * of the male and female results — the same 50/50-mixture policy the existing
+ * undisclosed-sex handler already used (D5). No entry point may throw on an
+ * unknown sex.
+ */
+export type SexInput = Sex | string | null | undefined;
+
+/** True only for the two recognised, table-keyed sex values. */
+export function isKnownSex(sex: SexInput): sex is Sex {
+  return sex === 'M' || sex === 'F';
+}
+
+/**
+ * Sentinel returned by dotsScore when the DOTS multiplier is non-positive or
+ * non-finite (extreme-but-finite bodyweight can drive the quartic polynomial
+ * ≤ 0). Callers MUST treat a non-finite DOTS as "no estimate" and fall back to
+ * their own provisional/no-estimate sentinel — NOT feed it into Math.log, which
+ * would yield NaN that clampPct silently masks as a confident 0th percentile.
+ */
 
 // ---------------------------------------------------------------------------
 // Normal CDF (Φ) and inverse CDF (Φ⁻¹)
@@ -131,8 +168,23 @@ export function dotsCoefficient(bwKg: number, sex: Sex): number {
   return 500 / denom;
 }
 
-export function dotsScore(totalKg: number, bwKg: number, sex: Sex): number {
-  return totalKg * dotsCoefficient(bwKg, sex);
+export function dotsScore(totalKg: number, bwKg: number, sex: SexInput): number {
+  // Unknown/undisclosed sex → mean of the male and female DOTS scores.
+  if (!isKnownSex(sex)) {
+    const m = dotsScore(totalKg, bwKg, 'M');
+    const f = dotsScore(totalKg, bwKg, 'F');
+    // Propagate the no-estimate sentinel if either branch is unusable.
+    if (!Number.isFinite(m) || !Number.isFinite(f)) return NaN;
+    return 0.5 * m + 0.5 * f;
+  }
+  const dots = totalKg * dotsCoefficient(bwKg, sex);
+  // DOTS poly guard: for extreme-but-finite bodyweights the quartic denominator
+  // can go ≤ 0 (or non-finite), making dots ≤ 0. A later Math.log(dots) would be
+  // NaN and clampPct would mask it as a confident 0th percentile. Return NaN as
+  // the "no estimate" sentinel (mirrors the bwKg <= 0 guard in the overall lens)
+  // so callers degrade to provisional/no-estimate instead of a false 0th.
+  if (!(dots > 0) || !Number.isFinite(dots)) return NaN;
+  return dots;
 }
 
 // ---------------------------------------------------------------------------
@@ -239,12 +291,19 @@ export function dotsPopParams(sex: Sex): LognormalFit {
 
 export function computeRankedPercentile(
   lift: LiftId,
-  sex: Sex,
+  sex: SexInput,
   e1rmKg: number,
   bwKg: number,
   alpha: number = ALPHA_PER_LIFT[lift] ?? ALPHA_DEFAULT,
 ): number {
   if (e1rmKg <= 0 || bwKg <= 0) return 0;
+  // Unknown/undisclosed sex → mean of the male and female ranked percentiles
+  // (same 50/50 mixture as computeRankedPercentileUndisclosed; never throws).
+  if (!isKnownSex(sex)) {
+    const m = computeRankedPercentile(lift, 'M', e1rmKg, bwKg, alpha);
+    const f = computeRankedPercentile(lift, 'F', e1rmKg, bwKg, alpha);
+    return clampPct(0.5 * m + 0.5 * f);
+  }
   const { mu, sigma } = liftPopParams(lift, sex);
   const expected = mu + alpha * Math.log(bwKg / REF_BW[sex]);
   const z = (Math.log(e1rmKg) - expected) / sigma;
@@ -269,7 +328,7 @@ export function overallStrengthPercentile(
   benchE1rm: number,
   deadliftE1rm: number,
   bwKg: number,
-  sex: Sex,
+  sex: SexInput,
 ): OverallResult {
   const total = squatE1rm + benchE1rm + deadliftE1rm;
   // LIB-01: guard a missing/zero/non-finite bodyweight (or a non-positive total).
@@ -281,10 +340,22 @@ export function overallStrengthPercentile(
   if (!(total > 0) || !(bwKg > 0) || !Number.isFinite(bwKg)) {
     return { pct: 0, provisional: false, dots: 0 };
   }
+  // Unknown/undisclosed sex → mean of the male and female overall results.
+  if (!isKnownSex(sex)) {
+    const m = overallStrengthPercentile(squatE1rm, benchE1rm, deadliftE1rm, bwKg, 'M');
+    const f = overallStrengthPercentile(squatE1rm, benchE1rm, deadliftE1rm, bwKg, 'F');
+    const dots = sanitizeDots(0.5 * m.dots + 0.5 * f.dots);
+    return { pct: clampPct(0.5 * m.pct + 0.5 * f.pct), provisional: m.provisional || f.provisional, dots };
+  }
   const dots = dotsScore(total, bwKg, sex);
+  // dotsScore returns NaN when its polynomial guard trips (extreme BW). Degrade
+  // to the no-estimate result rather than logging NaN into a false 0th percentile.
+  if (!Number.isFinite(dots)) {
+    return { pct: 0, provisional: false, dots: 0 };
+  }
   const { mu, sigma } = dotsPopParams(sex);
   const pct = clampPct(100 * normCdf((Math.log(dots) - mu) / sigma));
-  return { pct, provisional: false, dots };
+  return { pct, provisional: false, dots: sanitizeDots(dots) };
 }
 
 /**
@@ -294,7 +365,7 @@ export function overallStrengthPercentile(
 export function overallStrengthPercentilePartial(
   lifts: Partial<Record<'squat' | 'bench' | 'deadlift', number>>,
   bwKg: number,
-  sex: Sex,
+  sex: SexInput,
 ): OverallResult | null {
   const present = (['squat', 'bench', 'deadlift'] as const).filter((l) => (lifts[l] ?? 0) > 0);
   if (present.length === 0) return null;
@@ -303,6 +374,14 @@ export function overallStrengthPercentilePartial(
   // 0th percentile. This function already uses null as its no-estimate sentinel
   // (TierLadderCard null-checks the result), so reuse it here.
   if (!(bwKg > 0) || !Number.isFinite(bwKg)) return null;
+  // Unknown/undisclosed sex → mean of the male and female partial results.
+  if (!isKnownSex(sex)) {
+    const m = overallStrengthPercentilePartial(lifts, bwKg, 'M');
+    const f = overallStrengthPercentilePartial(lifts, bwKg, 'F');
+    if (!m || !f) return m ?? f ?? null;
+    const dots = sanitizeDots(0.5 * m.dots + 0.5 * f.dots);
+    return { pct: clampPct(0.5 * m.pct + 0.5 * f.pct), provisional: m.provisional || f.provisional, dots };
+  }
   if (present.length === 3) {
     return overallStrengthPercentile(lifts.squat!, lifts.bench!, lifts.deadlift!, bwKg, sex);
   }
@@ -315,8 +394,10 @@ export function overallStrengthPercentilePartial(
   const { mu, sigma } = fitLognormal(subsetDots);
   const userSubtotal = present.reduce((s, l) => s + (lifts[l] ?? 0), 0);
   const dots = dotsScore(userSubtotal, bwKg, sex);
+  // dotsScore NaN sentinel (poly guard / extreme BW) → no estimate (null).
+  if (!Number.isFinite(dots)) return null;
   const pct = clampPct(100 * normCdf((Math.log(dots) - mu) / sigma));
-  return { pct, provisional: true, dots };
+  return { pct, provisional: true, dots: sanitizeDots(dots) };
 }
 
 // ---------------------------------------------------------------------------
@@ -339,14 +420,14 @@ export interface Tier {
 /** 9-band ladder ordered from lowest to highest (D9, 2026-06-12). */
 export const TIER_LADDER: Tier[] = [
   { name: 'Iron',        min: 0 },
-  { name: 'Stone',       min: 25 },   // D9: new band between Iron and Bronze
-  { name: 'Bronze',      min: 40 },
-  { name: 'Silver',      min: 60 },
-  { name: 'Gold',        min: 75 },
-  { name: 'Platinum',    min: 88 },
-  { name: 'Diamond',     min: 95 },
-  { name: 'Elite',       min: 99 },
-  { name: 'World Class', min: 99.7 },
+  { name: 'Stone',       min: 30 },   // D9: new band between Iron and Bronze
+  { name: 'Bronze',      min: 50 },
+  { name: 'Silver',      min: 70 },
+  { name: 'Gold',        min: 85 },
+  { name: 'Platinum',    min: 93 },
+  { name: 'Diamond',     min: 97 },
+  { name: 'Elite',       min: 99.3 },
+  { name: 'World Class', min: 99.9 },
 ];
 
 export function tierForOverall(pct: number): Tier {
@@ -361,7 +442,7 @@ export function tierForOverall(pct: number): Tier {
 
 /**
  * ExperienceLevel maps the profile string to an approximate training age in
- * years, used by the heteroscedastic σ function.
+ * years, fed into the training-age expectation factor (expFactor) below.
  */
 const EXPERIENCE_TO_YEARS: Record<string, number> = {
   beginner:     1,
@@ -372,22 +453,46 @@ const EXPERIENCE_TO_YEARS: Record<string, number> = {
 };
 
 /**
- * Heteroscedastic σ(t) — within-cohort spread grows with training age.
+ * Training-age EXPECTATION factor (SRV-FIX-EXP-REDESIGN, 2026-06-20).
  *
- * Form (memo §3): σ(t) = σ_nov + (σ_adv − σ_nov)·(1 − e^{−t/τ_σ})
- *   σ_nov  = 0.20  (tighter cluster at novice level)
- *   σ_adv  = pop_sigma (population σ fitted from the 6-anchor table)
- *   τ_σ    = 4 years (half-life ≈ 2.8 yr)
+ * REPLACES the old heteroscedasticSigma(): experience must shift the EXPECTED
+ * CENTER, not the spread. Widening σ with experience could INVERT rankings — at
+ * the SAME lift a beginner (narrow σ) could out-rank an elite (wide σ) — and was
+ * gameable. Instead, a more-experienced lifter is EXPECTED to be stronger, so the
+ * expected median L₅₀ is raised by expFactor(t); at the same lift the experience-
+ * adjusted percentile is therefore SAME-or-LOWER for more training years (never
+ * higher), and it is MONOTONICALLY NON-INCREASING in t.
  *
- * Falls back to pop_sigma when t is null.
+ *   gain(t)      = 28·(1 − e^{−1.70·t}) + 35·(1 − e^{−0.24·t})   // % gain vs untrained
+ *   expFactor(t) = (1 + gain(t)/100) / 1.4957                    // 4-yr lifter = 1.00
+ *
+ * Double-exponential (fast neural limb + slow hypertrophic limb), fit SSE 0.57 to
+ * pooled Steele 2022 / Latella 2024 / Rhea 2003 anchors; asymptote ≈ 63%. t is
+ * clamped to [0,15] so the factor saturates (10/15-yr lifters differ by ~1.4%,
+ * which also caps "I've trained 40 years" gaming). Full derivation:
+ * audits/full-review-2026-06-19/math-validation/TRAINING-AGE-RESEARCH.md.
+ *
+ * Reference values: expFactor(0)=0.669, (1)=0.872, (3)=0.975, (4)=1.000,
+ * (5)=1.019, (10)=1.069, (15)=1.083.
+ *
+ * Returns 1.0 (no shift) when trainingYears is null/unknown.
  */
-export const SIGMA_NOV = 0.20;
-export const TAU_SIGMA = 4; // years
+export const EXP_REF = 1.4957; // = 1 + expStrengthGainPct(4)/100 (established 4-yr lifter = 1.0)
 
-export function heteroscedasticSigma(popSigma: number, trainingYears: number | null): number {
-  if (trainingYears == null) return popSigma;
-  const t = Math.max(0, trainingYears);
-  return SIGMA_NOV + (popSigma - SIGMA_NOV) * (1 - Math.exp(-t / TAU_SIGMA));
+/** Pooled cumulative % strength gain vs untrained baseline; t clamped to [0,15]. */
+export function expStrengthGainPct(years: number): number {
+  const t = Math.max(0, Math.min(15, years)); // clamp; flat past 15yr (saturated)
+  return 28 * (1 - Math.exp(-1.70 * t)) + 35 * (1 - Math.exp(-0.24 * t));
+}
+
+/**
+ * Expected-strength multiplier by training age, normalized to a 4-yr lifter = 1.0.
+ * Monotonically NON-DECREASING and saturating in years (so dividing by it makes the
+ * percentile monotonically NON-INCREASING in years). Null → 1.0 (no shift).
+ */
+export function expFactor(trainingYears: number | null): number {
+  if (trainingYears == null) return 1.0;
+  return (1 + expStrengthGainPct(trainingYears) / 100) / EXP_REF;
 }
 
 /**
@@ -402,15 +507,35 @@ export function heteroscedasticSigma(popSigma: number, trainingYears: number | n
  * OFF (returns 1.0) when age_band is null or unrecognised.
  * Reference: McCulloch 1994 / Foster 2011 masters factor tables (adapted).
  */
-export type AgeBand = 'under-18' | '18-24' | '25-34' | '35-44' | '45-54' | '55+';
+export type AgeBand =
+  | 'under-18'
+  | '18-24'
+  | '25-34'
+  | '35-44'
+  | '45-49'
+  | '50-54'
+  | '55-59'
+  | '60-64'
+  | '65-69'
+  | '70+'
+  | '45-54' // legacy coarse band (server-provided) — retained
+  | '55+';  // legacy coarse band (server-provided) — retained
 
+// McCulloch masters age coefficients: expected strength relative to the 25-40
+// prime reference. Finer masters bands added; coarse server-sent keys retained.
 export const AGE_MULT: Record<AgeBand, number> = {
   'under-18': 0.96,
   '18-24':    0.98,
   '25-34':    1.00, // prime reference
   '35-44':    0.97,
-  '45-54':    0.93,
-  '55+':      0.86,
+  '45-49':    0.91,
+  '50-54':    0.84,
+  '55-59':    0.77,
+  '60-64':    0.70,
+  '65-69':    0.62,
+  '70+':      0.54,
+  '45-54':    0.88, // legacy coarse band (server-provided) — retained
+  '55+':      0.72, // legacy coarse band (server-provided) — retained
 };
 
 /**
@@ -426,7 +551,11 @@ export const AGE_MULT: Record<AgeBand, number> = {
  * conform, with its return annotated as AgeBand or null so tsc enforces the
  * contract. Exported here so there is a single source of truth.
  */
-export const AGE_BANDS: readonly AgeBand[] = ['under-18', '18-24', '25-34', '35-44', '45-54', '55+'];
+export const AGE_BANDS: readonly AgeBand[] = [
+  'under-18', '18-24', '25-34', '35-44',
+  '45-49', '50-54', '55-59', '60-64', '65-69', '70+',
+  '45-54', '55+', // legacy coarse bands (server-provided) — retained
+];
 
 export function ageMultiplier(ageBand: string | null | undefined): number {
   if (!ageBand) return 1.0;
@@ -434,15 +563,23 @@ export function ageMultiplier(ageBand: string | null | undefined): number {
 }
 
 /**
- * Lens 1 — Experience-adjusted percentile (memo §3).
+ * Lens 1 — Experience-adjusted percentile (SRV-FIX-EXP-REDESIGN, 2026-06-20).
  *
- * Model: L₅₀ = exp(μ)·(BW/BW₀)^α·A(age_band)
- * pct  = 100·Φ((ln L_adj − ln L₅₀) / σ(trainingYears))
+ * Experience shifts the EXPECTED CENTER (not the spread): the expected median is
+ * raised for more-experienced lifters, so at the same lift a higher training age
+ * yields a SAME-or-LOWER percentile (non-increasing, never higher). σ is the FIXED
+ * population pop_sigma. This is a per-lift LENS only — the headline overall tier
+ * (overallStrengthPercentile → tierForOverall) is the pure ABSOLUTE percentile and
+ * is intentionally NOT experience-adjusted.
+ *
+ * Model: L₅₀_adj = exp(μ)·(BW/BW₀)^α · expFactor(trainingYears)
+ * pct   = 100·Φ((ln L_adj − ln L₅₀_adj) / popSigma)
  *
  * where:
  *   L_adj        = e1rmKg / ageMult(age_band)  — age-normalised load
  *   α            = ALPHA_PER_LIFT[lift]          — per-lift allometric exponent
- *   σ(t)         = heteroscedasticSigma(popSigma, trainingYears)
+ *   expFactor(t) = (1 + gain(t)/100) / 1.4957   — training-age expectation factor
+ *   popSigma     = liftPopParams(lift, sex).sigma — FIXED, NOT widened by experience
  *   μ, popSigma  = liftPopParams(lift, sex) — same 6-anchor fit as Lens 2a
  *
  * @param lift           Lift identifier
@@ -454,21 +591,34 @@ export function ageMultiplier(ageBand: string | null | undefined): number {
  */
 export function computePercentile(
   lift: LiftId,
-  sex: Sex,
+  sex: SexInput,
   e1rmKg: number,
   bwKg: number,
   experienceLevel: string | null | undefined,
   ageBand: string | null | undefined,
 ): number {
   if (e1rmKg <= 0 || bwKg <= 0) return 0;
+  // Unknown/undisclosed sex → mean of the male and female experience-adjusted
+  // percentiles (same 50/50 mixture policy; never throws on an unknown key).
+  if (!isKnownSex(sex)) {
+    const m = computePercentile(lift, 'M', e1rmKg, bwKg, experienceLevel, ageBand);
+    const f = computePercentile(lift, 'F', e1rmKg, bwKg, experienceLevel, ageBand);
+    return clampPct(0.5 * m + 0.5 * f);
+  }
   const { mu, sigma: popSigma } = liftPopParams(lift, sex);
   const alpha = ALPHA_PER_LIFT[lift] ?? ALPHA_DEFAULT;
   const trainingYears = experienceLevel ? (EXPERIENCE_TO_YEARS[experienceLevel] ?? null) : null;
-  const sigma = heteroscedasticSigma(popSigma, trainingYears);
+  // FIXED population spread — experience no longer widens σ (that could invert
+  // rankings and was gameable). Experience instead shifts the EXPECTED CENTER.
+  const sigma = popSigma;
   // Age-adjusted load: normalise to prime-age cohort
   const mult = ageMultiplier(ageBand);
   const lAdj = e1rmKg * (mult > 0 ? 1 / mult : 1);
-  const expected = mu + alpha * Math.log(bwKg / REF_BW[sex]);
+  // Expectation shift: a more-experienced lifter is EXPECTED to be stronger, so
+  // raise the expected median L₅₀ by expFactor(t). In log space this is an additive
+  // ln(expFactor) shift. Because expFactor is non-decreasing in t, the z-score (and
+  // thus the percentile) is MONOTONICALLY NON-INCREASING in training years.
+  const expected = mu + alpha * Math.log(bwKg / REF_BW[sex]) + Math.log(expFactor(trainingYears));
   const z = (Math.log(lAdj) - expected) / sigma;
   return clampPct(100 * normCdf(z));
 }
@@ -477,4 +627,13 @@ export function computePercentile(
 function clampPct(p: number): number {
   if (!Number.isFinite(p)) return 0;
   return Math.max(0, Math.min(100, p));
+}
+
+/**
+ * Ensure a returned `dots` field is always finite. NaN/Infinity (e.g. from the
+ * DOTS poly guard or an unknown-sex average where one branch was unusable) is
+ * coerced to 0 so consumers never render NaN. (SRV-FIX-SEX-DOTS, 2026-06-19)
+ */
+function sanitizeDots(d: number): number {
+  return Number.isFinite(d) ? d : 0;
 }

@@ -48,7 +48,7 @@ export async function getTemplates(opts?: {
   const res = await apiClient.get<{ templates: WorkoutTemplate[] }>('/templates', {
     params: opts,
   });
-  return res.data.templates;
+  return res.data?.templates ?? [];
 }
 
 /** Fetch a single template with its full session + exercise list. */

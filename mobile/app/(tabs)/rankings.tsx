@@ -605,8 +605,8 @@ function OverallPercentileCard({ rankings }: { rankings: PercentileRanking[] }):
   const mid = Math.floor(values.length / 2);
   const median =
     values.length % 2 === 0
-      ? (values[mid - 1] + values[mid]) / 2
-      : values[mid];
+      ? ((values[mid - 1] ?? 0) + (values[mid] ?? 0)) / 2
+      : (values[mid] ?? 0);
 
   const medianRounded = Math.round(median);
   const topPct = 100 - medianRounded;

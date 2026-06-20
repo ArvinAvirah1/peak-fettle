@@ -190,6 +190,7 @@ function nearestWeightClass(weightKg) {
 
 module.exports = { run, ageBand, yearsBand, nearestWeightClass };
 
-if (require.main === module) {
-    run();
-}
+// SRV-ENGINE-04: the direct-invocation guard is at the TOP of this file (it logs
+// DISABLED and exits before reaching here). run() is exported for tests ONLY and
+// must never be scheduled — it writes to the deprecated user_percentile_rankings
+// table (percentiles are computed on-device now, SPEC_094A).

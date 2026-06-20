@@ -105,7 +105,7 @@ export async function getExerciseAliases(exerciseId: string): Promise<{ id: stri
   const response = await apiClient.get<{ aliases: { id: string; alias: string }[] }>(
     `/exercises/${exerciseId}/aliases`
   );
-  return response.data.aliases;
+  return response.data?.aliases ?? [];
 }
 
 // Re-export Exercise for convenience so screens can import from one place.

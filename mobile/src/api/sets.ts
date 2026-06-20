@@ -18,7 +18,7 @@ export async function getSetsForWorkout(workoutId: string): Promise<WorkoutSet[]
   const response = await apiClient.get<SetsPage>('/sets', {
     params: { workoutId },
   });
-  return response.data.sets;
+  return response.data?.sets ?? [];
 }
 
 /**

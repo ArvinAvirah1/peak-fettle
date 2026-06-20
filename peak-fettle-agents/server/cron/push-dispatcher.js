@@ -326,10 +326,15 @@ if (require.main === module) {
     run()
         .then((stats) => {
             console.log('[push-dispatcher] completed:', stats);
-            process.exit(0);
         })
         .catch((err) => {
             console.error('[push-dispatcher] fatal error:', err);
-            process.exit(1);
+            process.exitCode = 1;
+        })
+        // SRV-ENGINE-03: drain the pool so the process exits cleanly instead of
+        // relying on process.exit(0) (which truncates in-flight logging and would
+        // hang if run() were ever invoked by a shared, long-lived runner).
+        .finally(async () => {
+            await pool.end().catch(() => {});
         });
 }
