@@ -409,14 +409,14 @@ export interface Tier {
 /** 9-band ladder ordered from lowest to highest (D9, 2026-06-12). */
 export const TIER_LADDER: Tier[] = [
   { name: 'Iron',        min: 0 },
-  { name: 'Stone',       min: 25 },   // D9: new band between Iron and Bronze
-  { name: 'Bronze',      min: 40 },
-  { name: 'Silver',      min: 60 },
-  { name: 'Gold',        min: 75 },
-  { name: 'Platinum',    min: 88 },
-  { name: 'Diamond',     min: 95 },
-  { name: 'Elite',       min: 99 },
-  { name: 'World Class', min: 99.7 },
+  { name: 'Stone',       min: 30 },   // D9: new band between Iron and Bronze
+  { name: 'Bronze',      min: 50 },
+  { name: 'Silver',      min: 70 },
+  { name: 'Gold',        min: 85 },
+  { name: 'Platinum',    min: 93 },
+  { name: 'Diamond',     min: 97 },
+  { name: 'Elite',       min: 99.3 },
+  { name: 'World Class', min: 99.9 },
 ];
 
 export function tierForOverall(pct: number): Tier {
