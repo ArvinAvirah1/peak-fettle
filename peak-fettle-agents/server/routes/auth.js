@@ -234,7 +234,7 @@ router.post('/refresh', async (req, res, next) => {
         if (!refreshToken) return res.status(400).json({ error: 'missing_refresh_token' });
 
         // Verify JWT signature and type before hitting the DB.
-        const payload = jwt.verify(refreshToken, process.env.JWT_SECRET);
+        const payload = jwt.verify(refreshToken, process.env.JWT_SECRET, { algorithms: ['HS256'] }); // SRV-AUTH-03
         if (payload.type !== 'refresh') {
             return res.status(401).json({ error: 'invalid_token' });
         }
@@ -360,6 +360,13 @@ router.post('/oauth', async (req, res, next) => {
 
         const email = (claims.email || '').toLowerCase();
         if (!email) return res.status(400).json({ error: 'provider_no_email' });
+
+        // SRV-AUTH-02: never find-or-create on an UNVERIFIED provider email. An
+        // attacker holding a token whose email is unverified could otherwise take
+        // over an existing account that owns that same email address.
+        if (!claims.emailVerified) {
+            return res.status(401).json({ error: 'provider_email_not_verified' });
+        }
 
         // Find-or-create by verified email. NOTE: a dedicated oauth_identities
         // table mapping provider `sub` -> account is the proper long-term store

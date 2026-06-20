@@ -37,6 +37,7 @@
 const express = require('express');
 const { z }   = require('zod');
 const { pool } = require('../db');
+const { requirePaid } = require('../middleware/requirePaid'); // SOCIAL-01
 
 const router = express.Router();
 
@@ -83,6 +84,7 @@ router.get('/owned', async (req, res, next) => {
         const { rows } = await pool.query(
             `SELECT ci.id, ci.name, ci.description, ci.category, ci.rarity,
                     ci.price_credits, ci.is_default, ci.metadata, ci.sort_order,
+                    (NOT ci.is_default) AS requires_pro, -- SOCIAL-06: server-authoritative lock signal
                     CASE WHEN ci.is_default THEN TRUE
                          ELSE (uc.item_id IS NOT NULL)
                     END AS owned,
@@ -156,7 +158,7 @@ router.get('/equipped', async (req, res, next) => {
 //   2. item must exist, be active, and match the slot's category.
 //   3. item must be owned by the caller OR be a default item.
 // ---------------------------------------------------------------------------
-router.put('/equipped/:slot', async (req, res, next) => {
+router.put('/equipped/:slot', requirePaid, async (req, res, next) => { // SOCIAL-01: Pro-gate equip
     try {
         const { slot } = z.object({
             slot: z.enum(VALID_SLOTS),
@@ -321,6 +323,7 @@ router.get('/', async (req, res, next) => {
         const { rows } = await pool.query(
             `SELECT ci.id, ci.name, ci.description, ci.category, ci.rarity,
                     ci.price_credits, ci.is_default, ci.metadata, ci.sort_order,
+                    (NOT ci.is_default) AS requires_pro, -- SOCIAL-06: server-authoritative lock signal
                     -- owned: true if the caller has this item OR it is a default
                     CASE WHEN ci.is_default THEN TRUE
                          ELSE (uc.item_id IS NOT NULL)
@@ -355,7 +358,7 @@ router.get('/', async (req, res, next) => {
 //
 // Idempotency: attempting to purchase an already-owned item returns 409.
 // ---------------------------------------------------------------------------
-router.post('/:id/purchase', async (req, res, next) => {
+router.post('/:id/purchase', requirePaid, async (req, res, next) => { // SOCIAL-01: Pro-gate purchase
     try {
         const { id: itemId } = z.object({ id: z.string().uuid() }).parse(req.params);
         const userId = req.user.id;
@@ -454,6 +457,7 @@ router.get('/:id', async (req, res, next) => {
         const { rows } = await pool.query(
             `SELECT ci.id, ci.name, ci.description, ci.category, ci.rarity,
                     ci.price_credits, ci.is_default, ci.metadata, ci.sort_order,
+                    (NOT ci.is_default) AS requires_pro, -- SOCIAL-06: server-authoritative lock signal
                     ci.created_at,
                     CASE WHEN ci.is_default THEN TRUE
                          ELSE (uc.item_id IS NOT NULL)
