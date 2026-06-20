@@ -54,14 +54,25 @@
  *   (1) Per-lift α — biomechanical priors from Jaric 2002, bounded [0.62,0.72];
  *       to be re-fit on first-party OPL data when cohorts are large.
  *       squat=0.670  bench=0.643  deadlift=0.671  ohp=0.640
- *   (2) Heteroscedastic σ(t) = σ_nov+(σ_adv−σ_nov)·(1−e^{−t/τ_σ})
- *       σ_nov=0.20  τ_σ=4yr  σ_adv=pop_sigma (lift×sex fitted value above).
- *       Falls back to pop_sigma when training_years is unknown.
+ *   (2) Training-age EXPECTATION shift (SRV-FIX-EXP-REDESIGN, 2026-06-20).
+ *       SUPERSEDES the old heteroscedastic σ(t) that widened the spread with
+ *       experience — that mechanism could INVERT rankings (a beginner out-ranking
+ *       an elite at the same lift) and was gameable. Experience now shifts the
+ *       EXPECTED CENTER, never the spread: a more-experienced lifter is EXPECTED
+ *       to be stronger, so at the same lift they rank SAME-or-LOWER (never higher).
+ *       L₅₀_adj = L₅₀ · expFactor(t); σ stays the FIXED population pop_sigma.
+ *       expFactor(t) = (1 + gain(t)/100) / 1.4957, established 4-yr lifter = 1.00,
+ *       saturating (10/15 yr within ~1 pt). Research: audits/full-review-2026-06-19/
+ *       math-validation/TRAINING-AGE-RESEARCH.md. Falls back to 1.0 (no shift)
+ *       when training_years is unknown. MONOTONIC: percentile is non-increasing
+ *       in training years.
  *   (3) Age adjustment (McCulloch/Foster-style): multiplicative on user e1RM
  *       before percentile lookup; OFF when age_band is null.
  *       Multipliers (divide user load to normalise to prime-age cohort):
  *       under-18=0.96  18-24=0.98  25-34=1.00  35-44=0.97  45-54=0.93  55+=0.86
- *   All three feed computePercentile (Lens 1, experience-adjusted).
+ *   All three feed computePercentile (Lens 1, experience-adjusted). The HEADLINE
+ *   overall tier (overallStrengthPercentile → tierForOverall) stays the pure
+ *   ABSOLUTE sex+bodyweight percentile and is NOT experience-adjusted.
  */
 
 export const MODEL_VERSION = 3;
@@ -431,7 +442,7 @@ export function tierForOverall(pct: number): Tier {
 
 /**
  * ExperienceLevel maps the profile string to an approximate training age in
- * years, used by the heteroscedastic σ function.
+ * years, fed into the training-age expectation factor (expFactor) below.
  */
 const EXPERIENCE_TO_YEARS: Record<string, number> = {
   beginner:     1,
@@ -442,22 +453,46 @@ const EXPERIENCE_TO_YEARS: Record<string, number> = {
 };
 
 /**
- * Heteroscedastic σ(t) — within-cohort spread grows with training age.
+ * Training-age EXPECTATION factor (SRV-FIX-EXP-REDESIGN, 2026-06-20).
  *
- * Form (memo §3): σ(t) = σ_nov + (σ_adv − σ_nov)·(1 − e^{−t/τ_σ})
- *   σ_nov  = 0.20  (tighter cluster at novice level)
- *   σ_adv  = pop_sigma (population σ fitted from the 6-anchor table)
- *   τ_σ    = 4 years (half-life ≈ 2.8 yr)
+ * REPLACES the old heteroscedasticSigma(): experience must shift the EXPECTED
+ * CENTER, not the spread. Widening σ with experience could INVERT rankings — at
+ * the SAME lift a beginner (narrow σ) could out-rank an elite (wide σ) — and was
+ * gameable. Instead, a more-experienced lifter is EXPECTED to be stronger, so the
+ * expected median L₅₀ is raised by expFactor(t); at the same lift the experience-
+ * adjusted percentile is therefore SAME-or-LOWER for more training years (never
+ * higher), and it is MONOTONICALLY NON-INCREASING in t.
  *
- * Falls back to pop_sigma when t is null.
+ *   gain(t)      = 28·(1 − e^{−1.70·t}) + 35·(1 − e^{−0.24·t})   // % gain vs untrained
+ *   expFactor(t) = (1 + gain(t)/100) / 1.4957                    // 4-yr lifter = 1.00
+ *
+ * Double-exponential (fast neural limb + slow hypertrophic limb), fit SSE 0.57 to
+ * pooled Steele 2022 / Latella 2024 / Rhea 2003 anchors; asymptote ≈ 63%. t is
+ * clamped to [0,15] so the factor saturates (10/15-yr lifters differ by ~1.4%,
+ * which also caps "I've trained 40 years" gaming). Full derivation:
+ * audits/full-review-2026-06-19/math-validation/TRAINING-AGE-RESEARCH.md.
+ *
+ * Reference values: expFactor(0)=0.669, (1)=0.872, (3)=0.975, (4)=1.000,
+ * (5)=1.019, (10)=1.069, (15)=1.083.
+ *
+ * Returns 1.0 (no shift) when trainingYears is null/unknown.
  */
-export const SIGMA_NOV = 0.20;
-export const TAU_SIGMA = 4; // years
+export const EXP_REF = 1.4957; // = 1 + expStrengthGainPct(4)/100 (established 4-yr lifter = 1.0)
 
-export function heteroscedasticSigma(popSigma: number, trainingYears: number | null): number {
-  if (trainingYears == null) return popSigma;
-  const t = Math.max(0, trainingYears);
-  return SIGMA_NOV + (popSigma - SIGMA_NOV) * (1 - Math.exp(-t / TAU_SIGMA));
+/** Pooled cumulative % strength gain vs untrained baseline; t clamped to [0,15]. */
+export function expStrengthGainPct(years: number): number {
+  const t = Math.max(0, Math.min(15, years)); // clamp; flat past 15yr (saturated)
+  return 28 * (1 - Math.exp(-1.70 * t)) + 35 * (1 - Math.exp(-0.24 * t));
+}
+
+/**
+ * Expected-strength multiplier by training age, normalized to a 4-yr lifter = 1.0.
+ * Monotonically NON-DECREASING and saturating in years (so dividing by it makes the
+ * percentile monotonically NON-INCREASING in years). Null → 1.0 (no shift).
+ */
+export function expFactor(trainingYears: number | null): number {
+  if (trainingYears == null) return 1.0;
+  return (1 + expStrengthGainPct(trainingYears) / 100) / EXP_REF;
 }
 
 /**
@@ -528,15 +563,23 @@ export function ageMultiplier(ageBand: string | null | undefined): number {
 }
 
 /**
- * Lens 1 — Experience-adjusted percentile (memo §3).
+ * Lens 1 — Experience-adjusted percentile (SRV-FIX-EXP-REDESIGN, 2026-06-20).
  *
- * Model: L₅₀ = exp(μ)·(BW/BW₀)^α·A(age_band)
- * pct  = 100·Φ((ln L_adj − ln L₅₀) / σ(trainingYears))
+ * Experience shifts the EXPECTED CENTER (not the spread): the expected median is
+ * raised for more-experienced lifters, so at the same lift a higher training age
+ * yields a SAME-or-LOWER percentile (non-increasing, never higher). σ is the FIXED
+ * population pop_sigma. This is a per-lift LENS only — the headline overall tier
+ * (overallStrengthPercentile → tierForOverall) is the pure ABSOLUTE percentile and
+ * is intentionally NOT experience-adjusted.
+ *
+ * Model: L₅₀_adj = exp(μ)·(BW/BW₀)^α · expFactor(trainingYears)
+ * pct   = 100·Φ((ln L_adj − ln L₅₀_adj) / popSigma)
  *
  * where:
  *   L_adj        = e1rmKg / ageMult(age_band)  — age-normalised load
  *   α            = ALPHA_PER_LIFT[lift]          — per-lift allometric exponent
- *   σ(t)         = heteroscedasticSigma(popSigma, trainingYears)
+ *   expFactor(t) = (1 + gain(t)/100) / 1.4957   — training-age expectation factor
+ *   popSigma     = liftPopParams(lift, sex).sigma — FIXED, NOT widened by experience
  *   μ, popSigma  = liftPopParams(lift, sex) — same 6-anchor fit as Lens 2a
  *
  * @param lift           Lift identifier
@@ -565,11 +608,17 @@ export function computePercentile(
   const { mu, sigma: popSigma } = liftPopParams(lift, sex);
   const alpha = ALPHA_PER_LIFT[lift] ?? ALPHA_DEFAULT;
   const trainingYears = experienceLevel ? (EXPERIENCE_TO_YEARS[experienceLevel] ?? null) : null;
-  const sigma = heteroscedasticSigma(popSigma, trainingYears);
+  // FIXED population spread — experience no longer widens σ (that could invert
+  // rankings and was gameable). Experience instead shifts the EXPECTED CENTER.
+  const sigma = popSigma;
   // Age-adjusted load: normalise to prime-age cohort
   const mult = ageMultiplier(ageBand);
   const lAdj = e1rmKg * (mult > 0 ? 1 / mult : 1);
-  const expected = mu + alpha * Math.log(bwKg / REF_BW[sex]);
+  // Expectation shift: a more-experienced lifter is EXPECTED to be stronger, so
+  // raise the expected median L₅₀ by expFactor(t). In log space this is an additive
+  // ln(expFactor) shift. Because expFactor is non-decreasing in t, the z-score (and
+  // thus the percentile) is MONOTONICALLY NON-INCREASING in training years.
+  const expected = mu + alpha * Math.log(bwKg / REF_BW[sex]) + Math.log(expFactor(trainingYears));
   const z = (Math.log(lAdj) - expected) / sigma;
   return clampPct(100 * normCdf(z));
 }
