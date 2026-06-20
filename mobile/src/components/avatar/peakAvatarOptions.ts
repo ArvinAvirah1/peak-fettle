@@ -174,6 +174,62 @@ export const ACCENT_THEME_IDS = [
 ];
 
 // ---------------------------------------------------------------------------
+// LEGACY COSMETIC ID ALIASES — backward-compat for the b3a7792 accent rename.
+//
+// Commit b3a7792 NAMESPACED the accent-theme ids (gold->accentGold, silver->
+// accentSilver, teal->accentTeal, rose->accentRose, sky->accentSky, violet->
+// accentViolet) to stop them colliding with the same-named hair-color ids. The
+// hex palette did not change — only the keys were renamed. Any user who had
+// already equipped an accent has the OLD bare id persisted (in the local
+// `avatar` AvatarConfig blob, and/or the local `user_equipped_cosmetics` row
+// with slot='accentTheme'). After the rename those bare ids are no longer in
+// ACCENT_THEME_IDS, so normalizeAvatar() would reject them and silently fall
+// back to 'none' — the user would LOSE their equipped accent.
+//
+// This map transparently rewrites a persisted OLD id to its NEW id at READ
+// time, so no data migration is required and BOTH local-first and (future)
+// server-synced reads are covered. It is keyed by the bare old id; only the six
+// accent ids that were renamed appear here. 'none' was unchanged and is omitted.
+//
+// IMPORTANT: this is intentionally a read-side ALIAS, not a rename of catalog
+// data — the canonical ids remain the accent* ones. Keep this map append-only;
+// never repurpose an old key to point somewhere else.
+// ---------------------------------------------------------------------------
+export const LEGACY_COSMETIC_ID_ALIASES: Readonly<Record<string, string>> = {
+  gold:   'accentGold',
+  silver: 'accentSilver',
+  teal:   'accentTeal',
+  rose:   'accentRose',
+  sky:    'accentSky',
+  violet: 'accentViolet',
+};
+
+/**
+ * Resolve a (possibly legacy) persisted cosmetic id to its current canonical id.
+ *
+ * Applies LEGACY_COSMETIC_ID_ALIASES ONLY for the accentTheme slot, because the
+ * bare ids gold/silver/teal/rose/sky/violet are ALSO valid, unrelated ids in
+ * other slots (hair-color teal/silver/violet; wristband gold; …). Rewriting
+ * them unconditionally would corrupt those other slots. When the slot is not
+ * known to the caller, pass undefined and only an EXACT accent-context id is
+ * remapped — callers that read the AvatarConfig.accentTheme field know the slot.
+ *
+ * Non-legacy ids (including every already-namespaced accent* id and 'none') pass
+ * through unchanged.
+ */
+export function resolveCosmeticId(
+  id: string | null | undefined,
+  slot?: keyof Omit<AvatarConfig, 'v'>,
+): string | null | undefined {
+  if (typeof id !== 'string') return id;
+  // Only the accentTheme slot ever used these bare ids as accent values.
+  if (slot === 'accentTheme' && Object.prototype.hasOwnProperty.call(LEGACY_COSMETIC_ID_ALIASES, id)) {
+    return LEGACY_COSMETIC_ID_ALIASES[id];
+  }
+  return id;
+}
+
+// ---------------------------------------------------------------------------
 // Shape option id lists — all original ids preserved in same position.
 // ---------------------------------------------------------------------------
 
@@ -410,12 +466,14 @@ export const AVATAR_CATEGORIES: AvatarCategory[] = [
 // to route through. Prefer `tierKeyForId(cat.key, id)` over passing a bare id to
 // isUnlocked/unlockLabel.
 //
-// MIGRATION NOTE (one-shot, NOT written here): the accent-theme ids were renamed
-// gold->accentGold, silver->accentSilver, teal->accentTeal, rose->accentRose,
-// sky->accentSky, violet->accentViolet. Any existing rows in `user_equipped_cosmetics`
-// with slot='accentTheme' and item_id IN ('gold','silver','teal','rose','sky','violet')
-// must be UPDATEd to the new accent* ids, or those users lose their equipped accent on
-// next load (normalizeAvatar will reject the stale id and fall back to 'none').
+// BACKWARD-COMPAT FOR THE b3a7792 ACCENT RENAME (no migration needed): the accent
+// ids were renamed gold->accentGold, silver->accentSilver, teal->accentTeal,
+// rose->accentRose, sky->accentSky, violet->accentViolet. A persisted OLD id is
+// rewritten to its new id at READ time by resolveCosmeticId()/LEGACY_COSMETIC_ID_ALIASES
+// (above) — applied in normalizeAvatar() and in getEquipped() — so on-device
+// AvatarConfig blobs and local `user_equipped_cosmetics` rows survive the rename.
+// The SERVER `user_equipped_cosmetics.item_id` is a UUID FK to cosmetic_items(id),
+// NOT a bare accent string id, so it is UNAFFECTED and needs no data migration.
 // ---------------------------------------------------------------------------
 
 export function tierKeyForId(_catKey: keyof Omit<AvatarConfig, 'v'>, id: string): string {
@@ -517,7 +575,9 @@ export function normalizeAvatar(raw: Partial<AvatarConfig> | null | undefined): 
     // new optional fields — safe defaults if absent
     outfit:      valid(OUTFIT_IDS,        raw.outfit,      DEFAULT_AVATAR.outfit!),
     wristbands:  valid(WRISTBANDS_IDS,    raw.wristbands,  DEFAULT_AVATAR.wristbands!),
-    accentTheme: valid(ACCENT_THEME_IDS,  raw.accentTheme, DEFAULT_AVATAR.accentTheme!),
+    // Rewrite a legacy (pre-b3a7792) bare accent id to its namespaced id BEFORE
+    // validating, so an already-equipped accent is preserved across the rename.
+    accentTheme: valid(ACCENT_THEME_IDS,  resolveCosmeticId(raw.accentTheme, 'accentTheme'), DEFAULT_AVATAR.accentTheme!),
   };
 }
 
