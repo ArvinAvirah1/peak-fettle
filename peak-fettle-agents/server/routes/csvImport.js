@@ -179,13 +179,15 @@ router.post('/', upload.single('file'), async (req, res, next) => {
     let existingSet = new Set();
     try {
         const { rows: existing } = await pool.query(
+            // SRV-DATA-02: dedup on the activity day_key (the calendar day the
+            // workout happened), not created_at (server insert time).
             `SELECT
-               created_at::date::text  AS day,
+               day_key::text  AS day,
                duration_seconds
              FROM workouts
              WHERE user_id      = $1
                AND session_type = 'cardio_import'
-               AND created_at::date = ANY($2::date[])`,
+               AND day_key = ANY($2::date[])`,
             [userId, candidateDates]
         );
         for (const ex of existing) {
@@ -214,7 +216,10 @@ router.post('/', upload.single('file'), async (req, res, next) => {
     // user_id is factored out as $1.  Per-row columns (6 each) are laid out
     // sequentially: base = 2 + i * 6 for row i.
     // CSV-002: activity_type is included in every INSERT.
-    const PER_ROW_COLS = 6; // activity_type, duration_seconds, distance_m, avg_pace, source, logged_at
+    // SRV-DATA-01: day_key (DATE NOT NULL on workouts) MUST be supplied or every
+    // INSERT hits 23502 and the whole import rolls back. Bind it from the parsed
+    // activity date (same value the dedup above keys on).
+    const PER_ROW_COLS = 7; // activity_type, duration_seconds, distance_m, avg_pace, source, logged_at, day_key
     const bindValues  = [userId];
     const placeholders = toInsert.map((p, i) => {
         const base = 2 + i * PER_ROW_COLS;
@@ -225,8 +230,9 @@ router.post('/', upload.single('file'), async (req, res, next) => {
             p.avg_pace_sec_per_km,
             p.source,
             p.logged_at,
+            p.logged_at.split('T')[0], // day_key (activity calendar day)
         );
-        return `($1, 'cardio_import', $${base}, $${base+1}, $${base+2}, $${base+3}, $${base+4}, $${base+5}::timestamptz)`;
+        return `($1, 'cardio_import', $${base}, $${base+1}, $${base+2}, $${base+3}, $${base+4}, $${base+5}::timestamptz, $${base+6}::date)`;
     });
 
     const client = await pool.connect();
@@ -235,7 +241,7 @@ router.post('/', upload.single('file'), async (req, res, next) => {
         await client.query(
             `INSERT INTO workouts
                (user_id, session_type, activity_type, duration_seconds,
-                distance_m, avg_pace_sec_per_km, source, created_at)
+                distance_m, avg_pace_sec_per_km, source, created_at, day_key)
              VALUES ${placeholders.join(', ')}`,
             bindValues
         );

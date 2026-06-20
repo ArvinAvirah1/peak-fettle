@@ -16,11 +16,74 @@
 // "you can take your data and leave" commitment.
 
 const express = require('express');
+const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const { pool } = require('../db');
 const { supabaseAdmin } = require('../lib/supabaseAdmin');
 
 const router = express.Router();
+
+// SRV-USER-01 (P0, 2026-06-20): tier mutations must not be callable with a
+// user's own JWT. requireServiceSecret blocks /upgrade unless the caller
+// presents the server-to-server TIER_SERVICE_SECRET (a future payment webhook
+// or admin tool). Secure-by-default: if the env secret is unset, the route is
+// closed (403). This prevents a free user self-promoting to tier='paid'.
+function requireServiceSecret(req, res, next) {
+    const secret = process.env.TIER_SERVICE_SECRET || '';
+    if (secret.length === 0) {
+        // Ops visibility: a missing env secret closes /upgrade entirely (secure
+        // default). Without this log a future payment-webhook outage is silent.
+        console.warn('[tier] TIER_SERVICE_SECRET unset — /user/upgrade is closed (403)');
+    }
+    const provided = req.get('x-service-secret') || '';
+    const ok =
+        secret.length > 0 &&
+        provided.length === secret.length &&
+        crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(secret));
+    if (!ok) {
+        return res.status(403).json({
+            error: 'tier_change_forbidden',
+            message: 'Tier changes require server-side authorization.',
+        });
+    }
+    return next();
+}
+
+// SRV-USER-02 (P0, 2026-06-20): drift-tolerant delete inside the account
+// deletion transaction. Postgres aborts the ENTIRE transaction on any statement
+// error, so an absent/deprecated satellite table (e.g. user_percentile_rankings
+// on a drifted prod DB) would roll back the whole GDPR deletion and 500. Wrap
+// each satellite delete in a SAVEPOINT and ROLLBACK TO SAVEPOINT on 42P01/42703
+// so only that one statement is undone and the deletion still completes.
+async function delGuarded(client, sp, sql, params) {
+    await client.query(`SAVEPOINT ${sp}`);
+    try {
+        await client.query(sql, params);
+        await client.query(`RELEASE SAVEPOINT ${sp}`);
+    } catch (e) {
+        if (e && (e.code === '42P01' || e.code === '42703')) {
+            await client.query(`ROLLBACK TO SAVEPOINT ${sp}`);
+            console.warn('[account-delete] skipped absent relation (%s) at %s', e.code, sp);
+        } else {
+            throw e;
+        }
+    }
+}
+
+// SRV-USER-05 (P2, 2026-06-20): drift-tolerant read for the GDPR data-export.
+// An optional/deprecated satellite table absent on a drifted prod DB must not
+// 500 the whole export — degrade that one category to empty rows.
+async function safeQuery(sql, params) {
+    try {
+        return await pool.query(sql, params);
+    } catch (e) {
+        if (e && (e.code === '42P01' || e.code === '42703')) {
+            console.warn('[data-export] skipped absent relation (%s)', e.code);
+            return { rows: [] };
+        }
+        throw e;
+    }
+}
 
 // PATCH /profile helpers (Task 3, 2026-06-19) -------------------------------
 // DRIFTABLE_PROFILE_COLUMNS: optional survey columns a drifted prod DB may not
@@ -170,19 +233,19 @@ router.get('/data-export', exportLimiter, async (req, res, next) => {
                  ORDER BY created_at DESC`,
                 [uid]
             ),
-            pool.query(
+            safeQuery(
                 `SELECT constraint_type, custom_note, created_at
                  FROM user_constraints WHERE user_id = $1`,
                 [uid]
             ),
-            pool.query(
+            safeQuery(
                 `SELECT date, resting_hr_bpm, hrv_ms, sleep_hours,
                         active_kcal, source
                  FROM daily_health_metrics WHERE user_id = $1
                  ORDER BY date DESC`,
                 [uid]
             ),
-            pool.query(
+            safeQuery(
                 // streak-col-mismatch fix (2026-06-14): actual column names per schema are
                 // current_streak_days, longest_streak_days, last_session_date.
                 `SELECT current_streak_days, longest_streak_days, last_session_date
@@ -260,14 +323,18 @@ router.delete('/account', deleteLimiter, async (req, res, next) => {
         try {
             await client.query('BEGIN');
 
-            await client.query(`DELETE FROM sets       WHERE workout_id IN (SELECT id FROM workouts WHERE user_id = $1)`, [uid]);
-            await client.query(`DELETE FROM workouts             WHERE user_id = $1`, [uid]);
-            await client.query(`DELETE FROM plans                WHERE user_id = $1`, [uid]);
-            await client.query(`DELETE FROM user_constraints     WHERE user_id = $1`, [uid]);
-            await client.query(`DELETE FROM daily_health_metrics WHERE user_id = $1`, [uid]);
-            await client.query(`DELETE FROM user_percentile_rankings WHERE user_id = $1`, [uid]);
-            await client.query(`DELETE FROM refresh_tokens        WHERE user_id = $1`, [uid]);
-            await client.query(`DELETE FROM streaks               WHERE user_id = $1`, [uid]);
+            // Satellite rows: guard each with a SAVEPOINT so an absent/deprecated
+            // table on a drifted prod DB degrades (skip) instead of aborting the
+            // whole GDPR deletion (SRV-USER-02).
+            await delGuarded(client, 'sp_sets',        `DELETE FROM sets       WHERE workout_id IN (SELECT id FROM workouts WHERE user_id = $1)`, [uid]);
+            await delGuarded(client, 'sp_workouts',    `DELETE FROM workouts             WHERE user_id = $1`, [uid]);
+            await delGuarded(client, 'sp_plans',       `DELETE FROM plans                WHERE user_id = $1`, [uid]);
+            await delGuarded(client, 'sp_constraints', `DELETE FROM user_constraints     WHERE user_id = $1`, [uid]);
+            await delGuarded(client, 'sp_health',      `DELETE FROM daily_health_metrics WHERE user_id = $1`, [uid]);
+            await delGuarded(client, 'sp_percentile',  `DELETE FROM user_percentile_rankings WHERE user_id = $1`, [uid]);
+            await delGuarded(client, 'sp_refresh',     `DELETE FROM refresh_tokens        WHERE user_id = $1`, [uid]);
+            await delGuarded(client, 'sp_streaks',     `DELETE FROM streaks               WHERE user_id = $1`, [uid]);
+            // The core users row MUST delete for the account to be gone — not guarded.
             await client.query(`DELETE FROM users                 WHERE id      = $1`, [uid]);
 
             await client.query('COMMIT');
@@ -496,7 +563,7 @@ router.patch('/profile', async (req, res, next) => {
         }
 
         if (experience_level !== undefined) {
-            if (typeof experience_level !== 'string' || experience_level.length > 50) {
+            if (typeof experience_level !== 'string' || experience_level.trim().length < 1 || experience_level.length > 50) {
                 return res.status(400).json({
                     error: 'invalid_experience_level',
                     message: 'experience_level must be a string of ≤50 characters.',
@@ -845,12 +912,12 @@ router.get('/export', exportLimiter, async (req, res, next) => {
                  ORDER BY created_at DESC`,
                 [uid]
             ),
-            pool.query(
+            safeQuery(
                 `SELECT constraint_type, custom_note, created_at
                  FROM user_constraints WHERE user_id = $1`,
                 [uid]
             ),
-            pool.query(
+            safeQuery(
                 `SELECT date, resting_hr_bpm, hrv_ms, sleep_hours, active_kcal, source
                  FROM daily_health_metrics WHERE user_id = $1
                  ORDER BY date DESC`,
@@ -1056,7 +1123,7 @@ async function setTier(req, res, next, nextTier) {
 }
 
 // POST /user/upgrade — set tier='paid'. Idempotent. Does NOT touch comp_pro.
-router.post('/upgrade', (req, res, next) => setTier(req, res, next, 'paid'));
+router.post('/upgrade', requireServiceSecret, (req, res, next) => setTier(req, res, next, 'paid'));
 
 // POST /user/downgrade — set tier='free'. Idempotent. KEEPS all server data
 // (no DELETE); Free mode is local-first and simply stops touching the server.
