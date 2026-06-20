@@ -18,6 +18,7 @@ import {
   COSMETIC_TIERS,
   AVATAR_CATEGORIES,
   tierKeyForId,
+  resolveCosmeticId,
   type UnlockTier,
   type CosmeticTiersMap,
   type AvatarCategory,
@@ -152,7 +153,10 @@ export async function getEquipped(userId: string): Promise<Record<string, string
     );
     const result: Record<string, string> = {};
     for (const row of rows) {
-      result[row.slot] = row.item_id;
+      // Rewrite a legacy (pre-b3a7792) bare accent id to its namespaced id so an
+      // already-equipped accent survives the rename. resolveCosmeticId only
+      // remaps the accentTheme slot; every other slot/id passes through verbatim.
+      result[row.slot] = resolveCosmeticId(row.item_id, row.slot as AvatarCategory['key']) ?? row.item_id;
     }
     return result;
   } catch {
