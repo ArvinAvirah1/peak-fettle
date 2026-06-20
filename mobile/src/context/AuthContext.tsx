@@ -73,8 +73,7 @@ const safeSecureStore = {
   },
 };
 
-import axios from 'axios';
-import { setAuthHandlers } from '../api/client';
+import { setAuthHandlers, isDefinitiveAuthFailure } from '../api/client';
 import { setAccessToken as setPowerSyncToken } from '../db/connector';
 import * as AuthApi from '../api/auth';
 import { upgradeToProRequest, downgradeToFreeRequest } from '../api/billing';
@@ -400,31 +399,21 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
         // server errors, KEEP the stored token so the user stays signed in.
         // The app will retry silently on the next launch, and any API call that
         // needs a valid access token will be recovered by the 401 interceptor.
-        let isDefinitiveAuthFailure = false;
-        if (axios.isAxiosError(err)) {
-          const status = err.response?.status;
-          if (status === 401) {
-            isDefinitiveAuthFailure = true;
-          } else if (status && status >= 200 && status < 500) {
-            // 4xx other than 401 (e.g. 400 bad_request): treat as auth failure
-            // only if the response body signals an invalid/revoked token.
-            const errField: string =
-              (err.response?.data as { error?: string } | undefined)?.error ?? '';
-            if (/invalid|revoked|expired/i.test(errField)) {
-              isDefinitiveAuthFailure = true;
-            }
-          }
-          // status === undefined (network error) or 5xx → isDefinitiveAuthFailure stays false
-        }
+        // Classify via the shared helper in the api client so the bootstrap
+        // refresh and the 401 interceptor agree on what "definitive" means.
+        // A genuine 401, or a 4xx whose body says the token is invalid/revoked/
+        // expired, clears the token. A network error, a refresh_timeout, or a
+        // 5xx is transient → keep the token (Invariant 5).
+        const definitiveAuthFailure = isDefinitiveAuthFailure(err);
         // err.message === 'refresh_timeout' → network was slow, keep the token
 
         console.warn(
           '[PF] AuthContext/bootstrap silentRefresh:',
-          isDefinitiveAuthFailure ? 'definitive auth failure — clearing token' : 'transient error — keeping token',
+          definitiveAuthFailure ? 'definitive auth failure — clearing token' : 'transient error — keeping token',
           err instanceof Error ? err.message : String(err)
         );
 
-        if (!cancelled && isDefinitiveAuthFailure) {
+        if (!cancelled && definitiveAuthFailure) {
           // Token is genuinely revoked/expired — clear everything and show login.
           await _clearAuthState();
           router.replace('/(auth)/login');

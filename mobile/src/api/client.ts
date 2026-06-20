@@ -60,6 +60,70 @@ export function setAuthHandlers(handlers: AuthHandlers): void {
 }
 
 // ---------------------------------------------------------------------------
+// Auth-failure classification (finding API-01 / SCORE-01, Invariant 5)
+// ---------------------------------------------------------------------------
+
+/**
+ * Decide whether an error from the /auth/refresh path is a DEFINITIVE,
+ * server-side authentication rejection that warrants clearing the stored
+ * refresh token and logging the user out.
+ *
+ * Returns true ONLY when:
+ *   - the response status is exactly 401 (Unauthorized), OR
+ *   - the response status is another 4xx (400-499) AND the response body
+ *     (or its string form) signals an invalid / revoked / expired token.
+ *
+ * Returns false for everything else — notably a network error with no
+ * `response` (offline/DNS), a timeout, or any 5xx server error. Those are
+ * transient: the token must be KEPT so the user stays signed in and the
+ * request can be retried, rather than forcing a re-login on a flaky network
+ * or a momentarily-down server (Invariant 5).
+ */
+export function isDefinitiveAuthFailure(err: unknown): boolean {
+  // A definitive auth failure requires an actual HTTP response from the server.
+  // Network errors / timeouts have no `response` and must NOT clear the token.
+  const response = (err as { response?: { status?: number; data?: unknown } } | null | undefined)
+    ?.response;
+  const status = response?.status;
+  if (typeof status !== 'number') {
+    return false;
+  }
+
+  // A genuine 401 is always definitive.
+  if (status === 401) {
+    return true;
+  }
+
+  // Any other 4xx is definitive only if the body signals an invalid/revoked/
+  // expired token. 5xx (and 1xx/2xx/3xx) are never definitive auth failures.
+  if (status >= 400 && status < 500) {
+    let bodyText = '';
+    const data = response?.data;
+    if (typeof data === 'string') {
+      bodyText = data;
+    } else if (data != null) {
+      const errField = (data as { error?: unknown; message?: unknown }).error;
+      const msgField = (data as { error?: unknown; message?: unknown }).message;
+      if (typeof errField === 'string') {
+        bodyText = errField;
+      } else if (typeof msgField === 'string') {
+        bodyText = msgField;
+      } else {
+        try {
+          bodyText = JSON.stringify(data);
+        } catch {
+          bodyText = String(data);
+        }
+      }
+    }
+    return /invalid|revoked|expired/i.test(bodyText);
+  }
+
+  // 5xx and anything else → transient, keep the token.
+  return false;
+}
+
+// ---------------------------------------------------------------------------
 // Axios instance
 // ---------------------------------------------------------------------------
 
@@ -142,7 +206,14 @@ apiClient.interceptors.response.use(
       return apiClient(originalRequest);
     } catch (err) {
       console.warn('[PF] client/responseInterceptor:', err instanceof Error ? err.message : String(err));
-      _authHandlers.onLogout();
+      // Only log out on a DEFINITIVE auth failure (genuine 401, or a 4xx whose
+      // body says the token is invalid/revoked/expired). On a network error,
+      // timeout, or 5xx the refresh is merely transiently broken — leave the
+      // SecureStore token intact and reject the ORIGINAL error so the caller
+      // can retry (Invariant 5).
+      if (isDefinitiveAuthFailure(err)) {
+        _authHandlers.onLogout();
+      }
       return Promise.reject(error);
     }
   }
