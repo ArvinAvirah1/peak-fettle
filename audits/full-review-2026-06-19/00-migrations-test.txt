@@ -1,0 +1,15 @@
+  PASS  runner idempotence: run twice = same version
+  PASS  fresh install reaches user_version 8
+  PASS  fresh install creates all v2 tables (10 spot-checked)
+  PASS  fresh install adds sets.metrics_json and user_profile.display_name (v6)
+  PASS  fresh install adds v8 expanded-survey columns on user_profile
+  PASS  SCHEMA_V2_STATEMENTS is non-empty array of strings (>= 17)
+  PASS  v1 backup up-migrates: missing v2 tables become empty arrays
+  PASS  parseImport rejects backup newer than app version
+  PASS  parseImport accepts valid v2 doc and preserves rows
+  PASS  BACKUP_SCHEMA_VERSION is 2
+  PASS  BACKUP_TABLES contains all 21 registered tables
+  PASS  makeExportDoc produces schemaVersion 2
+
+12 tests: 12 passed, 0 failed
+

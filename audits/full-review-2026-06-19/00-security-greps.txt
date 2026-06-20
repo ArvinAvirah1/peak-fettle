@@ -1,0 +1,19 @@
+-- possible hardcoded secrets --
+src/api/groups.ts:18: * All endpoints require a valid Bearer accessToken.
+-- http:// cleartext --
+-- AsyncStorage/SecureStore.setItem --
+src/components/ScheduleEditorSheet.tsx:344:    AsyncStorage.setItem(FIRST_OPEN_KEY, '1').catch(() => { /* non-fatal */ });
+src/components/Tooltip.tsx:65:    await AsyncStorage.setItem(SEEN_STORAGE_KEY, JSON.stringify([...set]));
+src/components/tour/WelcomeTour.tsx:227:    AsyncStorage.setItem(TOUR_SEEN_KEY, 'true').catch(() => {});
+src/components/WorkoutLoggerHost.tsx:271:        AsyncStorage.setItem(REST_PREF_KEY, String(next)).catch(() => {});
+src/context/AuthContext.tsx:68:    return SecureStore.setItemAsync(key, value, SECURE_STORE_OPTS);
+src/context/AuthContext.tsx:236:    await safeSecureStore.setItemAsync(REFRESH_TOKEN_KEY, token);
+src/context/AuthContext.tsx:247:      await safeSecureStore.setItemAsync(USER_PROFILE_KEY, JSON.stringify(u));
+src/data/backup/backupManager.ts:203:    await AsyncStorage.setItem(LAST_BACKUP_AT_KEY, at);
+src/data/backup/backupManager.ts:310:    await AsyncStorage.setItem(LAST_BACKUP_AT_KEY, serverAt);
+src/data/exerciseNames.ts:148:    await AsyncStorage.setItem(CATALOG_CACHE_TS_KEY, String(Date.now()));
+src/theme/ThemeContext.tsx:109:        await AsyncStorage.setItem(THEME_STORAGE_KEY, name);
+app/(tabs)/rankings.tsx:800:        AsyncStorage.setItem(CONFIRMED_KEY, JSON.stringify([...next])).catch(() => {});
+app/onboarding.tsx:156:    await AsyncStorage.setItem('@peak_fettle/healthkit_consent', 'true');
+app/splash.tsx:31:            await AsyncStorage.setItem(FIRST_LAUNCH_KEY, 'true');
+-- SQL with template interpolation --
