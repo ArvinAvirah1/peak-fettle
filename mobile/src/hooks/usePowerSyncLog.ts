@@ -302,7 +302,7 @@ export function usePowerSyncLog(): UsePowerSyncLogResult {
     } finally {
       setInitLoading(false);
     }
-  }, [todayKey]);
+  }, [todayKey, localFirst, userId]);
 
   useEffect(() => {
     void initWorkout();
