@@ -54,7 +54,7 @@ export interface EngineGenerateResponse extends GeneratePlanResponse {
  */
 export async function getPlans(): Promise<Plan[]> {
   const response = await apiClient.get<PlansResponse>('/plans');
-  return response.data.plans;
+  return response.data?.plans ?? [];
 }
 
 /**

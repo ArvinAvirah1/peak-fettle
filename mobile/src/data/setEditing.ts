@@ -56,8 +56,10 @@ export async function updateLiftSet(
     );
     return;
   }
-  // Pro: no PATCH route — replace the row (delete + re-log at same set_index).
-  await apiDeleteSet(edit.id);
+  // Pro: no PATCH route — replace the row. DATA-02: re-log FIRST, delete SECOND,
+  // so a failure can never lose the original set (sets(workout_id,set_index) is a
+  // non-unique index, so a brief duplicate at the same set_index is tolerated and
+  // removed by the delete below).
   await apiLogSet({
     kind: 'lift',
     workoutId: edit.workoutId,
@@ -67,6 +69,7 @@ export async function updateLiftSet(
     weightKg: edit.weightKg,
     ...(edit.rir != null ? { rir: edit.rir } : {}),
   });
+  await apiDeleteSet(edit.id);
 }
 
 /** Delete a previously-logged set (lift or cardio). */
