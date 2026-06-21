@@ -6826,6 +6826,40 @@ CREATE POLICY "lifeos_activity_days_self_only" ON lifeos_activity_days
 
 
 -- ===========================================================================
+-- LIFEOS TICKET-121 — accountability partner (Q33 option a, 2026-06-20)
+--
+-- Stores ONLY the latest opaque, CLIENT-COMPOSED daily summary string per user
+-- (e.g. "3/4 habits today, streak intact") — NEVER raw habit/mood/blocked-app
+-- data; the client guarantees the payload is a summary. `code` is a high-entropy
+-- capability token the user generates on-device and shares with ONE partner; the
+-- partner reads via the PUBLIC GET /partner/:code (routes/partner.js, no auth —
+-- the code IS the capability). Revoke = rotate the code (old code stops
+-- resolving) or DELETE the row. ON DELETE CASCADE covers account deletion
+-- (TICKET-127 data-deletion check). Feature is OFF by default (flag
+-- accountabilityPartner); no row exists until the user opts in + pairs.
+-- Founder: apply this table to the live DB (no in-repo migration runner) and add
+-- the App Privacy "Data shared with others: usage summary" disclosure before ship.
+-- ===========================================================================
+
+CREATE TABLE IF NOT EXISTS lifeos_partner_summaries (
+    user_id      UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    code         TEXT NOT NULL UNIQUE,         -- capability token (≥128-bit, client-generated)
+    summary_text TEXT NOT NULL,                -- opaque, client-composed; never raw data
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_lifeos_partner_summaries_code
+    ON lifeos_partner_summaries (code);
+
+ALTER TABLE lifeos_partner_summaries ENABLE ROW LEVEL SECURITY;
+
+-- Self-only for any Supabase-context access; the server's pg pool scopes by
+-- user_id (writes) / code (the public read) explicitly.
+CREATE POLICY "lifeos_partner_summaries_self_only" ON lifeos_partner_summaries
+    FOR ALL USING (auth.uid() = user_id);
+
+
+-- ===========================================================================
 -- LOCAL-SCHEMA v5 fold (2026-06-17) — device-local app_settings + workouts idx
 --
 -- These mirror the on-device SQLite schema v5 (mobile/src/db/localSchema.ts,

@@ -188,6 +188,10 @@ export default function YouScreen(): React.ReactElement {
       </Text>
       <Card>{OPTIONAL_FEATURES.map(featureRow)}</Card>
 
+      {flags.accountabilityPartner ? (
+        <Card>{linkRow('people-outline', 'Accountability partner', () => router.push('/partner'))}</Card>
+      ) : null}
+
       <SectionTitle>Appearance</SectionTitle>
       <Card>
         <View style={{ flexDirection: 'row' }}>

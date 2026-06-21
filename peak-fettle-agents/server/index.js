@@ -28,6 +28,7 @@ const routinesRoutes     = require('./routes/routines');       // TICKET-055/056
 const insightsRoutes     = require('./routes/insights');       // TICKET-engine spec §4
 const backupRoutes       = require('./routes/backup');         // TICKET-094-B §4 Agent F
 const lifeosRoutes       = require('./routes/lifeos');         // LIFEOS TICKET-111
+const partnerRoutes      = require('./routes/partner');        // LIFEOS TICKET-121 (public, code-based)
 const { errorHandler } = require('./middleware/errorHandler');
 const { requireAuth }  = require('./middleware/requireAuth');
 
@@ -64,6 +65,17 @@ app.use(cors({ origin: allowedOrigin }));
 const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'too_many_requests' },
+});
+
+// LIFEOS TICKET-121: the partner-view endpoint is PUBLIC (the code is the
+// capability), so rate-limit hard to make code enumeration infeasible. 30
+// reads/min per IP is ample for a partner refreshing a daily summary.
+const partnerLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 30,
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'too_many_requests' },
@@ -132,6 +144,9 @@ app.use('/health-metrics', requireAuth, healthMetricsRoutes);
 // Phase C — TICKET-014: GDPR data export + account deletion
 app.use('/user', requireAuth, userRoutes);
 app.use('/lifeos', requireAuth, lifeosRoutes); // LIFEOS TICKET-111 — entitlement re-checked inside
+// LIFEOS TICKET-121 — PUBLIC partner view (NO requireAuth; the code is the
+// capability). Hard rate-limited; returns only the opaque summary string.
+app.use('/partner', partnerLimiter, partnerRoutes);
 
 // PL-2: CSV import (Garmin / Strava) — auth required
 app.use('/import', requireAuth, csvImportRoutes);

@@ -120,4 +120,62 @@ router.get('/whole-person-streak', async (req, res, next) => {
     } catch (err) { next(err); }
 });
 
+// ---------------------------------------------------------------------------
+// LIFEOS TICKET-121 — accountability partner (Q33 option a).
+// The user (paid) POSTs an OPAQUE, client-composed daily summary string keyed by
+// a high-entropy capability code they share with ONE partner. The partner reads
+// it via the PUBLIC GET /partner/:code (routes/partner.js — no auth). The server
+// stores ONLY {user_id, code, summary, updated_at}; it never sees raw habit/mood/
+// blocked-app data (the client guarantees the payload is a summary). Feature is
+// OFF by default; the client only calls these when the user opts in + pairs.
+// ---------------------------------------------------------------------------
+const PartnerSummarySchema = z.object({
+    // Capability token: URL-safe, ≥128-bit (32+ chars). Generated on-device.
+    code: z.string().regex(/^[A-Za-z0-9_-]{32,64}$/),
+    // A SUMMARY, not raw data — capped so it can't smuggle a payload.
+    summaryText: z.string().min(1).max(280),
+});
+
+// POST /lifeos/partner/summary — upsert the latest summary (one per user).
+// Atomic paid re-check (mirrors activity-ping) closes the middleware check-then-act gap.
+router.post('/partner/summary', async (req, res, next) => {
+    try {
+        const parsed = PartnerSummarySchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: 'invalid_partner_summary' });
+        }
+        const { code, summaryText } = parsed.data;
+        const { rowCount } = await pool.query(
+            `INSERT INTO lifeos_partner_summaries (user_id, code, summary_text, updated_at)
+             SELECT $1, $2, $3, now()
+             WHERE EXISTS (
+                 SELECT 1 FROM users WHERE id = $1 AND tier = 'paid' AND deleted_at IS NULL
+             )
+             ON CONFLICT (user_id) DO UPDATE
+               SET code = EXCLUDED.code, summary_text = EXCLUDED.summary_text, updated_at = now()`,
+            [req.user.id, code, summaryText]
+        );
+        if (rowCount === 0) {
+            return res.status(403).json({ error: 'lifeos_access_required' });
+        }
+        res.status(204).end();
+    } catch (err) {
+        // UNIQUE(code) collision with another user (astronomically rare) — ask the
+        // client to regenerate the code rather than 500.
+        if (err && err.code === '23505') {
+            return res.status(409).json({ error: 'code_collision' });
+        }
+        next(err);
+    }
+});
+
+// DELETE /lifeos/partner/summary — revoke: removes the row (the shared code stops
+// resolving immediately). Idempotent.
+router.delete('/partner/summary', async (req, res, next) => {
+    try {
+        await pool.query(`DELETE FROM lifeos_partner_summaries WHERE user_id = $1`, [req.user.id]);
+        res.status(204).end();
+    } catch (err) { next(err); }
+});
+
 module.exports = router;
