@@ -16,6 +16,7 @@
 import WidgetKit
 import SwiftUI
 import ActivityKit
+import AppIntents
 
 // MARK: - Shared payload (mirrors LifeOSWidgetPayload in widgetBridge.ts)
 
@@ -33,6 +34,7 @@ struct WidgetThemeData: Codable {
 }
 
 struct TodayHabitData: Codable, Hashable {
+    var id: String?   // optional so a stale payload (pre-TICKET-117) still decodes
     var name: String
     var icon: String
     var done: Bool
@@ -59,10 +61,10 @@ struct LifeOSWidgetData: Codable {
             streakDays: 5, longestStreakDays: 21, milestone: nil,
             habitsDoneToday: 2, habitsTotalToday: 4,
             todayHabits: [
-                .init(name: "Read 10 pages", icon: "book", done: true),
-                .init(name: "Stretch", icon: "figure.walk", done: true),
-                .init(name: "Brush teeth", icon: "sparkles", done: false),
-                .init(name: "Wash face", icon: "drop", done: false),
+                .init(id: "seed-1", name: "Read 10 pages", icon: "book", done: true),
+                .init(id: "seed-2", name: "Stretch", icon: "figure.walk", done: true),
+                .init(id: "seed-3", name: "Brush teeth", icon: "sparkles", done: false),
+                .init(id: "seed-4", name: "Wash face", icon: "drop", done: false),
             ],
             blocksHeldToday: 3, reclaimedMinToday: 47,
             focusActive: false, focusName: nil, focusEndsAt: nil,
@@ -206,11 +208,87 @@ struct StreakRingView: View {
     }
 }
 
-// MARK: - Today's habits widget (display + deep link; interactive = TICKET-117)
+// MARK: - Interactive check-off (TICKET-117, iOS 17+ App Intents)
+
+/// Local YYYY-MM-DD day key (matches the TS dayKey() the RN drain expects).
+private func todayDayKey() -> String {
+    let f = DateFormatter()
+    f.dateFormat = "yyyy-MM-dd"
+    f.calendar = Calendar.current
+    f.timeZone = TimeZone.current
+    return f.string(from: Date())
+}
+
+/// Tapping a habit checkbox in the widget appends a pending toggle to the App
+/// Group; the app drains it (drainPendingToggles in widgetBridge.ts) on next
+/// foreground and writes the lo_habit_logs row via the TICKET-103 path. The
+/// extension cannot touch the RN SQLite DB, so this hand-off is the contract.
+@available(iOS 17.0, *)
+struct ToggleHabitIntent: AppIntent {
+    static var title: LocalizedStringResource = "Mark habit done"
+
+    @Parameter(title: "Habit ID")
+    var habitId: String
+
+    init() {}
+    init(habitId: String) { self.habitId = habitId }
+
+    func perform() async throws -> some IntentResult {
+        if let defaults = UserDefaults(suiteName: APP_GROUP) {
+            let key = "pending_habit_toggles"
+            var arr: [[String: String]] = []
+            if let raw = defaults.string(forKey: key),
+               let data = raw.data(using: .utf8),
+               let parsed = try? JSONDecoder().decode([[String: String]].self, from: data) {
+                arr = parsed
+            }
+            arr.append([
+                "habitId": habitId,
+                "date": todayDayKey(),
+                "ts": ISO8601DateFormatter().string(from: Date()),
+            ])
+            if let out = try? JSONEncoder().encode(arr), let s = String(data: out, encoding: .utf8) {
+                defaults.set(s, forKey: key)
+            }
+        }
+        WidgetCenter.shared.reloadAllTimelines()
+        return .result()
+    }
+}
+
+// MARK: - Today's habits widget (display + deep link; iOS 17+ interactive check-off)
 
 struct TodayHabitsView: View {
     let data: LifeOSWidgetData
     var p: Palette { Palette(data.theme) }
+
+    @ViewBuilder
+    private func rowLabel(_ h: TodayHabitData) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: h.done ? "checkmark.circle.fill" : "circle")
+                .foregroundColor(h.done ? p.accent : p.muted)
+            Text(h.name)
+                .font(.subheadline)
+                .strikethrough(h.done, color: p.muted)
+                .foregroundColor(h.done ? p.muted : p.text)
+                .lineLimit(1)
+            Spacer()
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(h.name), \(h.done ? "done" : "not done")")
+    }
+
+    @ViewBuilder
+    private func habitRow(_ h: TodayHabitData) -> some View {
+        // iOS 17+ with a known id: tap toggles WITHOUT opening the app.
+        // Otherwise fall back to the deep-link row (iOS 16, or a stale payload).
+        if #available(iOS 17.0, *), let hid = h.id {
+            Button(intent: ToggleHabitIntent(habitId: hid)) { rowLabel(h) }
+                .buttonStyle(.plain)
+        } else {
+            Link(destination: URL(string: "lifeos://habits")!) { rowLabel(h) }
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -229,20 +307,7 @@ struct TodayHabitsView: View {
                 // No prefix cap here — the bridge already caps at MAX_TODAY_HABITS
                 // (single source of truth); capping again would silently drop a row.
                 ForEach(data.todayHabits, id: \.self) { h in
-                    Link(destination: URL(string: "lifeos://habits")!) {
-                        HStack(spacing: 8) {
-                            Image(systemName: h.done ? "checkmark.circle.fill" : "circle")
-                                .foregroundColor(h.done ? p.accent : p.muted)
-                            Text(h.name)
-                                .font(.subheadline)
-                                .strikethrough(h.done, color: p.muted)
-                                .foregroundColor(h.done ? p.muted : p.text)
-                                .lineLimit(1)
-                            Spacer()
-                        }
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityLabel("\(h.name), \(h.done ? "done" : "not done")")
-                    }
+                    habitRow(h)
                 }
             }
             Spacer(minLength: 0)

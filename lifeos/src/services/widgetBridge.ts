@@ -26,15 +26,18 @@
  * must never crash Android, Expo Go, or a logging flow.
  */
 
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { localDb, dayKey } from '../db/localDb';
+import { logHabit } from '../data/habits';
 import { addDays, aggregateDailyStatus, computeStreak, type LogStatus } from '../engine/streaks';
 import { summitDark, summitLight, type Theme } from '../theme/tokens';
 
 export const APP_GROUP = 'group.com.peakfettle.lifeos';
 export const WIDGET_PAYLOAD_KEY = 'widget_payload';
+/** App-Group key the iOS 17 ToggleHabitIntent appends pending check-offs to (TICKET-117). */
+export const PENDING_TOGGLES_KEY = 'pending_habit_toggles';
 
 /** Mirror of ThemeContext STORAGE_KEY (where the theme mode persists). */
 const THEME_STORAGE_KEY = 'lifeos.themeMode';
@@ -72,6 +75,8 @@ export interface WidgetTheme {
 }
 
 export interface TodayHabit {
+  /** Habit id — needed by the interactive check-off AppIntent (TICKET-117). */
+  id: string;
   name: string;
   icon: string;
   done: boolean;
@@ -158,6 +163,7 @@ export async function buildWidgetPayload(now: Date = new Date()): Promise<LifeOS
   );
   const doneSet = new Set(doneRows.map((r) => r.habit_id));
   const todayHabits: TodayHabit[] = habitRows.map((h) => ({
+    id: h.id,
     name: h.name,
     icon: h.icon,
     done: doneSet.has(h.id),
@@ -235,18 +241,22 @@ export async function buildWidgetPayload(now: Date = new Date()): Promise<LifeOS
 // Native write (iOS only; no-ops everywhere else)
 // ---------------------------------------------------------------------------
 
+type StorageInstance = {
+  set: (key: string, value: string) => void;
+  get: (key: string) => string | null;
+};
 type ExtensionStorageModule = {
   ExtensionStorage: {
-    new (group: string): { set: (key: string, value: string) => void };
+    new (group: string): StorageInstance;
     reloadWidget: (name?: string) => void;
   };
 };
 
-let storageInstance: { set: (key: string, value: string) => void } | null = null;
+let storageInstance: StorageInstance | null = null;
 let reloadFn: ((name?: string) => void) | null = null;
 let nativeUnavailable = false;
 
-function getStorage(): { set: (key: string, value: string) => void } | null {
+function getStorage(): StorageInstance | null {
   if (Platform.OS !== 'ios' || nativeUnavailable) return null;
   if (storageInstance) return storageInstance;
   try {
@@ -276,6 +286,48 @@ export async function refreshWidget(now: Date = new Date()): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Interactive check-off drain (TICKET-117)
+// ---------------------------------------------------------------------------
+
+/**
+ * Apply pending widget check-offs. The iOS 17 ToggleHabitIntent appends
+ * {habitId, date} entries to the App Group (it can't write the RN SQLite DB
+ * directly); here we read the queue, apply each through the TICKET-103 logging
+ * path (idempotent UNIQUE(habit_id,date) upsert — double-taps are harmless), and
+ * clear it. Unknown/archived habit ids are dropped. Never throws.
+ */
+export async function drainPendingToggles(): Promise<void> {
+  try {
+    const storage = getStorage();
+    if (!storage) return;
+    const raw = storage.get(PENDING_TOGGLES_KEY);
+    if (!raw) return;
+    let toggles: Array<{ habitId?: string; date?: string }>;
+    try {
+      toggles = JSON.parse(raw) as Array<{ habitId?: string; date?: string }>;
+    } catch {
+      storage.set(PENDING_TOGGLES_KEY, '[]'); // discard a corrupt queue
+      return;
+    }
+    if (!Array.isArray(toggles) || toggles.length === 0) return;
+    // Clear right after reading to minimise the window where a concurrently
+    // appended toggle could be lost; the idempotent upsert makes re-apply safe.
+    storage.set(PENDING_TOGGLES_KEY, '[]');
+
+    const validIds = new Set(
+      (await localDb.getAll<{ id: string }>(`SELECT id FROM lo_habits WHERE archived_at IS NULL`)).map((r) => r.id),
+    );
+    for (const t of toggles) {
+      if (!t || typeof t.habitId !== 'string' || !validIds.has(t.habitId)) continue;
+      const date = typeof t.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(t.date) ? t.date : dayKey();
+      await logHabit(t.habitId, 'done', date); // TICKET-103 path — no duplicate streak logic
+    }
+  } catch {
+    // Drain must never break the app.
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Lifecycle — call startWidgetBridge() once from the root layout.
 // ---------------------------------------------------------------------------
 
@@ -286,7 +338,14 @@ export function startWidgetBridge(): void {
   if (started || Platform.OS !== 'ios') return;
   started = true;
 
-  void refreshWidget();
+  // Apply any pending widget check-offs, then publish the fresh payload.
+  void drainPendingToggles().then(() => refreshWidget());
+
+  // Drain again on every foreground — the user may have checked off a habit from
+  // the widget while the app was backgrounded (TICKET-117).
+  AppState.addEventListener('change', (state) => {
+    if (state === 'active') void drainPendingToggles().then(() => refreshWidget());
+  });
 
   localDb.subscribe((tables: Set<string>) => {
     let relevant = false;
