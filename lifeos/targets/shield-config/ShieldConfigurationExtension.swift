@@ -2,15 +2,16 @@
 //
 // Copy rules (CONTENT_SAFETY.md §3): supportive, never shaming; the escape
 // route ("Keep me blocked") is equally prominent. PRODUCT_NAME is duplicated
-// here because extensions can't import the RN bundle — keep in sync with
-// lifeos/src/config/product.ts when Q7 lands.
+// here because extensions can't import the RN bundle — this `productName`
+// constant is the single Swift source of truth; keep it in sync with
+// lifeos/src/config/product.ts (PRODUCT_NAME). Q7 RESOLVED 2026-06-20.
 
 import ManagedSettings
 import ManagedSettingsUI
 import UIKit
 
 class ShieldConfigurationExtension: ShieldConfigurationDataSource {
-  private let productName = "Peak Fettle Life OS" // WORKING TITLE — Q7 pending
+  private let productName = "Peak Fettle LifeOS" // Q7 RESOLVED 2026-06-20 (= PRODUCT_NAME)
 
   private func makeConfig(subtitleText: String) -> ShieldConfiguration {
     ShieldConfiguration(
