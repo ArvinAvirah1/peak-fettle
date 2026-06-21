@@ -134,6 +134,32 @@ function chainEndingAt(logs: Map<string, LogStatus>, end: string, endIsPending: 
   return count;
 }
 
+// --- daily aggregation (whole-person ring / widget) -----------------------------
+
+/**
+ * Collapse per-habit log rows into one status per day for an at-a-glance,
+ * cross-habit "showing-up" chain (the widget streak ring, TICKET-116):
+ *   any 'done' that day => 'done'; else any 'rest' => 'rest'; else 'skip'.
+ * Pure (no RN/DB deps) so the widget bridge and unit tests share ONE definition.
+ * Feed the result straight into computeStreak for an authoritative ring count.
+ */
+export function aggregateDailyStatus(
+  rows: { date: string; status: LogStatus }[],
+): Map<string, LogStatus> {
+  const map = new Map<string, LogStatus>();
+  for (const r of rows) {
+    const prev = map.get(r.date);
+    if (r.status === 'done' || prev === 'done') {
+      map.set(r.date, 'done');
+    } else if (r.status === 'rest' || prev === 'rest') {
+      map.set(r.date, 'rest');
+    } else {
+      map.set(r.date, 'skip');
+    }
+  }
+  return map;
+}
+
 // --- consistency (goals + insights) ---------------------------------------------
 
 /**

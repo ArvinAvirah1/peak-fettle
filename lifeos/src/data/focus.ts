@@ -91,11 +91,17 @@ export async function deleteFocusConfig(id: string): Promise<void> {
 
 // --- friction events (local telemetry → insights) ----------------------------------
 
+// WIDGET CONTRACT (TICKET-116, mirrored in src/services/widgetBridge.ts):
+//   • The widget "blocks held" count reads `'unlock_abandoned'` events (same kind
+//     insights.ts counts) — keep that the canonical block-held kind.
+//   • The widget "reclaimed minutes" sums `meta.minutes` on today's focus events,
+//     so when wiring the focus flow (TICKET-104) pass `meta.minutes` on the
+//     session-end / block-held emits (e.g. logFocusEvent('session_ended', { minutes })).
 export type FocusEventKind =
   | 'shield_shown'
   | 'unlock_started'
   | 'unlock_completed'
-  | 'unlock_abandoned' // "block held" — the Opal-style win metric
+  | 'unlock_abandoned' // "block held" — the Opal-style win metric (widget + insights)
   | 'snooze_used'
   | 'session_started'
   | 'session_ended';

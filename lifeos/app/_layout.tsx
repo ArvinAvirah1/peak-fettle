@@ -19,6 +19,7 @@ import { ThemeProvider, useTheme } from '../src/theme/ThemeContext';
 import { AuthProvider } from '../src/auth/AuthContext';
 import { localDb } from '../src/db/localDb';
 import { blocking, isBlockingAvailable } from '../src/native/blocking';
+import { startWidgetBridge } from '../src/services/widgetBridge';
 
 function PendingUnlockWatcher(): null {
   const router = useRouter();
@@ -78,7 +79,10 @@ function RootStack(): React.ReactElement {
 
 export default function RootLayout(): React.ReactElement {
   useEffect(() => {
-    void localDb.init();
+    // Init the local DB, then start the widget bridge (iOS-only, idempotent,
+    // self-guarded) so the first payload build queries an initialised DB. The
+    // bridge then re-publishes on watched-table changes (TICKET-116).
+    void localDb.init().then(() => startWidgetBridge());
   }, []);
 
   return (
