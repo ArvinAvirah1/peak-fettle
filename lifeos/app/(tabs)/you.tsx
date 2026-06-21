@@ -218,6 +218,11 @@ export default function YouScreen(): React.ReactElement {
         </View>
       </Card>
 
+      <SectionTitle>Reminders</SectionTitle>
+      <Card>
+        {linkRow('notifications-outline', 'Reminders', () => router.push('/reminders'))}
+      </Card>
+
       <SectionTitle>Privacy & support</SectionTitle>
       <Card>
         {linkRow('shield-checkmark-outline', 'How we handle your data', () => router.push('/data-handling'))}

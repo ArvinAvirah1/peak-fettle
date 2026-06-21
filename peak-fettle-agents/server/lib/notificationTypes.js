@@ -24,6 +24,9 @@ const NOTIFICATION_TYPES = Object.freeze({
     LO_MOOD_PROMPT:    'lo_mood_prompt',
     LO_WEEKLY_REVIEW:  'lo_weekly_review',
     LO_MICRO_CHECK:    'lo_micro_check',
+    // TICKET-123/124 — identity affirmations (local notification, opt-in,
+    // copy never references missed days; CONTENT_SAFETY.md §6).
+    LO_AFFIRMATION:    'lo_affirmation',
 });
 
 module.exports = { NOTIFICATION_TYPES };

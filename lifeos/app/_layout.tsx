@@ -73,6 +73,7 @@ function RootStack(): React.ReactElement {
       <Stack.Screen name="focus-editor" options={{ presentation: 'modal', title: 'Focus rule' }} />
       <Stack.Screen name="data-handling" options={{ title: 'Your data' }} />
       <Stack.Screen name="crisis-help" options={{ title: 'Need help?' }} />
+      <Stack.Screen name="reminders" options={{ title: 'Reminders' }} />
     </Stack>
   );
 }
