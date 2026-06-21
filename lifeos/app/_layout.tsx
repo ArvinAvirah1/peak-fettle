@@ -76,6 +76,7 @@ function RootStack(): React.ReactElement {
       <Stack.Screen name="reminders" options={{ title: 'Reminders' }} />
       <Stack.Screen name="partner" options={{ title: 'Accountability partner' }} />
       <Stack.Screen name="share-card" options={{ title: 'Milestone card', presentation: 'modal' }} />
+      <Stack.Screen name="app-wellbeing" options={{ title: 'App wellbeing' }} />
     </Stack>
   );
 }

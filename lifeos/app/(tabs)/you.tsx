@@ -17,6 +17,7 @@ import { buildWeeklyRecap, CorrelationInsight, moodHabitCorrelation, WeeklyRecap
 import { PRODUCT_NAME } from '../../src/config/product';
 import { OPTIONAL_FEATURES, type OptionalFeature } from '../../src/config/features';
 import { useFeatureFlags } from '../../src/hooks/useFeatureFlags';
+import { WeeklyScoreCard } from '../../src/features/appscore/WeeklyScoreCard';
 
 export default function YouScreen(): React.ReactElement {
   const { theme, mode, setMode } = useTheme();
@@ -167,6 +168,9 @@ export default function YouScreen(): React.ReactElement {
         </Card>
       ) : null}
 
+      {/* App wellbeing weekly score — self-guards on the flag + on having ratings. */}
+      <WeeklyScoreCard />
+
       <SectionTitle>Your plan</SectionTitle>
       <Card>
         {linkRow('refresh-outline', 'Re-run the survey', () => router.push('/onboarding/survey'))}
@@ -190,6 +194,9 @@ export default function YouScreen(): React.ReactElement {
 
       {flags.accountabilityPartner ? (
         <Card>{linkRow('people-outline', 'Accountability partner', () => router.push('/partner'))}</Card>
+      ) : null}
+      {flags.appWellbeingScoring ? (
+        <Card>{linkRow('apps-outline', 'Tag your apps', () => router.push('/app-wellbeing'))}</Card>
       ) : null}
 
       <SectionTitle>Appearance</SectionTitle>
