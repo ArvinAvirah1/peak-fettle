@@ -1,0 +1,36 @@
+{
+  "cli": {
+    "version": ">= 18.13.0",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "http://localhost:3001",
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "1072305096048-0s6442edsboauv08ini438h0kciohd1j.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "1072305096048-ejtlkujpl086kogc45q5vrnvapdr8v30.apps.googleusercontent.com"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://peak-fettle-production.up.railway.app",
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "1072305096048-0s6442edsboauv08ini438h0kciohd1j.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "1072305096048-ejtlkujpl086kogc45q5vrnvapdr8v30.apps.googleusercontent.com"
+      }
+    },
+    "production": {
+      "autoIncrement": true,
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://peak-fettle-production.up.railway.app",
+        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "1072305096048-0s6442edsboauv08ini438h0kciohd1j.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "1072305096048-ejtlkujpl086kogc45q5vrnvapdr8v30.apps.googleusercontent.com"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}

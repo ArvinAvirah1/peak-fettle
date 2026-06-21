@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Peak Fettle Life OS",
+    "name": "Peak Fettle LifeOS",
     "slug": "pf-lifeos",
     "version": "0.1.0",
     "orientation": "portrait",
@@ -11,7 +11,8 @@
       "bundleIdentifier": "com.peakfettle.lifeos",
       "supportsTablet": false,
       "infoPlist": {
-        "UIBackgroundModes": []
+        "UIBackgroundModes": [],
+        "NSSupportsLiveActivities": true
       },
       "entitlements": {
         "com.apple.security.application-groups": ["group.com.peakfettle.lifeos"],
@@ -53,6 +54,58 @@
     ],
     "experiments": {
       "typedRoutes": false
+    },
+    "extra": {
+      "eas": {
+        "projectId": "PENDING-run-eas-init-see-TICKET-114",
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "targetName": "LifeOSWidget",
+                  "bundleIdentifier": "com.peakfettle.lifeos.widget",
+                  "entitlements": {
+                    "com.apple.security.application-groups": ["group.com.peakfettle.lifeos"]
+                  }
+                },
+                {
+                  "targetName": "LifeOSDeviceActivityMonitor",
+                  "bundleIdentifier": "com.peakfettle.lifeos.monitor",
+                  "entitlements": {
+                    "com.apple.developer.family-controls": true,
+                    "com.apple.security.application-groups": ["group.com.peakfettle.lifeos"]
+                  }
+                },
+                {
+                  "targetName": "LifeOSShieldConfig",
+                  "bundleIdentifier": "com.peakfettle.lifeos.shield",
+                  "entitlements": {
+                    "com.apple.developer.family-controls": true,
+                    "com.apple.security.application-groups": ["group.com.peakfettle.lifeos"]
+                  }
+                },
+                {
+                  "targetName": "LifeOSShieldAction",
+                  "bundleIdentifier": "com.peakfettle.lifeos.shieldaction",
+                  "entitlements": {
+                    "com.apple.developer.family-controls": true,
+                    "com.apple.security.application-groups": ["group.com.peakfettle.lifeos"]
+                  }
+                },
+                {
+                  "targetName": "LifeOSActivityReport",
+                  "bundleIdentifier": "com.peakfettle.lifeos.report",
+                  "entitlements": {
+                    "com.apple.developer.family-controls": true,
+                    "com.apple.security.application-groups": ["group.com.peakfettle.lifeos"]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
     }
   }
 }

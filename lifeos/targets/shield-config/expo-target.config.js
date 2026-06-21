@@ -2,6 +2,8 @@
 module.exports = {
   type: 'shield-configuration',
   name: 'LifeOSShieldConfig',
+  // ".shield" -> com.peakfettle.lifeos.shield
+  bundleIdentifier: '.shield',
   deploymentTarget: '16.0',
   entitlements: {
     'com.apple.developer.family-controls': true,
