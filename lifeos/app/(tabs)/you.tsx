@@ -6,7 +6,7 @@
  */
 
 import React, { useCallback, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Pressable, Switch, Text, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { Card, PFButton, ScreenLayout, SectionTitle } from '../../src/components/ui';
@@ -15,12 +15,15 @@ import { fontFamily, fontSize, HIT_TARGET, spacing } from '../../src/theme/token
 import { useAuth } from '../../src/auth/AuthContext';
 import { buildWeeklyRecap, CorrelationInsight, moodHabitCorrelation, WeeklyRecap } from '../../src/data/insights';
 import { PRODUCT_NAME } from '../../src/config/product';
+import { OPTIONAL_FEATURES, type OptionalFeature } from '../../src/config/features';
+import { useFeatureFlags } from '../../src/hooks/useFeatureFlags';
 
 export default function YouScreen(): React.ReactElement {
   const { theme, mode, setMode } = useTheme();
   const c = theme.colors;
   const router = useRouter();
   const { profile, logout } = useAuth();
+  const { flags, setFlag } = useFeatureFlags();
 
   const [recap, setRecap] = useState<WeeklyRecap | null>(null);
   const [correlation, setCorrelation] = useState<CorrelationInsight | null>(null);
@@ -60,6 +63,36 @@ export default function YouScreen(): React.ReactElement {
       </Text>
       <Ionicons name="chevron-forward-outline" size={16} color={c.textTertiary} />
     </Pressable>
+  );
+
+  const featureRow = (f: OptionalFeature): React.ReactElement => (
+    <View
+      key={f.key}
+      style={{ flexDirection: 'row', alignItems: 'center', minHeight: HIT_TARGET, paddingVertical: spacing.s2 }}
+    >
+      <View style={{ flex: 1, paddingRight: spacing.s3 }}>
+        <Text style={{ color: c.textPrimary, fontFamily: fontFamily.medium, fontSize: fontSize.bodyMd }}>{f.label}</Text>
+        <Text
+          style={{
+            color: c.textTertiary,
+            fontFamily: fontFamily.regular,
+            fontSize: fontSize.caption,
+            lineHeight: 17,
+            marginTop: 2,
+          }}
+        >
+          {f.description}
+        </Text>
+      </View>
+      <Switch
+        value={flags[f.key]}
+        onValueChange={(on) => void setFlag(f.key, on)}
+        trackColor={{ true: c.accentDefault, false: c.borderDefault }}
+        ios_backgroundColor={c.borderDefault}
+        accessibilityLabel={f.label}
+        accessibilityState={{ checked: flags[f.key] }}
+      />
+    </View>
   );
 
   return (
@@ -140,6 +173,20 @@ export default function YouScreen(): React.ReactElement {
         {linkRow('trail-sign-outline', 'Review plan proposals', () => router.push('/onboarding/plan-reveal'))}
         {linkRow('calendar-outline', 'Weekly review', () => router.push('/weekly-review'))}
       </Card>
+
+      <SectionTitle>Features</SectionTitle>
+      <Text
+        style={{
+          color: c.textTertiary,
+          fontFamily: fontFamily.regular,
+          fontSize: fontSize.caption,
+          lineHeight: 17,
+          marginBottom: spacing.s2,
+        }}
+      >
+        Optional extras — all off until you turn them on.
+      </Text>
+      <Card>{OPTIONAL_FEATURES.map(featureRow)}</Card>
 
       <SectionTitle>Appearance</SectionTitle>
       <Card>

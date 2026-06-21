@@ -196,4 +196,10 @@ export const BACKUP_TABLES: string[] = [
   'lo_mood_checkins',
   'lo_exercise_completions',
   'lo_weekly_reviews',
+  // schema v2 (TICKET-119) — additive feature tables that ARE portable.
+  'lo_share_events',
+  'lo_partner',
+  'lo_affirmations',
+  // NOTE: lo_app_ratings is deliberately excluded — it is keyed to device-scoped
+  // FamilyActivity token labels (re-tag on restore, same rule as lo_focus_configs).
 ];

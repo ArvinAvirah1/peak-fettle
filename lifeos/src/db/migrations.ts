@@ -18,7 +18,28 @@ type Migration = { to: number; run: (db: Db) => Promise<void> };
 
 /** v2+ migrations append here. Keep them additive and idempotent where possible. */
 const MIGRATIONS: Migration[] = [
-  // { to: 2, run: async (db) => { await db.execute('ALTER TABLE lo_habits ADD COLUMN color TEXT'); } },
+  {
+    // TICKET-119 schema v2 — additive tables for the four optional v3 features.
+    // CREATE ... IF NOT EXISTS keeps it idempotent + drift-tolerant (CLAUDE.md #4).
+    // lo_app_ratings is intentionally NOT in BACKUP_TABLES (keyed to device-scoped
+    // FamilyActivity tokens — re-tag on restore, same rule as lo_focus_configs).
+    to: 2,
+    run: async (db) => {
+      await db.execute(`CREATE TABLE IF NOT EXISTS lo_app_ratings (
+        token_label TEXT PRIMARY KEY,
+        rating TEXT NOT NULL CHECK (rating IN ('energizing','neutral','draining')),
+        updated_at TEXT NOT NULL)`);
+      await db.execute(`CREATE TABLE IF NOT EXISTS lo_share_events (
+        id TEXT PRIMARY KEY, kind TEXT NOT NULL, ref TEXT, ts TEXT NOT NULL)`);
+      await db.execute(`CREATE TABLE IF NOT EXISTS lo_partner (
+        id TEXT PRIMARY KEY DEFAULT 'self', partner_label TEXT, invite_code TEXT,
+        share_scope_json TEXT NOT NULL DEFAULT '{}', paused INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL)`);
+      await db.execute(`CREATE TABLE IF NOT EXISTS lo_affirmations (
+        id TEXT PRIMARY KEY, text TEXT NOT NULL, identity_tag TEXT,
+        enabled INTEGER NOT NULL DEFAULT 1, source TEXT NOT NULL DEFAULT 'user')`);
+    },
+  },
 ];
 
 export async function runMigrations(db: Db): Promise<void> {
