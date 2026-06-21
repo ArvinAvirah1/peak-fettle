@@ -24,7 +24,7 @@
  * P2-007: Reanimated spring slide-up on AddConstraintModal open.
  */
 
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -40,6 +40,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Switch,
+  Linking,
 } from 'react-native';
 import Animated, {
   useSharedValue,
@@ -49,6 +50,8 @@ import Animated, {
 import { useRouter } from 'expo-router';
 import { Ionicons } from '../../src/components/Icon';
 import { useAuth } from '../../src/hooks/useAuth';
+import { useLocalStreak } from '../../src/hooks/useStreak';
+import { getWholePersonStreak } from '../../src/api/lifeos';
 import {
   getConstraints,
   addConstraint,
@@ -97,6 +100,140 @@ const PRESET_CONSTRAINTS = [
   { type: 'no_cables', label: 'No Cables' },
   { type: 'bodyweight_only', label: 'Bodyweight Only' },
 ];
+
+// ---------------------------------------------------------------------------
+// TICKET-125: LifeOS companion card constants
+// ---------------------------------------------------------------------------
+
+/**
+ * PLACEHOLDER — founder must replace with the real App Store ID once the
+ * LifeOS app is published. Do NOT invent a real id.
+ */
+const LIFEOS_APPSTORE_URL = 'https://apps.apple.com/app/idPLACEHOLDER';
+
+/** Deep-link scheme registered by the LifeOS companion app. */
+const LIFEOS_DEEP_LINK = 'lifeos://';
+
+// ---------------------------------------------------------------------------
+// TICKET-125: LifeOS companion card
+// ---------------------------------------------------------------------------
+
+/**
+ * LifeOSCard — surfaces the LifeOS companion app from the fitness app's
+ * profile tab (Q32 option a).
+ *
+ * LOCAL-FIRST INVARIANT:
+ *   - FREE users: streak shown from on-device SQLite (useLocalStreak), NO
+ *     network call on mount.
+ *   - PRO users: streak starts from local value, then updates non-blocking
+ *     once GET /lifeos/whole-person-streak resolves (or stays local on error).
+ */
+function LifeOSCard(): React.ReactElement {
+  const { user } = useAuth();
+  const { theme } = useTheme();
+  const isPro = !!user?.is_paid;
+
+  // Local streak — reads on-device SQLite for free users (no REST on mount).
+  // For Pro we pass 0/false as placeholders; the hook returns them unchanged
+  // while we separately fetch the whole-person streak below.
+  const { streak: localStreak, isLoading: streakLoading } = useLocalStreak(0, false);
+
+  // For Pro users: non-blocking fetch of the whole-person streak.
+  // Starts at the local value and updates when the server responds.
+  const [displayStreak, setDisplayStreak] = useState<number>(0);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
+
+  // Mirror localStreak into displayStreak once it resolves.
+  useEffect(() => {
+    if (!streakLoading) {
+      setDisplayStreak(localStreak);
+    }
+  }, [localStreak, streakLoading]);
+
+  // Pro-only: try to upgrade displayStreak with the server whole-person value.
+  // FREE users: this branch is never entered — no network call on mount.
+  useEffect(() => {
+    if (!isPro) return;
+    let cancelled = false;
+    (async () => {
+      const serverStreak = await getWholePersonStreak();
+      if (!cancelled && mountedRef.current && serverStreak !== null) {
+        setDisplayStreak(serverStreak);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isPro]);
+
+  // Detect whether LifeOS is installed; fall back to App Store if not.
+  const [lifeosInstalled, setLifeosInstalled] = useState<boolean>(false);
+  useEffect(() => {
+    Linking.canOpenURL(LIFEOS_DEEP_LINK)
+      .then((can) => { setLifeosInstalled(can); })
+      .catch(() => { setLifeosInstalled(false); });
+  }, []);
+
+  const handleCTA = useCallback(async () => {
+    try {
+      if (lifeosInstalled) {
+        await Linking.openURL(LIFEOS_DEEP_LINK);
+      } else {
+        await Linking.openURL(LIFEOS_APPSTORE_URL);
+      }
+    } catch {
+      // If both fail gracefully do nothing — don't crash.
+    }
+  }, [lifeosInstalled]);
+
+  const ctaLabel = lifeosInstalled
+    ? 'Open LifeOS'
+    : 'Get LifeOS — included with Pro';
+
+  return (
+    <View style={[
+      lifeosCardStyles.card,
+      { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
+    ]}>
+      {/* Header row */}
+      <View style={lifeosCardStyles.headerRow}>
+        <Text style={[lifeosCardStyles.title, { color: theme.colors.textPrimary }]}>
+          LifeOS
+        </Text>
+        <View style={[lifeosCardStyles.badge, { backgroundColor: theme.colors.accentSecondary }]}>
+          <Text style={[lifeosCardStyles.badgeText, { color: theme.colors.accentHover }]}>
+            Companion
+          </Text>
+        </View>
+      </View>
+
+      {/* Streak line */}
+      <Text style={[lifeosCardStyles.streakLine, { color: theme.colors.textSecondary }]}>
+        {streakLoading
+          ? 'Your whole-person streak: —'
+          : `Your whole-person streak: ${displayStreak} day${displayStreak === 1 ? '' : 's'}`}
+      </Text>
+
+      {/* CTA button */}
+      <TouchableOpacity
+        style={[
+          lifeosCardStyles.ctaButton,
+          { backgroundColor: theme.colors.accentDefault },
+        ]}
+        onPress={handleCTA}
+        accessibilityRole="button"
+        accessibilityLabel={ctaLabel}
+        activeOpacity={0.82}
+      >
+        <Text style={[lifeosCardStyles.ctaText, { color: theme.components.buttonPrimaryText }]}>
+          {ctaLabel}
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Section header component
@@ -1045,6 +1182,9 @@ export default function ProfileScreen(): React.ReactElement {
       {/* ── A. User info card ── */}
       <UserInfoCard avatar={avatarConfig} onEditAvatar={() => setAvatarEditorVisible(true)} />
 
+      {/* ── TICKET-125: LifeOS companion card ── */}
+      <LifeOSCard />
+
       {/* ── B. Settings ── */}
       <View style={styles.section}>
         <SectionHeader label="SETTINGS" />
@@ -1890,6 +2030,55 @@ const styles = StyleSheet.create({
   // Shared disabled state
   buttonDisabled: {
     opacity: 0.6,
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Styles — LifeOSCard (TICKET-125)
+// ---------------------------------------------------------------------------
+
+const lifeosCardStyles = StyleSheet.create({
+  card: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    padding: spacing.s4,
+    gap: spacing.s3,
+    marginTop: spacing.s3,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s2,
+  },
+  title: {
+    fontSize: fontSize.bodyLg,
+    fontWeight: fontWeight.semibold,
+  },
+  badge: {
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.s2,
+    paddingVertical: 2,
+  },
+  badgeText: {
+    fontSize: fontSize.caption,
+    fontWeight: fontWeight.semibold,
+    letterSpacing: 0.4,
+  },
+  streakLine: {
+    fontSize: fontSize.bodySm,
+    lineHeight: 20,
+  },
+  ctaButton: {
+    borderRadius: radius.md,
+    paddingVertical: spacing.s3,
+    paddingHorizontal: spacing.s4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44, // WCAG 2.5.5: 44pt touch target
+  },
+  ctaText: {
+    fontSize: fontSize.bodyMd,
+    fontWeight: fontWeight.semibold,
   },
 });
 
