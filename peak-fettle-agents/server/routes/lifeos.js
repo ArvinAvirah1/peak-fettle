@@ -31,6 +31,18 @@ const requirePaid = (req, res, next) => {
         .catch(next);
 };
 
+// REVOCATION must always work — even for a user whose Pro has lapsed. Register the
+// partner-summary DELETE BEFORE requirePaid so any AUTHENTICATED user (free or paid)
+// can stop sharing; the shared code stops resolving immediately. requireAuth (the
+// app-level mount) still applies, so req.user is set and the row is self-scoped.
+// (TICKET-127 security pass — privacy-protective actions must not be tier-gated.)
+router.delete('/partner/summary', async (req, res, next) => {
+    try {
+        await pool.query(`DELETE FROM lifeos_partner_summaries WHERE user_id = $1`, [req.user.id]);
+        res.status(204).end(); // idempotent by design (no rowCount check)
+    } catch (err) { next(err); }
+});
+
 router.use(requirePaid);
 
 const PingSchema = z.object({
@@ -169,13 +181,7 @@ router.post('/partner/summary', async (req, res, next) => {
     }
 });
 
-// DELETE /lifeos/partner/summary — revoke: removes the row (the shared code stops
-// resolving immediately). Idempotent.
-router.delete('/partner/summary', async (req, res, next) => {
-    try {
-        await pool.query(`DELETE FROM lifeos_partner_summaries WHERE user_id = $1`, [req.user.id]);
-        res.status(204).end();
-    } catch (err) { next(err); }
-});
+// (DELETE /lifeos/partner/summary is registered ABOVE requirePaid so revocation
+//  works for any authenticated user regardless of tier — see top of file.)
 
 module.exports = router;

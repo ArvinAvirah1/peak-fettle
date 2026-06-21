@@ -196,6 +196,8 @@ router.get('/data-export', exportLimiter, async (req, res, next) => {
             constraintsResult,
             healthMetricsResult,
             streaksResult,
+            lifeosActivityResult,
+            lifeosPartnerResult,
         ] = await Promise.all([
             pool.query(
                 `SELECT id, email, experience_level, weight_class_kg,
@@ -261,6 +263,17 @@ router.get('/data-export', exportLimiter, async (req, res, next) => {
                  FROM streaks WHERE user_id = $1`,
                 [uid]
             ),
+            // LIFEOS TICKET-127: include the server-side companion data. safeQuery
+            // is drift-tolerant (returns {rows:[]} if the table isn't on prod yet).
+            safeQuery(
+                `SELECT date FROM lifeos_activity_days WHERE user_id = $1 ORDER BY date DESC`,
+                [uid]
+            ),
+            safeQuery(
+                `SELECT code, summary_text, to_char(updated_at, 'YYYY-MM-DD') AS updated_date
+                 FROM lifeos_partner_summaries WHERE user_id = $1`,
+                [uid]
+            ),
         ]);
 
         const exportPayload = {
@@ -275,6 +288,8 @@ router.get('/data-export', exportLimiter, async (req, res, next) => {
                 'physical_constraints',
                 'health_metrics',
                 'streaks',
+                'lifeos_activity_days',
+                'lifeos_partner_summary',
             ],
             profile:              profileResult.rows[0] ?? null,
             workouts:             workoutsResult.rows,
@@ -283,6 +298,8 @@ router.get('/data-export', exportLimiter, async (req, res, next) => {
             physical_constraints: constraintsResult.rows,
             health_metrics:       healthMetricsResult.rows,
             streaks:              streaksResult.rows[0] ?? null,
+            lifeos_activity_days: lifeosActivityResult.rows,
+            lifeos_partner_summary: lifeosPartnerResult.rows[0] ?? null,
         };
 
         // Send as a downloadable JSON file
@@ -343,6 +360,11 @@ router.delete('/account', deleteLimiter, async (req, res, next) => {
             await delGuarded(client, 'sp_percentile',  `DELETE FROM user_percentile_rankings WHERE user_id = $1`, [uid]);
             await delGuarded(client, 'sp_refresh',     `DELETE FROM refresh_tokens        WHERE user_id = $1`, [uid]);
             await delGuarded(client, 'sp_streaks',     `DELETE FROM streaks               WHERE user_id = $1`, [uid]);
+            // LIFEOS TICKET-121/127: the partner summary also FK-cascades on the users
+            // delete below, but delete it explicitly so account-deletion coverage of the
+            // new table is legible and survives any future cascade change.
+            await delGuarded(client, 'sp_lifeos_partner', `DELETE FROM lifeos_partner_summaries WHERE user_id = $1`, [uid]);
+            await delGuarded(client, 'sp_lifeos_activity', `DELETE FROM lifeos_activity_days     WHERE user_id = $1`, [uid]);
             // The core users row MUST delete for the account to be gone — not guarded.
             await client.query(`DELETE FROM users                 WHERE id      = $1`, [uid]);
 

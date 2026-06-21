@@ -34,6 +34,13 @@ const { requireAuth }  = require('./middleware/requireAuth');
 
 const app = express();
 
+// Railway terminates TLS and forwards through one reverse-proxy hop. Without this,
+// req.ip resolves to the internal proxy address, so every express-rate-limit bucket
+// (authLimiter, partnerLimiter) is shared GLOBALLY instead of per client IP — which
+// breaks both brute-force and code-enumeration throttling (TICKET-127 security pass).
+// Trust exactly ONE hop ('1') — not `true`, which trusts a spoofable XFF chain.
+app.set('trust proxy', 1);
+
 // ---------------------------------------------------------------------------
 // N-12: CORS — whitelist-based origin policy.
 // In production, WEB_ORIGIN must be set explicitly. In development it defaults
