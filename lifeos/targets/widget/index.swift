@@ -86,6 +86,16 @@ private func loadPayload() -> LifeOSWidgetData {
     return decoded
 }
 
+// Parse an ISO-8601 string. JS `Date.toISOString()` always emits fractional
+// seconds (e.g. 2026-06-20T12:00:00.000Z), which the DEFAULT ISO8601DateFormatter
+// rejects (returns nil) — so try the fractional-seconds option first, then plain.
+private func parseISODate(_ s: String) -> Date? {
+    let withFrac = ISO8601DateFormatter()
+    withFrac.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let d = withFrac.date(from: s) { return d }
+    return ISO8601DateFormatter().date(from: s)
+}
+
 // MARK: - Color helper (#RRGGBB / #AARRGGBB)
 
 extension Color {
@@ -210,11 +220,15 @@ struct TodayHabitsView: View {
                 Text("\(data.habitsDoneToday)/\(data.habitsTotalToday)")
                     .font(.subheadline).monospacedDigit().foregroundColor(p.muted)
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("Today's habits, \(data.habitsDoneToday) of \(data.habitsTotalToday) done")
             if data.todayHabits.isEmpty {
                 Text("No habits yet — add one to get going.")
                     .font(.caption).foregroundColor(p.muted)
             } else {
-                ForEach(data.todayHabits.prefix(5), id: \.self) { h in
+                // No prefix cap here — the bridge already caps at MAX_TODAY_HABITS
+                // (single source of truth); capping again would silently drop a row.
+                ForEach(data.todayHabits, id: \.self) { h in
                     Link(destination: URL(string: "lifeos://habits")!) {
                         HStack(spacing: 8) {
                             Image(systemName: h.done ? "checkmark.circle.fill" : "circle")
@@ -262,7 +276,7 @@ struct ReclaimedView: View {
             .accessibilityLabel("\(reclaimedLabel) reclaimed today, \(data.blocksHeldToday) blocks held")
         default:
             VStack(alignment: .leading, spacing: 4) {
-                Image(systemName: "shield.lefthalf.filled").foregroundColor(p.accent)
+                Image(systemName: "shield.lefthalf.fill").foregroundColor(p.accent)
                 Spacer()
                 Text(reclaimedLabel)
                     .font(.system(size: 28, weight: .bold, design: .rounded))
@@ -288,11 +302,16 @@ struct FocusStatusView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Image(systemName: data.focusActive ? "moon.fill" : "moon").foregroundColor(p.accent)
+            // Decorative icon — hidden from VoiceOver so it doesn't read the raw
+            // SF Symbol name; the Text/Link below carry the meaning and the Link
+            // stays individually activatable (no .combine on the container).
+            Image(systemName: data.focusActive ? "moon.fill" : "moon")
+                .foregroundColor(p.accent)
+                .accessibilityHidden(true)
             Spacer()
             if data.focusActive, let name = data.focusName {
                 Text(name).font(.headline).foregroundColor(p.text).lineLimit(1)
-                if let endsAt = data.focusEndsAt, let end = ISO8601DateFormatter().date(from: endsAt) {
+                if let endsAt = data.focusEndsAt, let end = parseISODate(endsAt) {
                     Text(end, style: .timer).font(.title3).monospacedDigit().foregroundColor(p.accent)
                 }
             } else {
@@ -305,7 +324,6 @@ struct FocusStatusView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .containerBackgroundCompat(p.bg)
-        .accessibilityElement(children: .combine)
     }
 }
 

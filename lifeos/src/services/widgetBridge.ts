@@ -30,7 +30,7 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { localDb, dayKey } from '../db/localDb';
-import { aggregateDailyStatus, computeStreak, type LogStatus } from '../engine/streaks';
+import { addDays, aggregateDailyStatus, computeStreak, type LogStatus } from '../engine/streaks';
 import { summitDark, summitLight, type Theme } from '../theme/tokens';
 
 export const APP_GROUP = 'group.com.peakfettle.lifeos';
@@ -116,7 +116,9 @@ async function loadThemeColors(): Promise<WidgetTheme> {
     text: c.textPrimary,
     muted: c.textSecondary ?? c.textPrimary,
     warn: c.statusWarning ?? c.accentDefault,
-    ink: c.bgPrimary,
+    // Text that sits ON the accent fill: dark ink in dark mode, light in light
+    // mode. Use the semantic token (NOT bgPrimary, which fails AA on light-mode amber).
+    ink: c.textOnAccent ?? c.bgPrimary,
   };
 }
 
@@ -128,8 +130,18 @@ export async function buildWidgetPayload(now: Date = new Date()): Promise<LifeOS
   const today = dayKey(now);
 
   // --- Streak (authoritative engine over aggregated daily status) ---
+  // Active habits only (mirrors the today-habits query below): archived habits'
+  // logs must not keep the ring alive. Bounded date window: `<= today` so a
+  // future-dated row can't inflate `longest`, and a generous lower bound caps the
+  // scan on long-running installs (the engine walks at most 1830 days, so -2000
+  // is safe and never truncates a real chain).
+  const minDate = addDays(today, -2000);
   const logRows = await localDb.getAll<{ date: string; status: LogStatus }>(
-    `SELECT date, status FROM lo_habit_logs ORDER BY date ASC`,
+    `SELECT l.date, l.status FROM lo_habit_logs l
+       JOIN lo_habits h ON h.id = l.habit_id
+       WHERE h.archived_at IS NULL AND l.date >= ? AND l.date <= ?
+       ORDER BY l.date ASC`,
+    [minDate, today],
   );
   const statusByDay = aggregateDailyStatus(logRows);
   const streak = computeStreak(statusByDay, today);
@@ -161,10 +173,13 @@ export async function buildWidgetPayload(now: Date = new Date()): Promise<LifeOS
   );
   const blocksHeldToday = blocksRow?.n ?? 0;
 
-  // Reclaimed minutes: sum meta_json.minutes across today's events that carry it.
+  // Reclaimed minutes: sum meta_json.minutes ONLY across the event kinds the
+  // contract says carry it (session end + block held), so a future emitter that
+  // attaches meta.minutes to a non-terminal event can't double-count.
   const reclaimRows = await localDb.getAll<{ meta_json: string }>(
-    `SELECT meta_json FROM lo_focus_events WHERE substr(ts, 1, 10) = ?`,
-    [today],
+    `SELECT meta_json FROM lo_focus_events
+       WHERE substr(ts, 1, 10) = ? AND kind IN (?, ?)`,
+    [today, 'session_ended', BLOCK_HELD_KIND],
   );
   let reclaimedMinToday = 0;
   for (const r of reclaimRows) {
@@ -273,7 +288,7 @@ export function startWidgetBridge(): void {
 
   void refreshWidget();
 
-  localDb.subscribe((tables: string[]) => {
+  localDb.subscribe((tables: Set<string>) => {
     let relevant = false;
     for (const t of tables) {
       if (WATCHED_TABLES.has(t)) {
