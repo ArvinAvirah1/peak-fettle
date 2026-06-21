@@ -198,6 +198,9 @@ export default function YouScreen(): React.ReactElement {
       {flags.appWellbeingScoring ? (
         <Card>{linkRow('apps-outline', 'Tag your apps', () => router.push('/app-wellbeing'))}</Card>
       ) : null}
+      {flags.affirmations ? (
+        <Card>{linkRow('sparkles-outline', 'Affirmations', () => router.push('/affirmations'))}</Card>
+      ) : null}
 
       <SectionTitle>Appearance</SectionTitle>
       <Card>

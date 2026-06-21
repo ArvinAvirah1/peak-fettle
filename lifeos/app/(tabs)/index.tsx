@@ -10,6 +10,8 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { useFeatureFlags } from '../../src/hooks/useFeatureFlags';
 import { MilestoneBanner } from '../../src/features/share/MilestoneBanner';
 import { milestoneCrossed, type ShareMilestone } from '../../src/features/share/milestones';
+import { useAffirmations } from '../../src/features/affirmations/useAffirmations';
+import { AffirmationTodayCard } from '../../src/features/affirmations/AffirmationTodayCard';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { Card, EmptyState, PFButton, ScreenLayout, SectionTitle } from '../../src/components/ui';
 import { Ionicons } from '../../src/components/Icon';
@@ -28,6 +30,16 @@ import {
 import { moodForDay, MoodRow, recentMoods } from '../../src/data/mood';
 import { currentWeekReview } from '../../src/data/reviews';
 import { listProtocols } from '../../src/data/protocols';
+
+/**
+ * TICKET-123: today's affirmation. Kept as its own component so useAffirmations()
+ * (which seeds + watches lo_affirmations) only runs when the flag is ON — the
+ * caller conditionally mounts this, so an OFF feature does no work.
+ */
+function TodayAffirmation(): React.ReactElement | null {
+  const { todayLine } = useAffirmations();
+  return todayLine ? <AffirmationTodayCard line={todayLine} /> : null;
+}
 
 export default function TodayScreen(): React.ReactElement {
   const { theme } = useTheme();
@@ -129,6 +141,8 @@ export default function TodayScreen(): React.ReactElement {
           onDismiss={() => setPendingMilestone(null)}
         />
       ) : null}
+
+      {isEnabled('affirmations') ? <TodayAffirmation /> : null}
 
       {proposalCount > 0 ? (
         <Card onPress={() => router.push('/onboarding/plan-reveal')} accessibilityLabel="Review proposed plans">
