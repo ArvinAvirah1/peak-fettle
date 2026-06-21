@@ -14,12 +14,15 @@ import { Ionicons } from '../../src/components/Icon';
 import { fontFamily, fontSize, HIT_TARGET, spacing } from '../../src/theme/tokens';
 import { blocking, isBlockingAvailable } from '../../src/native/blocking';
 import {
+  computeSessionEndsAt,
+  endFocusSession,
   FocusConfigRow,
   focusEventsSince,
   listFocusConfigs,
   setFocusEnabled,
   setSelectionToken,
   snoozesUsedToday,
+  startFocusSession,
 } from '../../src/data/focus';
 import { dayKey } from '../../src/db/localDb';
 import { FRICTION_DEFAULTS, PRODUCT_SHORT } from '../../src/config/product';
@@ -62,6 +65,17 @@ export default function FocusScreen(): React.ReactElement {
       await blocking.cancelActivity(cfg.id);
     }
     await setFocusEnabled(cfg.id, enabled);
+
+    // TICKET-118: a timed session drives the Live Activity + Focus-status widget.
+    // Start on enable when it has a fixed end (focus_now / scheduled window); end
+    // on disable. lo_meta.active_focus keeps the widget right even with no native LA.
+    if (enabled) {
+      const endsAt = computeSessionEndsAt(cfg);
+      if (endsAt) await startFocusSession(cfg.name, endsAt, c.accentDefault);
+    } else {
+      await endFocusSession();
+    }
+
     await load();
   };
 

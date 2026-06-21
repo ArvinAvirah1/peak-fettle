@@ -6,6 +6,7 @@
 
 import { dayKey, genId, localDb } from '../db/localDb';
 import { FRICTION_DEFAULTS } from '../config/product';
+import { liveActivity } from '../../modules/live-activity';
 
 export type FocusKind = 'session' | 'limit' | 'focus_now';
 
@@ -145,4 +146,47 @@ export async function snoozesUsedToday(): Promise<number> {
     [`${today}T00:00:00`]
   );
   return row?.n ?? 0;
+}
+
+// --- Focus session lifecycle (TICKET-118) ------------------------------------
+// Keeps lo_meta.active_focus (the Focus-status widget contract, TICKET-116) and
+// the ActivityKit Live Activity in sync: set on start, clear on end. The widget
+// works from lo_meta.active_focus even when the native Live Activity is absent.
+
+export async function startFocusSession(name: string, endsAtISO: string, accentHex = '#F2A93B'): Promise<void> {
+  await localDb.execute(
+    `INSERT OR REPLACE INTO lo_meta (key, value) VALUES ('active_focus', ?)`,
+    [JSON.stringify({ name, endsAt: endsAtISO })],
+    { tables: ['lo_meta'] }
+  );
+  liveActivity.start(name, endsAtISO, accentHex);
+}
+
+export async function endFocusSession(): Promise<void> {
+  await localDb.execute(`DELETE FROM lo_meta WHERE key = 'active_focus'`, [], { tables: ['lo_meta'] });
+  liveActivity.end();
+}
+
+/** Push an updated blocks-held count to a running Live Activity (no DB write). */
+export async function updateFocusSessionBlocks(blocksHeld: number, endsAtISO: string | null = null): Promise<void> {
+  liveActivity.update(blocksHeld, endsAtISO);
+}
+
+/** End time (ISO) for a session config, or null if it has no fixed end (e.g. a limit). */
+export function computeSessionEndsAt(cfg: FocusConfigRow, now: Date = new Date()): string | null {
+  try {
+    const s = JSON.parse(cfg.schedule_json) as FocusSchedule;
+    if (s.durationMin != null) {
+      return new Date(now.getTime() + s.durationMin * 60_000).toISOString();
+    }
+    if (s.endHHMM) {
+      const [h, m] = s.endHHMM.split(':').map(Number);
+      const end = new Date(now);
+      end.setHours(h, m, 0, 0);
+      return end.getTime() > now.getTime() ? end.toISOString() : null;
+    }
+  } catch {
+    // fall through
+  }
+  return null;
 }
