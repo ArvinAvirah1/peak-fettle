@@ -4,9 +4,12 @@
  * surface, 14-day sparkline.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { useFeatureFlags } from '../../src/hooks/useFeatureFlags';
+import { MilestoneBanner } from '../../src/features/share/MilestoneBanner';
+import { milestoneCrossed, type ShareMilestone } from '../../src/features/share/milestones';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { Card, EmptyState, PFButton, ScreenLayout, SectionTitle } from '../../src/components/ui';
 import { Ionicons } from '../../src/components/Icon';
@@ -40,6 +43,14 @@ export default function TodayScreen(): React.ReactElement {
   const [reviewDue, setReviewDue] = useState(false);
   const [proposalCount, setProposalCount] = useState(0);
 
+  // TICKET-120: surface a dismissable milestone share affordance when the flag
+  // is on AND the streak crosses a milestone DURING this session. prevStreakRef
+  // starts at -1 so a cold launch (which would otherwise look like 0 → N) never
+  // fires the banner; only an in-session increase does.
+  const { isEnabled } = useFeatureFlags();
+  const [pendingMilestone, setPendingMilestone] = useState<ShareMilestone | null>(null);
+  const prevStreakRef = useRef(-1);
+
   const load = useCallback(async () => {
     const [s, h, logs, m, recents, merged, review, proposals] = await Promise.all([
       listStacks(),
@@ -56,12 +67,18 @@ export default function TodayScreen(): React.ReactElement {
     setDoneToday(new Map(Array.from(logs.entries()).map(([k, v]) => [k, v as string])));
     setMood(m);
     setSparkline(recents.reverse().map((r) => r.mood));
-    setStreak(computeStreak(merged, dayKey()).current);
+    const curStreak = computeStreak(merged, dayKey()).current;
+    setStreak(curStreak);
+    if (isEnabled('shareCards') && prevStreakRef.current >= 0) {
+      const crossed = milestoneCrossed(prevStreakRef.current, curStreak);
+      if (crossed) setPendingMilestone(crossed);
+    }
+    prevStreakRef.current = curStreak;
 
     const dow = new Date().getDay(); // 0 Sun, 1 Mon
     setReviewDue((dow === 0 || dow === 1) && review?.completed_at == null);
     setProposalCount(proposals.length);
-  }, []);
+  }, [isEnabled]);
 
   useFocusEffect(
     useCallback(() => {
@@ -104,6 +121,14 @@ export default function TodayScreen(): React.ReactElement {
           {streak > 0 ? `${streak}-day streak` : 'Start your streak today'}
         </Text>
       </View>
+
+      {isEnabled('shareCards') && pendingMilestone !== null ? (
+        <MilestoneBanner
+          milestone={pendingMilestone}
+          streakCount={streak}
+          onDismiss={() => setPendingMilestone(null)}
+        />
+      ) : null}
 
       {proposalCount > 0 ? (
         <Card onPress={() => router.push('/onboarding/plan-reveal')} accessibilityLabel="Review proposed plans">
