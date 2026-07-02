@@ -40,6 +40,30 @@ import {
 } from '../types/api';
 
 // ---------------------------------------------------------------------------
+// Hang-proofing (BUGFIX 2026-06-30, Bug 1)
+//
+// Groups is a genuinely server-backed feature (available on free AND pro), so
+// these hooks legitimately call the network on mount. But the shared apiClient
+// timeout is 15s, so on a slow/unreachable server the Groups screen would sit on
+// an infinite-feeling spinner for up to 15s — the "laggy" symptom. Race the load
+// against a short deadline so the UI resolves to an error state fast (the same
+// hang-proofing pattern used by useLocalStreak / RoutineStrip). This never makes
+// a NEW network call; it only bounds how long the existing one can pin isLoading.
+// ---------------------------------------------------------------------------
+
+const GROUPS_LOAD_DEADLINE_MS = 6000;
+
+/** Reject with `timeout_deadline` after `ms` so a hung load can't pin the UI. */
+function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error('timeout_deadline')), ms),
+    ),
+  ]);
+}
+
+// ---------------------------------------------------------------------------
 // useGroups — groups list + credit balance
 // ---------------------------------------------------------------------------
 
@@ -89,10 +113,10 @@ export function useGroups(): UseGroupsResult {
     setIsLoading(true);
     setError(null);
     try {
-      const [groupsData, balanceData] = await Promise.all([
-        getGroups(),
-        getCreditBalance(),
-      ]);
+      const [groupsData, balanceData] = await withDeadline(
+        Promise.all([getGroups(), getCreditBalance()]),
+        GROUPS_LOAD_DEADLINE_MS,
+      );
       setGroups(groupsData);
       // 094-A: register group ids so the workout-save path can fire weekly signals.
       try { setActiveGroupIds(groupsData.map((g) => g.id)); } catch { /* non-fatal */ }
@@ -230,10 +254,10 @@ export function useGroupDetail(groupId: string): UseGroupDetailResult {
     setIsLoading(true);
     setError(null);
     try {
-      const [detailData, evalData] = await Promise.all([
-        getGroupDetail(groupId),
-        getGroupEvaluations(groupId, 12),
-      ]);
+      const [detailData, evalData] = await withDeadline(
+        Promise.all([getGroupDetail(groupId), getGroupEvaluations(groupId, 12)]),
+        GROUPS_LOAD_DEADLINE_MS,
+      );
       setDetail(detailData);
       setEvaluations(evalData);
     } catch (e: unknown) {

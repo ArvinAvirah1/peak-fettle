@@ -170,8 +170,20 @@ function GoogleButton({
     webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
   });
 
+  // BUGFIX 2026-06-30 (Bug 3): consume each auth response EXACTLY ONCE. The
+  // expo-auth-session hook retains its last `response` object; without this
+  // guard, any remount of the login screen (e.g. an auth-state flip-flop during
+  // a glitchy sign-out) re-runs this effect with the SAME prior `success`
+  // response and re-fires loginWithOAuth — which re-launches the Google/Apple
+  // sheet, i.e. the "repeated sign-in pop-ups" symptom. Track the identity of the
+  // response we've already handled and skip it thereafter.
+  const handledResponseRef = useRef<unknown>(null);
+
   useEffect(() => {
     if (!response) return;
+    // Already processed this exact response object — do not re-fire.
+    if (handledResponseRef.current === response) return;
+    handledResponseRef.current = response;
     if (response.type === 'success') {
       const idToken = response.params?.id_token;
       if (idToken) {

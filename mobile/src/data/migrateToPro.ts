@@ -42,7 +42,7 @@
 import { localDb } from '../db/localDb';
 import { createWorkout } from '../api/workouts';
 import { logSet } from '../api/sets';
-import { createRoutine, RoutineExercise } from '../api/routines';
+import { createRoutine, getRoutines, RoutineExercise } from '../api/routines';
 import { addConstraint } from '../api/constraints';
 import { patchProfile, PatchProfilePayload } from '../api/user';
 import { LogSetPayload } from '../types/api';
@@ -225,6 +225,34 @@ function parseRoutineExercises(raw: string | null | undefined): RoutineExercise[
   }
 }
 
+/**
+ * Canonical identity key for a routine: name + normalized exercise list.
+ * (VERIFY 2026-07-01, Bug 2 refinement): the original dedup keyed on NAME ONLY,
+ * but local routine names are NOT unique (no constraint in localSchema, no UI
+ * guard) — two distinct local routines named "Push Day" would have collapsed
+ * onto one server id and the second one's exercises would silently never reach
+ * the server. Keying on name + content keeps the idempotent-replay guarantee
+ * (a ledger-lost re-upload of the SAME routine still adopts the server copy)
+ * while distinct same-named routines still POST separately.
+ *
+ * Normalization must survive the server round-trip: the route Zod-parses the
+ * payload (unknown keys stripped, optional keys stay absent) and stores jsonb
+ * (key order not preserved), so we rebuild each entry with a fixed key order
+ * and fold absent/undefined to null. Exercise ORDER is meaningful (an ordered
+ * list) and is preserved. If normalization ever misses a server transform the
+ * failure mode is a duplicate routine (the pre-fix behaviour) — never data loss.
+ */
+function canonicalRoutineKey(name: string, exercises: RoutineExercise[]): string {
+  const normalized = exercises.map((e) => ({
+    exercise_id: e.exercise_id ?? null,
+    name: e.name,
+    target_sets: typeof e.target_sets === 'number' ? e.target_sets : null,
+    target_reps: typeof e.target_reps === 'string' ? e.target_reps : null,
+  }));
+  // Stringify name + list as one tuple - unambiguous for any name content.
+  return JSON.stringify([name, normalized]);
+}
+
 /** Parse the JSON-TEXT equipment_profile into the string[] the server expects. */
 function parseEquipmentProfile(raw: string | null | undefined): string[] | undefined {
   if (!raw) return undefined;
@@ -247,18 +275,68 @@ async function uploadRoutines(out: MigrationOutcome): Promise<void> {
   const rows = await localDb.getAll<RoutineRow>(
     'SELECT id, name, exercises FROM routines ORDER BY created_at ASC',
   );
+
+  // BUGFIX 2026-06-30 (Bug 2): the local `migration_state` ledger is the ONLY
+  // thing preventing duplicate routines on a re-run — the server's POST /routines
+  // has NO ON CONFLICT / unique constraint, so every POST mints a NEW routine.
+  // The ledger normally makes replay a no-op, but it can be lost between the POST
+  // succeeding and its ledgerPut committing (app killed mid-run), and a Pro→Free→
+  // Pro toggle-back re-enters this path. To make re-upload IDEMPOTENT even without
+  // a ledger hit, fetch the routines already on the server ONCE and skip any local
+  // routine that already exists there IDENTICALLY — same name AND same exercises
+  // (recording the existing server id in the ledger so the set/re-point logic and
+  // future runs see it as done). This is
+  // a single authed GET during an explicit upgrade — the local-first invariant
+  // still holds (former-free user, upgrade window). Best-effort: if the GET fails
+  // we fall back to the prior create-guarded-by-ledger behaviour.
+  // (VERIFY 2026-07-01 refinement): key on canonicalRoutineKey (name + content),
+  // NOT name alone — local names are not unique, and name-only adoption silently
+  // dropped the second of two distinct same-named routines. See the helper doc.
+  const serverRoutineIdByKey = new Map<string, string>();
+  try {
+    const existing = await getRoutines();
+    for (const r of existing) {
+      const key = canonicalRoutineKey(r.name, r.exercises ?? []);
+      // First occurrence wins; an exact-duplicate server routine is pre-existing
+      // and not something this migration created.
+      if (!serverRoutineIdByKey.has(key)) serverRoutineIdByKey.set(key, r.id);
+    }
+  } catch {
+    // Non-fatal: proceed without the dedup map (ledger still guards same-run).
+  }
+
   for (const row of rows) {
     const prior = await ledgerGet('routine', row.id);
     if (prior) {
       // Already handled on a previous run — skip silently (not re-counted).
       continue;
     }
+
+    const exercises = parseRoutineExercises(row.exercises);
+    const key = canonicalRoutineKey(row.name, exercises);
+
+    // Idempotency guard: if an IDENTICAL routine (same name + same exercises) is
+    // already on the server (from a prior, ledger-lost upload run), adopt its id
+    // instead of POSTing a duplicate. Record it as done so this run + future runs
+    // treat it as synced. A same-named routine with DIFFERENT content falls
+    // through and POSTs — the server allows duplicate names, and preserving both
+    // is always safer than collapsing them.
+    const existingId = serverRoutineIdByKey.get(key);
+    if (existingId) {
+      await ledgerPut('routine', row.id, existingId, 'done', null);
+      continue;
+    }
+
     try {
       const created = await createRoutine({
         name: row.name,
-        exercises: parseRoutineExercises(row.exercises),
+        exercises,
       });
       await ledgerPut('routine', row.id, created.id, 'done', null);
+      // Track the just-created key (built from the LOCAL payload, so same-run
+      // dedup is independent of server echo fidelity): two identical local
+      // routines in one run don't both POST — the 2nd adopts the 1st's server id.
+      serverRoutineIdByKey.set(key, created.id);
       out.uploaded++;
     } catch (err) {
       if (isPermanentValidationError(err)) {

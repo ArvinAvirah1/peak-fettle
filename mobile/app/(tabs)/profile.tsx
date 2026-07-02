@@ -62,7 +62,7 @@ import { fetchDataExport, deleteAccount } from '../../src/api/user';
 import { isLocalFirst } from '../../src/data/backup/tierPolicy';
 import { localDb, genId } from '../../src/db/localDb';
 import { saveProfile } from '../../src/data/profile';
-import { BACKUP_TABLES } from '../../src/data/backup/exportEngine';
+import { clearAllLocalPersonalData } from '../../src/data/localReset';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { ThemeSelectorModal } from '../../src/components/ThemeSelector';
 import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
@@ -818,6 +818,16 @@ export default function ProfileScreen(): React.ReactElement {
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [showThemePicker, setShowThemePicker] = useState(false);
+
+  // BUGFIX 2026-06-30 (Bug 3, FIX-LIFECYCLE pattern): guard post-await setState on
+  // the sign-out / delete-account paths. logout() unmounts this screen (redirect
+  // to /(auth)/login), so a setState that resolves after the await would fire on
+  // an unmounted component — the "glitchy" flicker. Gate those setStates on this.
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
   // TICKET-096: avatar config + customizer.
   const [avatarConfig, setAvatarConfig] = useState<AvatarConfig | null>(null);
   const [avatarEditorVisible, setAvatarEditorVisible] = useState(false);
@@ -1118,24 +1128,22 @@ export default function ProfileScreen(): React.ReactElement {
                     try {
                       if (isLocalFirst(user)) {
                         // Free / local-first: there is NO server account to delete.
-                        // Wipe all on-device personal data, then sign out — never a REST call.
-                        try {
-                          await localDb.init();
-                          for (const t of BACKUP_TABLES) {
-                            await localDb
-                              .execute(`DELETE FROM ${t}`, [], { tables: [t] })
-                              .catch(() => {});
-                          }
-                        } catch {
-                          // best-effort wipe — still sign the user out below
-                        }
+                        // Wipe all on-device personal data (+ session bookkeeping
+                        // + onboarding flags), then sign out — never a REST call.
+                        // BUGFIX 2026-06-30 (Bug 3): use the shared teardown so the
+                        // outbox / migration_state ledger / onboarding flags are
+                        // cleared too, not only BACKUP_TABLES. (logout() below runs
+                        // it as well, but doing it here first guarantees the wipe
+                        // even if the redirect races.) Best-effort + never throws.
+                        await clearAllLocalPersonalData();
                       } else {
                         await deleteAccount('DELETE MY ACCOUNT');
                       }
-                      // logout() clears auth state and redirects to login
+                      // logout() clears auth state, runs the full local teardown,
+                      // and redirects to login.
                       await logout();
                     } catch (err) {
-                      setIsDeletingAccount(false);
+                      if (mountedRef.current) setIsDeletingAccount(false);
                       Alert.alert(
                         'Deletion failed',
                         err instanceof Error ? err.message : 'Could not delete account'
@@ -1165,7 +1173,10 @@ export default function ProfileScreen(): React.ReactElement {
           try {
             await logout();
           } finally {
-            setIsSigningOut(false);
+            // logout() redirects to /(auth)/login and unmounts this screen —
+            // only touch state if we're somehow still mounted (avoids the
+            // setState-after-unmount "glitchy" flicker). BUGFIX 2026-06-30 Bug 3.
+            if (mountedRef.current) setIsSigningOut(false);
           }
         },
       },

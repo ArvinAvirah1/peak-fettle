@@ -21,6 +21,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useState,
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -130,15 +131,25 @@ export function ThemeProvider({
     [onThemeChange],
   );
 
-  const value: ThemeContextValue = {
-    theme,
-    themeName,
-    setTheme,
-    spacing,
-    radius,
-    fontSize,
-    fontWeight,
-  };
+  // PERF (free-tier touch responsiveness): memoise so the context reference is
+  // stable across renders. useTheme() is consumed by ScreenLayout (wraps EVERY
+  // screen), the tab layout, RootNavigator, and nearly every component. `spacing`
+  // /`radius`/`fontSize`/`fontWeight` are module constants and `setTheme` is
+  // useCallback-stable, so this value only changes when the theme itself changes
+  // — a new object each render (as before) would have re-rendered the whole tree
+  // on any ThemeProvider re-render for no reason.
+  const value = useMemo<ThemeContextValue>(
+    () => ({
+      theme,
+      themeName,
+      setTheme,
+      spacing,
+      radius,
+      fontSize,
+      fontWeight,
+    }),
+    [theme, themeName, setTheme],
+  );
 
   // Render children immediately with whatever theme is active (default at boot,
   // then swapped to the stored theme once AsyncStorage resolves). This avoids a

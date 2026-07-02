@@ -29,6 +29,7 @@ import React, {
   useState,
   useEffect,
   useCallback,
+  useMemo,
   useRef,
   ReactNode,
 } from 'react';
@@ -78,6 +79,7 @@ import { setAccessToken as setPowerSyncToken } from '../db/connector';
 import * as AuthApi from '../api/auth';
 import { upgradeToProRequest, downgradeToFreeRequest } from '../api/billing';
 import { migrateLocalDataToServer, MigrationOutcome } from '../data/migrateToPro';
+import { clearAllLocalPersonalData } from '../data/localReset';
 import { User } from '../types/api';
 import {
   registerForPushNotificationsAsync,
@@ -273,6 +275,19 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
     setPowerSyncToken(null);
     await clearRefreshToken();
     await clearUser();
+
+    // BUGFIX 2026-06-30 (Bug 3): FULL local teardown on sign-out. Clearing only
+    // the token/cached-profile (as before) left the previous user's on-device
+    // SQLite data + the onboarding/first-launch/tour flags behind, which made
+    // sign-out "glitchy, only fixed by reinstall": a fresh sign-in (esp. as a
+    // different account) inherited stale data and skipped the intro/onboarding.
+    // Wipe all local personal data + session bookkeeping (outbox,
+    // migration_state) + onboarding flags so a subsequent sign-in starts clean.
+    // Best-effort + idempotent + never throws — never blocks the logout redirect.
+    // This runs only on a genuine logout / definitive-401 clear (Invariant 5
+    // guarantees _clearAuthState is NOT reached on a transient failure), so a
+    // flaky network never wipes local data.
+    await clearAllLocalPersonalData();
 
     // Fire-and-forget: unregister push token so this device stops receiving
     // notifications. Errors are swallowed in the service — never blocks logout.
@@ -670,23 +685,48 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
   // Context value
   // ---------------------------------------------------------------------------
 
-  const value: AuthContextValue = {
-    user,
-    accessToken,
-    // True when the user has a valid session — either an in-memory access token
-    // (normal) or a cached user + stored refresh token (transient cold-start
-    // refresh failure). In the latter case the 401 interceptor re-establishes
-    // the access token on the first API call, so the user never sees login.
-    isAuthenticated: !!(accessToken || (user && refreshTokenRef.current)),
-    isLoading,
-    login,
-    register,
-    loginWithOAuth,
-    logout,
-    updateUser,
-    upgradeToPro,
-    downgradeToFree,
-  };
+  // PERF (free-tier touch responsiveness): memoise the context value so its
+  // reference is stable across renders. `useAuth()` is consumed app-wide — the
+  // tab layout, RootNavigator (which owns the whole <Stack>), WorkoutLoggerHost,
+  // SyncStatusIndicator, and every data hook (useWorkout*/useStreak/…). Building
+  // a NEW `value` object on every AuthProvider render (as before) forces EVERY
+  // one of those consumers to re-render, because useContext re-runs on any new
+  // provider value reference and ignores React.memo — a full-tree cascade. The
+  // callbacks below are already useCallback-stable, so this memo only yields a
+  // new reference when the auth STATE actually changes (login / silent refresh /
+  // tier flip), never on an unrelated re-render.
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      user,
+      accessToken,
+      // True when the user has a valid session — either an in-memory access
+      // token (normal) or a cached user + stored refresh token (transient
+      // cold-start refresh failure). In the latter case the 401 interceptor
+      // re-establishes the access token on the first API call, so the user
+      // never sees login.
+      isAuthenticated: !!(accessToken || (user && refreshTokenRef.current)),
+      isLoading,
+      login,
+      register,
+      loginWithOAuth,
+      logout,
+      updateUser,
+      upgradeToPro,
+      downgradeToFree,
+    }),
+    [
+      user,
+      accessToken,
+      isLoading,
+      login,
+      register,
+      loginWithOAuth,
+      logout,
+      updateUser,
+      upgradeToPro,
+      downgradeToFree,
+    ],
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

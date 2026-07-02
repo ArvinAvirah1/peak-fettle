@@ -228,6 +228,27 @@ function RootNavigator(): React.ReactElement {
 // Root layout — provides ThemeProvider + AuthContext + PowerSync to the tree
 // ---------------------------------------------------------------------------
 
+// Module-level (stable identity) on purpose — VERIFY 2026-07-01, Bug 1 hardening.
+// ThemeContext memoises its context value with `setTheme` in the dependency
+// chain, and `setTheme` is useCallback'd on [onThemeChange]. An INLINE arrow here
+// would mint a new function on every RootLayout render, silently defeating the
+// whole-tree memoization that fixes the free-tier touch lag. RootLayout is
+// stateless today (renders once), but hoisting removes the footgun permanently.
+async function syncThemeToServerIfPro(newTheme: ThemeName): Promise<void> {
+  // Local-first: ThemeProvider already persists the choice to AsyncStorage.
+  // Only SYNC to the server for confirmed Pro users — free/local-first users
+  // must make NO personal REST call. This runs above AuthProvider, so we read
+  // the cached profile (written by AuthContext) to get the tier.
+  try {
+    const cached = await SecureStore.getItemAsync('peak_fettle_user_profile');
+    if (cached && JSON.parse(cached)?.is_paid) {
+      await patchProfile({ theme_preference: newTheme }).catch(() => {});
+    }
+  } catch {
+    // unreadable / web / free → no server sync (local-first)
+  }
+}
+
 export default function RootLayout(): React.ReactElement {
   // useFonts removed (IOS-26-CRASH-FIX above). System fonts will be used.
   return (
@@ -236,22 +257,7 @@ export default function RootLayout(): React.ReactElement {
     // valid root ancestor — without it those components crash on render.
     <GestureHandlerRootView style={{ flex: 1 }}>
       <BootErrorBoundary>
-        <ThemeProvider
-          onThemeChange={async (newTheme: ThemeName) => {
-            // Local-first: ThemeProvider already persists the choice to AsyncStorage.
-            // Only SYNC to the server for confirmed Pro users — free/local-first users
-            // must make NO personal REST call. This provider sits above AuthProvider,
-            // so we read the cached profile (written by AuthContext) to get the tier.
-            try {
-              const cached = await SecureStore.getItemAsync('peak_fettle_user_profile');
-              if (cached && JSON.parse(cached)?.is_paid) {
-                await patchProfile({ theme_preference: newTheme }).catch(() => {});
-              }
-            } catch {
-              // unreadable / web / free → no server sync (local-first)
-            }
-          }}
-        >
+        <ThemeProvider onThemeChange={syncThemeToServerIfPro}>
           <AuthProvider>
             <PowerSyncProvider>
               <RootNavigator />
