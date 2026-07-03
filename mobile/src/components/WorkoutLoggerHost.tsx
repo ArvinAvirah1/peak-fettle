@@ -38,6 +38,7 @@ import {
   ScrollView,
   ActivityIndicator,
   Alert,
+  AppState,
   StyleSheet,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -76,6 +77,10 @@ import { RoutineSession, RoutineSessionExercise } from './RoutineStrip';
 import { suggestNextExercise, suggestNextExercises, SessionExercise, SuggestCandidate } from '../utils/smartSuggest';
 import PRToast, { PRToastData } from './PRToast';
 import { useRestTimer, REST_TIMER_STEP } from '../hooks/useRestTimer';
+// Founder logger fixes #1/#2: the mini-bar (minimize-to-bubble) + the pure
+// timer helper that derives the countdown from an ABSOLUTE deadline (no drift).
+import { WorkoutMiniBar } from './WorkoutMiniBar';
+import { restRemainingSec } from './loggerLogic';
 import { epley1Rm } from '../lib/oneRm';
 
 // Dynamic require for alternatives API (Agent 3's file — optional at parse time)
@@ -241,6 +246,17 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
     const [pickerVisible, setPickerVisible] = useState(false);
     const [freeSessionPickerMode, setFreeSessionPickerMode] = useState(false);
     const [stepperVisible, setStepperVisible] = useState(false);
+    // Founder fix #2 (minimize, don't terminate): the header down-arrow now
+    // MINIMIZES the logger — the session (routineSession + stepperSets + the rest
+    // timer) stays fully alive; only the full-screen stepper Modal is hidden and a
+    // persistent WorkoutMiniBar is shown at the bottom of the app. Tapping the bar
+    // restores the stepper mid-session. Ending a workout still happens ONLY via the
+    // explicit Finish/discard action (handleFinishWorkout / onFinish) with its
+    // existing confirmation. Visibility is a 3-state machine:
+    //   • stepperVisible && !minimized → full stepper open
+    //   • minimized (session alive)    → mini-bar shown, stepper hidden
+    //   • no session                   → closed (nothing shown)
+    const [minimized, setMinimized] = useState(false);
 
     // Exercise state
     const [selectedExercise, setSelectedExercise] = useState<Exercise | null>(null);
@@ -269,7 +285,16 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
     // Timer
     const [timerActive, setTimerActive] = useState(false);
     const [elapsedSeconds, setElapsedSeconds] = useState(0);
-    const [restSecondsLeft, setRestSecondsLeft] = useState<number | null>(null);
+    // Founder fix #1 (rest-timer drift): the countdown's SINGLE SOURCE OF TRUTH is
+    // an absolute end timestamp (epoch ms), captured at the same instant the
+    // background notification is scheduled. The on-screen remaining is DERIVED from
+    // `restEndAt - now` (restRemainingSec), never accumulated per tick — so it is
+    // correct after backgrounding, navigation, minimize, or a remount, and can
+    // never drift against the scheduled notification. `restNow` is a wall-clock
+    // tick bumped every second AND on AppState foreground.
+    const [restEndAt, setRestEndAt] = useState<number | null>(null);
+    const [restNow, setRestNow] = useState(() => Date.now());
+    const restSecondsLeft = restEndAt == null ? null : restRemainingSec(restEndAt, restNow);
     const [restDefault, setRestDefault] = useState(REST_DEFAULT);
     // P1b: seed the rest default from the device-local app_settings store
     // (getRestTimerDefaultSec, built in Foundation — no REST, safe on mount,
@@ -296,15 +321,31 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
       return () => clearInterval(interval);
     }, [timerActive]);
 
+    // Derived countdown (fix #1): while a deadline is set, bump `restNow` every
+    // second so the derived remaining re-renders. When the deadline passes, clear
+    // `restEndAt` (idle) and fire the completion haptic exactly once. Re-derives
+    // from the absolute deadline on every tick — no accumulator to drift.
     useEffect(() => {
-      if (restSecondsLeft === null || restSecondsLeft <= 0) {
-        if (restSecondsLeft === 0) haptics.light();
-        setRestSecondsLeft(null);
+      if (restEndAt == null) return;
+      if (restEndAt - Date.now() <= 0) {
+        haptics.light();
+        setRestEndAt(null);
         return;
       }
-      const t = setTimeout(() => setRestSecondsLeft((s) => (s ?? 1) - 1), 1000);
-      return () => clearTimeout(t);
-    }, [restSecondsLeft]);
+      const t = setInterval(() => setRestNow(Date.now()), 1000);
+      return () => clearInterval(t);
+    }, [restEndAt, restNow]);
+
+    // Fix #1: on AppState foreground, immediately re-derive the countdown from the
+    // absolute deadline (a backgrounded JS timer stops firing, so the on-screen
+    // time would otherwise be stale on return). The scheduled notification is
+    // unaffected; this only re-syncs the visible banner + mini-bar chip.
+    useEffect(() => {
+      const sub = AppState.addEventListener('change', (st) => {
+        if (st === 'active') setRestNow(Date.now());
+      });
+      return () => sub.remove();
+    }, []);
 
     // PB + last-session for the STEPPER'S current exercise (routine advance
     // doesn't go through the picker, so fetch per current index). Powers the
@@ -786,7 +827,11 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
             }
           }
           setTimerActive(true);
-          setRestSecondsLeft(restDefault);
+          // Fix #1: capture the ABSOLUTE deadline at the same instant the
+          // notification is scheduled — the banner/mini-bar countdown derives
+          // from this and never drifts against the scheduled alarm.
+          setRestEndAt(Date.now() + restDefault * 1000);
+          setRestNow(Date.now());
           // Also start background-safe timer (schedules local notification)
           restTimer.start(restDefault);
         } catch (err) {
@@ -928,7 +973,9 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           }
           haptics.success();
           setTimerActive(true);
-          setRestSecondsLeft(restDefault);
+          // Fix #1: absolute deadline captured with the notification schedule.
+          setRestEndAt(Date.now() + restDefault * 1000);
+          setRestNow(Date.now());
           // Also start background-safe timer (mirrors the lift path).
           restTimer.start(restDefault);
         } catch (err) {
@@ -1119,6 +1166,45 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
       );
     }, [totalSets, router, onFinish, routineSession]);
 
+    // ── Fix #2: minimize / restore / terminate ────────────────────────────────
+    // Shared teardown: fully end the session (used by the explicit Finish path).
+    // Clears the session, the minimize flag, and the rest countdown/notification.
+    const terminateSession = useCallback((finishedRoutineId?: string) => {
+      setStepperVisible(false);
+      setMinimized(false);
+      setRoutineSession(null);
+      setRestEndAt(null);
+      restTimer.cancel();
+      if (finishedRoutineId) markRoutineCompleted(finishedRoutineId).catch(() => {});
+    }, [restTimer]);
+
+    // The header down-arrow: MINIMIZE (keep the session alive, hide the stepper
+    // Modal, show the mini-bar). History-edit mode has no live workout, so there
+    // it simply closes (handled at the call site).
+    const handleMinimize = useCallback(() => {
+      setStepperVisible(false);
+      setMinimized(true);
+    }, []);
+
+    // Tapping the mini-bar restores the full stepper exactly where the user left off.
+    const handleRestore = useCallback(() => {
+      setMinimized(false);
+      setStepperVisible(true);
+    }, []);
+
+    // Mini-bar copy: routine/session name + progress. Prefer exercise position
+    // ("Exercise 3 / 6") for a routine; fall back to a set count for free sessions.
+    const miniBarTitle = routineSession?.name ?? 'Workout';
+    const miniBarProgress = useMemo(() => {
+      if (!routineSession) return '';
+      const n = routineSession.exercises.length;
+      if (routineSession.source === 'routine' && n > 0) {
+        return `Exercise ${Math.min(routineSession.currentIndex + 1, n)} / ${n}`;
+      }
+      const logged = routineSession.exercises.reduce((sum, e) => sum + e.loggedSetCount, 0);
+      return `${logged} set${logged !== 1 ? 's' : ''} logged`;
+    }, [routineSession]);
+
     // ── Render ────────────────────────────────────────────────────────────────
 
     return (
@@ -1205,8 +1291,9 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           onClose={() => setQuickSwapVisible(false)}
         />
 
-        {/* Rest timer banner */}
-        {restSecondsLeft !== null && (
+        {/* Rest timer banner (hidden while minimized — the mini-bar shows the
+            rest chip instead; fix #2). */}
+        {restSecondsLeft !== null && !minimized && (
           <View style={[restStyles.banner, { backgroundColor: theme.colors.bgElevated }]}>
             <TouchableOpacity
               onPress={cycleRestDefault}
@@ -1220,13 +1307,17 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => {
-                // Extend both the visual banner countdown AND restart the
-                // background timer at the new duration so they stay in sync (WL-002).
-                setRestSecondsLeft((v) => {
-                  const next = (v ?? 0) + 30;
-                  restTimer.start(next);
-                  return next;
+                // Extend the ABSOLUTE deadline by 30s (fix #1) and restart the
+                // background notification for the new remaining, so the derived
+                // banner/mini-bar countdown and the alarm stay in sync (WL-002).
+                setRestEndAt((end) => {
+                  const now = Date.now();
+                  const base = end != null && end > now ? end : now;
+                  const nextEnd = base + 30 * 1000;
+                  restTimer.start(Math.max(1, Math.round((nextEnd - now) / 1000)));
+                  return nextEnd;
                 });
+                setRestNow(Date.now());
               }}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               accessibilityRole="button"
@@ -1235,7 +1326,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
               <Text style={{ color: theme.colors.accentDefault, fontSize: fontSize.bodySm, fontWeight: fontWeight.bold }}>+30s</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={() => { setRestSecondsLeft(null); restTimer.cancel(); }}
+              onPress={() => { setRestEndAt(null); restTimer.cancel(); }}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               accessibilityRole="button"
               accessibilityLabel="Dismiss rest timer"
@@ -1263,10 +1354,20 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
             showing ("buttons disappeared, only weird buttons at the top").
             Tying visibility to the session makes that state impossible. */}
         <Modal
-          visible={stepperVisible && !!routineSession}
+          visible={stepperVisible && !minimized && !!routineSession}
           animationType="slide"
           presentationStyle="fullScreen"
-          onRequestClose={() => setStepperVisible(false)}
+          // Hardware-back / swipe-dismiss: minimize an active workout (keep it
+          // alive); in history-edit mode just close the correction view.
+          onRequestClose={() => {
+            if (historyMode) {
+              setStepperVisible(false);
+              setHistoryMode(false);
+              historyChangeRef.current?.();
+            } else {
+              handleMinimize();
+            }
+          }}
         >
           {routineSession && (
             <StepperLogger
@@ -1281,13 +1382,33 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
               onLogCardioSet={historyMode ? undefined : handleStepperLogCardioSet}
               onAdvance={handleStepperAdvance}
               onFinish={() => {
+                // History-edit mode: this is just "done correcting" — no confirm, no
+                // termination semantics (there is no live workout to end).
+                if (historyMode) {
+                  setStepperVisible(false);
+                  setHistoryMode(false);
+                  historyChangeRef.current?.();
+                  return;
+                }
+                // Fix #2: ending a workout is the ONE explicit terminating action, so
+                // it goes through the confirmation (the down-arrow now only minimizes).
                 // TICKET-097: completion-based cycle advance (in-loop routines only).
                 const finishedRoutineId =
-                  !historyMode && routineSession?.source === 'routine' ? routineSession.routineId : undefined;
-                setStepperVisible(false);
-                setRoutineSession(null);
-                if (historyMode) { setHistoryMode(false); historyChangeRef.current?.(); }
-                if (finishedRoutineId) markRoutineCompleted(finishedRoutineId).catch(() => {});
+                  routineSession?.source === 'routine' ? routineSession.routineId : undefined;
+                Alert.alert(
+                  'Finish workout?',
+                  `${totalSets} set${totalSets !== 1 ? 's' : ''} logged — your progress is already saved.`,
+                  [
+                    { text: 'Keep logging', style: 'cancel' },
+                    {
+                      text: 'Finish',
+                      onPress: () => {
+                        haptics.success();
+                        terminateSession(finishedRoutineId);
+                      },
+                    },
+                  ],
+                );
               }}
               onBrowseLibrary={() => {
                 setStepperVisible(false);
@@ -1340,8 +1461,16 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
               }
               onAddOffRoutineExercise={historyMode ? undefined : handleStepperAddOffRoutine}
               onClose={() => {
-                setStepperVisible(false);
-                if (historyMode) { setHistoryMode(false); historyChangeRef.current?.(); }
+                // Fix #2: the header down-arrow MINIMIZES an active workout (session
+                // stays alive → mini-bar). History-edit mode has no live workout, so
+                // it just closes the correction view.
+                if (historyMode) {
+                  setStepperVisible(false);
+                  setHistoryMode(false);
+                  historyChangeRef.current?.();
+                } else {
+                  handleMinimize();
+                }
               }}
               unitPref={unitPref}
               weekNumber={historyMode ? null : (routineSession.weekNumber ?? null)}
@@ -1358,6 +1487,18 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
             />
           )}
         </Modal>
+      {/* Fix #2: persistent minimized-workout bar. Shown ONLY while minimized with a
+          live session; sits above the tab bar (Home is the host, a tabbed screen).
+          Tapping restores the full stepper mid-session. The rest chip is fed the
+          derived (drift-free) remaining from fix #1. */}
+      <WorkoutMiniBar
+        visible={minimized && !!routineSession}
+        title={miniBarTitle}
+        progress={miniBarProgress}
+        restSecondsLeft={restSecondsLeft}
+        onPress={handleRestore}
+        aboveTabBar
+      />
       {/* PR celebration toast */}
       <PRToast data={prToast} onDismiss={() => setPrToast(null)} />
       </>

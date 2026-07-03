@@ -58,6 +58,10 @@ const MuscleMap = MuscleMapBase as React.ComponentType<
 >;
 import ExerciseSwitcherSheet from './ExerciseSwitcherSheet';
 import { SuggestCandidate } from '../utils/smartSuggest';
+// Founder logger fixes #3/#4: pure, unit-tested helpers (see loggerLogic.ts +
+// __tests__/loggerLogic.test.js). nextPendingExerciseIndex skips already-completed
+// exercises (jump-ahead bug); isPlannedComplete drives the post-final-set button swap.
+import { nextPendingExerciseIndex, isPlannedComplete } from './loggerLogic';
 import PlateCalculatorSheet from './PlateCalculatorSheet';
 import Animated, {
   FadeIn,
@@ -620,7 +624,6 @@ export default function StepperLogger({
   const reducedMotion = useReducedMotion(); // 2026-06-10 aesthetic pass
   const insets = useSafeAreaInsets();
   const currentEx: RoutineSessionExercise | undefined = exercises[currentIndex];
-  const nextEx: RoutineSessionExercise | undefined = exercises[currentIndex + 1];
   const isLast = currentIndex === exercises.length - 1;
   const isFreeLike = variant === 'free' || variant === 'smart';
 
@@ -796,6 +799,37 @@ export default function StepperLogger({
 
   const setNumber = currentExerciseSets.length + 1;
   const totalLogged = exercises.reduce((sum, e) => sum + e.loggedSetCount, 0);
+
+  // ── Founder fix #3: next-exercise affordance skips COMPLETED exercises ─────
+  // The user may jump ahead (busy gym) and finish a later exercise, then return
+  // to normal order — the old `currentIndex + 1` would offer an already-done lift.
+  // nextPendingExerciseIndex forward-searches with wrap-around, skipping any
+  // exercise whose logged sets >= target sets; null → nothing pending → finish.
+  // The count comes from the session's per-exercise loggedSetCount (kept live by
+  // the host on every set), except the CURRENT exercise, whose authoritative live
+  // count is currentExerciseSets.length (loggedSetCount may lag the optimistic
+  // mirror by one render). We overlay it so completing the last planned set of the
+  // current exercise immediately excludes it from the next-pending search.
+  const nextPendingIdx = useMemo(() => {
+    const overlaid = {
+      ...routineSession,
+      exercises: exercises.map((e, i) =>
+        i === currentIndex ? { ...e, loggedSetCount: currentExerciseSets.length } : e,
+      ),
+    };
+    return nextPendingExerciseIndex(overlaid, currentIndex);
+  }, [routineSession, exercises, currentIndex, currentExerciseSets.length]);
+  const nextPendingEx: RoutineSessionExercise | undefined =
+    nextPendingIdx != null ? exercises[nextPendingIdx] : undefined;
+
+  // ── Founder fix #4: after the LAST planned set, swap button emphasis ───────
+  // Once currentExerciseSets.length >= targetSets, the PRIMARY (big) button
+  // becomes "Next exercise: <name>" (or "Finish workout" when none pending) and
+  // the extra-set "Log set N" action demotes to the secondary slot. Only the
+  // routine variant carries targetSets, so free/smart sessions are unaffected
+  // (isPlannedComplete returns false without a positive target).
+  const plannedComplete = isPlannedComplete(currentExerciseSets.length, currentEx?.targetSets);
+  const advanceLabel = nextPendingEx ? `Next exercise: ${nextPendingEx.name}` : 'Finish workout';
   const isOffRoutine =
     routineSession.source === 'routine' && (currentEx?.exerciseId ?? '') === '';
 
@@ -990,14 +1024,17 @@ export default function StepperLogger({
 
   const handleContinue = useCallback(() => {
     setEditingIndex(null);
-    if (isLast) {
+    // Fix #3: advance to the next PENDING exercise (skip completed, wrap around);
+    // null → every other exercise is done → finish. Replaces the literal
+    // currentIndex + 1, which could land on an already-completed later exercise.
+    if (nextPendingIdx == null) {
       onFinish();
     } else {
-      onAdvance(currentIndex + 1);
+      onAdvance(nextPendingIdx);
       setWeight('');
       setReps('');
     }
-  }, [isLast, currentIndex, onAdvance, onFinish]);
+  }, [nextPendingIdx, onAdvance, onFinish]);
 
   const handleSelectIndex = useCallback((idx: number) => {
     setEditingIndex(null);
@@ -1894,6 +1931,39 @@ export default function StepperLogger({
           )
         ) : (
           /* routine */
+          plannedComplete && editingIndex == null ? (
+            /* Fix #4: planned sets complete → PRIMARY becomes the advance action
+               ("Next exercise: <name>" / "Finish workout"), and the extra-set
+               "Log set N" demotes to the secondary slot. Both stay accessible. */
+            <>
+              <TouchableOpacity
+                style={styles.logSetBtn}
+                onPress={handleContinue}
+                accessibilityRole="button"
+                accessibilityLabel={advanceLabel}
+              >
+                <Text style={styles.logSetLabel} numberOfLines={1}>
+                  {nextPendingEx ? `${advanceLabel} →` : advanceLabel}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.switchBtn}
+                onPress={handleLogSet}
+                accessibilityRole="button"
+                accessibilityLabel={`Log an extra set, set ${setNumber}`}
+              >
+                <Text style={styles.switchBtnLabel}>{`Log set ${setNumber}`}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.switchBtn}
+                onPress={() => setSwitcherVisible(true)}
+                accessibilityRole="button"
+                accessibilityLabel="Select different exercise"
+              >
+                <Text style={styles.switchBtnLabel}>Select different exercise</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
           <>
             {primaryLogButton}
             {cancelEditLink}
@@ -1901,10 +1971,10 @@ export default function StepperLogger({
               style={styles.switchBtn}
               onPress={handleContinue}
               accessibilityRole="button"
-              accessibilityLabel={isLast ? 'Finish workout' : `Continue to ${nextEx?.name ?? 'next'}`}
+              accessibilityLabel={nextPendingEx ? `Continue to ${nextPendingEx.name}` : 'Finish workout'}
             >
               <Text style={styles.switchBtnLabel}>
-                {isLast ? 'Finish workout' : `Continue to ${nextEx?.name ?? 'next'} →`}
+                {nextPendingEx ? `Continue to ${nextPendingEx.name} →` : 'Finish workout'}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -1916,6 +1986,7 @@ export default function StepperLogger({
               <Text style={styles.switchBtnLabel}>Select different exercise</Text>
             </TouchableOpacity>
           </>
+          )
         )}
       </View>
 
