@@ -158,6 +158,12 @@ export interface EngineInputsV2 {
   // Injuries / contraindications
   injuries?: string[] | null;
 
+  // Disliked / excluded exercise ids (Stage-2 meta-changes, addendum §3). The
+  // selector filters these out of every pool but never empties a slot (falls
+  // back to the un-excluded pool if exclusion would leave nothing). Optional +
+  // absent by default, so pre-Stage-2 callers are byte-identical (determinism).
+  excludeExerciseIds?: string[] | null;
+
   // Per-lift strength (for %1RM loading)
   lifts?: LiftsV2 | null;
 

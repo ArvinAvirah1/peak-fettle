@@ -408,8 +408,12 @@ function fillExercises(
       : ['barbell', 'dumbbell', 'machine', 'cable', 'bodyweight', 'bench', 'rack', 'pullup_bar', 'bands', 'kettlebell']
   );
   const injuries = new Set((profile.injuries || []).map((x) => String(x).toLowerCase()));
+  // Stage-2 meta-change: user-disliked exercise ids to keep out of selection.
+  // Absent by default, so pre-Stage-2 inputs are byte-identical (determinism).
+  const excluded = new Set((profile.excludeExerciseIds || []).map((x) => String(x)));
   const equipOk = (ex: CatalogExerciseV2) => ex.equipment.some((eq) => equip.has(eq));
   const contra = (ex: CatalogExerciseV2) => ex.contraindications.some((c) => injuries.has(c));
+  const notExcluded = (ex: CatalogExerciseV2) => !excluded.has(ex.id);
   const MAIN_LIFT_NAME: Record<'squat' | 'bench' | 'deadlift', string> = { squat: 'Back Squat', bench: 'Bench Press', deadlift: 'Conventional Deadlift' };
 
   built.forEach((session, sIdx) => {
@@ -456,6 +460,12 @@ function fillExercises(
           (strengthOnly ? !(ex.plyo || ex.power) : true) &&
           (squatCapReached ? ex.movement_pattern !== 'squat' : true)
       );
+      // Stage-2 exclusion: drop disliked exercises, but never empty a slot — if
+      // the exclusion would leave nothing, keep the un-excluded pool.
+      if (excluded.size) {
+        const kept = pool.filter(notExcluded);
+        if (kept.length) pool = kept;
+      }
 
       if (session.power && slot.role === 'primary') {
         const p = pool.filter((ex) => ex.power || ex.plyo);

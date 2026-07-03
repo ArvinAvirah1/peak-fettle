@@ -121,6 +121,12 @@ export interface SurveyAnswers {
   // ── Injuries / contraindications (region tokens) ──
   injuries: string[];
 
+  // ── Disliked / excluded exercises (Stage-2 meta-changes, addendum §3) ──
+  // Exercise ids the user never wants prescribed. Additive + optional so plans
+  // saved before Stage 2 (which lack the field) still load; the meta-change
+  // sheet writes it and the engine adapter maps it onto the exclusion channel.
+  excludedExerciseIds?: string[];
+
   // ── Per-lift strength (for %1RM loading) ──
   lifts?: SurveyLifts | null;
 
@@ -157,6 +163,7 @@ export const DEFAULT_SURVEY_ANSWERS: SurveyAnswers = {
   equipment: [],
   musclePriorities: [],
   injuries: [],
+  excludedExerciseIds: [],
   lifts: null,
   knobs: { ...DEFAULT_KNOBS },
 };

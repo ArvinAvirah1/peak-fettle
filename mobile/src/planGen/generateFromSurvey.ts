@@ -109,6 +109,10 @@ export function mapSurveyToInputs(
     equipment,
     musclePriorities: answers.musclePriorities.length > 0 ? [...answers.musclePriorities] : null,
     injuries: answers.injuries.length > 0 ? [...answers.injuries] : null,
+    excludeExerciseIds:
+      answers.excludedExerciseIds && answers.excludedExerciseIds.length > 0
+        ? [...answers.excludedExerciseIds]
+        : null,
 
     lifts: toLifts(answers),
     meet: toMeet(answers),
