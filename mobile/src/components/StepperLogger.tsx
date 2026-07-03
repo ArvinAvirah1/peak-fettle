@@ -61,7 +61,15 @@ import { SuggestCandidate } from '../utils/smartSuggest';
 // Founder logger fixes #3/#4: pure, unit-tested helpers (see loggerLogic.ts +
 // __tests__/loggerLogic.test.js). nextPendingExerciseIndex skips already-completed
 // exercises (jump-ahead bug); isPlannedComplete drives the post-final-set button swap.
-import { nextPendingExerciseIndex, isPlannedComplete } from './loggerLogic';
+import {
+  nextPendingExerciseIndex,
+  isPlannedComplete,
+  groupMembers,
+  roundOf,
+  restAfterSet,
+} from './loggerLogic';
+// S1 dropset chain UI (amber chips + drop actions) — owns its own presentation.
+import DropChainBar, { type DropChainLink } from './logger/DropChainBar';
 import PlateCalculatorSheet from './PlateCalculatorSheet';
 import Animated, {
   FadeIn,
@@ -315,6 +323,32 @@ interface Props {
    * the user taps "Add exercise". Falls back to onBrowseLibrary when undefined.
    */
   onAddExercise?: () => void;
+  // ── S1 supersets ──────────────────────────────────────────────────────────
+  /**
+   * Open the "Superset with…" pairing sheet (session-only). Shown only when the
+   * current exercise is UNGROUPED and >= 1 other pending exercise exists.
+   * Undefined = hide the affordance (e.g. history-edit mode).
+   */
+  onSupersetWith?: () => void;
+  /** Unlink the current exercise's superset group (session-only). */
+  onUnlinkSuperset?: (groupId: string) => void;
+  // ── S1 dropsets ───────────────────────────────────────────────────────────
+  /**
+   * Active drop-chain state for the CURRENT exercise, or null. When present the
+   * amber DropChainBar replaces the rest ring and rest stays suppressed.
+   */
+  dropChain?: {
+    chainId: string;
+    links: DropChainLink[];
+    nextDropIndex: number;
+    nextDropWeightLabel?: string | null;
+    /** Pre-fill value (display units) for the next drop's weight input. */
+    nextDropWeightPrefill?: string | null;
+  } | null;
+  /** Start a drop chain off the just-logged top set (parent seeds chain state). */
+  onStartDropChain?: () => void;
+  /** End the drop chain and start the normal rest timer. */
+  onEndDropChain?: () => void;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -619,6 +653,11 @@ export default function StepperLogger({
   weekNumber,
   restSeconds,
   onAddExercise,
+  onSupersetWith,
+  onUnlinkSuperset,
+  dropChain,
+  onStartDropChain,
+  onEndDropChain,
 }: Props): React.ReactElement {
   const { exercises, currentIndex, name: routineName } = routineSession;
   const reducedMotion = useReducedMotion(); // 2026-06-10 aesthetic pass
@@ -833,6 +872,88 @@ export default function StepperLogger({
   const isOffRoutine =
     routineSession.source === 'routine' && (currentEx?.exerciseId ?? '') === '';
 
+  // ── S1: superset group derivation for the CURRENT exercise ────────────────
+  const groupId = currentEx?.groupId ?? null;
+  const isGrouped = groupId != null;
+  const groupInfo = useMemo(() => {
+    if (!isGrouped || groupId == null) return null;
+    const members = groupMembers(exercises, groupId);
+    if (members.length < 2) return null;
+    // Group letter: A for the first group encountered in session order, B next…
+    const groupIdsInOrder: string[] = [];
+    for (const e of exercises) {
+      if (e.groupId && !groupIdsInOrder.includes(e.groupId)) groupIdsInOrder.push(e.groupId);
+    }
+    const letterIdx = groupIdsInOrder.indexOf(groupId);
+    const letter = letterIdx >= 0 ? String.fromCharCode(65 + letterIdx) : 'A';
+    const rounds =
+      typeof currentEx?.groupRounds === 'number' && currentEx.groupRounds > 0
+        ? currentEx.groupRounds
+        : Math.max(1, ...members.map((m) => m.exercise.targetSets ?? 1));
+    // Position of the current exercise within the group (A1, A2, …).
+    const posInGroup = members.findIndex((m) => m.index === currentIndex) + 1;
+    const round = roundOf(currentEx, currentExerciseSets.length);
+    const otherNames = members
+      .filter((m) => m.index !== currentIndex)
+      .map((m) => m.exercise.name);
+    return { letter, rounds, round, posInGroup, otherNames, memberCount: members.length };
+  }, [isGrouped, groupId, exercises, currentEx, currentIndex, currentExerciseSets.length]);
+
+  // ── S1: is a drop chain active for the current exercise? ──────────────────
+  const chainActive = !!dropChain;
+
+  // ── S1: does at least one OTHER exercise remain pending + ungrouped? (gates
+  // the "Superset with…" affordance — nothing to pair with otherwise.) ────────
+  const hasOtherPending = useMemo(() => {
+    for (let i = 0; i < exercises.length; i++) {
+      if (i === currentIndex) continue;
+      const e = exercises[i];
+      if (!e || e.groupId) continue;
+      const liveCount = e.loggedSetCount;
+      const done =
+        typeof e.targetSets === 'number' && e.targetSets > 0
+          ? liveCount >= e.targetSets
+          : e.done;
+      if (!done) return true;
+    }
+    return false;
+  }, [exercises, currentIndex]);
+
+  // ── S1: rest suppression — mirror the host predicate so the LOCAL visual rest
+  // ring is suppressed in lockstep (spec §3: one predicate gates BOTH). Rest is
+  // suppressed while a drop chain is active, and mid-superset-round when another
+  // group member still has work. We build a session snapshot with the current
+  // exercise's live logged count so restAfterSet sees the just-logged set.
+  const restSuppressedAfterThisSet = useMemo(() => {
+    if (chainActive) return true;
+    if (!isGrouped) return false;
+    const liveCount = currentExerciseSets.length + 1;
+    const snapshot = {
+      ...routineSession,
+      exercises: exercises.map((e, i) =>
+        i === currentIndex ? { ...e, loggedSetCount: liveCount } : e,
+      ),
+    };
+    return !restAfterSet(snapshot, currentIndex);
+  }, [chainActive, isGrouped, routineSession, exercises, currentIndex, currentExerciseSets.length]);
+
+  // ── S1: when a drop chain advances, pre-fill the weight input with the next
+  // drop's −20% weight and clear reps so the user just types the reps achieved.
+  // Keyed on the chain's next drop index so it fires once per drop, not per
+  // render. Only touches the input while a chain is active for this exercise.
+  const lastDropPrefillRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!dropChain) { lastDropPrefillRef.current = null; return; }
+    const key = `${dropChain.chainId}:${dropChain.nextDropIndex}`;
+    if (lastDropPrefillRef.current === key) return;
+    lastDropPrefillRef.current = key;
+    const pre = dropChain.nextDropWeightPrefill;
+    if (pre != null && pre !== '') {
+      setWeight(pre);
+      setReps('');
+    }
+  }, [dropChain]);
+
   // Progress dots (max 6 shown) — for >6 exercises we use the slim progress bar.
   const dotsToShow = Math.min(exercises.length, 6);
   const useProgressBar = exercises.length > 6;
@@ -954,7 +1075,9 @@ export default function StepperLogger({
       setCardioDistance('');
       resetMoreMetrics();
       playLogConfirm();
-      setRestLeft(restTotal);
+      // S1: suppress the local visual rest ring mid-superset-round (the parent
+      // suppresses the notification rest in lockstep).
+      if (!restSuppressedAfterThisSet) setRestLeft(restTotal);
     } else {
       // Lift path
       if (!weight.trim() && !reps.trim()) return;
@@ -987,13 +1110,15 @@ export default function StepperLogger({
       setRir('');
       // Keep weight pre-filled for the next set.
       playLogConfirm();
-      setRestLeft(restTotal);
+      // S1: suppress the local visual rest ring while a drop chain is active or
+      // mid-superset-round (kept in lockstep with the parent's rest suppression).
+      if (!restSuppressedAfterThisSet) setRestLeft(restTotal);
     }
     afterLogSet();
   }, [
     isCardio, cardioDurationMm, cardioDurationSs, cardioDistance, unitPref,
     onLogCardioSet, currentEx, weight, reps, rir, onLogSet, afterLogSet,
-    editingIndex, onUpdateSet, playLogConfirm, restTotal,
+    editingIndex, onUpdateSet, playLogConfirm, restTotal, restSuppressedAfterThisSet,
     mHrAvg, mHrMax, mCalories, mCadence, mElevation, mRpe, mSplits, resetMoreMetrics,
   ]);
 
@@ -1130,13 +1255,23 @@ export default function StepperLogger({
   // onPress (handleLogSet), the scale/check log animation, and the editingIndex
   // "Save set" copy. Cardio uses the same button (handleLogSet branches on
   // isCardio internally). Hidden during the smart-suggest interstitial.
+  // S1: log-button label. Grouped → "Log set — <name> (A1)"; drop chain active →
+  // "Log drop N"; else the plain "Log set N". Edit mode keeps "Save set N".
+  const logSetLabelText =
+    editingIndex != null
+      ? `Save set ${editingIndex + 1}`
+      : chainActive && dropChain
+        ? `Log drop ${dropChain.nextDropIndex}`
+        : groupInfo
+          ? `Log set — ${currentEx?.name ?? ''} (${groupInfo.letter}${groupInfo.posInGroup})`
+          : `Log set ${setNumber}`;
   const primaryLogButton = (
     <Animated.View style={logBtnStyle}>
       <TouchableOpacity
         style={styles.logSetBtn}
         onPress={handleLogSet}
         accessibilityRole="button"
-        accessibilityLabel={editingIndex != null ? `Save set ${editingIndex + 1}` : `Log set ${setNumber}`}
+        accessibilityLabel={logSetLabelText}
       >
         {justLoggedTick ? (
           <View style={styles.logSetConfirm}>
@@ -1144,8 +1279,8 @@ export default function StepperLogger({
             <Text style={styles.logSetLabel}>Logged</Text>
           </View>
         ) : (
-          <Text style={styles.logSetLabel}>
-            {editingIndex != null ? `Save set ${editingIndex + 1}` : `Log set ${setNumber}`}
+          <Text style={styles.logSetLabel} numberOfLines={1}>
+            {logSetLabelText}
           </Text>
         )}
       </TouchableOpacity>
@@ -1302,6 +1437,24 @@ export default function StepperLogger({
           /* ── Logging screen (routine / free / smart pre-interstitial) ────── */
           <>
             <Text style={styles.exLabel}>{kicker}</Text>
+            {/* S1: superset group pill ("SUPERSET A · ROUND r OF n") + the
+                "paired with X, Y" line. Only shown when the current exercise is
+                grouped (>= 2 members). Ungrouped → unchanged. */}
+            {groupInfo ? (
+              <View style={ssStyles.wrap}>
+                <View style={ssStyles.pill}>
+                  <Ionicons name="git-merge" size={13} color={stepperPalette.accentInk} />
+                  <Text style={ssStyles.pillLabel}>
+                    SUPERSET {groupInfo.letter} · ROUND {groupInfo.round} OF {groupInfo.rounds}
+                  </Text>
+                </View>
+                {groupInfo.otherNames.length > 0 ? (
+                  <Text style={ssStyles.pairedWith} numberOfLines={1}>
+                    paired with {groupInfo.otherNames.join(', ')}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
             {/* P2: exercise name + compact muscle map (omitted when no groups,
                 e.g. most cardio). MuscleMap pulls its highlight colour from the
                 theme (accentDefault) so it stays theme-adaptive. */}
@@ -1806,6 +1959,29 @@ export default function StepperLogger({
               </TouchableOpacity>
             ) : null}
 
+            {/* S1: "Superset with…" (ungrouped, >=1 other pending) / "Unlink
+                superset" (grouped). Free feature — no Pro gating. Hidden entirely
+                in history-edit mode (parent passes no callbacks then). */}
+            {!isCardio && isGrouped && groupId && onUnlinkSuperset ? (
+              <TouchableOpacity
+                onPress={() => onUnlinkSuperset(groupId)}
+                style={styles.altExerciseLink}
+                accessibilityRole="button"
+                accessibilityLabel="Unlink superset"
+              >
+                <Text style={styles.altExerciseLinkLabel}>Unlink superset</Text>
+              </TouchableOpacity>
+            ) : !isCardio && !isGrouped && onSupersetWith && hasOtherPending ? (
+              <TouchableOpacity
+                onPress={onSupersetWith}
+                style={styles.altExerciseLink}
+                accessibilityRole="button"
+                accessibilityLabel="Superset with another exercise"
+              >
+                <Text style={styles.altExerciseLinkLabel}>Superset with…</Text>
+              </TouchableOpacity>
+            ) : null}
+
             {/* P1a: the primary "Log set N" / "Save set N" action now lives in the
                 sticky bottom actionBar (always above the keyboard) — see
                 `primaryLogButton` below. It is no longer rendered in-scroll so
@@ -1813,6 +1989,37 @@ export default function StepperLogger({
           </>
         )}
       </ScrollView>
+
+      {/* ── S1: dropset chain bar (replaces the rest ring while chaining) ───── */}
+      {chainActive && dropChain && onEndDropChain ? (
+        <View style={styles.transientRow}>
+          <DropChainBar
+            links={dropChain.links}
+            nextDropIndex={dropChain.nextDropIndex}
+            nextDropWeightLabel={dropChain.nextDropWeightLabel}
+            unitLabel={unitLabel}
+            onLogDrop={handleLogSet}
+            onDone={onEndDropChain}
+          />
+        </View>
+      ) : null}
+
+      {/* S1: "+ Drop set" starter — appears after a LIFT set is logged (no chain
+          yet, not cardio, and the parent enabled dropsets). Works on ANY set even
+          if nothing was prescribed. Tapping it starts a chain off the last set. */}
+      {!chainActive && !isCardio && onStartDropChain && currentExerciseSets.length > 0 && editingIndex == null ? (
+        <View style={styles.transientRow}>
+          <TouchableOpacity
+            onPress={onStartDropChain}
+            style={ssStyles.dropStartBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Add a drop set off the last set"
+          >
+            <Ionicons name="trending-down" size={16} color={SS_AMBER} />
+            <Text style={ssStyles.dropStartLabel}>+ Drop set</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       {/* ── Inline rest-timer ring (option 4) + retry toast (option 14) ─────── */}
       {(restLeft !== null && restLeft > 0) || retryToast ? (
@@ -2912,6 +3119,53 @@ const styles = StyleSheet.create({
     fontSize: fontSize.caption,
     color: stepperPalette.muted,
     textDecorationLine: 'underline',
+  },
+});
+
+// ── S1 superset / dropset styles ────────────────────────────────────────────
+const SS_AMBER = '#F59E0B';
+const ssStyles = StyleSheet.create({
+  wrap: {
+    marginBottom: 8,
+  },
+  pill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: stepperPalette.accent,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  pillLabel: {
+    color: stepperPalette.accentInk,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+    marginLeft: 5,
+  },
+  pairedWith: {
+    color: stepperPalette.muted,
+    fontSize: 12,
+    marginTop: 4,
+  },
+  dropStartBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderColor: SS_AMBER,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    minHeight: 40,
+  },
+  dropStartLabel: {
+    color: SS_AMBER,
+    fontSize: 14,
+    fontWeight: '700',
+    marginLeft: 6,
   },
 });
 

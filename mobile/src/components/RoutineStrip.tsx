@@ -54,6 +54,18 @@ export interface RoutineSessionExercise {
   loggedSetCount: number;
   done: boolean;
   category?: 'lift' | 'cardio' | 'sport' | 'mobility';
+  /**
+   * Session-only superset group id (S1). Members of the same group are performed
+   * back-to-back with rest only after each round. null/undefined = ungrouped
+   * (exactly today's flow). Additive: absent ⇒ identical behaviour everywhere.
+   */
+  groupId?: string | null;
+  /**
+   * Shared round count for the superset group (S1). While grouped this supersedes
+   * the per-exercise `targetSets` for completion (all members do `groupRounds`
+   * rounds). Ignored when ungrouped.
+   */
+  groupRounds?: number;
 }
 
 interface RoutineStripProps {

@@ -53,6 +53,9 @@ import StepperLogger, { LoggedSet } from './StepperLogger';
 // Stage 3 (addendum §4/§5): Pro local-first "machine busy? swap" — region-aware
 // alternatives from the on-device v2 catalog (NO network), rendered in QuickSwapSheet.
 import QuickSwapSheet from '../planGen/components/QuickSwapSheet';
+// S1 supersets/dropsets — the pairing sheet + drop-chain bar own their own UI so
+// the StepperLogger insertion stays minimal (big-file hazard pattern).
+import { SupersetPairSheet, type SupersetPairCandidate } from './logger/SupersetPairSheet';
 import { alternativesForDetailed, type SwapCandidate } from '../planGen/quickSwap';
 import { excludeExercisePermanently } from '../planGen/quickSwapPersist';
 import { loadActivePlan } from '../planGen/planStore';
@@ -80,7 +83,13 @@ import { useRestTimer, REST_TIMER_STEP } from '../hooks/useRestTimer';
 // Founder logger fixes #1/#2: the mini-bar (minimize-to-bubble) + the pure
 // timer helper that derives the countdown from an ABSOLUTE deadline (no drift).
 import { WorkoutMiniBar } from './WorkoutMiniBar';
-import { restRemainingSec } from './loggerLogic';
+import {
+  restRemainingSec,
+  restAfterSet,
+  nextInGroupIndex,
+  dropPrefillKg,
+} from './loggerLogic';
+import { genId } from '../db/localDb';
 import { epley1Rm } from '../lib/oneRm';
 
 // Dynamic require for alternatives API (Agent 3's file — optional at parse time)
@@ -280,6 +289,9 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
     // actual DB set_index (needed by the Pro re-log path inside updateLiftSet).
     const historyRowMapRef = useRef<Map<string, { id: string; workoutId: string; setIndex: number }>>(new Map());
     const historyChangeRef = useRef<(() => void) | undefined>(undefined);
+    // S1: id of the most recently logged lift row per exerciseId, so starting a
+    // drop chain can retro-tag the top set (index 0) to keep it out of PRs.
+    const lastLiftRowRef = useRef<Map<string, string>>(new Map());
     const historyRowKey = (exerciseId: string, chipIndex: number) => `${exerciseId}#${chipIndex}`;
 
     // Timer
@@ -368,6 +380,25 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
 
     // PR toast
     const [prToast, setPrToast] = useState<PRToastData | null>(null);
+
+    // ── S1 dropset chain state ────────────────────────────────────────────────
+    // A drop CHAIN = a top set + N drops logged back-to-back with rest fully
+    // suppressed. Non-null while a chain is active for the current exercise.
+    //   chainId    — tags every row in the chain (metrics_json.drop.chainId)
+    //   exerciseId — the owning exercise (chain ends if the user leaves it)
+    //   topRowId   — the top set's row id (retro-tagged drop.index 0 on start)
+    //   topWeightKg— exact kg of the top set (drives the −20% prefill ladder)
+    //   links      — display-unit summary of each logged link (top + drops)
+    const [dropChain, setDropChain] = useState<{
+      chainId: string;
+      exerciseId: string;
+      topRowId: string | null;
+      topWeightKg: number;
+      links: { weight: string; reps: string; index: number }[];
+    } | null>(null);
+
+    // ── S1 superset "pair with…" sheet ────────────────────────────────────────
+    const [pairSheetVisible, setPairSheetVisible] = useState(false);
 
     // Rest timer (background-safe, scheduled notification)
     const restTimer = useRestTimer(120);
@@ -782,6 +813,9 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
             weightKg,
             ...(rirNum !== undefined && !Number.isNaN(rirNum) ? { rir: rirNum } : {}),
           });
+          // S1: remember this row id so a subsequent "+ Drop set" can retro-tag
+          // this (top) set as drop.index 0 → excluded from PRs.
+          if (logged?.id) lastLiftRowRef.current.set(targetId, logged.id);
           haptics.success();
           // WIDGET-002: a logged set that meets BOTH targets of this exercise's
           // goal marks it achieved (fire-and-forget; StepperLogger re-reads the
@@ -794,9 +828,56 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           ).then((achieved) => {
             if (achieved) haptics.success();
           });
+          // ── S1: is this row part of a DROP chain? ────────────────────────
+          // A chain is active when dropChain targets the current exercise. The
+          // TOP set is not itself a drop (index 0, tagged only when the chain
+          // starts); the extra rows the user logs via "+ Drop set" are drops
+          // (index >= 1). We detect an active chain here so the PR toast is
+          // skipped and the row is tagged.
+          const activeChain =
+            dropChain && dropChain.exerciseId === targetId ? dropChain : null;
+          const isDrop = !!activeChain && activeChain.links.length >= 1;
+          const dropIndex = activeChain ? activeChain.links.length : 0;
+
+          // ── S1: group tagging inputs (superset) ──────────────────────────
+          const curEx = routineSession?.exercises[routineSession.currentIndex];
+          const grouped = !!curEx?.groupId;
+          const groupRound = grouped ? (stepperSets.get(targetId)?.length ?? 0) + 1 : 0;
+
+          // metrics_json tagging (mirror the cardio setSetMetrics pattern):
+          // best-effort, on-device, NEVER blocks logging. Merge superset + drop
+          // tags. Skipped entirely when neither applies.
+          if (logged?.id && (grouped || activeChain)) {
+            const merged: CardioMetrics & {
+              superset?: { group: string; round: number };
+              drop?: { chainId: string; index: number };
+            } = {};
+            if (grouped && curEx?.groupId) {
+              merged.superset = { group: curEx.groupId, round: groupRound };
+            }
+            if (activeChain) {
+              merged.drop = { chainId: activeChain.chainId, index: dropIndex };
+            }
+            void setSetMetrics(logged.id, merged as CardioMetrics);
+          }
+
+          // Advance the drop chain: append this link; if it's the top set
+          // (chain just started, index 0), record its row id for retro-tagging.
+          if (activeChain) {
+            setDropChain((prev) => {
+              if (!prev || prev.exerciseId !== targetId) return prev;
+              return {
+                ...prev,
+                topRowId: prev.topRowId ?? logged?.id ?? null,
+                links: [...prev.links, { weight, reps, index: dropIndex }],
+              };
+            });
+          }
+
           // PR detection: compute e1RM (Epley, reps capped at 12) and compare
-          // to prior all-time best. Show PRToast if new best.
-          {
+          // to prior all-time best. Show PRToast if new best. S1 PR guard: a DROP
+          // row (fatigue set) can never claim a PR — skip the toast entirely.
+          if (!isDrop) {
             const w = weightKg;
             const r = Math.min(parseInt(reps, 10) || 0, 12);
             if (w > 0 && r > 0) {
@@ -827,13 +908,47 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
             }
           }
           setTimerActive(true);
-          // Fix #1: capture the ABSOLUTE deadline at the same instant the
-          // notification is scheduled — the banner/mini-bar countdown derives
-          // from this and never drifts against the scheduled alarm.
-          setRestEndAt(Date.now() + restDefault * 1000);
-          setRestNow(Date.now());
-          // Also start background-safe timer (schedules local notification)
-          restTimer.start(restDefault);
+
+          // ── S1: rest suppression + interior auto-advance ─────────────────
+          // Rest is suppressed (a) while a drop chain is active, and (b) mid-
+          // superset-round when another group member still has work. We build a
+          // session snapshot with the CURRENT exercise's live logged count (the
+          // optimistic setStepperSets above lags one render) so restAfterSet /
+          // nextInGroupIndex see this set as already logged.
+          const liveCount = (stepperSets.get(targetId)?.length ?? 0) + 1;
+          const snapshot = routineSession
+            ? {
+                ...routineSession,
+                exercises: routineSession.exercises.map((e, i) =>
+                  i === routineSession.currentIndex
+                    ? { ...e, loggedSetCount: liveCount }
+                    : e,
+                ),
+              }
+            : null;
+          const suppressForChain = !!activeChain;
+          const suppressForGroup =
+            !!snapshot && !restAfterSet(snapshot, snapshot.currentIndex);
+          if (suppressForChain || suppressForGroup) {
+            // No rest — either chain the next drop or hop to the next group
+            // member. For a group, auto-advance the stepper immediately.
+            if (!suppressForChain && snapshot) {
+              const nextIdx = nextInGroupIndex(snapshot, snapshot.currentIndex);
+              if (nextIdx != null) {
+                setRoutineSession((prev) =>
+                  prev ? { ...prev, currentIndex: nextIdx } : prev,
+                );
+              }
+            }
+          } else {
+            // Fix #1: capture the ABSOLUTE deadline at the same instant the
+            // notification is scheduled — the banner/mini-bar countdown derives
+            // from this and never drifts against the scheduled alarm.
+            setRestEndAt(Date.now() + restDefault * 1000);
+            setRestNow(Date.now());
+            // Also start background-safe timer (schedules local notification)
+            restTimer.start(restDefault);
+          }
         } catch (err) {
           console.warn('[PF] WorkoutLoggerHost/handleStepperLogSet:', err instanceof Error ? err.message : String(err));
         }
@@ -842,7 +957,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
       // included so PR detection and rest-timer always read the current values (WL-001 /
       // stale-closure-rest / wlh-stale-closure-prdetection).
       [workout, selectedExercise, logSet, updateRoutineExercise, stepperSets, unitPref,
-       stepperPB, exercisePB, routineSession, restDefault, restTimer],
+       stepperPB, exercisePB, routineSession, restDefault, restTimer, dropChain],
     );
 
     // Edit a previously-logged LIFT set (e.g. fix a mistyped weight). The sync
@@ -971,25 +1086,177 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           if (metrics && logged?.id) {
             void setSetMetrics(logged.id, metrics);
           }
+          // S1: tag the superset group on the cardio row too, if grouped.
+          const curExC = routineSession?.exercises[routineSession.currentIndex];
+          if (logged?.id && curExC?.groupId) {
+            const round = (stepperSets.get(targetId)?.length ?? 0) + 1;
+            const base = (metrics ?? {}) as CardioMetrics & {
+              superset?: { group: string; round: number };
+            };
+            void setSetMetrics(logged.id, {
+              ...base,
+              superset: { group: curExC.groupId, round },
+            } as CardioMetrics);
+          }
           haptics.success();
           setTimerActive(true);
-          // Fix #1: absolute deadline captured with the notification schedule.
-          setRestEndAt(Date.now() + restDefault * 1000);
-          setRestNow(Date.now());
-          // Also start background-safe timer (mirrors the lift path).
-          restTimer.start(restDefault);
+          // S1: suppress rest + auto-advance mid-superset-round (mirror the lift
+          // path). Cardio has no drop chains, so only the group predicate applies.
+          const liveCountC = (stepperSets.get(targetId)?.length ?? 0) + 1;
+          const snapshotC = routineSession
+            ? {
+                ...routineSession,
+                exercises: routineSession.exercises.map((e, i) =>
+                  i === routineSession.currentIndex
+                    ? { ...e, loggedSetCount: liveCountC }
+                    : e,
+                ),
+              }
+            : null;
+          if (snapshotC && !restAfterSet(snapshotC, snapshotC.currentIndex)) {
+            const nextIdx = nextInGroupIndex(snapshotC, snapshotC.currentIndex);
+            if (nextIdx != null) {
+              setRoutineSession((prev) =>
+                prev ? { ...prev, currentIndex: nextIdx } : prev,
+              );
+            }
+          } else {
+            // Fix #1: absolute deadline captured with the notification schedule.
+            setRestEndAt(Date.now() + restDefault * 1000);
+            setRestNow(Date.now());
+            // Also start background-safe timer (mirrors the lift path).
+            restTimer.start(restDefault);
+          }
         } catch (err) {
           console.warn('[PF] WorkoutLoggerHost/handleStepperLogCardioSet:', err instanceof Error ? err.message : String(err));
         }
       },
       // restDefault and restTimer added to ensure the cardio path uses the
       // current rest preset (WL-006 / wlh-stale-closure-cardio).
-      [workout, selectedExercise, logSet, updateRoutineExercise, stepperSets, restDefault, restTimer],
+      [workout, selectedExercise, logSet, updateRoutineExercise, stepperSets, restDefault, restTimer, routineSession],
     );
 
     const handleStepperAdvance = useCallback((toIndex: number) => {
+      // Leaving an exercise ends any active drop chain (chain metadata is only
+      // valid while the user is on the chain's exercise).
+      setDropChain(null);
       setRoutineSession((prev) => (prev ? { ...prev, currentIndex: toIndex } : prev));
     }, []);
+
+    // ── S1: session-only superset pairing ─────────────────────────────────────
+    // pairExercises assigns a fresh groupId + shared rounds (= max targetSets of
+    // members, S1 default) to the current exercise + the chosen member indices,
+    // and REORDERS the session so all members are CONTIGUOUS (grouped sequencing
+    // assumes contiguous runs). Session-only — nothing is persisted to the routine
+    // (that's S2). No network — pure in-memory state (local-first invariant holds).
+    const pairExercises = useCallback((memberIndices: number[]) => {
+      setRoutineSession((prev) => {
+        if (!prev) return prev;
+        const anchorIdx = prev.currentIndex;
+        // The full member set = current exercise + the picked ones (deduped).
+        const idxSet = new Set<number>([anchorIdx, ...memberIndices]);
+        const memberIdxList = Array.from(idxSet).filter(
+          (i) => i >= 0 && i < prev.exercises.length,
+        );
+        if (memberIdxList.length < 2) return prev; // need >= 2 for a superset
+        if (memberIdxList.length > 5) memberIdxList.length = 5; // cap at 5 (circuit)
+
+        const groupId = genId();
+        // Shared rounds = max targetSets among members (fallback to logged-so-far
+        // or 3 when none has a planned target). Editable in S2.
+        const rounds = Math.max(
+          3,
+          ...memberIdxList.map((i) => prev.exercises[i]?.targetSets ?? 0),
+          ...memberIdxList.map((i) => prev.exercises[i]?.loggedSetCount ?? 0),
+        );
+
+        // Tag members with the group + shared rounds.
+        const tagged = prev.exercises.map((ex, i) =>
+          idxSet.has(i) ? { ...ex, groupId, groupRounds: rounds } : ex,
+        );
+
+        // Reorder so members are contiguous, anchored at the current exercise's
+        // position. Members keep their picked order; non-members keep their
+        // relative order around the block.
+        const memberSetFinal = new Set(memberIdxList);
+        const members = memberIdxList
+          .slice()
+          .sort((a, b) => a - b)
+          .map((i) => tagged[i]!);
+        const insertionPoint = memberIdxList.reduce((m, i) => Math.min(m, i), Infinity);
+        const rest = tagged.filter((_, i) => !memberSetFinal.has(i));
+        const reordered = [
+          ...rest.slice(0, insertionPoint),
+          ...members,
+          ...rest.slice(insertionPoint),
+        ];
+        // New currentIndex = the anchor exercise's new position (first member).
+        const newCurrentIndex = insertionPoint;
+        return { ...prev, exercises: reordered, currentIndex: newCurrentIndex };
+      });
+      setPairSheetVisible(false);
+      haptics.success();
+    }, []);
+
+    const unpairGroup = useCallback((groupId: string) => {
+      setRoutineSession((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          exercises: prev.exercises.map((ex) =>
+            ex.groupId === groupId
+              ? { ...ex, groupId: null, groupRounds: undefined }
+              : ex,
+          ),
+        };
+      });
+      haptics.light();
+    }, []);
+
+    // ── S1: dropset chain control ─────────────────────────────────────────────
+    // Start a chain off the just-logged top set for the current exercise. The top
+    // row was already logged (as a normal set); we retro-mark it index 0 and seed
+    // the −20% ladder from its exact kg. "+ Log drop N" then logs a normal row via
+    // the same onLogSet path, tagged drop.index >= 1 (handleStepperLogSet reads
+    // dropChain). Rest is fully suppressed while the chain is active.
+    const startDropChain = useCallback(() => {
+      const cur = routineSession?.exercises[routineSession.currentIndex];
+      if (!cur) return;
+      const targetId = cur.exerciseId || selectedExercise?.id || '';
+      if (!targetId) return;
+      // Top set = the last logged set for this exercise (its display weight/reps).
+      const logged = stepperSets.get(targetId) ?? [];
+      const top = logged[logged.length - 1];
+      const topWeightKg = displayToKg(parseWeightInput(top?.weight ?? '') ?? 0, unitPref);
+      const chainId = genId();
+      // Retro-tag the top set row (index 0) so it is EXCLUDED from PRs (a chain
+      // top is a working set but, once a drop chain starts, we mark it drop.index
+      // 0 per the spec so the whole chain is bracketed and none of it claims a
+      // PR beyond what the straight set already did). Best-effort — never blocks.
+      const topRowId = lastLiftRowRef.current.get(targetId) ?? null;
+      if (topRowId) {
+        void setSetMetrics(topRowId, {
+          drop: { chainId, index: 0 },
+        } as unknown as CardioMetrics);
+      }
+      setDropChain({
+        chainId,
+        exerciseId: targetId,
+        topRowId,
+        topWeightKg,
+        links: [{ weight: top?.weight ?? '', reps: top?.reps ?? '', index: 0 }],
+      });
+      haptics.light();
+    }, [routineSession, selectedExercise, stepperSets, unitPref]);
+
+    const endDropChain = useCallback(() => {
+      // Finish the chain and fire the normal rest timer.
+      setDropChain(null);
+      setTimerActive(true);
+      setRestEndAt(Date.now() + restDefault * 1000);
+      setRestNow(Date.now());
+      restTimer.start(restDefault);
+    }, [restDefault, restTimer]);
 
     const handleAcceptSuggestion = useCallback(
       (candidate: SuggestCandidate) => {
@@ -1173,6 +1440,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
       setStepperVisible(false);
       setMinimized(false);
       setRoutineSession(null);
+      setDropChain(null);
       setRestEndAt(null);
       restTimer.cancel();
       if (finishedRoutineId) markRoutineCompleted(finishedRoutineId).catch(() => {});
@@ -1484,9 +1752,74 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
                   ? undefined
                   : user?.is_paid ? handleQuickSwap : (() => setShowPaywall(true))
               }
+              // ── S1 supersets: open the pairing sheet / unlink the group. ──
+              onSupersetWith={
+                historyMode ? undefined : () => setPairSheetVisible(true)
+              }
+              onUnlinkSuperset={
+                historyMode
+                  ? undefined
+                  : (gid: string) => unpairGroup(gid)
+              }
+              // ── S1 dropsets: chain state + controls. The stepper shows the
+              // amber DropChainBar while a chain is active for THIS exercise. ──
+              dropChain={(() => {
+                const curId =
+                  routineSession.exercises[routineSession.currentIndex]?.exerciseId ?? '';
+                if (historyMode || !dropChain || dropChain.exerciseId !== curId) return null;
+                const nextIndex = dropChain.links.length; // top is index 0
+                const nextKg = dropPrefillKg(dropChain.topWeightKg, nextIndex);
+                const nextDisplay =
+                  unitPref === 'lbs'
+                    ? String(roundToNearestQuarterLb(kgToLbs(nextKg)))
+                    : String(nextKg);
+                return {
+                  chainId: dropChain.chainId,
+                  links: dropChain.links,
+                  nextDropIndex: nextIndex,
+                  nextDropWeightLabel: nextDisplay,
+                  nextDropWeightPrefill: nextDisplay,
+                };
+              })()}
+              onStartDropChain={historyMode ? undefined : startDropChain}
+              onEndDropChain={historyMode ? undefined : endDropChain}
             />
           )}
         </Modal>
+
+        {/* S1: session-only superset pairing sheet (free feature). Lists the
+            session's OTHER pending exercises; the parent creates the group. */}
+        <SupersetPairSheet
+          visible={pairSheetVisible}
+          currentName={
+            routineSession?.exercises[routineSession?.currentIndex ?? 0]?.name ?? 'this exercise'
+          }
+          candidates={((): SupersetPairCandidate[] => {
+            if (!routineSession) return [];
+            const curIdx = routineSession.currentIndex;
+            const cur = routineSession.exercises[curIdx];
+            const out: SupersetPairCandidate[] = [];
+            routineSession.exercises.forEach((ex, i) => {
+              if (i === curIdx) return;
+              if (ex.groupId) return; // already grouped elsewhere
+              // Pending only: not yet completed this session.
+              const done =
+                typeof ex.targetSets === 'number' && ex.targetSets > 0
+                  ? ex.loggedSetCount >= ex.targetSets
+                  : ex.done;
+              if (done) return;
+              out.push({
+                index: i,
+                exerciseId: ex.exerciseId,
+                name: ex.name,
+                targetSets: ex.targetSets,
+              });
+            });
+            return out;
+          })()}
+          onConfirm={pairExercises}
+          onClose={() => setPairSheetVisible(false)}
+        />
       {/* Fix #2: persistent minimized-workout bar. Shown ONLY while minimized with a
           live session; sits above the tab bar (Home is the host, a tabbed screen).
           Tapping restores the full stepper mid-session. The rest chip is fed the

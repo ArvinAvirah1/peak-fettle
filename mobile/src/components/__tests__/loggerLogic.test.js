@@ -264,5 +264,157 @@ test('postFinalSetState: nextName override is used when provided', () => {
   eq(r.primaryLabel, 'Next exercise: Incline DB Press', 'override name used:');
 });
 
+// ── S1: superset group sequencing ───────────────────────────────────────────
+// exercise factory allowing groupId/groupRounds
+function gex(loggedSetCount, extra) {
+  return Object.assign({ loggedSetCount }, extra || {});
+}
+
+test('roundOf: group round derivation from logged count, clamped to groupRounds', () => {
+  const a = gex(0, { groupId: 'A', groupRounds: 4 });
+  eq(L.roundOf(a, 0), 1, '0 logged → round 1:');
+  eq(L.roundOf(a, 1), 2, '1 logged → round 2:');
+  eq(L.roundOf(a, 3), 4, '3 logged → round 4:');
+  eq(L.roundOf(a, 4), 4, '4 logged (all done) → clamps to 4:');
+  eq(L.roundOf(a, 9), 4, 'way over → still clamps to 4:');
+  // ungrouped falls back to targetSets
+  eq(L.roundOf(ex(1, 3), 1), 2, 'ungrouped uses targetSets:');
+  eq(L.roundOf(undefined, 0), 1, 'undefined → 1:');
+});
+
+test('isExerciseCompleted: grouped uses groupRounds, NOT targetSets (unequal targets)', () => {
+  // A member whose own targetSets is 3 but the group has 4 rounds is NOT complete
+  // at 3 — shared rounds supersede the per-exercise target while grouped.
+  eq(L.isExerciseCompleted(gex(3, { targetSets: 3, groupId: 'A', groupRounds: 4 })), false,
+    '3/4 rounds grouped (own target 3) → not complete:');
+  eq(L.isExerciseCompleted(gex(4, { targetSets: 3, groupId: 'A', groupRounds: 4 })), true,
+    '4/4 rounds grouped → complete:');
+  // ungrouped still uses its own target
+  eq(L.isExerciseCompleted(gex(3, { targetSets: 3 })), true, 'ungrouped 3/3 → complete:');
+});
+
+test('groupMembers: returns matching members with indices; empty for null groupId', () => {
+  const exs = [
+    gex(0, { groupId: 'A', name: 'A1' }),
+    gex(0, { groupId: 'A', name: 'A2' }),
+    gex(0, { name: 'solo' }),
+    gex(0, { groupId: 'A', name: 'A3' }),
+  ];
+  const m = L.groupMembers(exs, 'A');
+  eq(m.length, 3, '3 members of A:');
+  eq(m[0].index, 0, 'first index 0:');
+  eq(m[2].index, 3, 'third index 3 (non-contiguous tolerated):');
+  eq(L.groupMembers(exs, null).length, 0, 'null groupId → empty:');
+  eq(L.groupMembers(exs, '').length, 0, 'empty groupId → empty:');
+});
+
+test('isGroupRoundComplete: true only when every member logged that round', () => {
+  const exs = [
+    gex(2, { groupId: 'A' }),
+    gex(1, { groupId: 'A' }),
+    gex(2, { groupId: 'A' }),
+  ];
+  eq(L.isGroupRoundComplete(exs, 'A', 1), true, 'round 1 done (all >=1):');
+  eq(L.isGroupRoundComplete(exs, 'A', 2), false, 'round 2 not done (member 2 has 1):');
+});
+
+test('nextInGroupIndex: interior advance A1→A2→A3 then null at round end (3-member circuit)', () => {
+  // Simulate logging round 1 across a 3-member circuit. The caller increments the
+  // logged member's count BEFORE calling nextInGroupIndex.
+  // After A1 logs (A1=1, A2=0, A3=0): next should be A2 (index 1).
+  let exs = [gex(1, { groupId: 'A' }), gex(0, { groupId: 'A' }), gex(0, { groupId: 'A' })];
+  eq(L.nextInGroupIndex(sess(exs, 0), 0), 1, 'after A1 → A2:');
+  // After A2 logs (A1=1, A2=1, A3=0): next should be A3 (index 2).
+  exs = [gex(1, { groupId: 'A' }), gex(1, { groupId: 'A' }), gex(0, { groupId: 'A' })];
+  eq(L.nextInGroupIndex(sess(exs, 1), 1), 2, 'after A2 → A3:');
+  // After A3 logs (A1=1, A2=1, A3=1): round complete → null.
+  exs = [gex(1, { groupId: 'A' }), gex(1, { groupId: 'A' }), gex(1, { groupId: 'A' })];
+  eq(L.nextInGroupIndex(sess(exs, 2), 2), null, 'after A3 → null (round end):');
+});
+
+test('nextInGroupIndex: null for an ungrouped exercise', () => {
+  const exs = [ex(1, 3), ex(0, 3)];
+  eq(L.nextInGroupIndex(sess(exs, 0), 0), null, 'ungrouped → null:');
+});
+
+test('restAfterSet: suppressed mid-round in a 3-member circuit, fires at round end', () => {
+  // A1 just logged, A2 & A3 pending this round → suppress rest.
+  let exs = [gex(1, { groupId: 'A' }), gex(0, { groupId: 'A' }), gex(0, { groupId: 'A' })];
+  eq(L.restAfterSet(sess(exs, 0), 0), false, 'after A1: suppress (A2/A3 pending):');
+  // A2 just logged, A3 still pending → suppress.
+  exs = [gex(1, { groupId: 'A' }), gex(1, { groupId: 'A' }), gex(0, { groupId: 'A' })];
+  eq(L.restAfterSet(sess(exs, 1), 1), false, 'after A2: suppress (A3 pending):');
+  // A3 just logged, round complete → rest fires.
+  exs = [gex(1, { groupId: 'A' }), gex(1, { groupId: 'A' }), gex(1, { groupId: 'A' })];
+  eq(L.restAfterSet(sess(exs, 2), 2), true, 'after A3: rest fires (round end):');
+});
+
+test('restAfterSet: ungrouped always fires', () => {
+  const exs = [ex(1, 3), ex(0, 3)];
+  eq(L.restAfterSet(sess(exs, 0), 0), true, 'ungrouped → always true:');
+});
+
+test('nextPendingExerciseIndex: skips ALL members of a fully-completed group', () => {
+  // Group A (idx 0,1) fully done at 3/3 rounds; solo C (idx 2) pending. From the
+  // last group member (1), next-pending must land on C, skipping done A members.
+  const exs = [
+    gex(3, { groupId: 'A', groupRounds: 3 }),
+    gex(3, { groupId: 'A', groupRounds: 3 }),
+    ex(0, 3),
+  ];
+  eq(L.nextPendingExerciseIndex(sess(exs, 1), 1), 2, 'from done group → solo pending 2:');
+  // From solo C wrapping around: whole group A is complete → returns C itself (2)
+  // as the last-resort pending, never a completed group member.
+  const exs2 = [
+    gex(3, { groupId: 'A', groupRounds: 3 }),
+    gex(3, { groupId: 'A', groupRounds: 3 }),
+    ex(1, 3),
+  ];
+  eq(L.nextPendingExerciseIndex(sess(exs2, 2), 2), 2, 'wrap past done group → self (2):');
+});
+
+test('nextPendingExerciseIndex: entering a partially-done group lands on its first pending member', () => {
+  // solo (0, done) → group A (idx 1 done this round has more rounds, idx 2 pending).
+  // A1 has logged 1/3, A2 has logged 0/3. From solo 0, next pending is A1 (1).
+  const exs = [
+    ex(3, 3),
+    gex(1, { groupId: 'A', groupRounds: 3 }),
+    gex(0, { groupId: 'A', groupRounds: 3 }),
+  ];
+  eq(L.nextPendingExerciseIndex(sess(exs, 0), 0), 1, 'enter group → first pending member 1:');
+});
+
+// ── S1: dropset helpers ──────────────────────────────────────────────────────
+test('dropPrefillKg: −20% compounding, rounded to 0.5 kg', () => {
+  eq(L.dropPrefillKg(100, 1), 80, '100 → 1 drop → 80:');
+  eq(L.dropPrefillKg(100, 2), 64, '100 → 2 drops → 64:');
+  eq(L.dropPrefillKg(85, 1), 68, '85 → 1 drop → 68:');
+  // 82.5 * 0.8 = 66.0
+  eq(L.dropPrefillKg(82.5, 1), 66, '82.5 → 66:');
+  // rounding to nearest 0.5: 70*0.8=56, 55*0.8=44
+  eq(L.dropPrefillKg(55, 1), 44, '55 → 44:');
+  // odd value: 62.5*0.8 = 50.0
+  eq(L.dropPrefillKg(62.5, 1), 50, '62.5 → 50:');
+  // 47.5 * 0.8 = 38.0
+  eq(L.dropPrefillKg(47.5, 1), 38, '47.5 → 38:');
+  eq(L.dropPrefillKg(100, 0), 100, 'dropIndex 0 → top weight:');
+  eq(L.dropPrefillKg(0, 1), 0, 'zero base → 0:');
+});
+
+test('dropPrefillKg: configurable pct + never negative', () => {
+  eq(L.dropPrefillKg(100, 1, 0.5), 50, '−50% → 50:');
+  eq(L.dropPrefillKg(100, 1, 0.1), 90, '−10% → 90:');
+  eq(L.dropPrefillKg(-20, 1), 0, 'negative base clamps to 0:');
+});
+
+test('isDropRow: cheap string check without JSON.parse', () => {
+  eq(L.isDropRow('{"drop":{"chainId":"c1","index":1}}'), true, 'drop tagged → true:');
+  eq(L.isDropRow('{"superset":{"group":"A","round":2}}'), false, 'superset only → false:');
+  eq(L.isDropRow('{"drop":{"chainId":"c1","index":0},"superset":{}}'), true, 'drop+superset → true:');
+  eq(L.isDropRow(null), false, 'null → false:');
+  eq(L.isDropRow(''), false, 'empty → false:');
+  eq(L.isDropRow('{"hrAvgBpm":140}'), false, 'cardio metrics → false:');
+});
+
 console.log('\n' + (passed + failed) + ' tests: ' + passed + ' passed, ' + failed + ' failed\n');
 if (failed > 0) process.exit(1);

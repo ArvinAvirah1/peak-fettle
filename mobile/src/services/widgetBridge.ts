@@ -39,6 +39,7 @@ import { loadSchedule, resolveNextUp } from '../data/schedule';
 import { countGoalsAchievedThisWeek, countActiveGoals } from '../data/exerciseGoals';
 import { toDateKey, daysAgo } from '../utils/dateHelpers';
 import { THEMES, DEFAULT_THEME } from '../theme/tokens';
+import { isDropRow } from '../components/loggerLogic';
 import type { ThemeName } from '../theme/types';
 
 export const APP_GROUP = 'group.com.peakfettle.app';
@@ -118,6 +119,8 @@ interface SetRow {
   reps: number | null;
   /** Exact kg value (v3+). Preferred for all comparisons. */
   weight_kg_val: number | null;
+  /** S1 drop/superset tags (device-only, v6+). Drops are excluded from PRs. */
+  metrics_json: string | null;
   logged_at: string | null;
 }
 
@@ -130,6 +133,9 @@ export function countPRsThisWeek(rows: SetRow[], now: Date = new Date()): number
   const bestWeight = new Map<string, number>();
   for (const s of rows) {
     if (!s.exercise_id || s.reps == null || s.weight_kg_val == null) continue;
+    // S1 PR guard: drop rows (fatigue sets) never set or claim a PR. Cheap
+    // string check on metrics_json — no JSON.parse in this hot path.
+    if (isDropRow(s.metrics_json)) continue;
     const key = `${s.exercise_id}:${s.reps}`;
     const w = s.weight_kg_val;
     if (w > (bestWeight.get(key) ?? -Infinity)) bestWeight.set(key, w);
@@ -137,6 +143,7 @@ export function countPRsThisWeek(rows: SetRow[], now: Date = new Date()): number
   let count = 0;
   for (const s of rows) {
     if (!s.exercise_id || s.reps == null || s.weight_kg_val == null || !s.logged_at) continue;
+    if (isDropRow(s.metrics_json)) continue;
     if (s.logged_at < weekCutoff) continue;
     const key = `${s.exercise_id}:${s.reps}`;
     if (s.weight_kg_val >= (bestWeight.get(key) ?? -Infinity)) count++;
@@ -278,6 +285,7 @@ export async function buildWidgetPayload(now: Date = new Date()): Promise<Widget
   const rows = await localDb.getAll<SetRow>(
     `SELECT id, exercise_id, reps,
             COALESCE(weight_kg, CAST(weight_raw AS REAL) / 8.0) AS weight_kg_val,
+            metrics_json,
             logged_at
        FROM sets WHERE kind = 'lift' AND logged_at >= ?`,
     [monthCutoff],

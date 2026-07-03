@@ -28,6 +28,7 @@ import {
 } from '../data/exerciseNames';
 import { Workout, WorkoutSet, LiftSet, CardioSet, Exercise } from '../types/api';
 import { computeStreak } from './useStreak';
+import { isDropRow } from '../components/loggerLogic';
 import { toDateKey, daysAgo } from '../utils/dateHelpers';
 
 // ---------------------------------------------------------------------------
@@ -64,12 +65,17 @@ export interface UseWorkoutHistoryResult {
 function computePRIds(allLiftSets: LiftSet[]): Set<string> {
   const bestWeight = new Map<string, number>();
   for (const s of allLiftSets) {
+    // S1 PR guard: a DROP row (fatigue set) must NOT set or claim a PR. The local
+    // row carries metrics_json; the server LiftSet does not (undefined → not a
+    // drop). Cheap string check — no JSON.parse in this hot path.
+    if (isDropRow((s as LiftSet & { metrics_json?: string | null }).metrics_json)) continue;
     const key = `${s.exercise_id}:${s.reps}`;
     const current = bestWeight.get(key) ?? -Infinity;
     if (s.weight_kg > current) bestWeight.set(key, s.weight_kg);
   }
   const prIds = new Set<string>();
   for (const s of allLiftSets) {
+    if (isDropRow((s as LiftSet & { metrics_json?: string | null }).metrics_json)) continue;
     const key = `${s.exercise_id}:${s.reps}`;
     if (s.weight_kg >= (bestWeight.get(key) ?? -Infinity)) prIds.add(s.id);
   }
@@ -105,6 +111,7 @@ interface SetRow {
   duration_sec: number | null;
   distance_m: number | null;
   avg_pace_sec_per_km: number | null;
+  metrics_json: string | null;  // S1 drop/superset tags (device-only, v6+)
   logged_at: string;
 }
 
@@ -116,6 +123,9 @@ function rowToSet(row: SetRow): WorkoutSet {
       set_index: row.set_index, reps: row.reps ?? 0,
       weight_kg: row.weight_kg != null ? row.weight_kg : (row.weight_raw != null ? row.weight_raw / 8 : 0),
       rir: row.rir, logged_at: row.logged_at,
+      // S1: carry the device-only metrics_json so the PR guard can exclude drop
+      // rows. Extra field beyond the LiftSet contract — harmless to downstream.
+      metrics_json: row.metrics_json ?? null,
     } as LiftSet;
   }
   return {
