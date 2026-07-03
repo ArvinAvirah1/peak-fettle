@@ -57,3 +57,16 @@ ShareCard nullable ref, missing `shouldShowList` in the notification handler).
 bundle IDs); apply `db/schema.sql` lifeos tails (incl. the new `paused` column) to
 Supabase; macOS Swift compile check; trademark; content/legal sign-offs; on-device
 checks (widgets, Live Activity, reminders cap, blocker demo, backup/restore round trip).
+
+## 5. Addendum 2026-07-03 — Family Controls build toggle
+
+Apple's FC **distribution** entitlement is approval-gated, so the blocker is now
+switched OFF at build level by ONE flag: `FAMILY_CONTROLS_ENABLED = false` in
+`lifeos/plugins/withFamilyControls.js`. While off: the 4 FC extension targets are
+skipped at prebuild (code untouched in `targets/`), the FC entitlement is stripped
+from the main app (App Group kept — the widget needs it), and the FC appExtensions
+are filtered from the EAS credentials config. Store-class builds sign cleanly; the
+Focus tab ships dark (its designed pre-entitlement state, Q18a).
+
+**To re-enable after Apple grants the entitlement** (requested for the 5 bundle
+IDs): flip the flag to `true`, commit, `eas build`. Nothing else changes.

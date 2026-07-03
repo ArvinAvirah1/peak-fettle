@@ -1,44 +1,56 @@
 /**
- * Expo config plugin — FamilyControls support (TICKET-102 #3; rewritten 2026-07-03).
+ * Expo config plugin — FamilyControls support + build toggle (TICKET-102 #3).
  *
- * Does TWO things:
+ * ─────────────────────────────────────────────────────────────────────────────
+ * ⛳ THE ONE SWITCH:
+ *   FAMILY_CONTROLS_ENABLED = false  → blocker OFF at build level. The four FC
+ *     extension targets in lifeos/targets/ are skipped, the FC entitlement is
+ *     stripped from the main app, and the FC appExtensions are removed from the
+ *     EAS credentials config. App Store / preview / production builds sign
+ *     WITHOUT Apple's Family Controls distribution entitlement. The Focus tab
+ *     ships dark (its designed pre-entitlement state, Q18a); ALL code stays in
+ *     the repo untouched.
+ *   FAMILY_CONTROLS_ENABLED = true   → full blocker build. Requires Apple's
+ *     Family Controls (Distribution) entitlement grant for com.peakfettle.lifeos
+ *     + .monitor/.shield/.shieldaction/.report for store-class profiles
+ *     (Development-signed builds work without the grant).
+ *   Nothing else needs to change in either direction — flip, commit, rebuild.
+ * ─────────────────────────────────────────────────────────────────────────────
  *
- * 1. TEACHES @bacons/apple-targets the one FamilyControls target type it does
- *    not ship (≤4.0.7): 'device-activity-report'. The other three
- *    ('device-activity-monitor', 'shield-config', 'shield-action') are native —
- *    with NSExtensionPrincipalClass values that match our Swift classes — so we
- *    do NOT touch them. (Our shield target uses the native 'shield-config'
- *    spelling; 'shield-configuration' is unknown to the package.)
+ * With FC enabled this plugin also:
+ * 1. Teaches @bacons/apple-targets (≤4.0.7) the one FC target type it lacks,
+ *    'device-activity-report' (registry + derived maps + a type alias inside
+ *    createConfigurationListForType, whose exhaustive switch otherwise throws).
+ *    'device-activity-monitor'/'shield-config'/'shield-action' are native, with
+ *    NSExtensionPrincipalClass values matching our Swift classes. The default
+ *    Info.plist (point identifier only) is correct for the @main report ext.
+ * 2. Adds the FC entitlement + App Group to the main target.
  *
- *    Three patch points, all for 'device-activity-report':
- *      a. TARGET_REGISTRY + the two maps derived from it at module load
- *         (KNOWN_EXTENSION_POINT_IDENTIFIERS, SHOULD_USE_APP_GROUPS_BY_DEFAULT).
- *      b. Info.plist: nothing to patch — unknown types fall through to the
- *         default `NSExtension { NSExtensionPointIdentifier }`, which is exactly
- *         right for the report extension (its entry point is an @main-annotated
- *         DeviceActivityReportExtension struct; no principal class).
- *      c. configuration-list.js `createConfigurationListForType` has an
- *         exhaustive switch that THROWS "Unhandled case: device-activity-report"
- *         (seen on the first EAS prebuild, 2026-07-03). We wrap the export and
- *         alias the type to 'device-activity-monitor' for that call only — both
- *         types take the createDefaultConfigurationList path, and props.type is
- *         not read anywhere else in that function.
- *
- *    This module MUST be listed BEFORE "@bacons/apple-targets" in app.json's
- *    plugins array so the patches land before its plugin executes.
- *
- * 2. Ensures the MAIN app target carries:
- *    - com.apple.developer.family-controls  (Screen Time authorization)
- *    - the shared App Group (config handoff to the extensions)
- *
- * Idempotent: safe across repeated `expo prebuild`.
+ * MUST be listed BEFORE "@bacons/apple-targets" in app.json's plugins array.
+ * Idempotent across repeated `expo prebuild`.
  */
 
 const { withEntitlementsPlist } = require('expo/config-plugins');
 
-const APP_GROUP = 'group.com.peakfettle.lifeos';
+const FAMILY_CONTROLS_ENABLED = false; // ← flip to true when Apple grants the distribution entitlement
 
-// --- 1a. registry: add device-activity-report -------------------------------
+const APP_GROUP = 'group.com.peakfettle.lifeos';
+const FC_ENTITLEMENT = 'com.apple.developer.family-controls';
+const FC_TARGET_TYPES = [
+  'device-activity-monitor',
+  'device-activity-report',
+  'shield-config',
+  'shield-action',
+];
+const FC_EXTENSION_BUNDLE_IDS = [
+  'com.peakfettle.lifeos.monitor',
+  'com.peakfettle.lifeos.shield',
+  'com.peakfettle.lifeos.shieldaction',
+  'com.peakfettle.lifeos.report',
+];
+
+// --- apple-targets patches (unconditional: harmless when FC is off, required
+// --- when it is on; keeping them live means re-enabling is only the flag) ----
 
 const target = require('@bacons/apple-targets/build/target.js');
 
@@ -57,8 +69,6 @@ if (!target.TARGET_REGISTRY[REPORT_TYPE]) {
   target.SHOULD_USE_APP_GROUPS_BY_DEFAULT[REPORT_TYPE] = true;
 }
 
-// --- 1c. configuration-list: alias report -> monitor for the settings switch --
-
 const configurationList = require('@bacons/apple-targets/build/configuration-list.js');
 
 if (!configurationList.createConfigurationListForType.__lifeosFcPatched) {
@@ -75,14 +85,58 @@ if (!configurationList.createConfigurationListForType.__lifeosFcPatched) {
   configurationList.createConfigurationListForType = patched;
 }
 
-// --- 2. main-target entitlements --------------------------------------------
+// --- FC-off: skip the four extension targets at enumeration time -------------
+// config-plugin.js globs targets/*/expo-target.config.js and hands each to
+// with-widget's DEFAULT export via the module namespace — so wrapping the
+// export cleanly skips a target without touching any file in targets/.
+
+if (!FAMILY_CONTROLS_ENABLED) {
+  const withWidgetModule = require('@bacons/apple-targets/build/with-widget.js');
+  if (!withWidgetModule.default.__lifeosFcGate) {
+    const originalWithWidget = withWidgetModule.default;
+    const gated = function withWidgetGated(config, props) {
+      if (props && FC_TARGET_TYPES.includes(props.type)) {
+        return config; // FC target skipped — not added to the Xcode project.
+      }
+      return originalWithWidget(config, props);
+    };
+    gated.__lifeosFcGate = true;
+    withWidgetModule.default = gated;
+  }
+}
+
+// --- the plugin --------------------------------------------------------------
 
 module.exports = function withFamilyControls(config) {
+  if (!FAMILY_CONTROLS_ENABLED) {
+    // Strip the FC entitlement app.json declares statically (main target).
+    if (config.ios && config.ios.entitlements) {
+      delete config.ios.entitlements[FC_ENTITLEMENT];
+    }
+    // Remove the FC extensions from EAS managed-credentials config so no
+    // FC-capable provisioning profile is requested (widget entry stays).
+    const iosEas =
+      config.extra &&
+      config.extra.eas &&
+      config.extra.eas.build &&
+      config.extra.eas.build.experimental &&
+      config.extra.eas.build.experimental.ios;
+    if (iosEas && Array.isArray(iosEas.appExtensions)) {
+      iosEas.appExtensions = iosEas.appExtensions.filter(
+        (e) => !FC_EXTENSION_BUNDLE_IDS.includes(e.bundleIdentifier)
+      );
+    }
+  }
+
   return withEntitlementsPlist(config, (mod) => {
-    mod.modResults['com.apple.developer.family-controls'] = true;
+    if (FAMILY_CONTROLS_ENABLED) {
+      mod.modResults[FC_ENTITLEMENT] = true;
+    } else {
+      delete mod.modResults[FC_ENTITLEMENT]; // defensive: never sign main with FC while off
+    }
     const groups = mod.modResults['com.apple.security.application-groups'] || [];
     if (!groups.includes(APP_GROUP)) {
-      groups.push(APP_GROUP);
+      groups.push(APP_GROUP); // widget bridge needs the App Group regardless
     }
     mod.modResults['com.apple.security.application-groups'] = groups;
     return mod;
