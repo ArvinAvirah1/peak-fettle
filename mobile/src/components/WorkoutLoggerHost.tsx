@@ -76,7 +76,7 @@ import { toDateKey } from '../utils/dateHelpers';
 import { getExercises } from '../api/exercises';
 import { getPersonalBest, getPersonalBests, PersonalBest } from '../api/sets';
 import { Exercise } from '../types/api';
-import { RoutineSession, RoutineSessionExercise } from './RoutineStrip';
+import { RoutineSession, RoutineSessionExercise, seedSessionExercise } from './RoutineStrip';
 import { suggestNextExercise, suggestNextExercises, SessionExercise, SuggestCandidate } from '../utils/smartSuggest';
 import PRToast, { PRToastData } from './PRToast';
 import { useRestTimer, REST_TIMER_STEP } from '../hooks/useRestTimer';
@@ -88,6 +88,7 @@ import {
   restAfterSet,
   nextInGroupIndex,
   dropPrefillKg,
+  isDropsetPlannedSet,
 } from './loggerLogic';
 import { genId } from '../db/localDb';
 import { epley1Rm } from '../lib/oneRm';
@@ -387,13 +388,21 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
     //   chainId    — tags every row in the chain (metrics_json.drop.chainId)
     //   exerciseId — the owning exercise (chain ends if the user leaves it)
     //   topRowId   — the top set's row id (retro-tagged drop.index 0 on start)
-    //   topWeightKg— exact kg of the top set (drives the −20% prefill ladder)
+    //   topWeightKg— exact kg of the top set (drives the prefill ladder)
+    //   dropPct    — the per-drop reduction as a FRACTION (0.20 = −20%); the
+    //                DropChainBar prefill uses this. Defaults to 0.20 for a
+    //                manually-started (S1) chain; a routine-seeded (S2) chain
+    //                passes the persisted drop_pct.
+    //   plannedDrops — how many drops the plan prescribed (S2; guidance only —
+    //                  the user can still add/stop drops freely). null for S1.
     //   links      — display-unit summary of each logged link (top + drops)
     const [dropChain, setDropChain] = useState<{
       chainId: string;
       exerciseId: string;
       topRowId: string | null;
       topWeightKg: number;
+      dropPct: number;
+      plannedDrops: number | null;
       links: { weight: string; reps: string; index: number }[];
     } | null>(null);
 
@@ -561,13 +570,12 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
               routineId: routine.id,
               name: routine.name,
               weekNumber: wkNum,
+              // S2: seed persisted superset grouping + dropset plans into the
+              // session model (groupId/groupRounds/dropsetPlan) via the shared
+              // mapper, so a saved superset starts already-linked and a saved
+              // dropset auto-offers its chain. Absent fields ⇒ today's flow.
               exercises: routine.exercises.map((ex) => ({
-                exerciseId: ex.exercise_id,
-                name: ex.name,
-                targetSets: ex.target_sets,
-                targetReps: ex.target_reps,
-                loggedSetCount: 0,
-                done: false,
+                ...seedSessionExercise(ex),
                 category: (ex as { category?: string }).category as RoutineSessionExercise['category'] | undefined,
               })),
               currentIndex: 0,
@@ -940,6 +948,34 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
                 );
               }
             }
+          } else if (
+            // ── S2: AUTO-OFFER a drop chain for a PLANNED dropset set ─────────
+            // When a persisted routine marks THIS set as a dropset set (last N or
+            // 'all'), instead of resting we open the DropChainBar pre-armed with
+            // the plan's drops/pct (via the S1 chain path). The user can dismiss
+            // ("Done — start rest") anytime. Only fires when no chain is already
+            // active (the top set itself). Grouped members that were rest-
+            // suppressed above never reach here (superset interior beats dropset).
+            !activeChain &&
+            (() => {
+              const plan = curEx?.dropsetPlan;
+              if (!plan) return false;
+              const effectiveTotal =
+                curEx?.groupId != null && typeof curEx?.groupRounds === 'number' && curEx.groupRounds > 0
+                  ? curEx.groupRounds
+                  : typeof curEx?.targetSets === 'number' && curEx.targetSets > 0
+                    ? curEx.targetSets
+                    : null;
+              return isDropsetPlannedSet(liveCount, effectiveTotal, plan);
+            })()
+          ) {
+            // Arm the chain with the plan's percentage (stored as an integer 5–40;
+            // convert to a fraction) and prescribed drop count. Rest stays
+            // suppressed while the chain is active (endDropChain fires it later).
+            const plan = curEx!.dropsetPlan!;
+            const pctFraction = (typeof plan.dropPct === 'number' ? plan.dropPct : 20) / 100;
+            const plannedDrops = typeof plan.drops === 'number' ? plan.drops : 2;
+            beginDropChain(pctFraction, plannedDrops);
           } else {
             // Fix #1: capture the ABSOLUTE deadline at the same instant the
             // notification is scheduled — the banner/mini-bar countdown derives
@@ -957,7 +993,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
       // included so PR detection and rest-timer always read the current values (WL-001 /
       // stale-closure-rest / wlh-stale-closure-prdetection).
       [workout, selectedExercise, logSet, updateRoutineExercise, stepperSets, unitPref,
-       stepperPB, exercisePB, routineSession, restDefault, restTimer, dropChain],
+       stepperPB, exercisePB, routineSession, restDefault, restTimer, dropChain, beginDropChain],
     );
 
     // Edit a previously-logged LIFT set (e.g. fix a mistyped weight). The sync
@@ -1219,35 +1255,50 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
     // the −20% ladder from its exact kg. "+ Log drop N" then logs a normal row via
     // the same onLogSet path, tagged drop.index >= 1 (handleStepperLogSet reads
     // dropChain). Rest is fully suppressed while the chain is active.
+    // Core chain-starter, shared by the manual "+ Drop set" button (S1, default
+    // −20%) and the S2 routine-seeded AUTO-OFFER (persisted drop_pct/drops). It
+    // reads the just-logged top set for the current exercise, retro-tags it index
+    // 0 (kept out of PRs), and arms the ladder with `pctFraction`.
+    const beginDropChain = useCallback(
+      (pctFraction: number, plannedDrops: number | null) => {
+        const cur = routineSession?.exercises[routineSession.currentIndex];
+        if (!cur) return;
+        const targetId = cur.exerciseId || selectedExercise?.id || '';
+        if (!targetId) return;
+        // Top set = the last logged set for this exercise (its display weight/reps).
+        const logged = stepperSets.get(targetId) ?? [];
+        const top = logged[logged.length - 1];
+        const topWeightKg = displayToKg(parseWeightInput(top?.weight ?? '') ?? 0, unitPref);
+        const chainId = genId();
+        // Retro-tag the top set row (index 0) so it is EXCLUDED from PRs (a chain
+        // top is a working set but, once a drop chain starts, we mark it drop.index
+        // 0 per the spec so the whole chain is bracketed and none of it claims a
+        // PR beyond what the straight set already did). Best-effort — never blocks.
+        const topRowId = lastLiftRowRef.current.get(targetId) ?? null;
+        if (topRowId) {
+          void setSetMetrics(topRowId, {
+            drop: { chainId, index: 0 },
+          } as unknown as CardioMetrics);
+        }
+        setDropChain({
+          chainId,
+          exerciseId: targetId,
+          topRowId,
+          topWeightKg,
+          dropPct: Number.isFinite(pctFraction) && pctFraction > 0 ? pctFraction : 0.2,
+          plannedDrops,
+          links: [{ weight: top?.weight ?? '', reps: top?.reps ?? '', index: 0 }],
+        });
+        haptics.light();
+      },
+      [routineSession, selectedExercise, stepperSets, unitPref],
+    );
+
+    // Manual S1 start (from the stepper's "+ Drop set" affordance): default −20%,
+    // no planned drop count.
     const startDropChain = useCallback(() => {
-      const cur = routineSession?.exercises[routineSession.currentIndex];
-      if (!cur) return;
-      const targetId = cur.exerciseId || selectedExercise?.id || '';
-      if (!targetId) return;
-      // Top set = the last logged set for this exercise (its display weight/reps).
-      const logged = stepperSets.get(targetId) ?? [];
-      const top = logged[logged.length - 1];
-      const topWeightKg = displayToKg(parseWeightInput(top?.weight ?? '') ?? 0, unitPref);
-      const chainId = genId();
-      // Retro-tag the top set row (index 0) so it is EXCLUDED from PRs (a chain
-      // top is a working set but, once a drop chain starts, we mark it drop.index
-      // 0 per the spec so the whole chain is bracketed and none of it claims a
-      // PR beyond what the straight set already did). Best-effort — never blocks.
-      const topRowId = lastLiftRowRef.current.get(targetId) ?? null;
-      if (topRowId) {
-        void setSetMetrics(topRowId, {
-          drop: { chainId, index: 0 },
-        } as unknown as CardioMetrics);
-      }
-      setDropChain({
-        chainId,
-        exerciseId: targetId,
-        topRowId,
-        topWeightKg,
-        links: [{ weight: top?.weight ?? '', reps: top?.reps ?? '', index: 0 }],
-      });
-      haptics.light();
-    }, [routineSession, selectedExercise, stepperSets, unitPref]);
+      beginDropChain(0.2, null);
+    }, [beginDropChain]);
 
     const endDropChain = useCallback(() => {
       // Finish the chain and fire the normal rest timer.
@@ -1768,7 +1819,8 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
                   routineSession.exercises[routineSession.currentIndex]?.exerciseId ?? '';
                 if (historyMode || !dropChain || dropChain.exerciseId !== curId) return null;
                 const nextIndex = dropChain.links.length; // top is index 0
-                const nextKg = dropPrefillKg(dropChain.topWeightKg, nextIndex);
+                // S2: honour the persisted/plan drop percentage (S1 chains carry 0.2).
+                const nextKg = dropPrefillKg(dropChain.topWeightKg, nextIndex, dropChain.dropPct);
                 const nextDisplay =
                   unitPref === 'lbs'
                     ? String(roundToNearestQuarterLb(kgToLbs(nextKg)))

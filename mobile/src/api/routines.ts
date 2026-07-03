@@ -12,6 +12,26 @@ export interface RoutineExercise {
   name: string;
   target_sets?: number;
   target_reps?: string; // e.g. "8-12" or "5"
+  // ── S2 supersets & dropsets (additive, optional) ─────────────────────────
+  // Absent fields ⇒ exactly today's behaviour everywhere (back-compat).
+  /**
+   * Superset group id/letter. Members of the same group share this value and are
+   * CONTIGUOUS in the exercises[] array; they are performed back-to-back with rest
+   * only after each round. null/absent = ungrouped.
+   */
+  superset_group?: string | null;
+  /**
+   * Shared round count for the superset group, stored ON EACH member (same value)
+   * for simplicity. While grouped this supersedes each member's target_sets.
+   */
+  superset_rounds?: number | null;
+  /**
+   * Dropset prescription for this exercise. `last_n` = which sets are dropset sets
+   * (a number = the last N sets, or the literal 'all'); `drops` = drops per chain
+   * (default 2); `drop_pct` = weight reduction per drop as a percentage (default 20).
+   * null/absent = no dropsets prescribed.
+   */
+  dropset?: { last_n: number | 'all'; drops?: number; drop_pct?: number } | null;
 }
 
 export interface Routine {

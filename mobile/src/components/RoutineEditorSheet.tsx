@@ -5,26 +5,26 @@
  *   • rename the routine
  *   • add exercises inline (via the shared ExercisePicker — option 10)
  *   • remove exercises (trash button)
- *   • reorder exercises (long-press up/down chevrons — option 9; no drag library
- *     is used here because this is a fullScreen Modal where a nested gesture
- *     root is fragile, and the chevrons are already robust + accessible)
+ *   • reorder exercises (up/down chevrons — option 9)
  *   • edit each exercise's target sets (numeric) and target reps (string)
+ *   • S2: per-row kebab (3-dots) menu → "Make dropsets" / "Superset with…"
+ *     (and "Remove dropsets" / "Unlink superset" when applicable). Grouped
+ *     exercises render as ONE bracketed card with a shared rounds stepper.
  *   • Save → full replace via the tier-branched data module (local-first for
- *     free users — instant on-device persist with a subtle "Saved" state, no
- *     network; REST for Pro). Option 8/11.
+ *     free users; REST for Pro). Option 8/11.
  *
  * Layout: SafeAreaView header + a sticky Save bar pinned above the bottom inset.
- *
  * Visual style matches StepperLogger / routines.tsx (dark cards, teal accent).
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Modal,
   View,
   Text,
   TextInput,
   TouchableOpacity,
+  Pressable,
   ScrollView,
   StyleSheet,
   Alert,
@@ -39,6 +39,8 @@ import { Routine, RoutineExercise, updateRoutine } from '../data/routines';
 import { useAuth } from '../hooks/useAuth';
 import { ExercisePicker } from './ExercisePicker';
 import { Exercise } from '../types/api';
+import { DropsetConfigSheet, DropsetConfig } from './routineEditor/DropsetConfigSheet';
+import { SupersetLinkSheet, SupersetLinkCandidate } from './routineEditor/SupersetLinkSheet';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -47,6 +49,79 @@ interface Props {
   routine: Routine | null; // null = not open
   onClose: () => void;
   onSaved: (updated: Routine) => void;
+}
+
+/** A render block: either one ungrouped row, or a contiguous superset group. */
+type Block =
+  | { kind: 'single'; index: number; item: RoutineExercise }
+  | { kind: 'group'; groupId: string; letter: string; indices: number[]; items: RoutineExercise[] };
+
+// ── Grouping helpers (pure) ────────────────────────────────────────────────────
+
+/**
+ * Fold the flat items[] into render blocks. Contiguous runs sharing a
+ * superset_group collapse into one 'group' block; everything else is a 'single'.
+ * Group letters (A, B, …) are derived from group order of appearance.
+ */
+function toBlocks(items: RoutineExercise[]): Block[] {
+  const blocks: Block[] = [];
+  const groupLetters = new Map<string, string>();
+  let nextLetter = 0;
+  let i = 0;
+  while (i < items.length) {
+    const cur = items[i];
+    const g = cur ? cur.superset_group : null;
+    if (cur && g) {
+      // Gather the contiguous run of this group id.
+      const indices: number[] = [];
+      const groupItems: RoutineExercise[] = [];
+      let j = i;
+      while (j < items.length && items[j]?.superset_group === g) {
+        const it = items[j];
+        if (it) {
+          indices.push(j);
+          groupItems.push(it);
+        }
+        j++;
+      }
+      if (!groupLetters.has(g)) {
+        groupLetters.set(g, String.fromCharCode(65 + (nextLetter % 26)));
+        nextLetter++;
+      }
+      blocks.push({
+        kind: 'group',
+        groupId: g,
+        letter: groupLetters.get(g) ?? '?',
+        indices,
+        items: groupItems,
+      });
+      i = j;
+    } else if (cur) {
+      blocks.push({ kind: 'single', index: i, item: cur });
+      i++;
+    } else {
+      i++;
+    }
+  }
+  return blocks;
+}
+
+/** A short display badge for a configured dropset, e.g. "Dropsets: last 2 · 2 drops @ -20%". */
+function dropsetBadgeLabel(d: DropsetConfig | RoutineExercise['dropset']): string {
+  if (!d) return '';
+  const which = d.last_n === 'all' ? 'all sets' : `last ${d.last_n}`;
+  const drops = typeof d.drops === 'number' ? d.drops : 2;
+  const pct = typeof d.drop_pct === 'number' ? d.drop_pct : 20;
+  return `Dropsets: ${which} · ${drops} drop${drops !== 1 ? 's' : ''} @ -${pct}%`;
+}
+
+/** Generate a short unique group id (letters won't collide across sessions). */
+function newGroupId(existing: RoutineExercise[]): string {
+  const used = new Set(existing.map((e) => e.superset_group).filter(Boolean) as string[]);
+  // Prefer single letters g1, g2… (persisted id; the DISPLAY letter is derived).
+  let n = 1;
+  while (used.has(`g${n}`)) n++;
+  return `g${n}`;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -63,34 +138,43 @@ export default function RoutineEditorSheet({
   const [items, setItems] = useState<RoutineExercise[]>(routine?.exercises ?? []);
   const [pickerVisible, setPickerVisible] = useState(false);
   const [saving, setSaving] = useState(false);
-  // Option 11: subtle "Saved" affirmation after a successful local-first save.
   const [savedFlash, setSavedFlash] = useState(false);
 
-  // Re-seed local state whenever the target routine changes (e.g. tapping Edit
-  // on a different routine, or reopening after a save).
+  // Kebab menu: index of the row whose menu is open (null = none).
+  const [menuForIndex, setMenuForIndex] = useState<number | null>(null);
+  // Dropset config sheet: the item index being configured (null = closed).
+  const [dropsetForIndex, setDropsetForIndex] = useState<number | null>(null);
+  // Superset link sheet: the anchor item index (null = closed).
+  const [linkForIndex, setLinkForIndex] = useState<number | null>(null);
+  // When the picker is opened to ADD a new member into a forming/existing group,
+  // this holds the target group id; a normal "+ Add exercise" leaves it null.
+  const [pickerTargetGroup, setPickerTargetGroup] = useState<string | null>(null);
+
   useEffect(() => {
     setName(routine?.name ?? '');
     setItems(routine?.exercises ?? []);
     setSavedFlash(false);
+    setMenuForIndex(null);
+    setDropsetForIndex(null);
+    setLinkForIndex(null);
+    setPickerTargetGroup(null);
   }, [routine]);
+
+  const blocks = useMemo(() => toBlocks(items), [items]);
 
   // ── Per-exercise field edits ─────────────────────────────────────────────
   const updateSets = useCallback((index: number, text: string) => {
     const trimmed = text.trim();
     const parsed = trimmed === '' ? undefined : parseInt(trimmed, 10);
     const next = trimmed === '' || Number.isNaN(parsed) ? undefined : parsed;
-    setItems((prev) =>
-      prev.map((it, i) => (i === index ? { ...it, target_sets: next } : it)),
-    );
+    setItems((prev) => prev.map((it, i) => (i === index ? { ...it, target_sets: next } : it)));
   }, []);
 
   const updateReps = useCallback((index: number, text: string) => {
-    setItems((prev) =>
-      prev.map((it, i) => (i === index ? { ...it, target_reps: text } : it)),
-    );
+    setItems((prev) => prev.map((it, i) => (i === index ? { ...it, target_reps: text } : it)));
   }, []);
 
-  // ── Reorder (swap with neighbour) ────────────────────────────────────────
+  // ── Reorder a single ungrouped row (swap with neighbour) ──────────────────
   const moveUp = useCallback((index: number) => {
     setItems((prev) => {
       if (index <= 0) return prev;
@@ -109,36 +193,233 @@ export default function RoutineEditorSheet({
     });
   }, []);
 
-  // ── Remove ───────────────────────────────────────────────────────────────
-  const removeItem = useCallback((index: number) => {
-    setItems((prev) => prev.filter((_, i) => i !== index));
+  // ── Reorder a whole group as a unit ───────────────────────────────────────
+  // Move the contiguous block [start..end] up/down past the adjacent block.
+  const moveGroup = useCallback((indices: number[], dir: -1 | 1) => {
+    setItems((prev) => {
+      if (indices.length === 0) return prev;
+      const start = indices[0]!;
+      const end = indices[indices.length - 1]!;
+      const block = prev.slice(start, end + 1);
+      if (dir === -1) {
+        if (start === 0) return prev;
+        const before = prev[start - 1]!;
+        const next = [...prev];
+        next.splice(start - 1, block.length + 1, ...block, before);
+        return next;
+      } else {
+        if (end >= prev.length - 1) return prev;
+        const after = prev[end + 1]!;
+        const next = [...prev];
+        next.splice(start, block.length + 1, after, ...block);
+        return next;
+      }
+    });
   }, []);
 
-  // ── Add (from ExercisePicker — inline, without leaving the editor) ────────
-  const handlePicked = useCallback((ex: Exercise) => {
+  // ── Reorder a member WITHIN its group (swap with in-group neighbour) ──────
+  const moveMemberWithinGroup = useCallback((absIndex: number, dir: -1 | 1) => {
     setItems((prev) => {
-      // de-dupe by id, but only when ids are truthy (template exercises carry
-      // an undefined exercise_id — never treat two of those as duplicates).
+      const target = absIndex + dir;
+      if (target < 0 || target >= prev.length) return prev;
+      // Only swap when the neighbour shares the same group (stay contiguous).
+      if (prev[target]?.superset_group !== prev[absIndex]?.superset_group) return prev;
+      const next = [...prev];
+      [next[absIndex], next[target]] = [next[target]!, next[absIndex]!];
+      return next;
+    });
+  }, []);
+
+  // ── Remove ───────────────────────────────────────────────────────────────
+  const removeItem = useCallback((index: number) => {
+    setItems((prev) => {
+      const removed = prev[index];
+      let next = prev.filter((_, i) => i !== index);
+      // If removing a group member drops the group below 2, dissolve the rest.
+      if (removed?.superset_group) {
+        const remaining = next.filter((e) => e.superset_group === removed.superset_group);
+        if (remaining.length < 2) {
+          next = next.map((e) =>
+            e.superset_group === removed.superset_group
+              ? { ...e, superset_group: null, superset_rounds: null }
+              : e,
+          );
+        }
+      }
+      return next;
+    });
+    setMenuForIndex(null);
+  }, []);
+
+  // ── Add (from ExercisePicker — inline) ────────────────────────────────────
+  const handlePicked = useCallback((ex: Exercise) => {
+    const targetGroup = pickerTargetGroup;
+    setItems((prev) => {
       if (ex.id && prev.some((it) => it.exercise_id === ex.id)) return prev;
-      return [
-        ...prev,
-        { exercise_id: ex.id, name: ex.name, target_sets: 3, target_reps: '8-12' },
-      ];
+      const newEx: RoutineExercise = {
+        exercise_id: ex.id,
+        name: ex.name,
+        target_sets: 3,
+        target_reps: '8-12',
+      };
+      if (targetGroup) {
+        // Insert INTO the group with defaults, keeping the group contiguous —
+        // append right after the group's last member. Share the group rounds.
+        const memberIdxs = prev
+          .map((e, i) => (e.superset_group === targetGroup ? i : -1))
+          .filter((i) => i >= 0);
+        if (memberIdxs.length === 0) {
+          return [...prev, newEx];
+        }
+        const firstIdx = memberIdxs[0]!;
+        const rounds = prev[firstIdx]?.superset_rounds ?? 3;
+        const insertAt = memberIdxs[memberIdxs.length - 1]! + 1;
+        const grouped: RoutineExercise = {
+          ...newEx,
+          superset_group: targetGroup,
+          superset_rounds: rounds,
+        };
+        const next = [...prev];
+        next.splice(insertAt, 0, grouped);
+        return next;
+      }
+      return [...prev, newEx];
     });
     setPickerVisible(false);
+    setPickerTargetGroup(null);
+  }, [pickerTargetGroup]);
+
+  // ── Dropset config (kebab → sheet) ────────────────────────────────────────
+  const openDropset = useCallback((index: number) => {
+    setMenuForIndex(null);
+    setDropsetForIndex(index);
+  }, []);
+
+  const saveDropset = useCallback((config: DropsetConfig) => {
+    setItems((prev) =>
+      prev.map((it, i) => (i === dropsetForIndex ? { ...it, dropset: config } : it)),
+    );
+    setDropsetForIndex(null);
+  }, [dropsetForIndex]);
+
+  const removeDropset = useCallback(() => {
+    setItems((prev) =>
+      prev.map((it, i) => (i === dropsetForIndex ? { ...it, dropset: null } : it)),
+    );
+    setDropsetForIndex(null);
+  }, [dropsetForIndex]);
+
+  const removeDropsetAt = useCallback((index: number) => {
+    setItems((prev) => prev.map((it, i) => (i === index ? { ...it, dropset: null } : it)));
+    setMenuForIndex(null);
+  }, []);
+
+  // ── Superset link (kebab → sheet) ─────────────────────────────────────────
+  const openLink = useCallback((index: number) => {
+    setMenuForIndex(null);
+    setLinkForIndex(index);
+  }, []);
+
+  /**
+   * Create a group from the anchor + chosen member indices, making them
+   * contiguous (anchored at the anchor's original position) and sharing rounds.
+   * Returns the new group id (so the caller can chain "search library").
+   */
+  const createGroup = useCallback((anchorIndex: number, memberIndices: number[]): string => {
+    let createdGroupId = '';
+    setItems((prev) => {
+      const idxSet = new Set<number>([anchorIndex, ...memberIndices].filter(
+        (i) => i >= 0 && i < prev.length,
+      ));
+      const idxList = Array.from(idxSet).sort((a, b) => a - b);
+      if (idxList.length < 2) return prev;
+      if (idxList.length > 5) idxList.length = 5;
+
+      const gid = newGroupId(prev);
+      createdGroupId = gid;
+      // Shared rounds = max target_sets among members (default 3).
+      const rounds = Math.max(3, ...idxList.map((i) => prev[i]?.target_sets ?? 0));
+
+      const memberSet = new Set(idxList);
+      const members: RoutineExercise[] = idxList.map((i) => ({
+        ...(prev[i] as RoutineExercise),
+        superset_group: gid,
+        superset_rounds: rounds,
+      }));
+      const insertionPoint = idxList.reduce((m, i) => Math.min(m, i), Infinity);
+      const rest = prev.filter((_, i) => !memberSet.has(i));
+      return [
+        ...rest.slice(0, insertionPoint),
+        ...members,
+        ...rest.slice(insertionPoint),
+      ];
+    });
+    return createdGroupId;
+  }, []);
+
+  const confirmLink = useCallback((memberIndices: number[]) => {
+    if (linkForIndex == null) return;
+    createGroup(linkForIndex, memberIndices);
+    setLinkForIndex(null);
+  }, [linkForIndex, createGroup]);
+
+  // "Search library" from the link sheet: create the group from the current
+  // selection (if any), then open the picker to append a new member into it.
+  const searchLibraryForGroup = useCallback((memberIndices: number[]) => {
+    if (linkForIndex == null) return;
+    let gid: string;
+    if (memberIndices.length >= 1) {
+      gid = createGroup(linkForIndex, memberIndices);
+    } else {
+      // No other member picked yet — start a 1-member "forming" group on the
+      // anchor so the new library exercise lands beside it as a pair.
+      gid = newGroupId(items);
+      const anchor = linkForIndex;
+      setItems((prev) => {
+        const rounds = Math.max(3, prev[anchor]?.target_sets ?? 0);
+        return prev.map((it, i) =>
+          i === anchor
+            ? ({ ...it, superset_group: gid, superset_rounds: rounds } as RoutineExercise)
+            : it,
+        );
+      });
+    }
+    setLinkForIndex(null);
+    setPickerTargetGroup(gid);
+    setPickerVisible(true);
+  }, [linkForIndex, createGroup, items]);
+
+  // ── Unlink a whole group (dissolve) ───────────────────────────────────────
+  const unlinkGroup = useCallback((groupId: string) => {
+    setItems((prev) =>
+      prev.map((e) =>
+        e.superset_group === groupId
+          ? { ...e, superset_group: null, superset_rounds: null }
+          : e,
+      ),
+    );
+  }, []);
+
+  // ── Group shared rounds stepper ───────────────────────────────────────────
+  const setGroupRounds = useCallback((groupId: string, rounds: number) => {
+    const clamped = Math.max(1, Math.min(10, rounds));
+    setItems((prev) =>
+      prev.map((e) =>
+        e.superset_group === groupId ? { ...e, superset_rounds: clamped } : e,
+      ),
+    );
   }, []);
 
   // ── Save ─────────────────────────────────────────────────────────────────
   const handleSave = useCallback(async () => {
     if (!routine) return;
     const trimmed = name.trim();
-    if (!trimmed) return; // Save blocked while name empty (button also disabled)
+    if (!trimmed) return;
     setSaving(true);
     try {
+      // handleSave full-replaces exercises — the S2 fields ride along in `items`.
       const updated = await updateRoutine(user, routine.id, { name: trimmed, exercises: items });
       onSaved(updated);
-      // Brief "Saved" affirmation (option 11). Close shortly after so the user
-      // sees the on-device persist confirmation without a network spinner.
       setSavedFlash(true);
       setTimeout(() => {
         setSavedFlash(false);
@@ -153,6 +434,15 @@ export default function RoutineEditorSheet({
 
   const saveDisabled = saving || name.trim().length === 0;
 
+  // Candidates for the link sheet: OTHER ungrouped exercises (exclude anchor).
+  const linkCandidates: SupersetLinkCandidate[] = useMemo(() => {
+    if (linkForIndex == null) return [];
+    return items
+      .map((it, i) => ({ it, i }))
+      .filter(({ it, i }) => i !== linkForIndex && !it.superset_group)
+      .map(({ it, i }) => ({ index: i, name: it.name }));
+  }, [items, linkForIndex]);
+
   return (
     <Modal
       visible={visible}
@@ -165,9 +455,7 @@ export default function RoutineEditorSheet({
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-          {/* ── Header: explicit top-inset padding so the close button clears
-               the Dynamic Island / notch even inside a RN Modal, where
-               SafeAreaView alone may not propagate the inset. */}
+          {/* Header (explicit top-inset padding — CLAUDE.md in-Modal safe-area caveat). */}
           <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
             <TouchableOpacity
               onPress={onClose}
@@ -194,7 +482,6 @@ export default function RoutineEditorSheet({
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            {/* ── Name ──────────────────────────────────────────────────── */}
             <Text style={styles.fieldLabel}>NAME</Text>
             <TextInput
               style={styles.nameInput}
@@ -206,7 +493,6 @@ export default function RoutineEditorSheet({
               returnKeyType="done"
             />
 
-            {/* ── Exercises ─────────────────────────────────────────────── */}
             <Text style={[styles.fieldLabel, styles.exercisesLabel]}>EXERCISES</Text>
 
             {items.length === 0 ? (
@@ -216,83 +502,61 @@ export default function RoutineEditorSheet({
                 </Text>
               </View>
             ) : (
-              items.map((item, index) => (
-                <View key={`${item.exercise_id || item.name}-${index}`} style={styles.exRow}>
-                  <View style={styles.exRowTop}>
-                    <Text style={styles.exName} numberOfLines={1}>{item.name}</Text>
-                    <TouchableOpacity
-                      onPress={() => removeItem(index)}
-                      style={styles.iconBtn}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Remove ${item.name}`}
-                    >
-                      <Ionicons name="trash-outline" size={18} color={stepperPalette.muted} />
-                    </TouchableOpacity>
-                  </View>
-
-                  <View style={styles.exRowBottom}>
-                    {/* Sets / Reps */}
-                    <View style={styles.targetGroup}>
-                      <Text style={styles.targetLabel}>SETS</Text>
-                      <TextInput
-                        style={styles.targetInput}
-                        value={item.target_sets != null ? String(item.target_sets) : ''}
-                        onChangeText={(t) => updateSets(index, t)}
-                        keyboardType="number-pad"
-                        placeholder="—"
-                        placeholderTextColor={stepperPalette.muted}
-                        selectTextOnFocus
-                        maxLength={2}
-                        accessibilityLabel={`Target sets for ${item.name}`}
-                      />
-                    </View>
-                    <View style={styles.targetGroup}>
-                      <Text style={styles.targetLabel}>REPS</Text>
-                      <TextInput
-                        style={styles.targetInput}
-                        value={item.target_reps ?? ''}
-                        onChangeText={(t) => updateReps(index, t)}
-                        placeholder="8-12"
-                        placeholderTextColor={stepperPalette.muted}
-                        selectTextOnFocus
-                        maxLength={12}
-                        accessibilityLabel={`Target reps for ${item.name}`}
-                      />
-                    </View>
-
-                    {/* Reorder controls */}
-                    <View style={styles.reorderGroup}>
-                      <TouchableOpacity
-                        onPress={() => moveUp(index)}
-                        disabled={index === 0}
-                        style={[styles.reorderBtn, index === 0 && styles.reorderBtnDisabled]}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Move ${item.name} up`}
-                      >
-                        <Ionicons name="chevron-up" size={18} color={stepperPalette.text} />
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => moveDown(index)}
-                        disabled={index === items.length - 1}
-                        style={[
-                          styles.reorderBtn,
-                          index === items.length - 1 && styles.reorderBtnDisabled,
-                        ]}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Move ${item.name} down`}
-                      >
-                        <Ionicons name="chevron-down" size={18} color={stepperPalette.text} />
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                </View>
-              ))
+              blocks.map((block, bi) =>
+                block.kind === 'single' ? (
+                  <ExerciseRow
+                    key={`s-${block.item.exercise_id || block.item.name}-${block.index}`}
+                    item={block.item}
+                    index={block.index}
+                    isFirst={block.index === 0}
+                    isLast={block.index === items.length - 1}
+                    menuOpen={menuForIndex === block.index}
+                    onToggleMenu={() =>
+                      setMenuForIndex((cur) => (cur === block.index ? null : block.index))
+                    }
+                    onRemove={() => removeItem(block.index)}
+                    onUpdateSets={(t) => updateSets(block.index, t)}
+                    onUpdateReps={(t) => updateReps(block.index, t)}
+                    onMoveUp={() => moveUp(block.index)}
+                    onMoveDown={() => moveDown(block.index)}
+                    onMakeDropsets={() => openDropset(block.index)}
+                    onRemoveDropsets={() => removeDropsetAt(block.index)}
+                    onSupersetWith={() => openLink(block.index)}
+                  />
+                ) : (
+                  <GroupCard
+                    key={`g-${block.groupId}-${bi}`}
+                    letter={block.letter}
+                    groupId={block.groupId}
+                    indices={block.indices}
+                    members={block.items}
+                    isFirstBlock={bi === 0}
+                    isLastBlock={bi === blocks.length - 1}
+                    menuForIndex={menuForIndex}
+                    onToggleMemberMenu={(idx) =>
+                      setMenuForIndex((cur) => (cur === idx ? null : idx))
+                    }
+                    onSetRounds={(r) => setGroupRounds(block.groupId, r)}
+                    onUnlink={() => unlinkGroup(block.groupId)}
+                    onMoveGroupUp={() => moveGroup(block.indices, -1)}
+                    onMoveGroupDown={() => moveGroup(block.indices, 1)}
+                    onMemberUp={(idx) => moveMemberWithinGroup(idx, -1)}
+                    onMemberDown={(idx) => moveMemberWithinGroup(idx, 1)}
+                    onMemberRemove={(idx) => removeItem(idx)}
+                    onMemberUpdateReps={(idx, t) => updateReps(idx, t)}
+                    onMemberMakeDropsets={(idx) => openDropset(idx)}
+                    onMemberRemoveDropsets={(idx) => removeDropsetAt(idx)}
+                  />
+                ),
+              )
             )}
 
-            {/* ── Add exercise (inline picker — option 10) ──────────────── */}
             <TouchableOpacity
               style={styles.addBtn}
-              onPress={() => setPickerVisible(true)}
+              onPress={() => {
+                setPickerTargetGroup(null);
+                setPickerVisible(true);
+              }}
               accessibilityRole="button"
               accessibilityLabel="Add exercise"
             >
@@ -300,7 +564,6 @@ export default function RoutineEditorSheet({
             </TouchableOpacity>
           </ScrollView>
 
-          {/* ── Sticky Save bar (above the bottom inset — option 8) ──────── */}
           <View style={[styles.saveBar, { paddingBottom: Math.max(insets.bottom, spacing.s3) }]}>
             <TouchableOpacity
               onPress={handleSave}
@@ -319,13 +582,398 @@ export default function RoutineEditorSheet({
         </KeyboardAvoidingView>
       </SafeAreaView>
 
-      {/* ── Exercise picker (opens over the editor — stays in context) ─────── */}
+      {/* Exercise picker (add inline / add into a group). */}
       <ExercisePicker
         visible={pickerVisible}
         onSelect={handlePicked}
-        onClose={() => setPickerVisible(false)}
+        onClose={() => {
+          setPickerVisible(false);
+          setPickerTargetGroup(null);
+        }}
+      />
+
+      {/* Dropset config sheet. */}
+      <DropsetConfigSheet
+        visible={dropsetForIndex != null}
+        exerciseName={dropsetForIndex != null ? items[dropsetForIndex]?.name ?? '' : ''}
+        value={dropsetForIndex != null ? items[dropsetForIndex]?.dropset ?? null : null}
+        onSave={saveDropset}
+        onRemove={removeDropset}
+        onClose={() => setDropsetForIndex(null)}
+      />
+
+      {/* Superset link sheet. */}
+      <SupersetLinkSheet
+        visible={linkForIndex != null}
+        currentName={linkForIndex != null ? items[linkForIndex]?.name ?? '' : ''}
+        candidates={linkCandidates}
+        onConfirm={confirmLink}
+        onSearchLibrary={searchLibraryForGroup}
+        onClose={() => setLinkForIndex(null)}
       />
     </Modal>
+  );
+}
+
+// ── Kebab menu (in-card overlay) ──────────────────────────────────────────────
+
+function KebabMenu(props: {
+  hasDropset: boolean;
+  grouped: boolean;
+  onMakeDropsets: () => void;
+  onRemoveDropsets: () => void;
+  onSupersetWith?: () => void;
+  onUnlink?: () => void;
+  onClose: () => void;
+}): React.ReactElement {
+  const { hasDropset, grouped, onMakeDropsets, onRemoveDropsets, onSupersetWith, onUnlink, onClose } = props;
+  return (
+    <>
+      {/* Full-screen catcher so a tap anywhere dismisses the menu. */}
+      <Pressable style={styles.menuCatcher} onPress={onClose} accessibilityLabel="Close menu" />
+      <View style={styles.menu}>
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={onMakeDropsets}
+          accessibilityRole="button"
+          accessibilityLabel={hasDropset ? 'Edit dropsets' : 'Make dropsets'}
+        >
+          <Ionicons name="trending-down" size={16} color={stepperPalette.text} />
+          <Text style={styles.menuItemText}>{hasDropset ? 'Edit dropsets' : 'Make dropsets'}</Text>
+        </TouchableOpacity>
+        {hasDropset ? (
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={onRemoveDropsets}
+            accessibilityRole="button"
+            accessibilityLabel="Remove dropsets"
+          >
+            <Ionicons name="close-circle-outline" size={16} color={stepperPalette.muted} />
+            <Text style={styles.menuItemTextMuted}>Remove dropsets</Text>
+          </TouchableOpacity>
+        ) : null}
+        {grouped ? (
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={onUnlink}
+            accessibilityRole="button"
+            accessibilityLabel="Unlink superset"
+          >
+            <Ionicons name="git-merge" size={16} color={stepperPalette.muted} />
+            <Text style={styles.menuItemTextMuted}>Unlink superset</Text>
+          </TouchableOpacity>
+        ) : onSupersetWith ? (
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={onSupersetWith}
+            accessibilityRole="button"
+            accessibilityLabel="Superset with other exercises"
+          >
+            <Ionicons name="git-merge" size={16} color={stepperPalette.text} />
+            <Text style={styles.menuItemText}>Superset with…</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    </>
+  );
+}
+
+function KebabButton(props: { onPress: () => void; label: string }): React.ReactElement {
+  return (
+    <TouchableOpacity
+      onPress={props.onPress}
+      style={styles.iconBtn}
+      accessibilityRole="button"
+      accessibilityLabel={props.label}
+    >
+      <Ionicons name="ellipsis-vertical" size={18} color={stepperPalette.muted} />
+    </TouchableOpacity>
+  );
+}
+
+// ── Ungrouped exercise row ────────────────────────────────────────────────────
+
+function ExerciseRow(props: {
+  item: RoutineExercise;
+  index: number;
+  isFirst: boolean;
+  isLast: boolean;
+  menuOpen: boolean;
+  onToggleMenu: () => void;
+  onRemove: () => void;
+  onUpdateSets: (t: string) => void;
+  onUpdateReps: (t: string) => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onMakeDropsets: () => void;
+  onRemoveDropsets: () => void;
+  onSupersetWith: () => void;
+}): React.ReactElement {
+  const {
+    item, isFirst, isLast, menuOpen, onToggleMenu, onRemove, onUpdateSets, onUpdateReps,
+    onMoveUp, onMoveDown, onMakeDropsets, onRemoveDropsets, onSupersetWith,
+  } = props;
+  const hasDropset = !!item.dropset;
+  return (
+    <View style={styles.exRow}>
+      <View style={styles.exRowTop}>
+        <Text style={styles.exName} numberOfLines={1}>{item.name}</Text>
+        <KebabButton onPress={onToggleMenu} label={`Options for ${item.name}`} />
+      </View>
+
+      {hasDropset ? (
+        <View style={styles.dropsetBadge}>
+          <Ionicons name="trending-down" size={12} color={stepperPalette.accent} />
+          <Text style={styles.dropsetBadgeText}>{dropsetBadgeLabel(item.dropset)}</Text>
+        </View>
+      ) : null}
+
+      <View style={styles.exRowBottom}>
+        <View style={styles.targetGroup}>
+          <Text style={styles.targetLabel}>SETS</Text>
+          <TextInput
+            style={styles.targetInput}
+            value={item.target_sets != null ? String(item.target_sets) : ''}
+            onChangeText={onUpdateSets}
+            keyboardType="number-pad"
+            placeholder="—"
+            placeholderTextColor={stepperPalette.muted}
+            selectTextOnFocus
+            maxLength={2}
+            accessibilityLabel={`Target sets for ${item.name}`}
+          />
+        </View>
+        <View style={styles.targetGroup}>
+          <Text style={styles.targetLabel}>REPS</Text>
+          <TextInput
+            style={styles.targetInput}
+            value={item.target_reps ?? ''}
+            onChangeText={onUpdateReps}
+            placeholder="8-12"
+            placeholderTextColor={stepperPalette.muted}
+            selectTextOnFocus
+            maxLength={12}
+            accessibilityLabel={`Target reps for ${item.name}`}
+          />
+        </View>
+
+        <View style={styles.reorderGroup}>
+          <TouchableOpacity
+            onPress={onMoveUp}
+            disabled={isFirst}
+            style={[styles.reorderBtn, isFirst && styles.reorderBtnDisabled]}
+            accessibilityRole="button"
+            accessibilityLabel={`Move ${item.name} up`}
+          >
+            <Ionicons name="chevron-up" size={18} color={stepperPalette.text} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={onMoveDown}
+            disabled={isLast}
+            style={[styles.reorderBtn, isLast && styles.reorderBtnDisabled]}
+            accessibilityRole="button"
+            accessibilityLabel={`Move ${item.name} down`}
+          >
+            <Ionicons name="chevron-down" size={18} color={stepperPalette.text} />
+          </TouchableOpacity>
+        </View>
+
+        <TouchableOpacity
+          onPress={onRemove}
+          style={styles.iconBtn}
+          accessibilityRole="button"
+          accessibilityLabel={`Remove ${item.name}`}
+        >
+          <Ionicons name="trash-outline" size={18} color={stepperPalette.muted} />
+        </TouchableOpacity>
+      </View>
+
+      {menuOpen ? (
+        <KebabMenu
+          hasDropset={hasDropset}
+          grouped={false}
+          onMakeDropsets={onMakeDropsets}
+          onRemoveDropsets={onRemoveDropsets}
+          onSupersetWith={onSupersetWith}
+          onClose={onToggleMenu}
+        />
+      ) : null}
+    </View>
+  );
+}
+
+// ── Superset group card ───────────────────────────────────────────────────────
+
+function GroupCard(props: {
+  letter: string;
+  groupId: string;
+  indices: number[];
+  members: RoutineExercise[];
+  isFirstBlock: boolean;
+  isLastBlock: boolean;
+  menuForIndex: number | null;
+  onToggleMemberMenu: (idx: number) => void;
+  onSetRounds: (r: number) => void;
+  onUnlink: () => void;
+  onMoveGroupUp: () => void;
+  onMoveGroupDown: () => void;
+  onMemberUp: (idx: number) => void;
+  onMemberDown: (idx: number) => void;
+  onMemberRemove: (idx: number) => void;
+  onMemberUpdateReps: (idx: number, t: string) => void;
+  onMemberMakeDropsets: (idx: number) => void;
+  onMemberRemoveDropsets: (idx: number) => void;
+}): React.ReactElement {
+  const {
+    letter, indices, members, isFirstBlock, isLastBlock, menuForIndex, onToggleMemberMenu,
+    onSetRounds, onUnlink, onMoveGroupUp, onMoveGroupDown, onMemberUp, onMemberDown,
+    onMemberRemove, onMemberUpdateReps, onMemberMakeDropsets, onMemberRemoveDropsets,
+  } = props;
+  const rounds = members[0]?.superset_rounds ?? 3;
+  return (
+    <View style={styles.groupCard}>
+      {/* Group header: label + rounds stepper + group reorder + unlink. */}
+      <View style={styles.groupHeader}>
+        <View style={styles.groupTitleWrap}>
+          <Ionicons name="git-merge" size={14} color={stepperPalette.accent} />
+          <Text style={styles.groupTitle}>SUPERSET {letter} · {rounds} ROUND{rounds !== 1 ? 'S' : ''}</Text>
+        </View>
+        <View style={styles.groupHeaderActions}>
+          <TouchableOpacity
+            onPress={onMoveGroupUp}
+            disabled={isFirstBlock}
+            style={[styles.smallBtn, isFirstBlock && styles.reorderBtnDisabled]}
+            accessibilityRole="button"
+            accessibilityLabel={`Move superset ${letter} up`}
+          >
+            <Ionicons name="chevron-up" size={16} color={stepperPalette.text} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={onMoveGroupDown}
+            disabled={isLastBlock}
+            style={[styles.smallBtn, isLastBlock && styles.reorderBtnDisabled]}
+            accessibilityRole="button"
+            accessibilityLabel={`Move superset ${letter} down`}
+          >
+            <Ionicons name="chevron-down" size={16} color={stepperPalette.text} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={onUnlink}
+            style={styles.smallBtn}
+            accessibilityRole="button"
+            accessibilityLabel={`Unlink superset ${letter}`}
+          >
+            <Ionicons name="close" size={16} color={stepperPalette.muted} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Shared rounds stepper. */}
+      <View style={styles.roundsRow}>
+        <Text style={styles.roundsLabel}>ROUNDS</Text>
+        <View style={styles.roundsControls}>
+          <TouchableOpacity
+            style={[styles.smallBtn, rounds <= 1 && styles.reorderBtnDisabled]}
+            onPress={() => onSetRounds(rounds - 1)}
+            disabled={rounds <= 1}
+            accessibilityRole="button"
+            accessibilityLabel="Decrease rounds"
+          >
+            <Ionicons name="remove" size={16} color={stepperPalette.text} />
+          </TouchableOpacity>
+          <Text style={styles.roundsValue}>{rounds}</Text>
+          <TouchableOpacity
+            style={[styles.smallBtn, rounds >= 10 && styles.reorderBtnDisabled]}
+            onPress={() => onSetRounds(rounds + 1)}
+            disabled={rounds >= 10}
+            accessibilityRole="button"
+            accessibilityLabel="Increase rounds"
+          >
+            <Ionicons name="add" size={16} color={stepperPalette.text} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Members. */}
+      {members.map((m, mi) => {
+        const absIndex = indices[mi]!;
+        const hasDropset = !!m.dropset;
+        const menuOpen = menuForIndex === absIndex;
+        return (
+          <View key={`m-${m.exercise_id || m.name}-${absIndex}`} style={styles.memberRow}>
+            <View style={styles.memberTop}>
+              <View style={styles.memberLetterWrap}>
+                <Text style={styles.memberLetter}>{letter}{mi + 1}</Text>
+              </View>
+              <Text style={styles.memberName} numberOfLines={1}>{m.name}</Text>
+              <KebabButton onPress={() => onToggleMemberMenu(absIndex)} label={`Options for ${m.name}`} />
+            </View>
+
+            {hasDropset ? (
+              <View style={styles.dropsetBadge}>
+                <Ionicons name="trending-down" size={12} color={stepperPalette.accent} />
+                <Text style={styles.dropsetBadgeText}>{dropsetBadgeLabel(m.dropset)}</Text>
+              </View>
+            ) : null}
+
+            <View style={styles.memberBottom}>
+              <View style={styles.memberRepsWrap}>
+                <Text style={styles.targetLabel}>REPS</Text>
+                <TextInput
+                  style={styles.targetInput}
+                  value={m.target_reps ?? ''}
+                  onChangeText={(t) => onMemberUpdateReps(absIndex, t)}
+                  placeholder="8-12"
+                  placeholderTextColor={stepperPalette.muted}
+                  selectTextOnFocus
+                  maxLength={12}
+                  accessibilityLabel={`Target reps for ${m.name}`}
+                />
+              </View>
+              <View style={styles.reorderGroup}>
+                <TouchableOpacity
+                  onPress={() => onMemberUp(absIndex)}
+                  disabled={mi === 0}
+                  style={[styles.reorderBtn, mi === 0 && styles.reorderBtnDisabled]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Move ${m.name} up within superset`}
+                >
+                  <Ionicons name="chevron-up" size={18} color={stepperPalette.text} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => onMemberDown(absIndex)}
+                  disabled={mi === members.length - 1}
+                  style={[styles.reorderBtn, mi === members.length - 1 && styles.reorderBtnDisabled]}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Move ${m.name} down within superset`}
+                >
+                  <Ionicons name="chevron-down" size={18} color={stepperPalette.text} />
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity
+                onPress={() => onMemberRemove(absIndex)}
+                style={styles.iconBtn}
+                accessibilityRole="button"
+                accessibilityLabel={`Remove ${m.name} from superset`}
+              >
+                <Ionicons name="trash-outline" size={18} color={stepperPalette.muted} />
+              </TouchableOpacity>
+            </View>
+
+            {menuOpen ? (
+              <KebabMenu
+                hasDropset={hasDropset}
+                grouped
+                onMakeDropsets={() => onMemberMakeDropsets(absIndex)}
+                onRemoveDropsets={() => onMemberRemoveDropsets(absIndex)}
+                onUnlink={onUnlink}
+                onClose={() => onToggleMemberMenu(absIndex)}
+              />
+            ) : null}
+          </View>
+        );
+      })}
+    </View>
   );
 }
 
@@ -333,10 +981,7 @@ export default function RoutineEditorSheet({
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },
-  container: {
-    flex: 1,
-    backgroundColor: stepperPalette.bg,
-  },
+  container: { flex: 1, backgroundColor: stepperPalette.bg },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -348,12 +993,7 @@ const styles = StyleSheet.create({
     borderBottomColor: stepperPalette.line,
   },
   headerBtn: { padding: spacing.s1, minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: {
-    flex: 1,
-    fontFamily: fontFamily.bold,
-    fontSize: fontSize.bodyLg,
-    color: stepperPalette.text,
-  },
+  headerTitle: { flex: 1, fontFamily: fontFamily.bold, fontSize: fontSize.bodyLg, color: stepperPalette.text },
   savedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -361,16 +1001,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.s2,
     minHeight: 44,
   },
-  savedBadgeText: {
-    fontFamily: fontFamily.semiBold,
-    fontSize: fontSize.bodySm,
-    color: stepperPalette.accent,
-  },
+  savedBadgeText: { fontFamily: fontFamily.semiBold, fontSize: fontSize.bodySm, color: stepperPalette.accent },
   scroll: { flex: 1 },
-  scrollContent: {
-    padding: spacing.s4,
-    paddingBottom: spacing.s8,
-  },
+  scrollContent: { padding: spacing.s4, paddingBottom: spacing.s8 },
   fieldLabel: {
     fontFamily: fontFamily.bold,
     fontSize: fontSize.caption,
@@ -397,12 +1030,7 @@ const styles = StyleSheet.create({
     padding: spacing.s4,
     marginBottom: spacing.s3,
   },
-  emptyText: {
-    fontFamily: fontFamily.regular,
-    fontSize: fontSize.bodySm,
-    color: stepperPalette.muted,
-    lineHeight: 20,
-  },
+  emptyText: { fontFamily: fontFamily.regular, fontSize: fontSize.bodySm, color: stepperPalette.muted, lineHeight: 20 },
   exRow: {
     backgroundColor: stepperPalette.card,
     borderWidth: 1,
@@ -424,14 +1052,8 @@ const styles = StyleSheet.create({
     color: stepperPalette.text,
     marginRight: spacing.s2,
   },
-  exRowBottom: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: spacing.s3,
-  },
-  targetGroup: {
-    flex: 1,
-  },
+  exRowBottom: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.s3 },
+  targetGroup: { flex: 1 },
   targetLabel: {
     fontFamily: fontFamily.bold,
     fontSize: fontSize.caption,
@@ -451,10 +1073,7 @@ const styles = StyleSheet.create({
     color: stepperPalette.text,
     textAlign: 'center',
   },
-  reorderGroup: {
-    flexDirection: 'row',
-    gap: spacing.s2,
-  },
+  reorderGroup: { flexDirection: 'row', gap: spacing.s2 },
   reorderBtn: {
     width: 44,
     height: 44,
@@ -476,12 +1095,139 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: spacing.s1,
   },
-  addLabel: {
-    fontFamily: fontFamily.bold,
-    fontSize: fontSize.bodySm,
-    color: stepperPalette.accent,
+  addLabel: { fontFamily: fontFamily.bold, fontSize: fontSize.bodySm, color: stepperPalette.accent },
+  // Dropset badge
+  dropsetBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s1,
+    alignSelf: 'flex-start',
+    backgroundColor: stepperPalette.accentSurface,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.s2,
+    paddingVertical: 3,
+    marginBottom: spacing.s3,
   },
-  // Sticky Save bar
+  dropsetBadgeText: { fontFamily: fontFamily.semiBold, fontSize: fontSize.caption, color: stepperPalette.accent },
+  // Kebab menu
+  menuCatcher: {
+    position: 'absolute',
+    top: -1000,
+    left: -1000,
+    right: -1000,
+    bottom: -1000,
+  },
+  menu: {
+    position: 'absolute',
+    top: spacing.s8,
+    right: spacing.s3,
+    backgroundColor: stepperPalette.card,
+    borderWidth: 1,
+    borderColor: stepperPalette.line,
+    borderRadius: radius.md,
+    paddingVertical: spacing.s1,
+    minWidth: 180,
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 12,
+    zIndex: 50,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.s2,
+    paddingHorizontal: spacing.s3,
+    paddingVertical: spacing.s3,
+    minHeight: 44,
+  },
+  menuItemText: { fontFamily: fontFamily.semiBold, fontSize: fontSize.bodySm, color: stepperPalette.text },
+  menuItemTextMuted: { fontFamily: fontFamily.regular, fontSize: fontSize.bodySm, color: stepperPalette.muted },
+  // Group card
+  groupCard: {
+    backgroundColor: stepperPalette.card,
+    borderWidth: 1,
+    borderColor: stepperPalette.accentLine,
+    borderRadius: radius.md,
+    padding: spacing.s3,
+    marginBottom: spacing.s3,
+  },
+  groupHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.s2,
+  },
+  groupTitleWrap: { flexDirection: 'row', alignItems: 'center', gap: spacing.s1, flex: 1 },
+  groupTitle: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSize.caption,
+    color: stepperPalette.accent,
+    letterSpacing: 0.8,
+  },
+  groupHeaderActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.s1 },
+  smallBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: stepperPalette.line,
+    backgroundColor: stepperPalette.frame,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  roundsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    borderTopColor: stepperPalette.line,
+    borderBottomWidth: 1,
+    borderBottomColor: stepperPalette.line,
+    paddingVertical: spacing.s2,
+    marginBottom: spacing.s2,
+  },
+  roundsLabel: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSize.caption,
+    color: stepperPalette.muted,
+    letterSpacing: 0.8,
+  },
+  roundsControls: { flexDirection: 'row', alignItems: 'center', gap: spacing.s3 },
+  roundsValue: {
+    fontFamily: fontFamily.bold,
+    fontSize: fontSize.bodyMd,
+    color: stepperPalette.text,
+    minWidth: 28,
+    textAlign: 'center',
+    fontVariant: ['tabular-nums'],
+  },
+  memberRow: {
+    backgroundColor: stepperPalette.frame,
+    borderRadius: radius.sm,
+    padding: spacing.s2,
+    marginTop: spacing.s2,
+  },
+  memberTop: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.s2 },
+  memberLetterWrap: {
+    backgroundColor: stepperPalette.accentSurface,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.s2,
+    paddingVertical: 2,
+    marginRight: spacing.s2,
+  },
+  memberLetter: { fontFamily: fontFamily.bold, fontSize: fontSize.caption, color: stepperPalette.accent },
+  memberName: {
+    flex: 1,
+    fontFamily: fontFamily.semiBold,
+    fontSize: fontSize.bodyMd,
+    color: stepperPalette.text,
+    marginRight: spacing.s2,
+  },
+  memberBottom: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.s2 },
+  memberRepsWrap: { flex: 1 },
+  // Sticky Save bar (pinned above the bottom inset).
   saveBar: {
     borderTopWidth: 1,
     borderTopColor: stepperPalette.line,

@@ -66,6 +66,13 @@ export interface RoutineSessionExercise {
    * rounds). Ignored when ungrouped.
    */
   groupRounds?: number;
+  /**
+   * Persisted dropset plan seeded from the routine (S2). When present, the logger
+   * AUTO-OFFERS a drop chain after logging a set the plan marks as a dropset set
+   * (via loggerLogic.isDropsetPlannedSet): the DropChainBar opens pre-armed with
+   * `drops` drops at `dropPct`% each. null/absent = no auto-offer (S1 manual only).
+   */
+  dropsetPlan?: { lastN: number | 'all'; drops: number; dropPct: number } | null;
 }
 
 interface RoutineStripProps {
@@ -86,15 +93,46 @@ function buildRoutineSession(routine: Routine): RoutineSession {
     source: 'routine',
     routineId: routine.id,
     name: routine.name,
-    exercises: routine.exercises.map((ex) => ({
-      exerciseId: ex.exercise_id,
-      name: ex.name,
-      targetSets: ex.target_sets,
-      targetReps: ex.target_reps,
-      loggedSetCount: 0,
-      done: false,
-    })),
+    exercises: routine.exercises.map((ex) => seedSessionExercise(ex)),
     currentIndex: 0,
+  };
+}
+
+/**
+ * Map a persisted RoutineExercise → the session model, carrying the S2
+ * superset/dropset fields (spec §S2 seeding):
+ *   • groupId      ← superset_group
+ *   • groupRounds  ← superset_rounds (fallback: the member's own target_sets)
+ *   • dropsetPlan  ← dropset, normalized with defaults (drops 2, drop_pct 20)
+ * Absent fields ⇒ ungrouped, no auto-offer — exactly today's behaviour. Shared by
+ * buildRoutineSession here and WorkoutLoggerHost.startRoutine so both start paths
+ * seed identically.
+ */
+export function seedSessionExercise(ex: Routine['exercises'][number]): RoutineSessionExercise {
+  const groupId = ex.superset_group ?? null;
+  const groupRounds =
+    typeof ex.superset_rounds === 'number' && ex.superset_rounds > 0
+      ? ex.superset_rounds
+      : typeof ex.target_sets === 'number' && ex.target_sets > 0
+        ? ex.target_sets
+        : undefined;
+  const dropsetPlan = ex.dropset
+    ? {
+        lastN: ex.dropset.last_n,
+        drops: typeof ex.dropset.drops === 'number' ? ex.dropset.drops : 2,
+        dropPct: typeof ex.dropset.drop_pct === 'number' ? ex.dropset.drop_pct : 20,
+      }
+    : null;
+  return {
+    exerciseId: ex.exercise_id ?? '',
+    name: ex.name,
+    targetSets: ex.target_sets,
+    targetReps: ex.target_reps,
+    loggedSetCount: 0,
+    done: false,
+    ...(groupId != null ? { groupId } : {}),
+    ...(groupId != null && groupRounds != null ? { groupRounds } : {}),
+    ...(dropsetPlan ? { dropsetPlan } : {}),
   };
 }
 

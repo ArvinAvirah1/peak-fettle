@@ -43,6 +43,7 @@ import { localDb } from '../db/localDb';
 import { createWorkout } from '../api/workouts';
 import { logSet } from '../api/sets';
 import { createRoutine, getRoutines, RoutineExercise } from '../api/routines';
+import { allowlistExercise, canonicalizeExercise } from './routineExerciseFields';
 import { addConstraint } from '../api/constraints';
 import { patchProfile, PatchProfilePayload } from '../api/user';
 import { LogSetPayload } from '../types/api';
@@ -214,12 +215,9 @@ function parseRoutineExercises(raw: string | null | undefined): RoutineExercise[
     if (!Array.isArray(parsed)) return [];
     return parsed
       .filter((e) => e && typeof e === 'object')
-      .map((e) => ({
-        exercise_id: e.exercise_id ?? null,
-        name: typeof e.name === 'string' ? e.name : '',
-        target_sets: typeof e.target_sets === 'number' ? e.target_sets : undefined,
-        target_reps: typeof e.target_reps === 'string' ? e.target_reps : undefined,
-      }));
+      // ALLOWLIST — including the S2 superset/dropset fields — via the shared pure
+      // validator (same bounds as the local parse + the server Zod schema).
+      .map((e) => allowlistExercise(e as Record<string, unknown>));
   } catch {
     return [];
   }
@@ -243,12 +241,11 @@ function parseRoutineExercises(raw: string | null | undefined): RoutineExercise[
  * failure mode is a duplicate routine (the pre-fix behaviour) — never data loss.
  */
 function canonicalRoutineKey(name: string, exercises: RoutineExercise[]): string {
-  const normalized = exercises.map((e) => ({
-    exercise_id: e.exercise_id ?? null,
-    name: e.name,
-    target_sets: typeof e.target_sets === 'number' ? e.target_sets : null,
-    target_reps: typeof e.target_reps === 'string' ? e.target_reps : null,
-  }));
+  // Fixed-key-order, null-folded per-exercise normalization (incl. the S2
+  // superset/dropset fields) via the shared pure helper — so two routines that
+  // differ ONLY in grouping/dropsets are NOT wrongly deduped, and an identical
+  // pair still collapses. Matches the server echo (Zod strip + jsonb).
+  const normalized = exercises.map((e) => canonicalizeExercise(e));
   // Stringify name + list as one tuple - unambiguous for any name content.
   return JSON.stringify([name, normalized]);
 }

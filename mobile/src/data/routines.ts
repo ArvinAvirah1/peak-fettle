@@ -28,6 +28,7 @@ import {
   patchRoutine as apiPatchRoutine,
   deleteRoutine as apiDeleteRoutine,
 } from '../api/routines';
+import { allowlistExercise } from './routineExerciseFields';
 
 // Re-export the shared shapes so callers can import them from one place.
 export type { Routine, RoutineExercise, CreateRoutinePayload };
@@ -45,7 +46,14 @@ interface RoutineRow {
   updated_at: string | null;
 }
 
-/** Defensive parse of the JSON `exercises` TEXT column → RoutineExercise[]. */
+/**
+ * Defensive parse of the JSON `exercises` TEXT column → RoutineExercise[].
+ *
+ * ALLOWLIST read (spec §0.1 choke point): every field — including the S2
+ * superset/dropset fields — is explicitly picked, type/bounds-checked, and
+ * dropped when garbage, via the pure `allowlistExercise` in routineExerciseFields.
+ * NOT a blind passthrough (the DATA-01 import-injection guard depends on this).
+ */
 function parseExercises(raw: string | null | undefined): RoutineExercise[] {
   if (!raw) return [];
   try {
@@ -53,12 +61,7 @@ function parseExercises(raw: string | null | undefined): RoutineExercise[] {
     if (!Array.isArray(parsed)) return [];
     return parsed
       .filter((e) => e && typeof e === 'object')
-      .map((e) => ({
-        exercise_id: e.exercise_id ?? null,
-        name: typeof e.name === 'string' ? e.name : '',
-        target_sets: typeof e.target_sets === 'number' ? e.target_sets : undefined,
-        target_reps: typeof e.target_reps === 'string' ? e.target_reps : undefined,
-      }));
+      .map((e) => allowlistExercise(e as Record<string, unknown>));
   } catch {
     return [];
   }

@@ -24,6 +24,19 @@ const ExerciseEntrySchema = z.object({
     name:        z.string().min(1).max(100),
     target_sets: z.number().int().min(1).max(20).optional(),
     target_reps: z.string().max(20).optional(), // e.g. "8-12" or "5"
+    // ── S2 supersets & dropsets (additive optional; old clients unaffected) ──
+    // Absent ⇒ exactly today's behaviour. Bounds mirror the local parseExercises
+    // validators so a value round-trips (client → server → client) without change.
+    superset_group:  z.string().min(1).max(40).nullable().optional(),
+    superset_rounds: z.number().int().min(1).max(10).nullable().optional(),
+    dropset: z
+        .object({
+            last_n:   z.union([z.number().int().min(1).max(10), z.literal('all')]),
+            drops:    z.number().int().min(1).max(3).optional(),
+            drop_pct: z.number().int().min(5).max(40).optional(),
+        })
+        .nullable()
+        .optional(),
 });
 
 // TICKET-088: an empty exercises array is valid. The "+ New" flow creates a

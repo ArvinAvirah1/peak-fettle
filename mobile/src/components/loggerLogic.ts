@@ -419,3 +419,56 @@ export function isDropRow(metricsJson: string | null | undefined): boolean {
   if (metricsJson == null || metricsJson === '') return false;
   return metricsJson.indexOf('"drop"') !== -1;
 }
+
+// ---------------------------------------------------------------------------
+// 6. Dropset PLAN — which sets a persisted routine marks as dropset sets (S2)
+// ---------------------------------------------------------------------------
+
+/**
+ * The seeded dropset plan for an exercise (from a persisted routine's
+ * `dropset` field, mapped into the session model). `lastN` = the LAST N sets are
+ * dropset sets (or the literal 'all' for every set); `drops`/`dropPct` seed the
+ * drop-chain ladder when a set auto-offers. Kept structural (no RN import).
+ */
+export interface DropsetPlan {
+  lastN: number | 'all';
+  drops: number;
+  dropPct: number;
+}
+
+/**
+ * Should the set at 1-based `ordinal` (the Nth set of this exercise, i.e.
+ * loggedSetCount at log time + 1) be treated as a DROPSET set under `plan`?
+ *
+ *   • plan null/absent            → false (no dropsets → today's behaviour).
+ *   • plan.lastN === 'all'        → every set is a dropset set → true (ordinal>=1).
+ *   • plan.lastN === N (number)   → the LAST N sets of `totalSets` are dropset
+ *                                   sets: true when ordinal > totalSets - N.
+ *
+ * `totalSets` is the exercise's planned set count for this session (group rounds
+ * supersede per-exercise target_sets — the caller passes the effective total).
+ * When `totalSets` is unknown/<=0 we can't locate "the last N", so only the
+ * 'all' case can fire; a numeric lastN returns false (no false auto-offer).
+ *
+ * Boundary examples (totalSets 4):
+ *   lastN 1 → only ordinal 4 is a dropset set.
+ *   lastN 2 → ordinals 3 and 4.
+ *   lastN 'all' → every ordinal 1..∞.
+ * Pure: identical inputs → identical output.
+ */
+export function isDropsetPlannedSet(
+  ordinal: number,
+  totalSets: number | null | undefined,
+  plan: DropsetPlan | null | undefined,
+): boolean {
+  if (!plan) return false;
+  if (!Number.isFinite(ordinal) || ordinal < 1) return false;
+  if (plan.lastN === 'all') return true;
+  const lastN = plan.lastN;
+  if (typeof lastN !== 'number' || !Number.isFinite(lastN) || lastN < 1) return false;
+  // Numeric lastN needs a known total to place "the last N sets".
+  if (typeof totalSets !== 'number' || !Number.isFinite(totalSets) || totalSets <= 0) {
+    return false;
+  }
+  return ordinal > totalSets - lastN;
+}

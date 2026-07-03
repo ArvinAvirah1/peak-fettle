@@ -416,5 +416,45 @@ test('isDropRow: cheap string check without JSON.parse', () => {
   eq(L.isDropRow('{"hrAvgBpm":140}'), false, 'cardio metrics → false:');
 });
 
+// -- S2: dropset PLAN — which sets a persisted routine marks as dropset sets ---
+test('isDropsetPlannedSet: last_n 1 → only the final set of totalSets', () => {
+  const plan = { lastN: 1, drops: 2, dropPct: 20 };
+  eq(L.isDropsetPlannedSet(1, 4, plan), false, 'set 1 of 4 → no:');
+  eq(L.isDropsetPlannedSet(3, 4, plan), false, 'set 3 of 4 → no:');
+  eq(L.isDropsetPlannedSet(4, 4, plan), true, 'set 4 of 4 (last) → yes:');
+  eq(L.isDropsetPlannedSet(5, 4, plan), true, 'set 5 (beyond target) → yes:');
+});
+
+test('isDropsetPlannedSet: last_n 2 → the final TWO sets', () => {
+  const plan = { lastN: 2, drops: 2, dropPct: 20 };
+  eq(L.isDropsetPlannedSet(2, 4, plan), false, 'set 2 of 4 → no:');
+  eq(L.isDropsetPlannedSet(3, 4, plan), true, 'set 3 of 4 → yes (boundary):');
+  eq(L.isDropsetPlannedSet(4, 4, plan), true, 'set 4 of 4 → yes:');
+  // total 3: last 2 are sets 2,3
+  eq(L.isDropsetPlannedSet(1, 3, plan), false, 'set 1 of 3 → no:');
+  eq(L.isDropsetPlannedSet(2, 3, plan), true, 'set 2 of 3 → yes:');
+});
+
+test("isDropsetPlannedSet: last_n 'all' → every set (totalSets irrelevant)", () => {
+  const plan = { lastN: 'all', drops: 2, dropPct: 20 };
+  eq(L.isDropsetPlannedSet(1, 4, plan), true, 'set 1 → yes:');
+  eq(L.isDropsetPlannedSet(4, 4, plan), true, 'set 4 → yes:');
+  // 'all' still fires with an unknown total (locates nothing to skip).
+  eq(L.isDropsetPlannedSet(2, null, plan), true, "'all' with null total → yes:");
+  eq(L.isDropsetPlannedSet(1, 0, plan), true, "'all' with 0 total → yes:");
+});
+
+test('isDropsetPlannedSet: null/absent plan → never a dropset set (back-compat)', () => {
+  eq(L.isDropsetPlannedSet(4, 4, null), false, 'null plan → false:');
+  eq(L.isDropsetPlannedSet(4, 4, undefined), false, 'undefined plan → false:');
+});
+
+test('isDropsetPlannedSet: numeric last_n needs a known total (no false auto-offer)', () => {
+  const plan = { lastN: 2, drops: 2, dropPct: 20 };
+  eq(L.isDropsetPlannedSet(3, null, plan), false, 'numeric last_n + null total → false:');
+  eq(L.isDropsetPlannedSet(3, 0, plan), false, 'numeric last_n + 0 total → false:');
+  eq(L.isDropsetPlannedSet(0, 4, plan), false, 'ordinal < 1 → false:');
+});
+
 console.log('\n' + (passed + failed) + ' tests: ' + passed + ' passed, ' + failed + ' failed\n');
 if (failed > 0) process.exit(1);
