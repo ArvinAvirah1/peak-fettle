@@ -59,23 +59,17 @@
     },
     "extra": {
       "eas": {
-        "projectId": "PENDING-run-eas-init-see-TICKET-114",
         "build": {
           "experimental": {
             "ios": {
               "appExtensions": [
                 {
-                  "targetName": "LifeOSWidget",
                   "bundleIdentifier": "com.peakfettle.lifeos.widget",
-                  "entitlements": {
-                    "com.apple.security.application-groups": [
-                      "group.com.peakfettle.lifeos"
-                    ]
-                  }
+                  "targetName": "LifeOSWidget"
                 },
                 {
-                  "targetName": "LifeOSDeviceActivityMonitor",
                   "bundleIdentifier": "com.peakfettle.lifeos.monitor",
+                  "targetName": "LifeOSDeviceActivityMonitor",
                   "entitlements": {
                     "com.apple.developer.family-controls": true,
                     "com.apple.security.application-groups": [
@@ -84,8 +78,8 @@
                   }
                 },
                 {
-                  "targetName": "LifeOSShieldConfig",
                   "bundleIdentifier": "com.peakfettle.lifeos.shield",
+                  "targetName": "LifeOSShieldConfig",
                   "entitlements": {
                     "com.apple.developer.family-controls": true,
                     "com.apple.security.application-groups": [
@@ -94,8 +88,8 @@
                   }
                 },
                 {
-                  "targetName": "LifeOSShieldAction",
                   "bundleIdentifier": "com.peakfettle.lifeos.shieldaction",
+                  "targetName": "LifeOSShieldAction",
                   "entitlements": {
                     "com.apple.developer.family-controls": true,
                     "com.apple.security.application-groups": [
@@ -104,8 +98,52 @@
                   }
                 },
                 {
-                  "targetName": "LifeOSActivityReport",
                   "bundleIdentifier": "com.peakfettle.lifeos.report",
+                  "targetName": "LifeOSActivityReport",
+                  "entitlements": {
+                    "com.apple.developer.family-controls": true,
+                    "com.apple.security.application-groups": [
+                      "group.com.peakfettle.lifeos"
+                    ]
+                  }
+                },
+                {
+                  "bundleIdentifier": "com.peakfettle.lifeos.widget",
+                  "targetName": "LifeOSWidget"
+                },
+                {
+                  "bundleIdentifier": "com.peakfettle.lifeos.monitor",
+                  "targetName": "LifeOSDeviceActivityMonitor",
+                  "entitlements": {
+                    "com.apple.developer.family-controls": true,
+                    "com.apple.security.application-groups": [
+                      "group.com.peakfettle.lifeos"
+                    ]
+                  }
+                },
+                {
+                  "bundleIdentifier": "com.peakfettle.lifeos.shield",
+                  "targetName": "LifeOSShieldConfig",
+                  "entitlements": {
+                    "com.apple.developer.family-controls": true,
+                    "com.apple.security.application-groups": [
+                      "group.com.peakfettle.lifeos"
+                    ]
+                  }
+                },
+                {
+                  "bundleIdentifier": "com.peakfettle.lifeos.shieldaction",
+                  "targetName": "LifeOSShieldAction",
+                  "entitlements": {
+                    "com.apple.developer.family-controls": true,
+                    "com.apple.security.application-groups": [
+                      "group.com.peakfettle.lifeos"
+                    ]
+                  }
+                },
+                {
+                  "bundleIdentifier": "com.peakfettle.lifeos.report",
+                  "targetName": "LifeOSActivityReport",
                   "entitlements": {
                     "com.apple.developer.family-controls": true,
                     "com.apple.security.application-groups": [
@@ -116,8 +154,11 @@
               ]
             }
           }
-        }
-      }
-    }
+        },
+        "projectId": "ab38da8c-7f05-4d0a-9910-faab42a9fed4"
+      },
+      "router": {}
+    },
+    "owner": "arvinavirah"
   }
 }
