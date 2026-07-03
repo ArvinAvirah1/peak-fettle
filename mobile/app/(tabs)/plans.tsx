@@ -999,6 +999,17 @@ export default function PlansScreen(): React.ReactElement {
         {/* ── A. Generate CTA — on-device engine, ALL tiers (local-first) ── */}
         <View style={styles.generateSection}>
           <GenerateCTA onPress={handleGenerateLocal} isGenerating={isGeneratingLocal} />
+          {/* Deep plan-builder survey (Pro). Free users see its upsell on push. */}
+          <TouchableOpacity
+            style={[styles.planBuilderButton, { borderColor: theme.colors.accentDefault }]}
+            onPress={() => router.push('/plan-survey')}
+            accessibilityRole="button"
+            accessibilityLabel="Open the deep plan builder"
+          >
+            <Text style={[styles.planBuilderText, { color: theme.colors.accentDefault }]}>
+              {syncsToServer(user) ? 'Build a detailed plan (Pro)' : 'Generate plan (Pro)'}
+            </Text>
+          </TouchableOpacity>
           {localPlan && !showLocalPlan ? (
             <TouchableOpacity
               style={[
@@ -1185,6 +1196,19 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   viewLastPlanText: {
+    fontSize: fontSize.bodySm,
+    fontWeight: fontWeight.semibold,
+  },
+  planBuilderButton: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    paddingVertical: spacing.s3,
+    paddingHorizontal: spacing.s4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 44,
+  },
+  planBuilderText: {
     fontSize: fontSize.bodySm,
     fontWeight: fontWeight.semibold,
   },

@@ -226,6 +226,7 @@ function RootNavigator(): React.ReactElement {
         <Stack.Screen name="routine-history" options={{ title: '', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="trends" options={{ title: 'Trends', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="cosmetics" options={{ title: 'Achievements & Shop', headerShown: true, gestureEnabled: true }} />
+        <Stack.Screen name="plan-survey" options={{ title: 'Plan builder', headerShown: true, gestureEnabled: true }} />
       </Stack>
       </TourProvider>
     </>
