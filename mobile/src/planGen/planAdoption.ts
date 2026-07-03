@@ -65,12 +65,27 @@ export function mapWeekToRoutines(
   sessions.forEach((session) => {
     const slots = session.slots ?? [];
     if (slots.length === 0) return; // rest/recovery day — no routine
-    const exercises: RoutineExercise[] = slots.map((slot) => ({
-      exercise_id: slot.exercise_id ?? null,
-      name: slot.name,
-      target_sets: slot.sets,
-      target_reps: slot.reps,
-    }));
+    const exercises: RoutineExercise[] = slots.map((slot) => {
+      const ex: RoutineExercise = {
+        exercise_id: slot.exercise_id ?? null,
+        name: slot.name,
+        target_sets: slot.sets,
+        target_reps: slot.reps,
+      };
+      // S3 carry-through: the engine may have prescribed a superset group and/or a
+      // dropset on this slot. Both fields are additive + optional, so a slot with
+      // neither maps EXACTLY as before (back-compat). Contiguity of grouped members
+      // is preserved by construction — the engine already made group members adjacent
+      // in slots[] and equalized their `sets`, so `superset_rounds = slot.sets` is the
+      // shared round count with no extra work. These shapes are exactly what S2's
+      // allowlistExercise (routineExerciseFields.ts) validates and keeps.
+      if (slot.superset_group) {
+        ex.superset_group = slot.superset_group;
+        ex.superset_rounds = slot.sets; // already equalized to the group's shared rounds
+      }
+      if (slot.dropset) ex.dropset = slot.dropset;
+      return ex;
+    });
     out.push({ name: `${label} - ${session.day_label}`, exercises });
   });
   return out;

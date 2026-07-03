@@ -11,6 +11,7 @@
 // is byte-identical across JS engines.
 
 import { CATALOG_V2 } from './catalog';
+import { REGION_ADJACENCY } from './types';
 import {
   clamp,
   deriveParams,
@@ -103,6 +104,10 @@ interface WorkingSlot {
   loadNote?: string;
   week_intent?: string;
   peakNote?: string | null;
+  // filled by prescribeSupersetsAndDropsets (S3): additive, absent by default so
+  // pre-S3 output is byte-identical when nothing is prescribed.
+  supersetGroup?: string | null;
+  dropset?: { last_n: number | 'all'; drops: number; drop_pct: number } | null;
 }
 interface BuiltSession {
   name: string;
@@ -114,6 +119,10 @@ interface BuiltSession {
   warmup?: string | null;
   mdOffset?: string | null;
   day_label?: string;
+  // S3: true when capByDuration trimmed this session (the time-cap "bit" — the
+  // session wanted more volume than session_minutes allows). Drives superset
+  // prescription. Absent/false ⇒ not time-pressured.
+  timeCapped?: boolean;
 }
 
 // ── B.2 selectSplit: days + goal + priorities + splitPreference → session archetypes ──
@@ -379,6 +388,7 @@ function capByDuration(built: BuiltSession[], minutes: number, trace: string[], 
   const cap = maxExercisesForDuration(minutes);
   for (const s of built) {
     if (s.slots.length <= cap) continue;
+    s.timeCapped = true; // the session wanted more exercises than time allows (S3 pairing trigger)
     const before = s.slots.length;
     const ranked = s.slots
       .map((sl, i) => ({ sl, i, r: sl.role === 'primary' ? 0 : sl.role === 'secondary' ? 1 : 2 }))
@@ -721,6 +731,11 @@ function buildWeeks(bctx: BuildContext): PlanWeekV2[] {
       );
     }
 
+    // S3: prescribe supersets/dropsets AFTER loading + peaking so role/main_lift/
+    // peak tags are final (the fn no-ops for powerlifting/peaking/beginner, keeping
+    // those samples byte-identical).
+    built = prescribeSupersetsAndDropsets(built, profile, params);
+
     const built2 = assignDayLabels(built, profile, days);
     weeks.push({
       week_number: w,
@@ -741,6 +756,159 @@ function assignDayLabels(built: BuiltSession[], profile: EngineInputsV2, _days: 
     if (s.mdOffset) label += ` [${s.mdOffset}]`;
     return { ...s, day_label: label };
   });
+}
+
+// ── S3 prescription: supersets (time-pressure pairing) + dropsets (isolation) ──
+// PURE + DETERMINISTIC — reads only the injected profile/params + the built
+// sessions (no clock/random). Mutates WorkingSlots in place, adding `supersetGroup`
+// / `dropset` and equalizing paired members' `sets`. When NO condition triggers it
+// leaves every slot untouched, so pre-S3 output stays byte-identical (the whole
+// point: powerlifting / beginner / relaxed-time samples must not move).
+//
+// TRIGGER GATES (all must hold before ANY prescription happens for a session):
+//   • goal ∈ { hypertrophy, general_fitness } — never powerlifting / athletic_power /
+//     team_sport (peaking & power work is deliberately kept "straight sets").
+//   • experience ≥ novice for supersets (beginners get straight sets: the taxonomy
+//     is beginner<novice<intermediate<advanced<elite, and pairing raises intra-set
+//     coordination/fatigue demand a rank-beginner shouldn't yet juggle).
+//   • experience ≥ intermediate for dropsets (metabolite/failure work — novices are
+//     already held further from failure, so a dropset there is inconsistent).
+//
+// PAIRING RULE (supersets), deterministic + conservative:
+//   • Only ACCESSORY or SECONDARY slots are eligible — never role 'primary' (compound
+//     top-work), never a powerlifting main_lift_key slot, never a peaking-phase slot.
+//   • A session is paired only when session_minutes ≤ 60 OR its time-cap actually bit
+//     (built.timeCapped) — i.e. pairing "buys back" time the session ran out of.
+//   • Walk eligible slots in their existing (stable) session order; greedily pair the
+//     FIRST unpaired eligible slot with the NEXT unpaired eligible slot that is a
+//     NON-COMPETING antagonist: DIFFERENT primary `muscle` AND DIFFERENT movement
+//     `pattern`, AND NOT region-adjacent (REGION_ADJACENCY) so we never pair two
+//     lifts that hit overlapping tissue. Region is looked up from the catalog by id.
+//   • Groups are exactly 2 in S3 (the data model allows up to 5; the engine stays
+//     conservative — antagonist PAIRS are the well-supported time-saver). Members are
+//     made CONTIGUOUS in slots[] (the second member is spliced to sit right after the
+//     first) and both `sets` are set to max(a.sets, b.sets) = the shared rounds, which
+//     is what planAdoption reads as superset_rounds. Group letters 'A','B',… assigned
+//     per session in slot order.
+//
+// DROPSET RULE, conservative:
+//   • ISOLATION accessories only (is_compound === false AND role === 'accessory').
+//   • hypertrophy goal only; experience ≥ intermediate.
+//   • at most ONE dropset exercise per session — the LAST eligible isolation slot.
+//   • shape { last_n: 1, drops: 2, drop_pct: 20 } (last set only — conservative).
+//   • GATED OFF entirely when the failure-proximity knob is at its most cautious
+//     setting ('cautious'): a user who asked to stay away from failure gets no dropsets.
+//   • A slot that is a superset member is NOT also given a dropset (keep the mechanics
+//     independent and the logger simple).
+function prescribeSupersetsAndDropsets(
+  built: BuiltSession[],
+  profile: EngineInputsV2,
+  params: DerivedParamsV2
+): BuiltSession[] {
+  const goal = profile.goal;
+  const generalGoal = goal === 'hypertrophy' || goal === 'general_fitness';
+  if (!generalGoal) return built; // powerlifting / athletic_power / team_sport: untouched
+
+  const EXP_RANK: Record<string, number> = { beginner: 0, novice: 1, intermediate: 2, advanced: 3, elite: 4 };
+  const rank = EXP_RANK[params.experienceLevel] ?? 0;
+  const supersetsOk = rank >= 1; // novice+ (not absolute beginner)
+  const dropsetsOk =
+    goal === 'hypertrophy' &&
+    rank >= 2 && // intermediate+
+    (profile.knobs?.failureProximity ?? 'balanced') !== 'cautious'; // most-cautious knob → no dropsets
+  if (!supersetsOk && !dropsetsOk) return built;
+
+  const minutes = profile.sessionMinutes || 60;
+  const timePressureBaseline = minutes <= 60;
+
+  // id → region lookup (from the catalog); used only to AVOID same-region pairing.
+  const regionById = new Map<string, string | undefined>();
+  for (const ex of CATALOG_V2) regionById.set(ex.id, ex.region);
+  const regionOf = (sl: WorkingSlot): string | undefined =>
+    sl.exercise_id ? regionById.get(sl.exercise_id) : undefined;
+  const adjacent = (ra: string | undefined, rb: string | undefined): boolean => {
+    if (!ra || !rb) return false;
+    const list = (REGION_ADJACENCY as Record<string, string[]>)[ra];
+    return Array.isArray(list) && list.indexOf(rb) >= 0;
+  };
+
+  // A slot is superset-eligible when it is a non-primary, non-main-lift, non-peaking
+  // accessory/secondary that actually got filled (has an exercise).
+  const eligible = (sl: WorkingSlot): boolean =>
+    !!sl.exercise_id &&
+    (sl.role === 'accessory' || sl.role === 'secondary') &&
+    !sl.mainLiftKey &&
+    !(sl.week_intent && /Peak/.test(sl.week_intent));
+
+  // Non-competing antagonist: different muscle AND different pattern AND not region-adjacent.
+  const nonCompeting = (a: WorkingSlot, b: WorkingSlot): boolean =>
+    a.muscle !== b.muscle &&
+    a.pattern !== b.pattern &&
+    !adjacent(regionOf(a), regionOf(b));
+
+  for (const session of built) {
+    // ── Supersets ──
+    if (supersetsOk && (timePressureBaseline || session.timeCapped)) {
+      let letter = 0; // 0→'A', 1→'B', …
+      const paired = new Set<number>();
+      // Greedy left-to-right pairing over the CURRENT slots order (stable).
+      for (let i = 0; i < session.slots.length; i++) {
+        const a = session.slots[i]!;
+        if (paired.has(i) || !eligible(a)) continue;
+        // Find the next unpaired eligible non-competing partner.
+        let j = -1;
+        for (let k = i + 1; k < session.slots.length; k++) {
+          const b = session.slots[k]!;
+          if (paired.has(k) || !eligible(b)) continue;
+          if (nonCompeting(a, b)) { j = k; break; }
+        }
+        if (j < 0) continue;
+        const b = session.slots[j]!;
+        const group = String.fromCharCode(65 + letter);
+        letter++;
+        const shared = Math.max(a.sets, b.sets);
+        a.supersetGroup = group;
+        b.supersetGroup = group;
+        a.sets = shared;
+        b.sets = shared; // both members share rounds → adoption reads sets as superset_rounds
+        paired.add(i);
+        paired.add(j);
+        // Make members contiguous: move b to sit immediately after a (stable for the rest).
+        if (j !== i + 1) {
+          session.slots.splice(j, 1);
+          session.slots.splice(i + 1, 0, b);
+          // Re-map paired indices after the splice (b now at i+1; items between shifted +1).
+          const remapped = new Set<number>();
+          for (const idx of paired) {
+            if (idx === i) remapped.add(i);
+            else if (idx === j) remapped.add(i + 1);
+            else if (idx > i && idx < j) remapped.add(idx + 1);
+            else remapped.add(idx);
+          }
+          paired.clear();
+          for (const idx of remapped) paired.add(idx);
+        }
+      }
+    }
+
+    // ── Dropset: the LAST isolation accessory in the session, if not a superset member. ──
+    if (dropsetsOk) {
+      for (let i = session.slots.length - 1; i >= 0; i--) {
+        const sl = session.slots[i]!;
+        if (
+          !!sl.exercise_id &&
+          sl.is_compound === false &&
+          sl.role === 'accessory' &&
+          !sl.supersetGroup &&
+          !(sl.week_intent && /Peak/.test(sl.week_intent))
+        ) {
+          sl.dropset = { last_n: 1, drops: 2, drop_pct: 20 };
+          break; // at most one dropset exercise per session
+        }
+      }
+    }
+  }
+  return built;
 }
 
 function fmtSession(s: BuiltSession): PlanSessionV2 {
@@ -769,6 +937,10 @@ function fmtSession(s: BuiltSession): PlanSessionV2 {
         week_intent: sl.week_intent ?? '',
         peak_note: sl.peakNote ?? null,
         main_lift_key: sl.mainLiftKey ?? null,
+        // S3 additive: only present when the engine actually prescribed. Omitting
+        // the keys when absent keeps non-prescribed output byte-identical.
+        ...(sl.supersetGroup ? { superset_group: sl.supersetGroup } : {}),
+        ...(sl.dropset ? { dropset: sl.dropset } : {}),
       })
     ),
     cardio: s.cardio,

@@ -359,6 +359,23 @@ export interface PlanSlotV2 {
   week_intent: string; // e.g. "dup accumulation wk2" / "Peak (2wk out)"
   peak_note?: string | null;
   main_lift_key?: 'squat' | 'bench' | 'deadlift' | null;
+
+  // ── S3 supersets & dropsets (engine prescription; additive + optional) ──
+  // Absent ⇒ the pre-S3 slot shape (determinism: byte-identical output when the
+  // engine does NOT prescribe). The engine pairs ACCESSORY/SECONDARY slots under
+  // session time pressure and prescribes conservative dropsets on isolation
+  // accessories; planAdoption.mapWeekToRoutines carries both into the routine.
+  //
+  // superset_group: a per-session group letter ('A','B',…). Two slots sharing a
+  // letter are CONTIGUOUS in slots[] and performed back-to-back (rest only after
+  // each round). Both members' `sets` are equalized to the group's shared rounds,
+  // so adoption maps sets → superset_rounds trivially. null/absent = ungrouped.
+  superset_group?: string | null;
+  // dropset: prescribed on isolation accessories only. `last_n` = which sets are
+  // dropset sets (a number = the last N, or 'all'); `drops` = drops per chain
+  // (default 2); `drop_pct` = per-drop weight reduction % (default 20). The engine
+  // ships the conservative { last_n: 1, drops: 2, drop_pct: 20 }. null/absent = none.
+  dropset?: { last_n: number | 'all'; drops?: number; drop_pct?: number } | null;
 }
 
 export interface PlanSessionV2 {

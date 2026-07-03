@@ -277,6 +277,196 @@ test('output shape is a v1 superset — required slot fields present', () => {
   eq(p.engine, 'pf-engine-v2', 'engine tag:');
 });
 
+// ===========================================================================
+// S3 — engine prescribes supersets (time-pressure) + dropsets (isolation),
+// and planAdoption.mapWeekToRoutines carries both into adopted routines.
+// ===========================================================================
+
+// Helper: collect every superset group in a plan as {session, group, members[]}.
+function supersetGroups(plan) {
+  const out = [];
+  for (const w of plan.weeks) {
+    for (const s of w.sessions) {
+      const byG = {};
+      s.slots.forEach((sl, idx) => {
+        if (sl.superset_group) (byG[sl.superset_group] = byG[sl.superset_group] || []).push({ idx, sl });
+      });
+      for (const g of Object.keys(byG)) out.push({ w, s, group: g, members: byG[g] });
+    }
+  }
+  return out;
+}
+function countDropsets(plan) {
+  let n = 0;
+  for (const w of plan.weeks) for (const s of w.sessions) for (const sl of s.slots) if (sl.dropset) n++;
+  return n;
+}
+function maxDropsetsPerSession(plan) {
+  let mx = 0;
+  for (const w of plan.weeks) for (const s of w.sessions) mx = Math.max(mx, s.slots.filter((sl) => sl.dropset).length);
+  return mx;
+}
+
+test('S3 supersets: time-pressured hypertrophy session yields ≥1 valid superset group (2 members, contiguous, same group, equal sets, accessories, diff muscle+pattern)', () => {
+  // 45-min sessions force the duration cap to bite → pairing triggers.
+  const p = generatePlanV2(baseInputs({ userId: 's3ss', experienceLevel: 'intermediate', goal: 'hypertrophy', splitPreference: 'ppl', daysPerWeek: 4, sessionMinutes: 45 }), { now: NOW });
+  const groups = supersetGroups(p);
+  assert(groups.length >= 1, 'expected at least one superset group under time pressure');
+  for (const gr of groups) {
+    eq(gr.members.length, 2, 'S3 groups are exactly 2 members (conservative): group ' + gr.group);
+    const [a, b] = gr.members;
+    eq(b.idx, a.idx + 1, 'members must be contiguous in slots[]: group ' + gr.group);
+    eq(a.sl.superset_group, b.sl.superset_group, 'members share the group id:');
+    eq(a.sl.sets, b.sl.sets, 'members share equal (equalized) rounds:');
+    assert(a.sl.priority >= 2 && b.sl.priority >= 2, 'only accessory/secondary paired (never primary=priority 1): group ' + gr.group);
+    assert(a.sl.role !== 'primary' && b.sl.role !== 'primary', 'never a primary role in a superset:');
+    assert(!a.sl.main_lift_key && !b.sl.main_lift_key, 'never a main-lift slot in a superset:');
+    assert(a.sl.muscle !== b.sl.muscle, 'antagonist pairing → different muscle: ' + a.sl.muscle + ' vs ' + b.sl.muscle);
+    assert(a.sl.pattern !== b.sl.pattern, 'antagonist pairing → different pattern: ' + a.sl.pattern + ' vs ' + b.sl.pattern);
+  }
+});
+
+test('S3 supersets: a genuinely relaxed WEEK-1 session (not time-capped, minutes > 60) produces NONE', () => {
+  // general_fitness (no dropsets) + 120 min → week 1 fits comfortably; the duration
+  // cap never bites and minutes > 60, so no session is time-pressured. (Later weeks
+  // ramp volume and MAY cap — legitimate; we assert the ADOPTED microcycle = week 1,
+  // which is what planAdoption carries into routines, is superset-free.)
+  const p = generatePlanV2(baseInputs({ userId: 's3relax', experienceLevel: 'intermediate', goal: 'general_fitness', splitPreference: 'upper_lower', daysPerWeek: 4, sessionMinutes: 120 }), { now: NOW });
+  const w1Trimmed = p.rule_trace.some((t) => /Session-length recipe/.test(t)); // capByDuration traces week-1 trims only
+  assert(!w1Trimmed, 'test premise: relaxed week-1 must not be duration-trimmed');
+  const w1Groups = supersetGroups(p).filter((gr) => gr.w.week_number === 1);
+  eq(w1Groups.length, 0, 'relaxed week-1 session should produce no supersets:');
+});
+
+test('S3 supersets: powerlifting + peaking never paired (byte-identical to pre-S3)', () => {
+  const p = generatePlanV2(baseInputs({
+    userId: 's3pl', experienceLevel: 'advanced', goal: 'strength_powerlifting', sessionMinutes: 45, daysPerWeek: 4,
+    equipment: ['barbell', 'dumbbell', 'machine', 'cable', 'bench', 'rack'],
+    lifts: { squat: 220, bench: 150, deadlift: 260 },
+    meet: { weeksToMeet: 10, target1RM: { squat: 230, bench: 157.5, deadlift: 270 } },
+  }), { now: NOW });
+  eq(supersetGroups(p).length, 0, 'powerlifting/peaking must never get supersets:');
+  eq(countDropsets(p), 0, 'powerlifting must never get dropsets:');
+});
+
+test('S3 supersets: novice qualifies (novice+), beginner does not', () => {
+  const nov = generatePlanV2(baseInputs({ userId: 's3nov', experienceLevel: 'novice', goal: 'hypertrophy', splitPreference: 'ppl', daysPerWeek: 4, sessionMinutes: 45 }), { now: NOW });
+  const beg = generatePlanV2(baseInputs({ userId: 's3beg', experienceLevel: 'beginner', goal: 'hypertrophy', splitPreference: 'ppl', daysPerWeek: 4, sessionMinutes: 45 }), { now: NOW });
+  assert(supersetGroups(nov).length >= 1, 'novice (≥ novice line) should get supersets under time pressure');
+  eq(supersetGroups(beg).length, 0, 'absolute beginner should NOT get supersets:');
+});
+
+test('S3 dropsets: appear on ≤1 isolation accessory for intermediate hypertrophy; absent for beginner', () => {
+  const intr = generatePlanV2(baseInputs({ userId: 's3ds', experienceLevel: 'intermediate', goal: 'hypertrophy', splitPreference: 'ppl', daysPerWeek: 4, sessionMinutes: 60 }), { now: NOW });
+  assert(countDropsets(intr) >= 1, 'intermediate hypertrophy should prescribe at least one dropset');
+  eq(maxDropsetsPerSession(intr), 1, 'at most ONE dropset exercise per session:');
+  // every dropset must sit on an isolation accessory, shape { last_n:1, drops:2, drop_pct:20 }
+  for (const w of intr.weeks) for (const s of w.sessions) for (const sl of s.slots) {
+    if (!sl.dropset) continue;
+    eq(sl.is_compound, false, 'dropset must be on an ISOLATION lift (is_compound false): ' + sl.name);
+    eq(sl.role, 'accessory', 'dropset must be on an accessory: ' + sl.name);
+    eq(sl.dropset.last_n, 1, 'conservative dropset last_n=1:');
+    eq(sl.dropset.drops, 2, 'dropset drops=2:');
+    eq(sl.dropset.drop_pct, 20, 'dropset drop_pct=20:');
+    assert(!sl.superset_group, 'a superset member is never also a dropset:');
+  }
+  const beg = generatePlanV2(baseInputs({ userId: 's3dsbeg', experienceLevel: 'beginner', goal: 'hypertrophy', splitPreference: 'ppl', daysPerWeek: 4, sessionMinutes: 60 }), { now: NOW });
+  eq(countDropsets(beg), 0, 'beginner should get no dropsets:');
+});
+
+test('S3 dropsets: gated off entirely on the most-cautious failure-proximity knob', () => {
+  const cautious = generatePlanV2(baseInputs({ userId: 's3cau', experienceLevel: 'intermediate', goal: 'hypertrophy', splitPreference: 'ppl', daysPerWeek: 4, sessionMinutes: 60, knobs: { failureProximity: 'cautious' } }), { now: NOW });
+  eq(countDropsets(cautious), 0, 'cautious knob must suppress all dropsets:');
+  // supersets still allowed under time pressure (knob only gates dropsets).
+  const cautiousTP = generatePlanV2(baseInputs({ userId: 's3cauTP', experienceLevel: 'intermediate', goal: 'hypertrophy', splitPreference: 'ppl', daysPerWeek: 4, sessionMinutes: 45, knobs: { failureProximity: 'cautious' } }), { now: NOW });
+  assert(supersetGroups(cautiousTP).length >= 1, 'cautious knob should NOT suppress time-pressure supersets');
+  eq(countDropsets(cautiousTP), 0, 'cautious knob still suppresses dropsets even under time pressure:');
+});
+
+test('S3 dropsets: only hypertrophy (general_fitness gets none even when intermediate)', () => {
+  const gf = generatePlanV2(baseInputs({ userId: 's3gf', experienceLevel: 'intermediate', goal: 'general_fitness', splitPreference: 'ppl', daysPerWeek: 4, sessionMinutes: 60 }), { now: NOW });
+  eq(countDropsets(gf), 0, 'general_fitness must get no dropsets (hypertrophy-only):');
+});
+
+test('S3 determinism: identical inputs → identical superset groups + dropsets', () => {
+  const mk = () => generatePlanV2(baseInputs({ userId: 's3det', experienceLevel: 'intermediate', goal: 'hypertrophy', splitPreference: 'ppl', daysPerWeek: 5, sessionMinutes: 45 }), { now: NOW });
+  eq(JSON.stringify(mk().weeks), JSON.stringify(mk().weeks), 'S3 prescription must be deterministic:');
+});
+
+test('S3 adoption: mapWeekToRoutines carries superset_group/superset_rounds/dropset, preserves contiguity, and passes S2 allowlistExercise', () => {
+  // Load the PURE mapper + allowlist with stubs for planAdoption's impure imports
+  // (createRoutine → axios chain), mirroring planLifecycle.test.js's stub loader.
+  const stubbedCache = {};
+  function stubLoad(relPath) {
+    if (stubbedCache[relPath]) return stubbedCache[relPath];
+    const src = fs.readFileSync(path.join(REPO, relPath), 'utf8');
+    const js = ts.transpileModule(src, { compilerOptions: { module: 'commonjs', target: 'es2019', esModuleInterop: true } }).outputText;
+    const mod = { exports: {} };
+    stubbedCache[relPath] = mod.exports;
+    const dir = path.dirname(path.join(REPO, relPath));
+    const STUBS = {
+      'mobile/src/data/routines': { createRoutine: () => { throw new Error('createRoutine stubbed'); } },
+      'mobile/src/data/schedule': {
+        emptySchedule: () => ({ mode: 'cycle', weekly: [], cycle: [] }),
+        saveSchedule: async () => {}, loadSchedule: async () => null,
+        normalizeSchedule: (x) => x,
+      },
+      'mobile/src/data/backup/tierPolicy': {},
+    };
+    const req = function (id) {
+      if (id.charAt(0) === '.') {
+        const base = path.resolve(dir, id);
+        const rel = path.relative(REPO, base).split(path.sep).join('/');
+        if (STUBS[rel]) return STUBS[rel];
+        const cands = [base + '.ts', base + '.tsx', path.join(base, 'index.ts')];
+        for (const c of cands) if (fs.existsSync(c)) return stubLoad(path.relative(REPO, c).split(path.sep).join('/'));
+      }
+      try { return require(id); } catch (_) { return {}; }
+    };
+    new Function('module', 'exports', 'require', '__dirname', '__filename', js)(mod, mod.exports, req, dir, path.join(REPO, relPath));
+    stubbedCache[relPath] = mod.exports;
+    return mod.exports;
+  }
+  const { mapWeekToRoutines } = stubLoad('mobile/src/planGen/planAdoption.ts');
+  const { allowlistExercise } = stubLoad('mobile/src/data/routineExerciseFields.ts');
+
+  // body_part 5-day / 60-min: baseline time pressure (≤60) triggers supersets, and
+  // body-part days leave same-muscle isolation accessories UNPAIRED (a curl can't
+  // antagonist-pair another curl) so a dropset survives too — both fields present.
+  const p = generatePlanV2(baseInputs({ userId: 's3adopt', experienceLevel: 'intermediate', goal: 'hypertrophy', splitPreference: 'body_part', daysPerWeek: 5, sessionMinutes: 60 }), { now: NOW });
+  const mapped = mapWeekToRoutines(p.splitPreference, p.weeks[0].sessions);
+  assert(mapped.length > 0, 'adoption produced at least one routine');
+
+  let carriedSS = 0, carriedDS = 0;
+  for (const r of mapped) {
+    const groups = {};
+    r.exercises.forEach((e, idx) => {
+      if (e.superset_group) {
+        carriedSS++;
+        (groups[e.superset_group] = groups[e.superset_group] || []).push(idx);
+        assert(typeof e.superset_rounds === 'number' && e.superset_rounds === e.target_sets,
+          'superset_rounds carried = equalized target_sets: ' + e.name);
+      }
+      if (e.dropset) carriedDS++;
+      // Every mapped exercise must survive S2's allowlist UNCHANGED (bounds pass).
+      const al = allowlistExercise(e);
+      if (e.superset_group) {
+        eq(al.superset_group, e.superset_group, 'allowlist keeps superset_group:');
+        eq(al.superset_rounds, e.superset_rounds, 'allowlist keeps superset_rounds:');
+      }
+      if (e.dropset) eq(JSON.stringify(al.dropset), JSON.stringify(e.dropset), 'allowlist keeps dropset:');
+    });
+    // contiguity preserved by construction
+    for (const g of Object.keys(groups)) {
+      const ix = groups[g];
+      eq(ix.length, 2, 'mapped group has 2 members:');
+      eq(ix[1], ix[0] + 1, 'mapped group members contiguous: group ' + g + ' in ' + r.name);
+    }
+  }
+  assert(carriedSS > 0, 'adoption carried at least one superset member');
+  assert(carriedDS > 0, 'adoption carried at least one dropset');
+});
+
 // ---------------------------------------------------------------------------
 console.log('\n' + (passed + failed) + ' tests: ' + passed + ' passed, ' + failed + ' failed\n');
 if (failed > 0) process.exit(1);
