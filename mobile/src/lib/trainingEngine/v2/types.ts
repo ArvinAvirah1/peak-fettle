@@ -106,6 +106,82 @@ export type MovementPattern =
   | 'isolation_legs'
   | 'isolation_calves';
 
+// ── Region-level muscle tags (Stage 3 taxonomy maturation, addendum §5) ──
+// A SPECIFIC target within a coarse MuscleBucket, so a mid-workout "quick swap"
+// offers a like-for-like alternative (an incline press for an incline press) and
+// never a counterproductive generic-"chest" downgrade. ADDITIVE + OPTIONAL on the
+// catalog: the engine's selection logic never reads `region`, so tagging every
+// exercise leaves generatePlanV2 output byte-identical (determinism preserved —
+// see catalog.ts). Granularity is deliberately at the coarsest defensible level:
+// chest/back/delt sub-regions and the major lower-body + arm/core groups. Per-head
+// biceps/triceps splitting is NOT modelled (over-granular for this catalog — the
+// pattern + equipment already disambiguate curls/extensions); documented here so
+// the choice is explicit rather than an omission.
+export type MuscleRegion =
+  // chest
+  | 'upper_chest'
+  | 'mid_chest'
+  | 'lower_chest'
+  // back
+  | 'lats'
+  | 'mid_back'
+  | 'upper_traps'
+  // shoulders
+  | 'front_delt'
+  | 'side_delt'
+  | 'rear_delt'
+  // arms
+  | 'biceps'
+  | 'triceps'
+  | 'forearms'
+  // legs
+  | 'quads'
+  | 'hamstrings'
+  | 'glutes'
+  | 'calves'
+  | 'adductors'
+  // trunk
+  | 'abs'
+  | 'obliques'
+  | 'lower_back'
+  // whole-body (olympic / carries) — no single region
+  | 'full_body';
+
+// Small, hand-curated adjacency map for ranking (quickSwap.ts). Two regions are
+// "adjacent" when a lift for one is a defensible substitute for the other under
+// the SAME movement pattern (overlapping musculature / shared pressing or pulling
+// line), e.g. an incline press (upper_chest) subs a flat press (mid_chest) when no
+// exact-region option exists. Symmetric by construction (buildAdjacency mirrors
+// every pair). Pure data — no clock/random. Kept intentionally conservative.
+export const REGION_ADJACENCY: Record<MuscleRegion, MuscleRegion[]> = (() => {
+  const pairs: Array<[MuscleRegion, MuscleRegion]> = [
+    ['upper_chest', 'mid_chest'],
+    ['mid_chest', 'lower_chest'],
+    ['upper_chest', 'front_delt'], // incline pressing shares the front delt line
+    ['front_delt', 'side_delt'],
+    ['side_delt', 'rear_delt'],
+    ['lats', 'mid_back'],
+    ['mid_back', 'upper_traps'],
+    ['rear_delt', 'mid_back'], // rows / face-pulls overlap
+    ['quads', 'glutes'],
+    ['hamstrings', 'glutes'],
+    ['glutes', 'adductors'],
+    ['quads', 'adductors'],
+    ['abs', 'obliques'],
+    ['abs', 'lower_back'], // trunk antagonists trained together
+    ['biceps', 'forearms'],
+  ];
+  const out = {} as Record<MuscleRegion, MuscleRegion[]>;
+  const add = (a: MuscleRegion, b: MuscleRegion): void => {
+    (out[a] ||= []).push(b);
+  };
+  for (const [a, b] of pairs) {
+    add(a, b);
+    add(b, a);
+  }
+  return out;
+})();
+
 // ── Per-lift estimated 1RMs (kg) for %1RM loading (DESIGN_SPEC §A.1) ──
 export interface LiftsV2 {
   squat?: number;
@@ -200,6 +276,10 @@ export interface CatalogExerciseV2 {
   safeFor: string[];
   plyo: boolean;
   power: boolean;
+  // Stage 3 (addendum §5): region-level target for quick-swap. Optional so
+  // engine selection (which never reads it) is byte-identical; every catalog
+  // entry supplies one in practice. `full_body` for olympic/carry lifts.
+  region?: MuscleRegion;
 }
 
 // ── Volume landmarks per muscle (weekly hard sets) ──

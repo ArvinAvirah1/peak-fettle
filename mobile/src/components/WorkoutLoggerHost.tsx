@@ -49,6 +49,13 @@ import { rememberExerciseName, rememberExerciseNames } from '../data/exerciseNam
 import { stampLocalRoutineName } from '../data/localWorkouts';
 import { ExercisePicker } from './ExercisePicker';
 import StepperLogger, { LoggedSet } from './StepperLogger';
+// Stage 3 (addendum §4/§5): Pro local-first "machine busy? swap" — region-aware
+// alternatives from the on-device v2 catalog (NO network), rendered in QuickSwapSheet.
+import QuickSwapSheet from '../planGen/components/QuickSwapSheet';
+import { alternativesForDetailed, type SwapCandidate } from '../planGen/quickSwap';
+import { excludeExercisePermanently } from '../planGen/quickSwapPersist';
+import { loadActivePlan } from '../planGen/planStore';
+import { loadLocalProfile } from '../data/profile';
 import { useTheme } from '../theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
 import { haptics } from '../utils/haptics';
@@ -328,6 +335,14 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
     const [alternativesSheetExerciseId, setAlternativesSheetExerciseId] = useState<string | null>(null);
     const [alternativesList, setAlternativesList] = useState<Array<{ id: string; name: string; equipment: string | null }>>([]);
     const [alternativesLoading, setAlternativesLoading] = useState(false);
+
+    // Stage 3 quick-swap sheet (Pro, local-first, region-aware).
+    const [quickSwapVisible, setQuickSwapVisible] = useState(false);
+    const [quickSwapCandidates, setQuickSwapCandidates] = useState<SwapCandidate[]>([]);
+    const [quickSwapReason, setQuickSwapReason] = useState<string | null>(null);
+    const [quickSwapConfirmation, setQuickSwapConfirmation] = useState<string | null>(null);
+    const [quickSwapCanPermanent, setQuickSwapCanPermanent] = useState(false);
+    const [quickSwapOriginal, setQuickSwapOriginal] = useState<{ id: string; name: string } | null>(null);
 
     // Smart suggest
     const [smartSuggestion, setSmartSuggestion] = useState<SuggestCandidate | null>(null);
@@ -1005,6 +1020,75 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
       [],
     );
 
+    // Stage 3 (addendum §4): Pro local-first quick-swap. Computes region-aware
+    // alternatives from the on-device v2 catalog — NO network — filtered by the
+    // user's equipment profile + injuries, excluding everything already in today's
+    // session. Opens QuickSwapSheet; selection swaps for TODAY only.
+    const handleQuickSwap = useCallback(async () => {
+      if (!user?.is_paid) { setShowPaywall(true); return; }
+      const cur = routineSession?.exercises[routineSession.currentIndex];
+      if (!cur) return;
+      const original = { id: cur.exerciseId || '', name: cur.name };
+      setQuickSwapOriginal(original);
+      setQuickSwapConfirmation(null);
+      // Load equipment + injuries on-device (local-first; best-effort).
+      let equipment: string[] | null = null;
+      let injuries: string[] | null = null;
+      try {
+        const prof = await loadLocalProfile();
+        equipment = prof?.equipment_profile ?? null;
+        injuries = prof?.injuries ?? null;
+      } catch { /* no profile → no filter */ }
+      // Exclude everything already in today's session (ids + names).
+      const excludeIds = (routineSession?.exercises ?? []).map((e) => e.exerciseId).filter(Boolean);
+      const excludeNames = (routineSession?.exercises ?? []).map((e) => e.name).filter(Boolean);
+      const result = alternativesForDetailed(
+        { id: cur.exerciseId || null, name: cur.name || null },
+        { equipment, injuries, excludeIds, excludeNames },
+      );
+      setQuickSwapCandidates(result.candidates);
+      setQuickSwapReason(result.reason ?? null);
+      // "Never suggest again" only when a single generated plan exists (Stage 2).
+      let canPermanent = false;
+      try {
+        const stored = await loadActivePlan();
+        canPermanent = !!stored && stored.kind === 'plan';
+      } catch { canPermanent = false; }
+      setQuickSwapCanPermanent(canPermanent);
+      setQuickSwapVisible(true);
+    }, [user?.is_paid, routineSession]);
+
+    const handleQuickSwapSelect = useCallback(
+      (candidate: SwapCandidate) => {
+        void rememberExerciseName(candidate.id, candidate.name);
+        setRoutineSession((prev) => {
+          if (!prev) return prev;
+          const exercises = prev.exercises.map((ex, idx) =>
+            idx === prev.currentIndex ? { ...ex, exerciseId: candidate.id, name: candidate.name } : ex,
+          );
+          return { ...prev, exercises };
+        });
+        haptics.success();
+        setQuickSwapConfirmation(`Swapped to ${candidate.name} for today`);
+        setQuickSwapCandidates([]);
+      },
+      [],
+    );
+
+    const handleQuickSwapNeverSuggest = useCallback(async () => {
+      const orig = quickSwapOriginal;
+      if (!orig || !orig.id) { setQuickSwapCanPermanent(false); return; }
+      const res = await excludeExercisePermanently(orig.id);
+      if (res === 'excluded' || res === 'already-excluded') {
+        setQuickSwapCanPermanent(false);
+        setQuickSwapConfirmation((c) => c ?? `Won't suggest ${orig.name} again`);
+      } else if (res === 'no-plan') {
+        setQuickSwapCanPermanent(false);
+      } else {
+        Alert.alert('Could not save', 'The swap for today still applies.');
+      }
+    }, [quickSwapOriginal]);
+
     const totalSets = sets.length;
 
     const handleFinishWorkout = useCallback(() => {
@@ -1107,6 +1191,19 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
             </View>
           </Modal>
         )}
+
+        {/* Stage 3: Pro region-aware quick-swap sheet (local-first, no network). */}
+        <QuickSwapSheet
+          visible={quickSwapVisible}
+          originalName={quickSwapOriginal?.name ?? 'this exercise'}
+          candidates={quickSwapCandidates}
+          emptyReason={quickSwapReason}
+          confirmation={quickSwapConfirmation}
+          canMakePermanent={quickSwapCanPermanent}
+          onSelect={handleQuickSwapSelect}
+          onNeverSuggest={handleQuickSwapNeverSuggest}
+          onClose={() => setQuickSwapVisible(false)}
+        />
 
         {/* Rest timer banner */}
         {restSecondsLeft !== null && (
@@ -1251,10 +1348,12 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
               restSeconds={restDefault}
               // No "choose alternative" / suggestions when correcting a past
               // session — those mutate the live routine, not history.
+              // Stage 3 (addendum §4): the "machine busy?" swap now uses the
+              // on-device region-aware quick-swap (local-first, no network).
               onChooseAlternative={
                 historyMode
                   ? undefined
-                  : user?.is_paid ? handleChooseAlternative : (() => setShowPaywall(true))
+                  : user?.is_paid ? handleQuickSwap : (() => setShowPaywall(true))
               }
             />
           )}
