@@ -1,6 +1,6 @@
 /** @type {import('@bacons/apple-targets').Config} */
 module.exports = {
-  type: 'shield-configuration',
+  type: 'shield-config',  // native apple-targets type (the 'shield-configuration' spelling is unknown to it)
   name: 'LifeOSShieldConfig',
   // ".shield" -> com.peakfettle.lifeos.shield
   bundleIdentifier: '.shield',

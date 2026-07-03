@@ -19,7 +19,8 @@
           "group.com.peakfettle.lifeos"
         ],
         "com.apple.developer.family-controls": true
-      }
+      },
+      "appleTeamId": "FA2SC9YHCJ"
     },
     "android": {
       "package": "com.peakfettle.lifeos"
@@ -63,50 +64,6 @@
           "experimental": {
             "ios": {
               "appExtensions": [
-                {
-                  "bundleIdentifier": "com.peakfettle.lifeos.widget",
-                  "targetName": "LifeOSWidget"
-                },
-                {
-                  "bundleIdentifier": "com.peakfettle.lifeos.monitor",
-                  "targetName": "LifeOSDeviceActivityMonitor",
-                  "entitlements": {
-                    "com.apple.developer.family-controls": true,
-                    "com.apple.security.application-groups": [
-                      "group.com.peakfettle.lifeos"
-                    ]
-                  }
-                },
-                {
-                  "bundleIdentifier": "com.peakfettle.lifeos.shield",
-                  "targetName": "LifeOSShieldConfig",
-                  "entitlements": {
-                    "com.apple.developer.family-controls": true,
-                    "com.apple.security.application-groups": [
-                      "group.com.peakfettle.lifeos"
-                    ]
-                  }
-                },
-                {
-                  "bundleIdentifier": "com.peakfettle.lifeos.shieldaction",
-                  "targetName": "LifeOSShieldAction",
-                  "entitlements": {
-                    "com.apple.developer.family-controls": true,
-                    "com.apple.security.application-groups": [
-                      "group.com.peakfettle.lifeos"
-                    ]
-                  }
-                },
-                {
-                  "bundleIdentifier": "com.peakfettle.lifeos.report",
-                  "targetName": "LifeOSActivityReport",
-                  "entitlements": {
-                    "com.apple.developer.family-controls": true,
-                    "com.apple.security.application-groups": [
-                      "group.com.peakfettle.lifeos"
-                    ]
-                  }
-                },
                 {
                   "bundleIdentifier": "com.peakfettle.lifeos.widget",
                   "targetName": "LifeOSWidget"
