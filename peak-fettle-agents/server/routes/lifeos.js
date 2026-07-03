@@ -18,6 +18,19 @@ const { pool } = require('../db');
 
 const router = express.Router();
 
+// TICKET-127 security pass: distinguish "the DB/pool is down" from a genuine
+// 500 so the client can retry rather than treat it as an app bug. A blanket
+// 500 here also risks the generic error handler leaking implementation detail
+// for what's really an infra blip (connection pool exhaustion, DB restart).
+const isInfraFailure = (err) => {
+    if (!err) return false;
+    const code = err.code;
+    if (['53300', '57P03', 'ECONNREFUSED', 'ETIMEDOUT', 'ENOTFOUND'].includes(code)) {
+        return true;
+    }
+    return /timeout exceeded|connection terminated|pool/i.test(err.message || '');
+};
+
 const requirePaid = (req, res, next) => {
     // Mirrors the entitlement derivation in GET /user/profile: tier gates
     // every lifeos route so free users can't hit them directly (TICKET-113).
@@ -28,7 +41,12 @@ const requirePaid = (req, res, next) => {
             }
             next();
         })
-        .catch(next);
+        .catch((err) => {
+            if (isInfraFailure(err)) {
+                return res.status(503).json({ error: 'service_unavailable' });
+            }
+            next(err);
+        });
 };
 
 // REVOCATION must always work — even for a user whose Pro has lapsed. Register the
@@ -43,16 +61,47 @@ router.delete('/partner/summary', async (req, res, next) => {
     } catch (err) { next(err); }
 });
 
+const PauseSchema = z.object({ paused: z.boolean() });
+
+// POST /lifeos/partner/pause — same rationale as the DELETE above: pausing is
+// a privacy-protective action (it makes the public partner view go dark), so
+// it must work for ANY authenticated user regardless of tier, and it is
+// registered ABOVE requirePaid for that reason (TICKET-127 security pass).
+// Idempotent: always 204, no rowCount check (matches the DELETE's contract).
+router.post('/partner/pause', async (req, res, next) => {
+    try {
+        const parsed = PauseSchema.safeParse(req.body);
+        if (!parsed.success) {
+            return res.status(400).json({ error: 'invalid_paused' });
+        }
+        await pool.query(
+            `UPDATE lifeos_partner_summaries SET paused = $2 WHERE user_id = $1`,
+            [req.user.id, parsed.data.paused]
+        );
+        res.status(204).end();
+    } catch (err) {
+        // Drift-tolerant: the paused column/table may not be deployed yet on
+        // an older prod DB. Still 204 so the client's local pause always
+        // succeeds even if the server-side enforcement isn't live yet.
+        if (err && (err.code === '42703' || err.code === '42P01')) {
+            return res.status(204).end();
+        }
+        next(err);
+    }
+});
+
 router.use(requirePaid);
 
 const PingSchema = z.object({
     date: z.string()
         .regex(/^\d{4}-\d{2}-\d{2}$/)
         // No future days (clients run local-first and may have skewed clocks;
-        // allow +1 day of slack for timezones ahead of server UTC).
+        // allow +14h of slack -- the max legitimate timezone lead (UTC+14,
+        // Line Islands) -- rather than a full +24h, which let a client claim
+        // a day nearly two calendar days ahead of server UTC (TICKET-127).
         .refine((dateStr) => {
             const submitted = Date.parse(`${dateStr}T00:00:00Z`);
-            return Number.isFinite(submitted) && submitted <= Date.now() + 86_400_000;
+            return Number.isFinite(submitted) && submitted <= Date.now() + 50_400_000;
         }, { message: 'date cannot be in the future' }),
 });
 

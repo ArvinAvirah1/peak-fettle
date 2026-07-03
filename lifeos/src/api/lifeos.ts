@@ -26,3 +26,11 @@ export async function postPartnerSummary(code: string, summaryText: string): Pro
 export async function deletePartnerSummary(): Promise<void> {
   await apiClient.delete('/lifeos/partner/summary');
 }
+
+// TICKET-127 security pass: pause must be enforced server-side too (the public
+// partner view goes dark), not just hidden in the on-device UI. Registered
+// above requirePaid server-side so it works regardless of tier — see
+// routes/lifeos.js.
+export async function pausePartnerSummary(paused: boolean): Promise<void> {
+  await apiClient.post('/lifeos/partner/pause', { paused });
+}

@@ -36,7 +36,7 @@ export default function FocusScreen(): React.ReactElement {
   const [authorized, setAuthorized] = useState(false);
   const [configs, setConfigs] = useState<FocusConfigRow[]>([]);
   const [blocksHeld, setBlocksHeld] = useState(0);
-  const [snoozesLeft, setSnoozesLeft] = useState(FRICTION_DEFAULTS.snoozeBudget);
+  const [snoozesLeft, setSnoozesLeft] = useState<number>(FRICTION_DEFAULTS.snoozeBudget);
 
   const load = useCallback(async () => {
     setConfigs(await listFocusConfigs());

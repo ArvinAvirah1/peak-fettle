@@ -33,7 +33,7 @@ const MIGRATIONS: Migration[] = [
         id TEXT PRIMARY KEY, kind TEXT NOT NULL, ref TEXT, ts TEXT NOT NULL)`);
       await db.execute(`CREATE TABLE IF NOT EXISTS lo_partner (
         id TEXT PRIMARY KEY DEFAULT 'self', partner_label TEXT, invite_code TEXT,
-        share_scope_json TEXT NOT NULL DEFAULT '{}', paused INTEGER NOT NULL DEFAULT 0,
+        paused INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL)`);
       await db.execute(`CREATE TABLE IF NOT EXISTS lo_affirmations (
         id TEXT PRIMARY KEY, text TEXT NOT NULL, identity_tag TEXT,

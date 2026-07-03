@@ -38,7 +38,7 @@ export interface ShareCardProps {
    */
   heatSnippet: (string | null)[];
   /** Forwarded ref so react-native-view-shot can capture this view. */
-  cardRef?: React.RefObject<View>;
+  cardRef?: React.RefObject<View | null>;
 }
 
 const CARD_WIDTH = 375;

@@ -104,3 +104,47 @@ async function _doRefresh(refreshToken: string): Promise<string> {
   _authHandlers?.onRefresh(accessToken, newRefreshToken);
   return accessToken;
 }
+
+// ---------------------------------------------------------------------------
+// Backup blob transport (deviation #4) — thin helpers over the SAME
+// /user/backup-blob route mobile uses (peak-fettle-agents/server/routes/
+// backup.js, read-only/shared — do not change it here). backupManager.ts is
+// the only intended caller; kept here (rather than a data/ module) to follow
+// this app's existing convention of small domain wrappers living next to the
+// client (see src/api/lifeos.ts for the /lifeos/* precedent).
+// ---------------------------------------------------------------------------
+
+/** Envelope shape is opaque to the transport layer — see data/backup/blobCrypto.ts. */
+export interface BackupBlobEnvelope {
+  format: 'pf-encrypted-backup';
+  v: 1;
+  alg: 'AES-256-GCM';
+  kdf: 'scrypt';
+  kdf_params: { N: number; r: number; p: number };
+  salt: string;
+  wrap_iv: string;
+  wrapped_key: string;
+  iv: string;
+  ct: string;
+  created_at: string;
+}
+
+/** PUT /user/backup-blob — upload/upsert the encrypted envelope. */
+export async function uploadBackupBlob(envelope: BackupBlobEnvelope): Promise<{ updated_at: string }> {
+  const res = await apiClient.put<{ updated_at: string }>('/user/backup-blob', { envelope });
+  return res.data;
+}
+
+/** GET /user/backup-blob — download the encrypted envelope. */
+export async function downloadBackupBlob(): Promise<{ envelope: BackupBlobEnvelope; updated_at: string | null }> {
+  const res = await apiClient.get<{ envelope: BackupBlobEnvelope; updated_at: string | null }>('/user/backup-blob');
+  return res.data;
+}
+
+/** GET /user/backup-blob/status — metadata only (exists/updated_at/bytes), no download. */
+export async function getBackupBlobStatus(): Promise<{ exists: boolean; updated_at: string | null; bytes: number | null }> {
+  const res = await apiClient.get<{ exists: boolean; updated_at: string | null; bytes: number | null }>(
+    '/user/backup-blob/status',
+  );
+  return res.data;
+}

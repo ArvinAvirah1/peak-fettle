@@ -6845,8 +6845,17 @@ CREATE TABLE IF NOT EXISTS lifeos_partner_summaries (
     user_id      UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     code         TEXT NOT NULL UNIQUE,         -- capability token (≥128-bit, client-generated)
     summary_text TEXT NOT NULL,                -- opaque, client-composed; never raw data
-    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- Server-side pause enforcement, 2026-07-02 (TICKET-127): a paused pairing
+    -- must go dark server-side too, not just hide the UI on-device -- the
+    -- partner code is a public capability URL, so pausing has to be enforced
+    -- where the read actually happens (routes/partner.js GET /:code -> 404).
+    paused       BOOLEAN NOT NULL DEFAULT FALSE
 );
+
+-- Idempotent ALTER for already-deployed DBs predating the paused column
+-- (schema.sql is canonical + re-runnable; CLAUDE.md #4 drift-tolerant convention).
+ALTER TABLE lifeos_partner_summaries ADD COLUMN IF NOT EXISTS paused BOOLEAN NOT NULL DEFAULT FALSE;
 
 CREATE INDEX IF NOT EXISTS idx_lifeos_partner_summaries_code
     ON lifeos_partner_summaries (code);

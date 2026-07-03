@@ -2,7 +2,7 @@
  * Accountability partner — local data + summary composition (TICKET-121, Q33 a).
  *
  * The lo_partner row (id='self') holds the pairing: a partner label, the
- * capability `invite_code` the user shares, the share scope, and a paused flag.
+ * capability `invite_code` the user shares, and a paused flag.
  * The daily summary sent to the server is OPAQUE and CLIENT-COMPOSED from counts
  * only — never habit names, mood notes, or blocked-app identities. formatPartner-
  * Summary() is the single, pure place that string is built, so the "summary only,
@@ -12,12 +12,12 @@
 import * as Crypto from 'expo-crypto';
 import { dayKey, localDb } from '../../db/localDb';
 import { aggregateDailyStatus, computeStreak, type LogStatus } from '../../engine/streaks';
+import { pausePartnerSummary } from '../../api/lifeos';
 
 export interface PartnerRow {
   id: string;
   partner_label: string | null;
   invite_code: string | null;
-  share_scope_json: string;
   paused: number;
   created_at: string;
 }
@@ -45,16 +45,14 @@ export async function getPartner(): Promise<PartnerRow | null> {
 export async function upsertPartner(input: {
   partnerLabel: string;
   inviteCode: string;
-  shareScope?: Record<string, unknown>;
 }): Promise<void> {
   await localDb.execute(
-    `INSERT INTO lo_partner (id, partner_label, invite_code, share_scope_json, paused, created_at)
-     VALUES ('self', ?, ?, ?, 0, ?)
+    `INSERT INTO lo_partner (id, partner_label, invite_code, paused, created_at)
+     VALUES ('self', ?, ?, 0, ?)
      ON CONFLICT(id) DO UPDATE SET
        partner_label = excluded.partner_label,
-       invite_code = excluded.invite_code,
-       share_scope_json = excluded.share_scope_json`,
-    [input.partnerLabel, input.inviteCode, JSON.stringify(input.shareScope ?? {}), new Date().toISOString()],
+       invite_code = excluded.invite_code`,
+    [input.partnerLabel, input.inviteCode, new Date().toISOString()],
     { tables: ['lo_partner'] },
   );
 }
@@ -63,6 +61,13 @@ export async function setPartnerPaused(paused: boolean): Promise<void> {
   await localDb.execute(`UPDATE lo_partner SET paused = ? WHERE id = 'self'`, [paused ? 1 : 0], {
     tables: ['lo_partner'],
   });
+  // TICKET-127: sync the pause to the server so the public partner view also
+  // goes dark, not just the on-device UI. Local-first — fire-and-forget, never
+  // block or throw on a network failure; the server pause is best-effort and
+  // will catch up next time this succeeds (e.g. next toggle, or a future
+  // explicit resync). Swallow the error entirely: a network hiccup here must
+  // never surface as a failure to the pause toggle itself.
+  pausePartnerSummary(paused).catch(() => {});
 }
 
 /** Revoke: clear the local pairing (the caller also deletes the server row). */

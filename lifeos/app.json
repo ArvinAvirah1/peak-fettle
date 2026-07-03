@@ -15,7 +15,9 @@
         "NSSupportsLiveActivities": true
       },
       "entitlements": {
-        "com.apple.security.application-groups": ["group.com.peakfettle.lifeos"],
+        "com.apple.security.application-groups": [
+          "group.com.peakfettle.lifeos"
+        ],
         "com.apple.developer.family-controls": true
       }
     },
@@ -49,8 +51,8 @@
           }
         }
       ],
-      "@bacons/apple-targets",
-      "./plugins/withFamilyControls"
+      "./plugins/withFamilyControls",
+      "@bacons/apple-targets"
     ],
     "experiments": {
       "typedRoutes": false
@@ -66,7 +68,9 @@
                   "targetName": "LifeOSWidget",
                   "bundleIdentifier": "com.peakfettle.lifeos.widget",
                   "entitlements": {
-                    "com.apple.security.application-groups": ["group.com.peakfettle.lifeos"]
+                    "com.apple.security.application-groups": [
+                      "group.com.peakfettle.lifeos"
+                    ]
                   }
                 },
                 {
@@ -74,7 +78,9 @@
                   "bundleIdentifier": "com.peakfettle.lifeos.monitor",
                   "entitlements": {
                     "com.apple.developer.family-controls": true,
-                    "com.apple.security.application-groups": ["group.com.peakfettle.lifeos"]
+                    "com.apple.security.application-groups": [
+                      "group.com.peakfettle.lifeos"
+                    ]
                   }
                 },
                 {
@@ -82,7 +88,9 @@
                   "bundleIdentifier": "com.peakfettle.lifeos.shield",
                   "entitlements": {
                     "com.apple.developer.family-controls": true,
-                    "com.apple.security.application-groups": ["group.com.peakfettle.lifeos"]
+                    "com.apple.security.application-groups": [
+                      "group.com.peakfettle.lifeos"
+                    ]
                   }
                 },
                 {
@@ -90,7 +98,9 @@
                   "bundleIdentifier": "com.peakfettle.lifeos.shieldaction",
                   "entitlements": {
                     "com.apple.developer.family-controls": true,
-                    "com.apple.security.application-groups": ["group.com.peakfettle.lifeos"]
+                    "com.apple.security.application-groups": [
+                      "group.com.peakfettle.lifeos"
+                    ]
                   }
                 },
                 {
@@ -98,7 +108,9 @@
                   "bundleIdentifier": "com.peakfettle.lifeos.report",
                   "entitlements": {
                     "com.apple.developer.family-controls": true,
-                    "com.apple.security.application-groups": ["group.com.peakfettle.lifeos"]
+                    "com.apple.security.application-groups": [
+                      "group.com.peakfettle.lifeos"
+                    ]
                   }
                 }
               ]
