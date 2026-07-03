@@ -22,7 +22,7 @@
  * Daily limit: 20 plans/day (server-enforced).
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import {
   View,
@@ -50,6 +50,19 @@ import {
   buildLocalPlanContext,
   type LocalProfileInput,
 } from '../../src/lib/trainingEngine';
+// ── STAGE-2: engine-v2 active-plan persistence + lifecycle (addendum §2/§3) ──
+import { ActivePlanCard } from '../../src/planGen/components/ActivePlanCard';
+import {
+  loadActivePlan,
+  saveActivePlan,
+  advanceTrialBlock,
+  clearActivePlan,
+  type StoredGeneratedPlan,
+} from '../../src/planGen/planStore';
+import { generateFromSurvey } from '../../src/planGen/generateFromSurvey';
+import { adoptPlanToSchedule, hasExistingSchedule } from '../../src/planGen/planAdoption';
+import { toDateKey } from '../../src/utils/dateHelpers';
+import type { SplitPreference } from '../../src/lib/trainingEngine/v2/types';
 
 // ---------------------------------------------------------------------------
 // On-device Training Engine — generates plans LOCALLY for ALL tiers (local-first;
@@ -882,6 +895,103 @@ export default function PlansScreen(): React.ReactElement {
   const [isGeneratingLocal, setIsGeneratingLocal] = useState(false);
   const [localGenError, setLocalGenError] = useState<string | null>(null);
 
+  // ── STAGE-2: the persisted active engine-v2 plan / trial sequence ──────────
+  const [activePlan, setActivePlan] = useState<StoredGeneratedPlan | null>(null);
+  // Today's day-key, resolved from the real clock HERE (UI layer), never inside
+  // plan logic — the trial lifecycle derivation is pure and clock-injected.
+  const todayKey = toDateKey(new Date());
+  const reloadActive = useCallback(async () => {
+    setActivePlan(await loadActivePlan(user));
+  }, [user]);
+  useEffect(() => { reloadActive(); }, [reloadActive]);
+
+  // Regenerate a full single plan on a chosen split from the SAVED SurveyAnswers,
+  // persist as the adopted main plan, integrate into the calendar, and redirect
+  // to the schedule screen (addendum §2 adoption path). Deterministic: the split
+  // is forced and the survey is otherwise unchanged.
+  const adoptSplit = useCallback(async (survey: StoredGeneratedPlan['survey'], split: SplitPreference) => {
+    const forced = { ...survey, splitPreference: split };
+    const res = generateFromSurvey(forced, user?.id, { now: new Date() });
+    if (res.kind !== 'plan') return; // forcing a concrete split always yields a plan
+    const userIdStr = user?.id != null ? String(user.id) : null;
+    await saveActivePlan(
+      { userId: userIdStr, plan: res.plan, survey: forced, status: 'plan_adopted' },
+      new Date(),
+    );
+    const proceed = async () => {
+      try {
+        await adoptPlanToSchedule(user, userIdStr ?? 'local', res.plan, forced.trainingDays, new Date());
+      } catch {
+        // best-effort; the plan is saved regardless
+      }
+      router.push('/routines');
+    };
+    if (await hasExistingSchedule()) {
+      Alert.alert(
+        'Replace your schedule?',
+        'You already have a training schedule. Replace it with this plan, or keep your current one?',
+        [
+          { text: 'Keep', style: 'cancel', onPress: () => reloadActive() },
+          { text: 'Replace', style: 'destructive', onPress: proceed },
+        ],
+        { cancelable: true },
+      );
+    } else {
+      await proceed();
+    }
+    await reloadActive();
+  }, [user, router, reloadActive]);
+
+  const handleAdoptPlan = useCallback(async () => {
+    if (!activePlan?.plan) return;
+    const userIdStr = user?.id != null ? String(user.id) : null;
+    await saveActivePlan(
+      { userId: userIdStr, plan: activePlan.plan, survey: activePlan.survey, status: 'plan_adopted' },
+      new Date(),
+    );
+    const proceed = async () => {
+      try {
+        await adoptPlanToSchedule(user, userIdStr ?? 'local', activePlan.plan!, activePlan.survey.trainingDays, new Date());
+      } catch { /* best-effort */ }
+      router.push('/routines');
+    };
+    if (await hasExistingSchedule()) {
+      Alert.alert(
+        'Replace your schedule?',
+        'You already have a training schedule. Replace it with this plan, or keep your current one?',
+        [
+          { text: 'Keep', style: 'cancel', onPress: () => reloadActive() },
+          { text: 'Replace', style: 'destructive', onPress: proceed },
+        ],
+        { cancelable: true },
+      );
+    } else {
+      await proceed();
+    }
+    await reloadActive();
+  }, [activePlan, user, router, reloadActive]);
+
+  const handleContinueBlock = useCallback(async () => {
+    await advanceTrialBlock(new Date());
+    await reloadActive();
+  }, [reloadActive]);
+
+  const handleDiscardActive = useCallback(() => {
+    Alert.alert(
+      'Discard plan?',
+      'This removes the generated plan. Your logged workouts and schedule are untouched.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Discard',
+          style: 'destructive',
+          onPress: async () => { await clearActivePlan(); await reloadActive(); },
+        },
+      ],
+      { cancelable: true },
+    );
+  }, [reloadActive]);
+
   /**
    * Generate a plan ENTIRELY ON-DEVICE from the survey profile + local history.
    * No is_paid gate (the engine is pure local code); no personal REST call. Wrapped
@@ -1042,6 +1152,21 @@ export default function PlansScreen(): React.ReactElement {
             </View>
           ) : null}
         </View>
+
+        {/* ── STAGE-2: active engine-v2 plan / trial lifecycle surface ── */}
+        {activePlan ? (
+          <View style={{ paddingHorizontal: spacing.s4 }}>
+            <ActivePlanCard
+              stored={activePlan}
+              todayKey={todayKey}
+              onAdoptPlan={handleAdoptPlan}
+              onRequestChanges={() => router.push('/plan-adjust')}
+              onAdoptSplit={(split) => { void adoptSplit(activePlan.survey, split); }}
+              onContinueToNextBlock={handleContinueBlock}
+              onDiscard={handleDiscardActive}
+            />
+          </View>
+        ) : null}
 
         {/* ── B. Pro-only soft upsell (cross-device sync), shown for free tier ── */}
         {!proSync && <UpsellCard />}

@@ -18,7 +18,7 @@
  */
 
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../src/hooks/useAuth';
 import { useTheme } from '../src/theme/ThemeContext';
@@ -62,6 +62,9 @@ import {
   KNOB_SAFETY_NOTE,
 } from '../src/planGen/steps/surveyConfig';
 import { SinglePlanPreview, TrialSequencePreview } from '../src/planGen/steps/PlanPreview';
+import { saveActivePlan, saveActiveTrial } from '../src/planGen/planStore';
+import { adoptPlanToSchedule, hasExistingSchedule } from '../src/planGen/planAdoption';
+import { toDateKey } from '../src/utils/dateHelpers';
 
 // Map the LEGACY profile training_goal (5-goal server taxonomy) onto a v2 goal,
 // as a best-effort PRE-FILL default only (the user can change it in step 1).
@@ -249,6 +252,10 @@ function PlanSurveyWizard(): React.ReactElement {
 
   const [result, setResult] = useState<SurveyGenerationResult | null>(null);
   const [genError, setGenError] = useState<string | null>(null);
+  // STAGE-2: the exact answers that produced `result` (persisted alongside the
+  // plan so it can be regenerated on adoption / meta-change).
+  const [finalAnswers, setFinalAnswers] = useState<SurveyAnswers | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const goNext = useCallback(() => setStepIdx((i) => Math.min(i + 1, steps.length - 1)), [steps.length]);
   const goBack = useCallback(() => {
@@ -286,11 +293,84 @@ function PlanSurveyWizard(): React.ReactElement {
       };
       const res = generateFromSurvey(finalAnswers, user?.id, { now: new Date() });
       setResult(res);
+      setFinalAnswers(finalAnswers);
       goNext();
     } catch {
       setGenError('Could not build a plan from these answers. Please review and try again.');
     }
   }, [answers, bwInput, squatInput, benchInput, deadliftInput, ohpInput, weeksToMeetInput, unitPref, user?.id, goNext]);
+
+  // ── STAGE-2: persist the generated plan / trial sequence, then route on. ──
+  const userIdStr = user?.id != null ? String(user.id) : null;
+
+  const handleSavePlan = useCallback(async () => {
+    if (saving || !finalAnswers || result?.kind !== 'plan') return;
+    setSaving(true);
+    try {
+      const now = new Date();
+      await saveActivePlan(
+        { userId: userIdStr, plan: result.plan, survey: finalAnswers, status: 'plan_saved' },
+        now,
+      );
+      // Offer to add it to the calendar now (adoption + redirect per addendum §2).
+      Alert.alert(
+        'Plan saved',
+        'Add it to your calendar now so we can schedule your training days?',
+        [
+          { text: 'Later', style: 'cancel', onPress: () => router.replace('/plans') },
+          {
+            text: 'Add to calendar',
+            onPress: async () => {
+              const proceed = async () => {
+                try {
+                  await saveActivePlan(
+                    { userId: userIdStr, plan: result.plan, survey: finalAnswers, status: 'plan_adopted' },
+                    new Date(),
+                  );
+                  await adoptPlanToSchedule(user, userIdStr ?? 'local', result.plan, finalAnswers.trainingDays, new Date());
+                } catch {
+                  // best-effort; the plan is saved regardless
+                }
+                router.replace('/routines');
+              };
+              // Never clobber an existing schedule silently.
+              if (await hasExistingSchedule()) {
+                Alert.alert(
+                  'Replace your schedule?',
+                  'You already have a training schedule. Replace it with this plan, or keep your current one?',
+                  [
+                    { text: 'Keep', style: 'cancel', onPress: () => router.replace('/plans') },
+                    { text: 'Replace', style: 'destructive', onPress: proceed },
+                  ],
+                  { cancelable: true },
+                );
+              } else {
+                await proceed();
+              }
+            },
+          },
+        ],
+        { cancelable: true },
+      );
+    } finally {
+      setSaving(false);
+    }
+  }, [saving, finalAnswers, result, userIdStr, user, router]);
+
+  const handleStartTrials = useCallback(async () => {
+    if (saving || !finalAnswers || result?.kind !== 'trial') return;
+    setSaving(true);
+    try {
+      const now = new Date();
+      await saveActiveTrial(
+        { userId: userIdStr, sequence: result.sequence, survey: finalAnswers, startDayKey: toDateKey(now) },
+        now,
+      );
+      router.replace('/plans');
+    } finally {
+      setSaving(false);
+    }
+  }, [saving, finalAnswers, result, userIdStr, router]);
 
   const unitSuffix = unitPref === 'lbs' ? 'lbs' : 'kg';
 
@@ -483,14 +563,27 @@ function PlanSurveyWizard(): React.ReactElement {
             ) : (
               <Text style={[styles.errorText, { color: theme.colors.textTertiary }]}>Generating…</Text>
             )}
-            {/* STAGE-2: no "Save plan" here — the app has no tier-branched local plan
-                store and no server contract that accepts a PlanV2 without schema
-                changes. Persistence (save + calendar/schedule integration + adopting a
-                trial block) is Stage 2 per REQUIREMENTS_ADDENDUM §2/§6. Stage 1 stops
-                at this preview. */}
+            {/* STAGE-2: persist the plan / trial sequence, then route on. */}
+            {result?.kind === 'plan' ? (
+              <PFButton
+                variant="primary"
+                label={saving ? 'Saving…' : 'Save plan'}
+                onPress={handleSavePlan}
+                fullWidth
+              />
+            ) : result?.kind === 'trial' ? (
+              <PFButton
+                variant="primary"
+                label={saving ? 'Starting…' : 'Start trials'}
+                onPress={handleStartTrials}
+                fullWidth
+              />
+            ) : null}
             <View style={styles.previewNote}>
               <Text style={[styles.previewNoteText, { color: theme.colors.textTertiary }]}>
-                This is a preview. Saving a plan to your schedule is coming next.
+                {result?.kind === 'trial'
+                  ? 'We\'ll track your three trial blocks. Adopt any split when its block ends.'
+                  : 'Saving adds this plan to your library; you can add it to your calendar next.'}
               </Text>
             </View>
           </View>
@@ -500,7 +593,7 @@ function PlanSurveyWizard(): React.ReactElement {
         <View style={styles.navRow}>
           <PFButton variant="ghost" label={clampedIdx === 0 ? 'Cancel' : 'Back'} onPress={goBack} />
           {currentStep === 'preview' ? (
-            <PFButton variant="primary" label="Done" onPress={() => router.back()} />
+            <PFButton variant="ghost" label="Close" onPress={() => router.back()} />
           ) : steps[clampedIdx + 1] === 'preview' ? (
             <PFButton variant="primary" label="Generate plan" onPress={handleGenerate} />
           ) : (

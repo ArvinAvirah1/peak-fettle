@@ -192,15 +192,15 @@ function eq(a, b, msg) {
     await runMigrations(db);
     const v2 = db._pragmas.user_version;
     eq(v1, v2, 'version changed on second run:');
-    eq(v1, 8, 'expected version 8:');
+    eq(v1, 9, 'expected version 9:');
   });
 
   // 2. Fresh install reaches the latest version
-  await test('fresh install reaches user_version 8', async () => {
+  await test('fresh install reaches user_version 9', async () => {
     const db = makeStubDb();
     eq(db._pragmas.user_version, 0, 'starts at 0:');
     await runMigrations(db);
-    eq(db._pragmas.user_version, 8, 'should be 8 after migration:');
+    eq(db._pragmas.user_version, 9, 'should be 9 after migration:');
   });
 
   // 3. v2 tables created (10 spot-checked)
@@ -243,6 +243,19 @@ function eq(a, b, msg) {
     assert(cols, 'user_profile has no recorded columns');
     for (const c of ['primary_focus', 'injuries', 'muscle_priorities', 'bodyweight_kg', 'training_days']) {
       assert(cols.has(c), 'user_profile.' + c + ' column missing after v8 migration');
+    }
+  });
+
+  // 3d. v9 creates the engine-v2 generated_plans persistence table.
+  await test('fresh install creates generated_plans table (v9)', async () => {
+    const db = makeStubDb();
+    await runMigrations(db);
+    assert(db._createdTables.has('generated_plans'), 'table not created: generated_plans');
+    // spot-check the lifecycle columns are recorded so the backup allowlist maps.
+    const cols = db._tableColumns['generated_plans'];
+    assert(cols, 'generated_plans has no recorded columns');
+    for (const c of ['kind', 'status', 'payload', 'survey', 'block_start_day_key', 'adopted_split']) {
+      assert(cols.has(c), 'generated_plans.' + c + ' column missing after v9 migration');
     }
   });
 
@@ -317,13 +330,14 @@ function eq(a, b, msg) {
     eq(BACKUP_SCHEMA_VERSION, 2, 'BACKUP_SCHEMA_VERSION:');
   });
 
-  // 9. BACKUP_TABLES contains all 21 tables
-  await test('BACKUP_TABLES contains all 21 registered tables', () => {
+  // 9. BACKUP_TABLES contains all 22 tables
+  await test('BACKUP_TABLES contains all 22 registered tables', () => {
     const expected = [
       'workouts', 'sets', 'schedule', 'avatar', 'bodyweight', 'exercise_prefs', 'exercise_goals',
       'plans', 'routines', 'streaks', 'streak_overrides', 'daily_health_log', 'daily_health_metrics',
       'habits', 'user_weekly_goals', 'user_constraints', 'exercise_prs', 'user_confirmed_1rm',
       'user_cosmetics', 'user_equipped_cosmetics', 'user_profile',
+      'generated_plans', // v9
     ];
     eq(BACKUP_TABLES.length, expected.length,
       'BACKUP_TABLES.length ' + BACKUP_TABLES.length + ' expected ' + expected.length + ':');

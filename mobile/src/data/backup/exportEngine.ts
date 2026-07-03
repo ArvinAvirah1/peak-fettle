@@ -69,6 +69,8 @@ export const BACKUP_TABLES: string[] = [
   'user_cosmetics',
   'user_equipped_cosmetics',
   'user_profile',
+  // v9 table (engine-v2 generated-plan persistence, Stage 2)
+  'generated_plans',
 ];
 
 export type Row = Record<string, unknown>;
@@ -154,6 +156,12 @@ const COLUMN_ALLOWLIST: Record<string, Set<string>> = {
     'equipment_profile', 'season_phase', 'last_deload_at',
     'primary_focus', 'injuries', 'muscle_priorities', 'bodyweight_kg', 'training_days', // v8
     'created_at', 'updated_at',
+  ]),
+  // v9 - engine-v2 generated-plan persistence (Stage 2). `payload` and `survey`
+  // are JSON-as-TEXT blobs; the rest are lifecycle bookkeeping.
+  generated_plans: new Set([
+    'id', 'user_id', 'kind', 'status', 'payload', 'survey', 'split',
+    'active_block', 'block_start_day_key', 'adopted_split', 'created_at', 'updated_at',
   ]),
 };
 

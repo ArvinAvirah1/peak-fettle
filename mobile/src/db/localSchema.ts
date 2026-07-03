@@ -617,3 +617,58 @@ export const SCHEMA_V8_STATEMENTS: MigrationStatement[] = [
   { type: 'alter_add_column', table: 'user_profile', column: 'bodyweight_kg', definition: 'REAL' },
   { type: 'alter_add_column', table: 'user_profile', column: 'training_days', definition: 'TEXT' },
 ];
+
+// ---------------------------------------------------------------------------
+// v9 statements - engine-v2 generated-plan persistence (Stage 2).
+//
+// `generated_plans` holds the SINGLE active generated plan or trial sequence
+// produced by the Pro deep plan-builder (mobile/app/plan-survey.tsx), TOGETHER
+// with the SurveyAnswers that produced it (needed to regenerate on adoption /
+// meta-change) and the trial-block lifecycle state. One active row per install
+// (id='active', same single-row pattern as `schedule`/`avatar`), so the deep
+// builder replaces its previous output rather than accumulating drafts.
+//
+// Design note (why a NEW table, not the existing `plans`): `plans` mirrors the
+// SERVER plans shape (Pro server sync) and is consumed by the Pro server path;
+// its columns cannot carry the SurveyAnswers blob or the trial lifecycle state,
+// and conflating two different lifecycles in one table would be dishonest. A
+// dedicated single-active-row table is cleaner and keeps the server `plans`
+// contract untouched. Local SQLite is used for BOTH tiers in Stage 2
+// (generation is on-device; additive server sync for Pro can come later) - no
+// new REST endpoint, no free-tier network call (local-first invariant).
+//
+// Columns:
+//   id           TEXT  pk, always 'active' (one row).
+//   user_id      TEXT  owner (denormalized; the local DB is single-user).
+//   kind         TEXT  'plan' | 'trial' - which payload column is authoritative.
+//   status       TEXT  PlanLifecycleStatus (plan_saved | plan_adopted |
+//                      trial_active | trial_complete | trial_adopted).
+//   payload      TEXT  JSON of the PlanV2 (kind='plan') or TrialSequenceV2
+//                      (kind='trial') AS GENERATED.
+//   survey       TEXT  JSON of the SurveyAnswers that produced it.
+//   split        TEXT  the split of the CURRENT/adopted plan (null while a trial
+//                      sequence is mid-flight and no split is adopted yet).
+//   active_block INTEGER  trial only: index (0..2) of the active block.
+//   block_start_day_key TEXT  trial only: day-key the sequence started (block 1,
+//                      day 1); the lifecycle derives progress from today vs this.
+//   adopted_split TEXT  the split the user adopted out of the trial flow (null
+//                      until adoption).
+//   created_at   TEXT  ISO.
+//   updated_at   TEXT  ISO.
+export const CREATE_GENERATED_PLANS = `
+CREATE TABLE IF NOT EXISTS generated_plans (
+  id TEXT PRIMARY KEY,
+  user_id TEXT,
+  kind TEXT NOT NULL,
+  status TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  survey TEXT NOT NULL,
+  split TEXT,
+  active_block INTEGER,
+  block_start_day_key TEXT,
+  adopted_split TEXT,
+  created_at TEXT,
+  updated_at TEXT
+)`;
+
+export const SCHEMA_V9_STATEMENTS: MigrationStatement[] = [CREATE_GENERATED_PLANS];

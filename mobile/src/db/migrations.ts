@@ -24,7 +24,7 @@
  * SPEC-094A Agent L, 2026-06-12.
  */
 
-import { SCHEMA_V2_STATEMENTS, SCHEMA_V3_STATEMENTS, SCHEMA_V4_STATEMENTS, SCHEMA_V5_STATEMENTS, SCHEMA_V6_STATEMENTS, SCHEMA_V7_STATEMENTS, SCHEMA_V8_STATEMENTS, MigrationStatement } from './localSchema';
+import { SCHEMA_V2_STATEMENTS, SCHEMA_V3_STATEMENTS, SCHEMA_V4_STATEMENTS, SCHEMA_V5_STATEMENTS, SCHEMA_V6_STATEMENTS, SCHEMA_V7_STATEMENTS, SCHEMA_V8_STATEMENTS, SCHEMA_V9_STATEMENTS, MigrationStatement } from './localSchema';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -156,7 +156,16 @@ const MIGRATION_V8: MigrationVersion = {
   statements: SCHEMA_V8_STATEMENTS,
 };
 
-export const MIGRATIONS: MigrationVersion[] = [MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6, MIGRATION_V7, MIGRATION_V8];
+// v9: engine-v2 generated-plan persistence (Stage 2) - creates the
+// `generated_plans` single-active-row table that holds the deep-builder's plan
+// or trial sequence, the SurveyAnswers that produced it, and the trial-block
+// lifecycle state. CREATE ... IF NOT EXISTS, so it is idempotent.
+const MIGRATION_V9: MigrationVersion = {
+  v: 9,
+  statements: SCHEMA_V9_STATEMENTS,
+};
+
+export const MIGRATIONS: MigrationVersion[] = [MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6, MIGRATION_V7, MIGRATION_V8, MIGRATION_V9];
 
 // ---------------------------------------------------------------------------
 // Runner
