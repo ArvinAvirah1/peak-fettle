@@ -125,7 +125,7 @@ extension Color {
     }
 }
 
-private struct Palette {
+struct Palette {  // internal: used by `var p: Palette` in the 4 widget views (private type in a less-private property is a compile error)
     let bg, tile, accent, text, muted, warn, ink: Color
     init(_ t: WidgetThemeData) {
         bg = Color(hex: t.bg, fallback: Color(hex: "#0E1117"))
