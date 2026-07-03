@@ -65,6 +65,38 @@ export function genId(): string {
 }
 
 // ---------------------------------------------------------------------------
+// WatchToken - explicit cancellation for watch() consumers (2026-07-03).
+//
+// WHY: watch() parks between yields on an internal `await new Promise(...)`.
+// Neither generator.return() nor .throw() can interrupt an in-flight await -
+// they queue until the generator next reaches a yield. So a consumer that
+// merely sets a boolean on unmount leaves the subscription registered until
+// the NEXT matching table write (a leak window; with effect re-subscription
+// churn these accumulated and every sets-write fanned out to zombie watchers -
+// found in the free-tier responsiveness audit). cancel() wakes the parked
+// watcher immediately so it exits its loop and unsubscribes deterministically.
+// ---------------------------------------------------------------------------
+
+export interface WatchToken {
+  cancelled: boolean;
+  cancel: () => void;
+  /** internal - wakes the parked watcher; wired up by watch() itself. */
+  _fire: (() => void) | null;
+}
+
+export function makeWatchToken(): WatchToken {
+  const token: WatchToken = {
+    cancelled: false,
+    _fire: null,
+    cancel() {
+      token.cancelled = true;
+      token._fire?.();
+    },
+  };
+  return token;
+}
+
+// ---------------------------------------------------------------------------
 // Internal module state
 // ---------------------------------------------------------------------------
 
@@ -110,6 +142,17 @@ async function ensureInit(): Promise<void> {
 
 async function doInit(): Promise<void> {
   const handle = await SQLite.openDatabaseAsync('peak_fettle.db');
+  // PERF (2026-07-03 free-tier audit): WAL + busy_timeout. The default rollback
+  // journal serializes every reader behind any writer on this single shared
+  // connection, so one long scan (e.g. the free-tier auto-backup's full-table
+  // SELECTs) convoyed every screen's mount queries. WAL lets readers proceed
+  // concurrently and persists per-DB-file; busy_timeout waits briefly instead
+  // of failing on transient contention. Best-effort - never blocks init.
+  try {
+    await handle.execAsync('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 3000;');
+  } catch {
+    // Non-fatal: defaults still function.
+  }
   // Apply base v1 statements (idempotent CREATE TABLE IF NOT EXISTS).
   for (const stmt of SCHEMA_STATEMENTS) {
     await handle.execAsync(stmt);
@@ -205,11 +248,12 @@ export const localDb = {
   async *watch(
     _sql: string,
     _params?: unknown[],
-    opts?: { tables?: Set<string> }
+    opts?: { tables?: Set<string>; token?: WatchToken }
   ): AsyncGenerator<void> {
     await ensureInit();
 
     const watched = opts?.tables;
+    const token = opts?.token;
     const matches = (changed: Set<string>): boolean => {
       if (!watched || watched.size === 0) return true;
       for (const t of changed) {
@@ -222,36 +266,47 @@ export const localDb = {
     let resolveNext: (() => void) | null = null;
     let pending = false;
 
-    const listener: ChangeListener = (changed) => {
-      if (!matches(changed)) return;
-      pending = true;
+    // Wakes the parked loop below - shared by the notify listener and the
+    // cancellation token so cancel() releases the in-flight await immediately.
+    const wake = (): void => {
       if (resolveNext) {
         const r = resolveNext;
         resolveNext = null;
         r();
       }
     };
+    if (token) token._fire = wake;
+
+    const listener: ChangeListener = (changed) => {
+      if (!matches(changed)) return;
+      pending = true;
+      wake();
+    };
 
     const unsubscribe = localDb.subscribe(listener);
 
     try {
+      if (token?.cancelled) return;
       // Yield once immediately on entry.
       yield;
 
       // eslint-disable-next-line no-constant-condition
       while (true) {
+        if (token?.cancelled) return;
         if (!pending) {
           await new Promise<void>((resolve) => {
             resolveNext = resolve;
           });
         }
+        if (token?.cancelled) return;
         pending = false;
         yield;
       }
     } finally {
-      // Cleaned up when the generator is returned (loop break) or thrown.
+      // Cleaned up on loop exit (cancel/return) or throw - ALWAYS unsubscribes.
       unsubscribe();
       resolveNext = null;
+      if (token) token._fire = null;
     }
   },
 

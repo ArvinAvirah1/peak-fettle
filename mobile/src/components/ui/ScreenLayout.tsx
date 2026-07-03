@@ -38,8 +38,6 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../theme/ThemeContext';
-import Animated, { FadeIn } from 'react-native-reanimated';
-import { useReduceMotion } from '../../hooks/useReduceMotion';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -74,7 +72,6 @@ export function ScreenLayout({
   const { theme, spacing } = useTheme();
   // 2026-06-10 aesthetic pass: every screen's content fades in softly on mount
   // (240ms), giving app-wide transition smoothness from one shared component.
-  const reduceMotion = useReduceMotion();
 
   const hPad = horizontalPadding ? spacing.s5 : 0;
 
@@ -121,12 +118,19 @@ export function ScreenLayout({
       ]}
       edges={['top', 'bottom']}
     >
-      <Animated.View
-        style={styles.fill}
-        entering={reduceMotion ? undefined : FadeIn.duration(240)}
-      >
+      {/* (2026-07-03 blank-tab fix) The Reanimated `entering` FadeIn here raced
+          react-native-screens' native attach on LAZILY-mounted tabs (lazy is
+          the bottom-tabs default; Rankings/Plans/Profile mount on first visit,
+          inside the tab-press transition). When the entering animation was
+          scheduled in that window its opacity frame could drop, leaving the
+          screen stuck fully transparent - "blank until you switch away and
+          back quickly" (the reattach repaints it). Routines never showed the
+          bug because it does not use ScreenLayout. A mount fade is not worth
+          an intermittent invisible screen, so it is removed rather than
+          worked around. */}
+      <View style={styles.fill}>
         {inner}
-      </Animated.View>
+      </View>
     </SafeAreaView>
   );
 }

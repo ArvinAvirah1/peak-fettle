@@ -36,6 +36,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { createWorkout } from '../api/workouts';
 import { getSetsForWorkout } from '../api/sets';
 import { db, genId } from '../db/powerSyncClient';
+import { makeWatchToken } from '../db/localDb';
 import { syncEngine } from '../db/syncEngine';
 import { useAuth } from './useAuth';
 import { isLocalFirst } from '../data/backup/tierPolicy';
@@ -314,6 +315,15 @@ export function usePowerSyncLog(): UsePowerSyncLogResult {
 
   useEffect(() => {
     let aborted = false;
+    // (2026-07-03 leak fix) Explicit cancellation for the watcher below. The
+    // old cleanup only set `aborted = true`, which the loop could not observe
+    // until the NEXT sets-table write woke it - until then the subscription
+    // stayed registered (a leak). Worse, this effect used to re-run on every
+    // `workout` OBJECT identity change (initWorkout mints a fresh object per
+    // run), so stale watchers accumulated and every logged set fanned out a
+    // redundant re-query per zombie. token.cancel() wakes the parked watcher
+    // immediately so it unsubscribes deterministically on cleanup.
+    const watchToken = makeWatchToken();
 
     async function loadAndWatch(): Promise<void> {
       // Poll until the workoutId is available (REST may still be in flight).
@@ -348,7 +358,7 @@ export function usePowerSyncLog(): UsePowerSyncLogResult {
         for await (const _ of db.watch(
           'SELECT 1 FROM sets WHERE workout_id = ?',
           [wid],
-          { tables: new Set(['sets']) }
+          { tables: new Set(['sets']), token: watchToken }
         )) {
           if (aborted) break;
           // workoutId may have changed if initWorkout re-ran (e.g. date flip).
@@ -373,8 +383,14 @@ export function usePowerSyncLog(): UsePowerSyncLogResult {
 
     return () => {
       aborted = true;
+      watchToken.cancel();
     };
-  }, [workout]); // re-subscribe when workout changes (e.g. retry after offline)
+    // Identity-stable dep (2026-07-03): keyed on the workout ID, not the object
+    // - initWorkout returns a NEW object each run even for the same row, which
+    // previously tore down + re-subscribed this watcher on every auth settle /
+    // retry / day-flip and left the old one leaked until the next sets write.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workout?.id]);
 
   // ── Mutations ─────────────────────────────────────────────────────────────
 

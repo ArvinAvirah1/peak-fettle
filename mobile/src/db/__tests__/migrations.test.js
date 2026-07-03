@@ -87,6 +87,7 @@ const {
 function makeStubDb() {
   const pragmas = { user_version: 0 };
   const createdTables = new Set();
+  const executedSql = []; // every execute() statement, for index/DDL assertions (v10 test)
   // table name → Set of column names. Populated from CREATE TABLE column lists
   // and from guarded ALTER TABLE ADD COLUMN, so the migration runner's
   // pragma_table_info idempotency check (getAll below) returns truthfully.
@@ -101,6 +102,7 @@ function makeStubDb() {
     _pragmas: pragmas,
     _createdTables: createdTables,
     _tableColumns: tableColumns,
+    _executedSql: executedSql,
 
     async getAll(sql, params) {
       // Emulate: SELECT name FROM pragma_table_info(?) WHERE name = ?
@@ -122,6 +124,7 @@ function makeStubDb() {
     },
 
     async execute(sql) {
+      executedSql.push(sql);
       const pragmaSet = sql.match(/PRAGMA\s+user_version\s*=\s*(\d+)/i);
       if (pragmaSet) {
         pragmas.user_version = parseInt(pragmaSet[1], 10);
@@ -192,15 +195,15 @@ function eq(a, b, msg) {
     await runMigrations(db);
     const v2 = db._pragmas.user_version;
     eq(v1, v2, 'version changed on second run:');
-    eq(v1, 9, 'expected version 9:');
+    eq(v1, 10, 'expected version 10:');
   });
 
   // 2. Fresh install reaches the latest version
-  await test('fresh install reaches user_version 9', async () => {
+  await test('fresh install reaches user_version 10', async () => {
     const db = makeStubDb();
     eq(db._pragmas.user_version, 0, 'starts at 0:');
     await runMigrations(db);
-    eq(db._pragmas.user_version, 9, 'should be 9 after migration:');
+    eq(db._pragmas.user_version, 10, 'should be 10 after migration:');
   });
 
   // 3. v2 tables created (10 spot-checked)
@@ -257,6 +260,16 @@ function eq(a, b, msg) {
     for (const c of ['kind', 'status', 'payload', 'survey', 'block_start_day_key', 'adopted_split']) {
       assert(cols.has(c), 'generated_plans.' + c + ' column missing after v9 migration');
     }
+  });
+
+  // 3e. v10 creates the workouts(routine_name) perf index (2026-07-03 audit).
+  await test('fresh install creates idx_workouts_routine_name (v10)', async () => {
+    const db = makeStubDb();
+    await runMigrations(db);
+    assert(
+      db._executedSql.some((s) => /idx_workouts_routine_name/i.test(s)),
+      'v10 routine_name index statement never executed'
+    );
   });
 
   // 4. SCHEMA_V2_STATEMENTS shape

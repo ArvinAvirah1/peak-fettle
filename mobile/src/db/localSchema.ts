@@ -672,3 +672,19 @@ CREATE TABLE IF NOT EXISTS generated_plans (
 )`;
 
 export const SCHEMA_V9_STATEMENTS: MigrationStatement[] = [CREATE_GENERATED_PLANS];
+
+// ---------------------------------------------------------------------------
+// v10 statements - perf index (2026-07-03 free-tier responsiveness audit).
+//
+// getRoutineFolders() (src/data/routineHistory.ts) runs
+//   SELECT routine_name, COUNT(DISTINCT day_key), MAX(day_key) FROM workouts
+//   WHERE routine_name IS NOT NULL ... GROUP BY routine_name
+// on EVERY Home mount (and again on every history change). Without an index
+// this is a full scan of the entire lifetime `workouts` table, which grows
+// without bound - one of the audited contributors to free-tier touch lag.
+export const CREATE_WORKOUTS_ROUTINE_NAME_IDX = `
+CREATE INDEX IF NOT EXISTS idx_workouts_routine_name ON workouts(routine_name)`;
+
+export const SCHEMA_V10_STATEMENTS: MigrationStatement[] = [
+  CREATE_WORKOUTS_ROUTINE_NAME_IDX,
+];
