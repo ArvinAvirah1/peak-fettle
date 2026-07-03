@@ -12,10 +12,12 @@
       "supportsTablet": false,
       "infoPlist": {
         "UIBackgroundModes": [],
-        "NSSupportsLiveActivities": true
+        "NSSupportsLiveActivities": true,
+        "ITSAppUsesNonExemptEncryption": false
       },
       "entitlements": {
         "com.apple.security.application-groups": [
+          "group.com.peakfettle.lifeos",
           "group.com.peakfettle.lifeos"
         ],
         "com.apple.developer.family-controls": true
@@ -112,10 +114,4 @@
             }
           }
         },
-        "projectId": "ab38da8c-7f05-4d0a-9910-faab42a9fed4"
-      },
-      "router": {}
-    },
-    "owner": "arvinavirah"
-  }
-}
+        "projectId": "ab38da8c-7f05-4d0
