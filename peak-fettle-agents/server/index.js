@@ -89,7 +89,14 @@ const partnerLimiter = rateLimit({
 });
 
 // Health check (not rate-limited — load balancer / uptime monitors use this)
-app.get('/health', (_req, res) => res.json({ ok: true, ts: Date.now() }));
+// Health check also reports whether the beta tier-toggle escape hatch is
+// VISIBLE to this process (boolean only - never echoes secrets). Lets ops
+// verify Railway env wiring from a browser instead of guessing (2026-07-02).
+app.get('/health', (_req, res) => res.json({
+    ok: true,
+    ts: Date.now(),
+    tierToggle: (process.env.ALLOW_CLIENT_TIER_TOGGLE || '').trim().replace(/"/g, '').toLowerCase() === 'true',
+}));
 
 // Public routes — auth is rate-limited (N-11)
 app.use('/auth', authLimiter, authRoutes);

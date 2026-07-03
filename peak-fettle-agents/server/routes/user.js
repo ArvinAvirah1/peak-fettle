@@ -35,14 +35,24 @@ function requireServiceSecret(req, res, next) {
     // self-promotion then requires the server-to-server secret. Deliberate and
     // reversible: flip the env var off the moment real billing (RevenueCat/IAP)
     // lands and calls this endpoint with the secret instead.
-    if (process.env.ALLOW_CLIENT_TIER_TOGGLE === 'true') {
+    // Tolerant parse (2026-07-02): accept true / TRUE / "true" / padded values.
+    // A quoted or padded value in the env dashboard previously failed the exact
+    // === 'true' match and silently closed the toggle - the raw value is now
+    // logged on rejection (below) so that misconfiguration is visible.
+    const rawToggle = process.env.ALLOW_CLIENT_TIER_TOGGLE;
+    if ((rawToggle || '').trim().replace(/"/g, '').toLowerCase() === 'true') {
         return next();
     }
     const secret = process.env.TIER_SERVICE_SECRET || '';
     if (secret.length === 0) {
         // Ops visibility: a missing env secret closes /upgrade entirely (secure
         // default). Without this log a future payment-webhook outage is silent.
-        console.warn('[tier] TIER_SERVICE_SECRET unset — /user/upgrade is closed (403)');
+        // JSON.stringify exposes hidden quotes/whitespace; undefined means the
+        // variable is NOT in this process's environment at all (wrong service?).
+        console.warn(
+            '[tier] TIER_SERVICE_SECRET unset — /user/upgrade is closed (403). ' +
+            'ALLOW_CLIENT_TIER_TOGGLE=' + JSON.stringify(rawToggle),
+        );
     }
     const provided = req.get('x-service-secret') || '';
     const ok =
