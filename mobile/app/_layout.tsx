@@ -44,6 +44,13 @@ import { registerForPushNotificationsAsync } from '../src/services/pushNotificat
 import { TourProvider } from '../src/components/tour/WelcomeTour'; // TICKET-095
 import { startWidgetBridge } from '../src/services/widgetBridge'; // WIDGET-001
 import { localDb } from '../src/db/localDb'; // warm on-device SQLite once at root
+import { startPerfMonitor } from '../src/diagnostics/perfMonitor';
+
+// Perf diagnostics (2026-07-02): start at BUNDLE EVAL, before first render, so
+// the boot window - where the free-tier freeze lives - is captured. JS-only
+// (timers + method wrappers), no native modules, so it cannot trip the iOS-26
+// boot-frame TurboModule hazard documented above. Surfaced in app/diagnostics.tsx.
+startPerfMonitor();
 
 // ---------------------------------------------------------------------------
 // Root-level Error Boundary (2026-05-28)
@@ -207,6 +214,7 @@ function RootNavigator(): React.ReactElement {
         <Stack.Screen name="group-detail" options={{ headerShown: false }} />
         <Stack.Screen name="glossary" options={{ title: 'Glossary', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="one-rm" options={{ title: '1RM calculator', headerShown: true, gestureEnabled: true }} />
+        <Stack.Screen name="diagnostics" options={{ title: 'Diagnostics', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="splash" options={{ headerShown: false, gestureEnabled: false, animation: 'fade' }} />
         <Stack.Screen name="intro" options={{ headerShown: false, gestureEnabled: false, animation: 'fade' }} />
         <Stack.Screen name="templates" options={{ title: 'Workout Templates', headerShown: true, gestureEnabled: true }} />

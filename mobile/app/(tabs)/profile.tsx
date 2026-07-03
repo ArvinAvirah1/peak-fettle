@@ -1619,6 +1619,18 @@ export default function ProfileScreen(): React.ReactElement {
             </Text>
             <Ionicons name="download-outline" size={18} color={theme.colors.accentDefault} />
           </TouchableOpacity>
+
+          {/* Diagnostics (2026-07-02) — perf report for the responsiveness bug.
+              Reproduce the lag, open this, tap Share, send the JSON. */}
+          <TouchableOpacity
+            onPress={() => router.push('/diagnostics')}
+            style={[styles.settingRow, { borderTopWidth: 1, borderTopColor: theme.colors.borderDefault }]}
+            accessibilityRole="button"
+            accessibilityLabel="Diagnostics"
+          >
+            <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Diagnostics</Text>
+            <Ionicons name="pulse-outline" size={18} color={theme.colors.textTertiary} />
+          </TouchableOpacity>
         </View>
 
         {/* Delete account */}
