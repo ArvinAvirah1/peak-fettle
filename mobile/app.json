@@ -114,6 +114,15 @@
                       "group.com.peakfettle.app"
                     ]
                   }
+                },
+                {
+                  "targetName": "PeakFettleWatch",
+                  "bundleIdentifier": "com.peakfettle.app.watchapp",
+                  "entitlements": {
+                    "com.apple.security.application-groups": [
+                      "group.com.peakfettle.app"
+                    ]
+                  }
                 }
               ]
             }

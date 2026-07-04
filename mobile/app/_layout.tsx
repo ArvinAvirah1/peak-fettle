@@ -44,6 +44,10 @@ import * as SecureStore from 'expo-secure-store';
 import { registerForPushNotificationsAsync } from '../src/services/pushNotifications';
 import { TourProvider } from '../src/components/tour/WelcomeTour'; // TICKET-095
 import { startWidgetBridge } from '../src/services/widgetBridge'; // WIDGET-001
+// TICKET-140 Stage A: Apple Watch mirror -- same deferred-boot pattern as the
+// widget/intent bridges; inert when the native module is absent (Android,
+// simulator, Expo Go, or an iOS build without watch-connectivity compiled in).
+import { useWatchMirror } from '../src/hooks/useWatchMirror';
 // TICKET-145: Siri / App Intents bridge — same deferred-boot pattern as the
 // widget bridge; inert when the native side is absent (Expo Go / Android).
 import { startIntentBridge, setIntentBridgeContext } from '../src/lib/intents/intentBridge';
@@ -166,6 +170,12 @@ function RootNavigator(): React.ReactElement {
     });
     return () => task.cancel();
   }, [isLoading]);
+
+  // TICKET-140 Stage A: push the today's-workout mirror to a paired Apple
+  // Watch. iOS-only, deferred off the boot frame, and a no-op when the
+  // WatchConnectivityModule isn't compiled in (isWatchAvailable() false) --
+  // the hook itself owns all InteractionManager/AppState/message wiring.
+  useWatchMirror(user ?? null);
 
   // TICKET-145: keep the intent bridge's user context current (unit pref for
   // spoken-weight conversion, user/tier for the local-first write path).
