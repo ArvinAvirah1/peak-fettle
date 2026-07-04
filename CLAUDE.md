@@ -24,7 +24,7 @@ These are the highest-leverage things to know before touching this app. Most of 
 
 ## 🧭 Which tickets should THIS agent do? — model routing (founder decision, 2026-05-25 LATE-4)
 
-Active backlog: **TICKET-051…062** in `DEV_ROADMAP_2026-05-25-LATE.md` (v25). Pick your lane by the model you are running:
+Active backlog: **TICKET-128…146** in `DEV_ROADMAP_2026-07-03-FEATURE-GAPS.md` — see its 🚦 STATUS block (as of 2026-07-04 only 140 [parked on founder go/no-go] and 146 [must run solo, last] remain). The TICKET-051…062 plan below is COMPLETE — historical reference only. Pick your lane by the model you are running:
 
 - **Opus** → do **only TICKET-052 and TICKET-053** (the percentile-math + tier-ladder work), then the **final integration + verification pass** over everything merged.
 - **Sonnet** → do **everything else** (TICKET-051, 054, 055, 056, 057, 058, 059, 060, 061, 062). Default workhorse lane.
