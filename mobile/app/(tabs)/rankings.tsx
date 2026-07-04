@@ -74,6 +74,7 @@ import { PressableCard, ScreenLayout, PFInput } from '../../src/components/ui';
 import { GlossaryTerm } from '../../src/components/Tooltip';
 import { useReduceMotion } from '../../src/hooks/useReduceMotion';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useTranslation } from 'react-i18next';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -90,11 +91,11 @@ function formatComputedAt(isoString: string): string {
 }
 
 /** percentile 82 → "Top 18%" */
-function topPercentLabel(percentile: number): string {
+function topPercentLabel(percentile: number, t: (key: string, opts?: Record<string, unknown>) => string): string {
   const top = Math.round(100 - percentile);
-  if (top <= 0) return 'Top 1%';
-  if (top >= 100) return 'Bottom 1%';
-  return `Top ${top}%`;
+  if (top <= 0) return t('tabs:rankings.topPercentTop1');
+  if (top >= 100) return t('tabs:rankings.bottomPercent');
+  return t('tabs:rankings.topPercent', { pct: top });
 }
 
 function percentileColorToken(percentile: number, theme: any): string {
@@ -136,6 +137,7 @@ function ConfirmSheet({
   onClose,
 }: ConfirmSheetProps): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const reduceMotion = useReduceMotion();
   const defaultValue =
     epleyEstimateKg != null ? formatKg(epleyEstimateKg) : '';
@@ -216,7 +218,7 @@ function ConfirmSheet({
           {/* Drag handle */}
           <View style={[confirmSheetStyles.handle, { backgroundColor: theme.colors.borderDefault }]} />
 
-          <Text style={[confirmSheetStyles.title, { color: theme.colors.textPrimary }]}>Confirm your max — {liftName}</Text>
+          <Text style={[confirmSheetStyles.title, { color: theme.colors.textPrimary }]}>{t('tabs:rankings.confirmYourMaxTitle', { liftName })}</Text>
 
           {savedOk ? (
             <View style={[
@@ -224,28 +226,26 @@ function ConfirmSheet({
               { backgroundColor: theme.colors.statusSuccess + '18', borderColor: theme.colors.statusSuccess + '60' },
             ]}>
               <Text style={[confirmSheetStyles.savedText, { color: theme.colors.statusSuccess }]}>
-                ✓ Saved. Your ranking updates on the next weekly run.
+                {t('tabs:rankings.savedNote')}
               </Text>
               <TouchableOpacity
                 style={[confirmSheetStyles.doneButton, { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault }]}
                 onPress={onClose}
                 accessibilityRole="button"
-                accessibilityLabel="Dismiss"
+                accessibilityLabel={t('tabs:rankings.dismiss')}
               >
-                <Text style={[confirmSheetStyles.doneButtonText, { color: theme.colors.textPrimary }]}>Done</Text>
+                <Text style={[confirmSheetStyles.doneButtonText, { color: theme.colors.textPrimary }]}>{t('tabs:rankings.done')}</Text>
               </TouchableOpacity>
             </View>
           ) : (
             <>
               <Text style={[confirmSheetStyles.body, { color: theme.colors.textTertiary }]}>
-                We estimated your 1-rep max from your logged sets. Adjust if it
-                doesn't match your actual max — your ranking will use this value
-                from the next weekly update.
+                {t('tabs:rankings.confirmSheetBody')}
               </Text>
 
               {epleyEstimateKg != null && (
                 <Text style={[confirmSheetStyles.estimate, { color: theme.colors.textSecondary }]}>
-                  Our estimate: {formatKg(epleyEstimateKg)} kg
+                  {t('tabs:rankings.ourEstimate', { kg: formatKg(epleyEstimateKg) })}
                 </Text>
               )}
 
@@ -256,10 +256,10 @@ function ConfirmSheet({
                     value={inputValue}
                     onChangeText={setInputValue}
                     keyboardType="decimal-pad"
-                    placeholder="e.g. 120"
+                    placeholder={t('tabs:rankings.kgPlaceholder')}
                     returnKeyType="done"
                     onSubmitEditing={isValid ? handleConfirm : undefined}
-                    accessibilityLabel="Confirmed 1-rep max in kg"
+                    accessibilityLabel={t('tabs:rankings.confirmedMaxLabel')}
                   />
                 </View>
                 <Text style={[confirmSheetStyles.kgLabel, { color: theme.colors.textTertiary }]}>kg</Text>
@@ -274,12 +274,12 @@ function ConfirmSheet({
                 onPress={handleConfirm}
                 disabled={!isValid || isSaving}
                 accessibilityRole="button"
-                accessibilityLabel="Confirm this 1RM"
+                accessibilityLabel={t('tabs:rankings.confirmThisMax')}
               >
                 {isSaving ? (
                   <ActivityIndicator color={theme.components.buttonPrimaryText} />
                 ) : (
-                  <Text style={[confirmSheetStyles.confirmButtonText, { color: theme.components.buttonPrimaryText }]}>Confirm</Text>
+                  <Text style={[confirmSheetStyles.confirmButtonText, { color: theme.components.buttonPrimaryText }]}>{t('tabs:rankings.confirm')}</Text>
                 )}
               </TouchableOpacity>
 
@@ -289,7 +289,7 @@ function ConfirmSheet({
                 disabled={isSaving}
                 accessibilityRole="button"
               >
-                <Text style={[confirmSheetStyles.cancelText, { color: theme.colors.textTertiary }]}>Cancel</Text>
+                <Text style={[confirmSheetStyles.cancelText, { color: theme.colors.textTertiary }]}>{t('tabs:rankings.cancel')}</Text>
               </TouchableOpacity>
             </>
           )}
@@ -356,6 +356,7 @@ function ScoreBlock({
   label: React.ReactNode;
 }): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   return (
     <View style={styles.scoreBlock}>
       <Text style={[styles.scoreLabel, { color: theme.colors.textTertiary }]}>{label}</Text>
@@ -363,7 +364,7 @@ function ScoreBlock({
         <>
           <View style={styles.scoreBadgeRow}>
             <Text style={[styles.scoreBadge, { color: percentileColorToken(value, theme), fontVariant: ['tabular-nums'] }]}>
-              {topPercentLabel(value)}
+              {topPercentLabel(value, t)}
             </Text>
           </View>
           <View style={styles.barContainer}>
@@ -372,7 +373,7 @@ function ScoreBlock({
         </>
       ) : (
         <View style={[styles.pendingPill, { backgroundColor: theme.colors.bgPrimary }]}>
-          <Text style={[styles.pendingText, { color: theme.colors.textTertiary }]}>Pending weekly update</Text>
+          <Text style={[styles.pendingText, { color: theme.colors.textTertiary }]}>{t('tabs:rankings.pendingWeeklyUpdate')}</Text>
         </View>
       )}
     </View>
@@ -412,9 +413,10 @@ function RankingCard({
   localLens2a: number | null;
 }): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const liftName = liftIdToName(ranking.lift_id);
   const updatedText = ranking.computed_at
-    ? `Last updated ${formatComputedAt(ranking.computed_at)}`
+    ? t('tabs:rankings.lastUpdated', { date: formatComputedAt(ranking.computed_at) })
     : '';
 
   // Option C: unconfirmed estimated lift — show confirm CTA instead of scores
@@ -444,14 +446,14 @@ function RankingCard({
           ]}
           onPress={() => onConfirmRequest(ranking)}
           accessibilityRole="button"
-          accessibilityLabel={`Confirm your estimated max for ${liftName}`}
+          accessibilityLabel={t('tabs:rankings.confirmYourEstimatedMaxFor', { liftName })}
         >
           <View style={styles.confirmCtaInner}>
-            <Text style={[styles.confirmCtaTitle, { color: theme.colors.accentHover }]}>Confirm your max</Text>
+            <Text style={[styles.confirmCtaTitle, { color: theme.colors.accentHover }]}>{t('tabs:rankings.confirmYourMax')}</Text>
             <Text style={[styles.confirmCtaBody, { color: theme.colors.textTertiary }]}>
               {ranking.epley_estimate_kg != null
-                ? `We estimated ${formatKg(ranking.epley_estimate_kg)} kg from your sets. Tap to confirm or adjust.`
-                : 'Tap to confirm your 1-rep max for this lift.'}
+                ? t('tabs:rankings.confirmEstimateBody', { kg: formatKg(ranking.epley_estimate_kg) })
+                : t('tabs:rankings.tapToConfirm')}
             </Text>
           </View>
           <Text style={[styles.confirmCtaChevron, { color: theme.colors.accentDefault }]}>›</Text>
@@ -463,7 +465,7 @@ function RankingCard({
           { backgroundColor: theme.colors.statusSuccess + '18', borderColor: theme.colors.statusSuccess + '60' },
         ]}>
           <Text style={[styles.pendingNextRunText, { color: theme.colors.statusSuccess }]}>
-            ✓ Confirmed — ranking updates on the next weekly run
+            {t('tabs:rankings.confirmedPendingNextRun')}
           </Text>
         </View>
       ) : (
@@ -472,12 +474,12 @@ function RankingCard({
         <View style={styles.scoresRow}>
           <ScoreBlock
             value={localLens1 ?? ranking.percentile}
-            label={<GlossaryTerm slug="percentile">vs. your experience band</GlossaryTerm>}
+            label={<GlossaryTerm slug="percentile">{t('tabs:rankings.vsExperienceBand')}</GlossaryTerm>}
           />
           <View style={[styles.scoresDivider, { backgroundColor: theme.colors.borderDefault }]} />
           <ScoreBlock
             value={localLens2a ?? ranking.percentile_simple}
-            label="vs. all strength trainees"
+            label={t('tabs:rankings.vsAllStrengthTrainees')}
           />
         </View>
       )}
@@ -492,7 +494,7 @@ function RankingCard({
             marginTop: 2,
           }}
         >
-          Wilks2 {ranking.wilks_score.toFixed(1)}
+          {t('tabs:rankings.wilksScore', { score: ranking.wilks_score.toFixed(1) })}
         </Text>
       )}
 
@@ -512,7 +514,7 @@ function RankingCard({
                 const NON_STRENGTH = ['Running', 'Cycling', 'Swimming', 'Other/Mixed'];
                 const discipline = primaryDiscipline ?? null;
                 if (discipline && NON_STRENGTH.includes(discipline)) {
-                  return `Your score is based on ${ranking.cohort_size_internal} people like you.`;
+                  return t('tabs:rankings.scoreBasedOnPeopleLikeYou', { count: ranking.cohort_size_internal });
                 }
                 return confidenceRingTooltip(ranking.cohort_size_internal);
               })()}
@@ -535,6 +537,7 @@ function RankingCard({
 
 function PercentileRankHeroCard({ rankings }: { rankings: PercentileRanking[] }): React.ReactElement | null {
   const { theme, fontSize: fs, fontWeight: fw, spacing: sp, radius: r } = useTheme();
+  const { t } = useTranslation();
   if (!rankings || rankings.length === 0) return null;
 
   // Pick the ranking with the highest percentile value
@@ -556,7 +559,7 @@ function PercentileRankHeroCard({ rankings }: { rankings: PercentileRanking[] })
         borderColor: theme.colors.borderDefault,
       }}>
         <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodySm, marginBottom: sp.s3 }}>
-          Top lift
+          {t('tabs:rankings.topLift')}
         </Text>
         <PFProgressRing
           value={top.percentile / 100}
@@ -579,7 +582,7 @@ function PercentileRankHeroCard({ rankings }: { rankings: PercentileRanking[] })
           {liftIdToName(top.lift_id)}
         </Text>
         <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodySm, marginTop: sp.s1, fontVariant: ['tabular-nums'] }}>
-          Top {topPct}% of lifters
+          {t('tabs:rankings.topPercentOfLifters', { pct: topPct })}
         </Text>
       </View>
     </View>
@@ -593,6 +596,7 @@ function PercentileRankHeroCard({ rankings }: { rankings: PercentileRanking[] })
  */
 function OverallPercentileCard({ rankings }: { rankings: PercentileRanking[] }): React.ReactElement | null {
   const { theme, fontSize: fs, fontWeight: fw, spacing: sp, radius: r } = useTheme();
+  const { t } = useTranslation();
 
   // Collect non-null experience-adjusted percentile values and compute median
   const values = rankings
@@ -623,7 +627,7 @@ function OverallPercentileCard({ rankings }: { rankings: PercentileRanking[] }):
         gap: sp.s2,
       }}>
         <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodySm }}>
-          Your overall percentile
+          {t('tabs:rankings.yourOverallPercentile')}
         </Text>
         <Text style={{
           fontSize: fs.metric,
@@ -634,10 +638,10 @@ function OverallPercentileCard({ rankings }: { rankings: PercentileRanking[] }):
           {medianRounded}%
         </Text>
         <Text style={{ color: theme.colors.textSecondary, fontSize: fs.bodyMd, fontWeight: fw.semibold }}>
-          Top {topPct}% of lifters
+          {t('tabs:rankings.topPercentOfLifters', { pct: topPct })}
         </Text>
         <Text style={{ color: theme.colors.textTertiary, fontSize: fs.caption, textAlign: 'center' }}>
-          Median across {values.length} exercises · experience-adjusted
+          {t('tabs:rankings.medianAcrossExercises', { count: values.length })}
         </Text>
       </View>
     </View>
@@ -672,14 +676,15 @@ function SkeletonCard(): React.ReactElement {
 
 function EmptyState(): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   return (
     <View style={styles.emptyContainer}>
-      <Text style={[styles.emptyTitle, { color: theme.colors.textPrimary }]}>No rankings yet</Text>
+      <Text style={[styles.emptyTitle, { color: theme.colors.textPrimary }]}>{t('tabs:rankings.noRankingsYet')}</Text>
       <Text style={[styles.emptySubtext, { color: theme.colors.textTertiary }]}>
-        Log at least one workout and check back after the weekly update (every Sunday night)
+        {t('tabs:rankings.logAndCheckBack')}
       </Text>
       <Text style={[styles.emptyAction, { color: theme.colors.textTertiary }]}>
-        Log 3 workouts to unlock your first ranking.
+        {t('tabs:rankings.logThreeToUnlock')}
       </Text>
     </View>
   );
@@ -693,6 +698,7 @@ function ErrorBanner({
   onRetry: () => void;
 }): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   return (
     <View style={[
       styles.errorBanner,
@@ -703,9 +709,9 @@ function ErrorBanner({
         style={[styles.retryButton, { backgroundColor: theme.colors.statusError }]}
         onPress={onRetry}
         accessibilityRole="button"
-        accessibilityLabel="Retry"
+        accessibilityLabel={t('tabs:rankings.retry')}
       >
-        <Text style={[styles.retryButtonText, { color: theme.colors.textPrimary }]}>Retry</Text>
+        <Text style={[styles.retryButtonText, { color: theme.colors.textPrimary }]}>{t('tabs:rankings.retry')}</Text>
       </TouchableOpacity>
     </View>
   );
@@ -724,6 +730,7 @@ export default function RankingsScreen(): React.ReactElement {
   const { latest: latestBw, freshForTier } = useBodyweight();
   const reducedMotion = useReducedMotion(); // 2026-06-10 aesthetic pass
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isTogglingWilks, setIsTogglingWilks] = useState(false);
 
@@ -807,7 +814,7 @@ export default function RankingsScreen(): React.ReactElement {
   const rankings = response?.rankings ?? [];
   const cohortNote =
     response?.cohort_note ??
-    'Two views: how you rank within your experience tier, and vs. the full training population.';
+    t('tabs:rankings.cohortNoteDefault');
 
   // Option B: lifts whose ranking used an Epley estimate (for the banner)
   const estimatedLiftNames = !use1rmConfirmation
@@ -835,7 +842,7 @@ export default function RankingsScreen(): React.ReactElement {
         {/* ---------------------------------------------------------------- */}
         <View style={styles.header}>
           <View style={styles.headerRow}>
-            <Text style={[styles.title, { color: theme.colors.textPrimary }]}>Your Rankings</Text>
+            <Text style={[styles.title, { color: theme.colors.textPrimary }]}>{t('tabs:rankings.yourRankings')}</Text>
             <TouchableOpacity
               style={[
                 styles.wilksToggle,
@@ -847,16 +854,16 @@ export default function RankingsScreen(): React.ReactElement {
               onPress={handleToggleWilks}
               disabled={isTogglingWilks}
               accessibilityRole="button"
-              accessibilityLabel={showWilks ? 'Hide Wilks score' : 'Show Wilks score'}
+              accessibilityLabel={showWilks ? t('tabs:rankings.hideWilksScore') : t('tabs:rankings.showWilksScore')}
             >
               <Text style={[styles.wilksToggleText, { color: showWilks ? theme.colors.accentDefault : theme.colors.textTertiary }]}>
-                Wilks
+                {t('tabs:rankings.wilks')}
               </Text>
             </TouchableOpacity>
           </View>
           <Text style={[styles.subtitle, { color: theme.colors.textTertiary }]}>{cohortNote}</Text>
           <View style={[styles.chip, { backgroundColor: theme.colors.bgSecondary }]}>
-            <Text style={[styles.chipText, { color: theme.colors.textTertiary }]}>🕐 Updated weekly</Text>
+            <Text style={[styles.chipText, { color: theme.colors.textTertiary }]}>{t('tabs:rankings.updatedWeekly')}</Text>
           </View>
         </View>
 
@@ -870,12 +877,11 @@ export default function RankingsScreen(): React.ReactElement {
           ]}>
             {/* WCAG AA: use textPrimary/textSecondary, not accent, on bgElevated surfaces */}
             <Text style={[styles.estimatedBannerText, { color: theme.colors.textPrimary }]}>
-              Rankings for{' '}
+              {t('tabs:rankings.estimatedBannerPrefix')}{' '}
               <Text style={[styles.estimatedBannerLifts, { color: theme.colors.textPrimary }]}>
                 {estimatedLiftNames.join(', ')}
               </Text>{' '}
-              are based on an estimated max calculated from your logged sets.
-              To use your actual max, turn on "Confirm estimated maxes" in Settings.
+              {t('tabs:rankings.estimatedBannerSuffix')}
             </Text>
           </View>
         )}
@@ -959,7 +965,7 @@ export default function RankingsScreen(): React.ReactElement {
           ) : (
             <View style={[styles.medianHint, { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault }]}>
               <Text style={[styles.medianHintText, { color: theme.colors.textTertiary }]}>
-                Log 10+ different exercises to see your overall rank.
+                {t('tabs:rankings.logTenToSeeOverall')}
               </Text>
             </View>
           )}

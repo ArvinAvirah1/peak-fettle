@@ -28,6 +28,7 @@ import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
 import { ScreenLayout, PFButton, PFInput } from '../../src/components/ui';
 import { BrandLogo } from '../../src/components/BrandLogo';
 import { OAuthButtons } from '../../src/components/auth/OAuthButtons';
+import { useTranslation } from 'react-i18next';
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -35,14 +36,14 @@ import { OAuthButtons } from '../../src/components/auth/OAuthButtons';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function validateEmail(email: string): string | null {
-  if (!email.trim()) return 'Email is required.';
-  if (!EMAIL_REGEX.test(email.trim())) return 'Enter a valid email address.';
+function validateEmail(email: string, t: (key: string) => string): string | null {
+  if (!email.trim()) return t('tabs:login.emailRequired');
+  if (!EMAIL_REGEX.test(email.trim())) return t('tabs:login.emailInvalid');
   return null;
 }
 
-function validatePassword(password: string): string | null {
-  if (!password) return 'Password is required.';
+function validatePassword(password: string, t: (key: string) => string): string | null {
+  if (!password) return t('tabs:login.passwordRequired');
   return null;
 }
 
@@ -54,6 +55,7 @@ export default function LoginScreen(): React.ReactElement {
   const { login } = useAuth();
   const { theme } = useTheme();
   const router = useRouter();
+  const { t } = useTranslation();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -68,8 +70,8 @@ export default function LoginScreen(): React.ReactElement {
     if (isSubmitting) return;
 
     // Client-side validation before hitting the network.
-    const emailErr = validateEmail(email);
-    const passwordErr = validatePassword(password);
+    const emailErr = validateEmail(email, t);
+    const passwordErr = validatePassword(password, t);
 
     if (emailErr || passwordErr) {
       setFieldErrors({ email: emailErr ?? undefined, password: passwordErr ?? undefined });
@@ -89,7 +91,7 @@ export default function LoginScreen(): React.ReactElement {
       // button. Replacing to the same target twice is an idempotent no-op.
       router.replace('/(tabs)/');
     } catch (err: unknown) {
-      const message = extractErrorMessage(err);
+      const message = extractErrorMessage(err, t);
       setServerError(message);
     } finally {
       setIsSubmitting(false);
@@ -103,20 +105,20 @@ export default function LoginScreen(): React.ReactElement {
         <BrandLogo height={100} dark />
       </View>
       <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>
-        Sign in to your account
+        {t('tabs:login.subtitle')}
       </Text>
 
       {/* Email */}
       <View style={styles.fieldGroup}>
         <PFInput
-          label="Email"
+          label={t('tabs:login.emailLabel')}
           value={email}
           onChangeText={(text) => {
             setEmail(text);
             if (fieldErrors.email) setFieldErrors((prev) => ({ ...prev, email: undefined }));
           }}
           error={fieldErrors.email}
-          placeholder="you@example.com"
+          placeholder={t('tabs:login.emailPlaceholder')}
           keyboardType="email-address"
           autoCapitalize="none"
           autoCorrect={false}
@@ -129,7 +131,7 @@ export default function LoginScreen(): React.ReactElement {
       {/* Password */}
       <View style={styles.fieldGroup}>
         <PFInput
-          label="Password"
+          label={t('tabs:login.passwordLabel')}
           value={password}
           onChangeText={(text) => {
             setPassword(text);
@@ -137,7 +139,7 @@ export default function LoginScreen(): React.ReactElement {
               setFieldErrors((prev) => ({ ...prev, password: undefined }));
           }}
           error={fieldErrors.password}
-          placeholder="••••••••"
+          placeholder={t('tabs:login.passwordPlaceholder')}
           secureTextEntry
           autoComplete="current-password"
           disabled={isSubmitting}
@@ -166,7 +168,7 @@ export default function LoginScreen(): React.ReactElement {
       {/* Submit */}
       <PFButton
         variant="primary"
-        label="Sign In"
+        label={t('tabs:login.submit')}
         onPress={handleLogin}
         loading={isSubmitting}
       />
@@ -176,11 +178,11 @@ export default function LoginScreen(): React.ReactElement {
       {/* Register link */}
       <View style={styles.footer}>
         <Text style={[styles.footerText, { color: theme.colors.textSecondary }]}>
-          Don't have an account?
+          {t('tabs:login.noAccount')}
         </Text>
         <PFButton
           variant="ghost"
-          label="Create one"
+          label={t('tabs:login.createOne')}
           onPress={() => router.push('/(auth)/register')}
           size="sm"
         />
@@ -193,7 +195,7 @@ export default function LoginScreen(): React.ReactElement {
 // Error extraction helper
 // ---------------------------------------------------------------------------
 
-function extractErrorMessage(err: unknown): string {
+function extractErrorMessage(err: unknown, t: (key: string) => string): string {
   // Axios error with a response body from the Peak Fettle API.
   if (
     typeof err === 'object' &&
@@ -203,13 +205,13 @@ function extractErrorMessage(err: unknown): string {
     const axiosErr = err as { response?: { data?: { error?: string; message?: string } } };
     const apiError = axiosErr.response?.data?.error;
     if (apiError === 'invalid_credentials') {
-      return 'Incorrect email or password.';
+      return t('tabs:login.incorrectCredentials');
     }
     if (axiosErr.response?.data?.message) {
       return axiosErr.response.data.message;
     }
   }
-  return 'Something went wrong. Please try again.';
+  return t('tabs:login.genericError');
 }
 
 // ---------------------------------------------------------------------------

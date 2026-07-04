@@ -51,6 +51,7 @@ import {
   MuscleRecovery,
 } from '../src/api/insights';
 import { useReduceMotion } from '../src/hooks/useReduceMotion';
+import { useTranslation } from 'react-i18next';
 
 // ---------------------------------------------------------------------------
 // Stagger helper
@@ -128,6 +129,7 @@ export default function InsightsScreen(): React.ReactElement {
   const router = useRouter();
   const { user } = useAuth();
   const reduceMotion = useReduceMotion();
+  const { t } = useTranslation();
 
   const [readiness, setReadiness] = useState<ReadinessResponse | null>(null);
   const [recovery, setRecovery] = useState<RecoveryResponse | null>(null);
@@ -190,12 +192,12 @@ export default function InsightsScreen(): React.ReactElement {
 
   const handleAckDeload = useCallback(async () => {
     Alert.alert(
-      'Start deload week',
-      'This will mark today as the start of a deload and update your training schedule for the next 7 days.',
+      t('screens:insights.startDeloadTitle'),
+      t('screens:insights.startDeloadMessage'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common:cancel'), style: 'cancel' },
         {
-          text: 'Start deload',
+          text: t('screens:insights.startDeload'),
           onPress: async () => {
             setDeloadAcking(true);
             const ok = await ackDeload();
@@ -237,10 +239,10 @@ export default function InsightsScreen(): React.ReactElement {
           style={[styles.pageTitle, { color: colors.textPrimary, fontSize: fs.heading2, fontWeight: fontWeight.bold, marginBottom: sp.s2 }]}
           accessibilityRole="header"
         >
-          Readiness & Recovery
+          {t('screens:insights.pageTitle')}
         </Text>
         <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, marginBottom: sp.s6, lineHeight: 20 }}>
-          Evidence-based signals from your logged training and health metrics.
+          {t('screens:insights.pageSubtitle')}
         </Text>
 
         {/* ── Free-tier upsell (no REST fetch happens for free users) ─────── */}
@@ -258,19 +260,19 @@ export default function InsightsScreen(): React.ReactElement {
             ]}
           >
             <Text style={{ color: colors.textPrimary, fontSize: fs.bodyLg, fontWeight: fontWeight.bold, marginBottom: sp.s2 }}>
-              Insights is a Pro feature
+              {t('screens:insights.proFeatureTitle')}
             </Text>
             <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, marginBottom: sp.s3, lineHeight: 20 }}>
-              Readiness, muscle-recovery and deload guidance are computed from your training on Peak Fettle Pro.
+              {t('screens:insights.proFeatureBody')}
             </Text>
             <TouchableOpacity
               onPress={() => router.push('/(tabs)/plans')}
               accessibilityRole="button"
-              accessibilityLabel="See Pro plans"
+              accessibilityLabel={t('screens:insights.seePlans')}
               style={{ backgroundColor: colors.accentDefault, borderRadius: r.md, paddingVertical: sp.s3, alignItems: 'center', minHeight: 44, justifyContent: 'center' }}
             >
               <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold }}>
-                See Plans
+                {t('screens:insights.seePlans')}
               </Text>
             </TouchableOpacity>
           </View>
@@ -293,7 +295,7 @@ export default function InsightsScreen(): React.ReactElement {
               accessibilityRole="alert"
             >
               <Text style={{ color: colors.statusWarning, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold, marginBottom: sp.s1 }}>
-                Deload recommended
+                {t('screens:insights.deloadRecommended')}
               </Text>
               {deload.triggers.length > 0 && (
                 <View style={{ marginBottom: sp.s2 }}>
@@ -311,7 +313,7 @@ export default function InsightsScreen(): React.ReactElement {
                 onPress={handleAckDeload}
                 disabled={deloadAcking}
                 accessibilityRole="button"
-                accessibilityLabel="Start deload week"
+                accessibilityLabel={t('screens:insights.startDeloadTitle')}
                 style={[
                   styles.deloadCta,
                   {
@@ -324,7 +326,7 @@ export default function InsightsScreen(): React.ReactElement {
                 ]}
               >
                 <Text style={{ color: theme.colors.bgPrimary, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold, textAlign: 'center' }}>
-                  {deloadAcking ? 'Saving…' : 'Start deload week'}
+                  {deloadAcking ? t('screens:insights.saving') : t('screens:insights.startDeloadTitle')}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -341,7 +343,7 @@ export default function InsightsScreen(): React.ReactElement {
         {/* ── Readiness card (Pro only) ──────────────────────────────────── */}
         {user?.is_paid ? (
           <Animated.View style={reduceMotion ? undefined : staggerStyle(staggerAnims[1])}>
-            <SectionHeader label="Today's Readiness" />
+            <SectionHeader label={t('screens:insights.todaysReadiness')} />
             <ReadinessCard data={readiness} loading={loading} />
           </Animated.View>
         ) : null}
@@ -349,9 +351,9 @@ export default function InsightsScreen(): React.ReactElement {
         {/* ── Muscle heatmap (Pro only) ──────────────────────────────────── */}
         {user?.is_paid ? (
           <Animated.View style={[reduceMotion ? undefined : staggerStyle(staggerAnims[2]), { marginTop: sp.s6 }]}>
-            <SectionHeader label="Muscle Recovery" />
+            <SectionHeader label={t('screens:insights.muscleRecovery')} />
             <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, marginBottom: sp.s3, lineHeight: 20 }}>
-              Tap a muscle to see recovery detail and suggest alternatives.
+              {t('screens:insights.tapMuscleHint')}
             </Text>
             <MuscleHeatmap
               muscles={muscles}

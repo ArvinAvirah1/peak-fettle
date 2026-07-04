@@ -33,6 +33,7 @@ import Animated, {
 import { useAuth } from '../../src/hooks/useAuth';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { useAutoBackup } from '../../src/hooks/useAutoBackup';
+import { useTranslation } from 'react-i18next';
 
 // ---------------------------------------------------------------------------
 // AnimatedTabIcon — scale spring on focus, per spec §7 (P1-012)
@@ -72,6 +73,7 @@ export default function TabsLayout(): React.ReactElement {
   const { colors } = theme;
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   useAutoBackup();
 
   // Don't render anything while the cold-start auth check is running —
@@ -109,7 +111,7 @@ export default function TabsLayout(): React.ReactElement {
           <TouchableOpacity
             onPress={() => router.push('/glossary')}
             style={{ marginRight: 16 }}
-            accessibilityLabel="Open glossary"
+            accessibilityLabel={t('tabs:layout.openGlossary')}
             accessibilityRole="button"
           >
             <Ionicons
@@ -124,8 +126,8 @@ export default function TabsLayout(): React.ReactElement {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
-          tabBarLabel: 'Home',
+          title: t('tabs:layout.home'),
+          tabBarLabel: t('tabs:layout.home'),
           tabBarIcon: ({ color, size, focused }) => (
             <AnimatedTabIcon
               name={focused ? 'home' : 'home-outline'}
@@ -139,8 +141,8 @@ export default function TabsLayout(): React.ReactElement {
       <Tabs.Screen
         name="routines"
         options={{
-          title: 'Routines',
-          tabBarLabel: 'Routines',
+          title: t('tabs:layout.routines'),
+          tabBarLabel: t('tabs:layout.routines'),
           tabBarIcon: ({ color, size, focused }) => (
             <AnimatedTabIcon
               name={focused ? 'barbell' : 'barbell-outline'}
@@ -160,8 +162,8 @@ export default function TabsLayout(): React.ReactElement {
       <Tabs.Screen
         name="rankings"
         options={{
-          title: 'Rankings',
-          tabBarLabel: 'Rankings',
+          title: t('tabs:layout.rankings'),
+          tabBarLabel: t('tabs:layout.rankings'),
           tabBarIcon: ({ color, size, focused }) => (
             <AnimatedTabIcon
               name={focused ? 'trophy' : 'trophy-outline'}
@@ -175,8 +177,8 @@ export default function TabsLayout(): React.ReactElement {
       <Tabs.Screen
         name="plans"
         options={{
-          title: 'Plans',
-          tabBarLabel: 'Plans',
+          title: t('tabs:layout.plans'),
+          tabBarLabel: t('tabs:layout.plans'),
           tabBarIcon: ({ color, size, focused }) => (
             <AnimatedTabIcon
               name={focused ? 'calendar' : 'calendar-outline'}
@@ -190,8 +192,8 @@ export default function TabsLayout(): React.ReactElement {
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profile',
-          tabBarLabel: 'Profile',
+          title: t('tabs:layout.profile'),
+          tabBarLabel: t('tabs:layout.profile'),
           tabBarIcon: ({ color, size, focused }) => (
             <AnimatedTabIcon
               name={focused ? 'person' : 'person-outline'}

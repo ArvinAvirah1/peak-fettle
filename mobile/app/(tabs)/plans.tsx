@@ -63,6 +63,7 @@ import { generateFromSurvey } from '../../src/planGen/generateFromSurvey';
 import { adoptPlanToSchedule, hasExistingSchedule } from '../../src/planGen/planAdoption';
 import { toDateKey } from '../../src/utils/dateHelpers';
 import type { SplitPreference } from '../../src/lib/trainingEngine/v2/types';
+import { useTranslation } from 'react-i18next';
 
 // ---------------------------------------------------------------------------
 // On-device Training Engine — generates plans LOCALLY for ALL tiers (local-first;
@@ -176,6 +177,7 @@ function restLabel(seconds: number): string {
 
 function UpsellCard(): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   return (
     <View style={[
       styles.upsellCard,
@@ -184,24 +186,21 @@ function UpsellCard(): React.ReactElement {
       <View style={styles.upsellIconRow}>
         <Text style={styles.upsellIcon}>⚡</Text>
         <Text style={[styles.upsellTitle, { color: theme.colors.textPrimary }]}>
-          Training Engine Plans
+          {t('tabs:plans.upsellTitle')}
         </Text>
       </View>
       <Text style={[styles.upsellBody, { color: theme.colors.textSecondary }]}>
-        Upgrade to Peak Fettle Pro to unlock personalised, evidence-based
-        training plans. Every plan is built from published sports science using
-        your workout history, health metrics, and physical constraints —
-        adapted to you specifically.
+        {t('tabs:plans.upsellBody')}
       </Text>
       <View style={styles.upsellFeatureList}>
-        <Text style={[styles.upsellFeature, { color: theme.colors.accentHover }]}>✓  Personalised exercises and loading</Text>
-        <Text style={[styles.upsellFeature, { color: theme.colors.accentHover }]}>✓  Respects your injury constraints</Text>
-        <Text style={[styles.upsellFeature, { color: theme.colors.accentHover }]}>✓  Adapts as you log more sessions</Text>
-        <Text style={[styles.upsellFeature, { color: theme.colors.accentHover }]}>✓  See exactly why each choice was made</Text>
+        <Text style={[styles.upsellFeature, { color: theme.colors.accentHover }]}>{t('tabs:plans.upsellFeature1')}</Text>
+        <Text style={[styles.upsellFeature, { color: theme.colors.accentHover }]}>{t('tabs:plans.upsellFeature2')}</Text>
+        <Text style={[styles.upsellFeature, { color: theme.colors.accentHover }]}>{t('tabs:plans.upsellFeature3')}</Text>
+        <Text style={[styles.upsellFeature, { color: theme.colors.accentHover }]}>{t('tabs:plans.upsellFeature4')}</Text>
       </View>
       <View style={styles.upsellCTARow}>
         <Text style={[styles.upsellCTALabel, { color: theme.colors.textTertiary }]}>
-          Built from published sports science
+          {t('tabs:plans.upsellCtaLabel')}
         </Text>
       </View>
     </View>
@@ -223,6 +222,7 @@ interface PlanCardProps {
 
 function PlanCard({ plan, onPress, onActivate, isActivating }: PlanCardProps): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const canActivate = !plan.is_template && !!onActivate;
 
   return (
@@ -240,8 +240,8 @@ function PlanCard({ plan, onPress, onActivate, isActivating }: PlanCardProps): R
       accessibilityRole="button"
       accessibilityLabel={
         plan.is_active
-          ? `Active plan: ${plan.name}. Tap to view.`
-          : `View plan: ${plan.name}`
+          ? t('tabs:plans.activePlanTapToView', { name: plan.name })
+          : t('tabs:plans.viewPlan', { name: plan.name })
       }
     >
       <View style={styles.planCardHeader}>
@@ -252,28 +252,28 @@ function PlanCard({ plan, onPress, onActivate, isActivating }: PlanCardProps): R
           {plan.is_active && (
             <View style={[styles.activeBadge, { backgroundColor: theme.colors.accentDefault }]}>
               <Text style={[styles.activeBadgeText, { color: theme.components.buttonPrimaryText }]}>
-                ACTIVE
+                {t('tabs:plans.active')}
               </Text>
             </View>
           )}
           {plan.is_ai_generated && (
             <View style={[styles.engineBadge, { backgroundColor: theme.colors.accentSecondary }]}>
               <Text style={[styles.engineBadgeText, { color: theme.colors.accentHover }]}>
-                Engine
+                {t('tabs:plans.engine')}
               </Text>
             </View>
           )}
           {plan.is_template && (
             <View style={[styles.templateBadge, { backgroundColor: theme.colors.bgElevated }]}>
               <Text style={[styles.templateBadgeText, { color: theme.colors.accentHover }]}>
-                Template
+                {t('tabs:plans.template')}
               </Text>
             </View>
           )}
         </View>
       </View>
       <Text style={[styles.planCardDate, { color: theme.colors.textTertiary }]}>
-        {plan.is_template ? 'Global template' : `Saved ${formatDate(plan.created_at)}`}
+        {plan.is_template ? t('tabs:plans.globalTemplate') : t('tabs:plans.savedOn', { date: formatDate(plan.created_at) })}
       </Text>
 
       {canActivate && !plan.is_active && (
@@ -291,13 +291,13 @@ function PlanCard({ plan, onPress, onActivate, isActivating }: PlanCardProps): R
           }}
           disabled={isActivating}
           accessibilityRole="button"
-          accessibilityLabel={`Set ${plan.name} as your active plan`}
+          accessibilityLabel={t('tabs:plans.setAsActiveLabel', { name: plan.name })}
         >
           {isActivating ? (
             <ActivityIndicator size="small" color={theme.colors.accentDefault} />
           ) : (
             <Text style={[styles.activateButtonText, { color: theme.colors.accentDefault }]}>
-              Set as active
+              {t('tabs:plans.setAsActive')}
             </Text>
           )}
         </TouchableOpacity>
@@ -319,6 +319,7 @@ interface GenerateCTAProps {
 
 function GenerateCTA({ onPress, isGenerating }: GenerateCTAProps): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   return (
     <TouchableOpacity
       style={[
@@ -329,13 +330,13 @@ function GenerateCTA({ onPress, isGenerating }: GenerateCTAProps): React.ReactEl
       onPress={onPress}
       disabled={isGenerating}
       accessibilityRole="button"
-      accessibilityLabel="Generate a new training plan"
+      accessibilityLabel={t('tabs:plans.generateNewPlan')}
     >
       {isGenerating ? (
         <View style={styles.generateButtonContent}>
           <ActivityIndicator color={theme.components.buttonPrimaryText} size="small" />
           <Text style={[styles.generateButtonText, { color: theme.components.buttonPrimaryText }]}>
-            Building your plan…
+            {t('tabs:plans.buildingYourPlan')}
           </Text>
         </View>
       ) : (
@@ -343,10 +344,10 @@ function GenerateCTA({ onPress, isGenerating }: GenerateCTAProps): React.ReactEl
           <Text style={styles.generateButtonIcon}>⚡</Text>
           <View style={styles.generateButtonLabels}>
             <Text style={[styles.generateButtonText, { color: theme.components.buttonPrimaryText }]}>
-              Generate my plan
+              {t('tabs:plans.generateMyPlan')}
             </Text>
             <Text style={[styles.generateButtonSub, { color: theme.components.buttonPrimaryText }]}>
-              built from published sports science
+              {t('tabs:plans.builtFromPublishedScience')}
             </Text>
           </View>
         </View>
@@ -361,6 +362,7 @@ function GenerateCTA({ onPress, isGenerating }: GenerateCTAProps): React.ReactEl
 
 function RuleTraceCollapsible({ ruleTrace }: { ruleTrace: string[] }): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const [expanded, setExpanded] = React.useState(false);
 
   if (!ruleTrace || ruleTrace.length === 0) return <View />;
@@ -374,11 +376,11 @@ function RuleTraceCollapsible({ ruleTrace }: { ruleTrace: string[] }): React.Rea
         style={detailStyles.ruleTraceHeader}
         onPress={() => setExpanded((v) => !v)}
         accessibilityRole="button"
-        accessibilityLabel={expanded ? 'Collapse rule trace' : 'Expand rule trace'}
+        accessibilityLabel={expanded ? t('tabs:plans.collapseRuleTrace') : t('tabs:plans.expandRuleTrace')}
         accessibilityState={{ expanded }}
       >
         <Text style={[detailStyles.ruleTraceTitle, { color: theme.colors.textSecondary }]}>
-          Here's why ›
+          {t('tabs:plans.heresWhy')}
         </Text>
         <Text style={[detailStyles.ruleTraceChevron, { color: theme.colors.textTertiary }]}>
           {expanded ? '▲' : '▼'}
@@ -415,6 +417,7 @@ interface PlanDetailProps {
 
 function PlanDetailModal({ planId, onClose, onRegenerate }: PlanDetailProps): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const router = useRouter();
   const [plan, setPlan] = React.useState<PlanWithStructure | null>(null);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -429,7 +432,7 @@ function PlanDetailModal({ planId, onClose, onRegenerate }: PlanDetailProps): Re
     getPlan(planId)
       .then(setPlan)
       .catch((err) =>
-        setError(err instanceof Error ? err.message : 'Failed to load plan')
+        setError(err instanceof Error ? err.message : t('tabs:plans.failedToLoadPlan'))
       )
       .finally(() => setIsLoading(false));
   }, [planId]);
@@ -452,8 +455,8 @@ function PlanDetailModal({ planId, onClose, onRegenerate }: PlanDetailProps): Re
       loadPlan();
     } catch (err) {
       haptics.error();
-      const msg = err instanceof Error ? err.message : 'Regeneration failed';
-      Alert.alert('Regeneration failed', msg);
+      const msg = err instanceof Error ? err.message : t('tabs:plans.regenerationFailed');
+      Alert.alert(t('tabs:plans.regenerationFailed'), msg);
     } finally {
       setIsRegenerating(false);
     }
@@ -487,24 +490,24 @@ function PlanDetailModal({ planId, onClose, onRegenerate }: PlanDetailProps): Re
                 </Text>
                 {plan.is_ai_generated ? (
                   <Text style={[detailStyles.engineLabel, { color: theme.colors.textTertiary }]}>
-                    Training Engine — evidence-based
+                    {t('tabs:plans.engineEvidenceBased')}
                   </Text>
                 ) : null}
                 <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodySm, marginTop: spacing.s1 }}>
-                  Personalised for your goals.
+                  {t('tabs:plans.personalisedForGoals')}
                 </Text>
               </>
             ) : (
-              <Text style={[detailStyles.title, { color: theme.colors.textPrimary }]}>Plan</Text>
+              <Text style={[detailStyles.title, { color: theme.colors.textPrimary }]}>{t('tabs:plans.planFallbackTitle')}</Text>
             )}
           </View>
           <TouchableOpacity
             style={detailStyles.closeButton}
             onPress={onClose}
             accessibilityRole="button"
-            accessibilityLabel="Close plan detail"
+            accessibilityLabel={t('tabs:plans.closePlanDetail')}
           >
-            <Text style={[detailStyles.closeButtonText, { color: theme.colors.accentDefault }]}>Done</Text>
+            <Text style={[detailStyles.closeButtonText, { color: theme.colors.accentDefault }]}>{t('tabs:plans.done')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -512,7 +515,7 @@ function PlanDetailModal({ planId, onClose, onRegenerate }: PlanDetailProps): Re
         {isLoading ? (
           <View style={detailStyles.centered}>
             <ActivityIndicator size="large" color={theme.colors.accentDefault} />
-            <Text style={[detailStyles.loadingText, { color: theme.colors.textTertiary }]}>Loading plan…</Text>
+            <Text style={[detailStyles.loadingText, { color: theme.colors.textTertiary }]}>{t('tabs:plans.loadingPlan')}</Text>
           </View>
         ) : error ? (
           <View style={detailStyles.centered}>
@@ -532,7 +535,7 @@ function PlanDetailModal({ planId, onClose, onRegenerate }: PlanDetailProps): Re
                 <View style={detailStyles.reasoningHeader}>
                   <Text style={detailStyles.reasoningIcon}>📋</Text>
                   <Text style={[detailStyles.reasoningTitle, { color: theme.colors.accentHover }]}>
-                    Your plan, explained
+                    {t('tabs:plans.yourPlanExplained')}
                   </Text>
                 </View>
                 <Text style={[detailStyles.reasoningText, { color: theme.colors.textSecondary }]}>
@@ -559,13 +562,13 @@ function PlanDetailModal({ planId, onClose, onRegenerate }: PlanDetailProps): Re
                       ]}
                       onPress={() => { setSelectedWeek(idx); setSelectedDay(0); }}
                       accessibilityRole="button"
-                      accessibilityLabel={`View Week ${week.week_number}`}
+                      accessibilityLabel={t('tabs:plans.viewWeek', { week: week.week_number })}
                     >
                       <Text style={[
                         detailStyles.pickerChipText,
                         { color: idx === selectedWeek ? theme.colors.accentDefault : theme.colors.textSecondary },
                       ]}>
-                        Week {week.week_number}
+                        {t('tabs:plans.weekLabel', { week: week.week_number })}
                       </Text>
                     </TouchableOpacity>
                   ))}
@@ -587,7 +590,7 @@ function PlanDetailModal({ planId, onClose, onRegenerate }: PlanDetailProps): Re
                       ]}
                       onPress={() => setSelectedDay(idx)}
                       accessibilityRole="button"
-                      accessibilityLabel={`View ${session.day_label}`}
+                      accessibilityLabel={t('tabs:plans.viewSession', { label: session.day_label })}
                     >
                       <Text style={[
                         detailStyles.pickerChipText,
@@ -604,7 +607,7 @@ function PlanDetailModal({ planId, onClose, onRegenerate }: PlanDetailProps): Re
             {/* Exercise list */}
             {exercises.length > 0 ? (
               <View style={detailStyles.exerciseList}>
-                <Text style={[detailStyles.sectionHeader, { color: theme.colors.textTertiary }]}>EXERCISES</Text>
+                <Text style={[detailStyles.sectionHeader, { color: theme.colors.textTertiary }]}>{t('tabs:plans.exercisesSectionHeader')}</Text>
                 {exercises.map((ex, idx) => (
                   <ExerciseRow key={`${ex.name}-${idx}`} exercise={ex} index={idx} />
                 ))}
@@ -612,7 +615,7 @@ function PlanDetailModal({ planId, onClose, onRegenerate }: PlanDetailProps): Re
             ) : (
               <View style={detailStyles.centered}>
                 <Text style={[detailStyles.emptyText, { color: theme.colors.textTertiary }]}>
-                  No exercises in this plan.
+                  {t('tabs:plans.noExercisesInPlan')}
                 </Text>
               </View>
             )}
@@ -624,7 +627,7 @@ function PlanDetailModal({ planId, onClose, onRegenerate }: PlanDetailProps): Re
           <View style={{ paddingHorizontal: spacing.s5, paddingBottom: spacing.s5, paddingTop: spacing.s3, gap: spacing.s2 }}>
             <PFButton
               variant="primary"
-              label="Start This Workout"
+              label={t('tabs:plans.startThisWorkout')}
               onPress={() => {
                 onClose();
                 router.push('/(tabs)?startWorkout=1');
@@ -632,7 +635,7 @@ function PlanDetailModal({ planId, onClose, onRegenerate }: PlanDetailProps): Re
             />
             <PFButton
               variant="ghost"
-              label={isRegenerating ? 'Regenerating…' : 'Regenerate Plan'}
+              label={isRegenerating ? t('tabs:plans.regenerating') : t('tabs:plans.regeneratePlan')}
               onPress={handleRegenerate}
             />
           </View>
@@ -657,6 +660,7 @@ interface LocalPlanModalProps {
 
 function LocalPlanModal({ plan, onClose, onRegenerate, isRegenerating }: LocalPlanModalProps): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [selectedWeek, setSelectedWeek] = React.useState(0);
@@ -678,19 +682,19 @@ function LocalPlanModal({ plan, onClose, onRegenerate, isRegenerating }: LocalPl
         ]}>
           <View style={detailStyles.headerText}>
             <Text style={[detailStyles.title, { color: theme.colors.textPrimary }]} numberOfLines={2}>
-              Your Training Plan
+              {t('tabs:plans.yourTrainingPlan')}
             </Text>
             <Text style={[detailStyles.engineLabel, { color: theme.colors.textTertiary }]}>
-              Training Engine — built on-device
+              {t('tabs:plans.engineBuiltOnDevice')}
             </Text>
           </View>
           <TouchableOpacity
             style={detailStyles.closeButton}
             onPress={onClose}
             accessibilityRole="button"
-            accessibilityLabel="Close plan detail"
+            accessibilityLabel={t('tabs:plans.closePlanDetail')}
           >
-            <Text style={[detailStyles.closeButtonText, { color: theme.colors.accentDefault }]}>Done</Text>
+            <Text style={[detailStyles.closeButtonText, { color: theme.colors.accentDefault }]}>{t('tabs:plans.done')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -704,7 +708,7 @@ function LocalPlanModal({ plan, onClose, onRegenerate, isRegenerating }: LocalPl
               <View style={detailStyles.reasoningHeader}>
                 <Text style={detailStyles.reasoningIcon}>📋</Text>
                 <Text style={[detailStyles.reasoningTitle, { color: theme.colors.accentHover }]}>
-                  Your plan, explained
+                  {t('tabs:plans.yourPlanExplained')}
                 </Text>
               </View>
               <Text style={[detailStyles.reasoningText, { color: theme.colors.textSecondary }]}>
@@ -728,13 +732,13 @@ function LocalPlanModal({ plan, onClose, onRegenerate, isRegenerating }: LocalPl
                     ]}
                     onPress={() => { setSelectedWeek(idx); setSelectedDay(0); }}
                     accessibilityRole="button"
-                    accessibilityLabel={`View Week ${week.week_number}`}
+                    accessibilityLabel={t('tabs:plans.viewWeek', { week: week.week_number })}
                   >
                     <Text style={[
                       detailStyles.pickerChipText,
                       { color: idx === selectedWeek ? theme.colors.accentDefault : theme.colors.textSecondary },
                     ]}>
-                      Week {week.week_number}
+                      {t('tabs:plans.weekLabel', { week: week.week_number })}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -756,7 +760,7 @@ function LocalPlanModal({ plan, onClose, onRegenerate, isRegenerating }: LocalPl
                     ]}
                     onPress={() => setSelectedDay(idx)}
                     accessibilityRole="button"
-                    accessibilityLabel={`View ${session.day_label}`}
+                    accessibilityLabel={t('tabs:plans.viewSession', { label: session.day_label })}
                   >
                     <Text style={[
                       detailStyles.pickerChipText,
@@ -773,7 +777,7 @@ function LocalPlanModal({ plan, onClose, onRegenerate, isRegenerating }: LocalPl
           {/* Exercises */}
           {exercises.length > 0 ? (
             <View style={detailStyles.exerciseList}>
-              <Text style={[detailStyles.sectionHeader, { color: theme.colors.textTertiary }]}>EXERCISES</Text>
+              <Text style={[detailStyles.sectionHeader, { color: theme.colors.textTertiary }]}>{t('tabs:plans.exercisesSectionHeader')}</Text>
               {exercises.map((ex, idx) => (
                 <ExerciseRow key={`${ex.name}-${idx}`} exercise={ex} index={idx} />
               ))}
@@ -781,7 +785,7 @@ function LocalPlanModal({ plan, onClose, onRegenerate, isRegenerating }: LocalPl
           ) : (
             <View style={detailStyles.centered}>
               <Text style={[detailStyles.emptyText, { color: theme.colors.textTertiary }]}>
-                No exercises generated for this session. Add equipment in your Training Profile and regenerate.
+                {t('tabs:plans.noExercisesGenerated')}
               </Text>
             </View>
           )}
@@ -790,7 +794,7 @@ function LocalPlanModal({ plan, onClose, onRegenerate, isRegenerating }: LocalPl
         <View style={{ paddingHorizontal: spacing.s5, paddingBottom: Math.max(insets.bottom, spacing.s5), paddingTop: spacing.s3, gap: spacing.s2 }}>
           <PFButton
             variant="primary"
-            label="Start This Workout"
+            label={t('tabs:plans.startThisWorkout')}
             onPress={() => {
               onClose();
               router.push('/(tabs)?startWorkout=1');
@@ -798,7 +802,7 @@ function LocalPlanModal({ plan, onClose, onRegenerate, isRegenerating }: LocalPl
           />
           <PFButton
             variant="ghost"
-            label={isRegenerating ? 'Regenerating…' : 'Regenerate Plan'}
+            label={isRegenerating ? t('tabs:plans.regenerating') : t('tabs:plans.regeneratePlan')}
             onPress={onRegenerate}
           />
         </View>
@@ -814,6 +818,7 @@ interface ExerciseRowProps {
 
 function ExerciseRow({ exercise, index }: ExerciseRowProps): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const rpeStyle = { color: rpeColorToken(exercise.rpe_target, theme) };
 
   return (
@@ -829,10 +834,10 @@ function ExerciseRow({ exercise, index }: ExerciseRowProps): React.ReactElement 
       </View>
 
       <View style={detailStyles.statsRow}>
-        <StatChip label="Sets" value={String(exercise.sets)} />
-        <StatChip label="Reps" value={exercise.reps} />
-        <StatChip label="RPE" value={String(exercise.rpe_target)} valueStyle={rpeStyle} />
-        <StatChip label="Rest" value={restLabel(exercise.rest_seconds)} />
+        <StatChip label={t('tabs:plans.setsLabel')} value={String(exercise.sets)} />
+        <StatChip label={t('tabs:plans.repsLabel')} value={exercise.reps} />
+        <StatChip label={t('tabs:plans.rpeLabel')} value={String(exercise.rpe_target)} valueStyle={rpeStyle} />
+        <StatChip label={t('tabs:plans.restLabel')} value={restLabel(exercise.rest_seconds)} />
       </View>
 
       {!!exercise.coaching_note && (
@@ -870,6 +875,7 @@ function StatChip({ label, value, valueStyle }: StatChipProps): React.ReactEleme
 export default function PlansScreen(): React.ReactElement {
   const { user } = useAuth();
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const router = useRouter();
 
   const {
@@ -928,11 +934,11 @@ export default function PlansScreen(): React.ReactElement {
     };
     if (await hasExistingSchedule()) {
       Alert.alert(
-        'Replace your schedule?',
-        'You already have a training schedule. Replace it with this plan, or keep your current one?',
+        t('tabs:plans.replaceScheduleTitle'),
+        t('tabs:plans.replaceScheduleMessage'),
         [
-          { text: 'Keep', style: 'cancel', onPress: () => reloadActive() },
-          { text: 'Replace', style: 'destructive', onPress: proceed },
+          { text: t('tabs:plans.keep'), style: 'cancel', onPress: () => reloadActive() },
+          { text: t('tabs:plans.replace'), style: 'destructive', onPress: proceed },
         ],
         { cancelable: true },
       );
@@ -940,7 +946,7 @@ export default function PlansScreen(): React.ReactElement {
       await proceed();
     }
     await reloadActive();
-  }, [user, router, reloadActive]);
+  }, [user, router, reloadActive, t]);
 
   const handleAdoptPlan = useCallback(async () => {
     if (!activePlan?.plan) return;
@@ -957,11 +963,11 @@ export default function PlansScreen(): React.ReactElement {
     };
     if (await hasExistingSchedule()) {
       Alert.alert(
-        'Replace your schedule?',
-        'You already have a training schedule. Replace it with this plan, or keep your current one?',
+        t('tabs:plans.replaceScheduleTitle'),
+        t('tabs:plans.replaceScheduleMessage'),
         [
-          { text: 'Keep', style: 'cancel', onPress: () => reloadActive() },
-          { text: 'Replace', style: 'destructive', onPress: proceed },
+          { text: t('tabs:plans.keep'), style: 'cancel', onPress: () => reloadActive() },
+          { text: t('tabs:plans.replace'), style: 'destructive', onPress: proceed },
         ],
         { cancelable: true },
       );
@@ -969,7 +975,7 @@ export default function PlansScreen(): React.ReactElement {
       await proceed();
     }
     await reloadActive();
-  }, [activePlan, user, router, reloadActive]);
+  }, [activePlan, user, router, reloadActive, t]);
 
   const handleContinueBlock = useCallback(async () => {
     await advanceTrialBlock(new Date());
@@ -978,19 +984,19 @@ export default function PlansScreen(): React.ReactElement {
 
   const handleDiscardActive = useCallback(() => {
     Alert.alert(
-      'Discard plan?',
-      'This removes the generated plan. Your logged workouts and schedule are untouched.',
+      t('tabs:plans.discardPlanTitle'),
+      t('tabs:plans.discardPlanMessage'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('tabs:plans.cancel'), style: 'cancel' },
         {
-          text: 'Discard',
+          text: t('tabs:plans.discard'),
           style: 'destructive',
           onPress: async () => { await clearActivePlan(); await reloadActive(); },
         },
       ],
       { cancelable: true },
     );
-  }, [reloadActive]);
+  }, [reloadActive, t]);
 
   /**
    * Generate a plan ENTIRELY ON-DEVICE from the survey profile + local history.
@@ -1032,13 +1038,13 @@ export default function PlansScreen(): React.ReactElement {
       const isNoProfile = !((user as Record<string, unknown> | null)?.training_goal);
       setLocalGenError(
         isNoProfile
-          ? 'Set up your Training Profile first so the engine can tailor a plan.'
-          : 'Could not build a plan right now. Please try again.'
+          ? t('tabs:plans.noProfileSetupError')
+          : t('tabs:plans.couldNotBuildPlan')
       );
     } finally {
       setIsGeneratingLocal(false);
     }
-  }, [user]);
+  }, [user, t]);
 
   const handleActivatePlan = useCallback(
     async (plan: Plan) => {
@@ -1051,13 +1057,13 @@ export default function PlansScreen(): React.ReactElement {
         await refetch();
       } catch (err) {
         haptics.error();
-        const message = err instanceof Error ? err.message : 'Could not set active plan';
-        Alert.alert('Activation failed', message);
+        const message = err instanceof Error ? err.message : t('tabs:plans.couldNotSetActivePlan');
+        Alert.alert(t('tabs:plans.activationFailedTitle'), message);
       } finally {
         setActivatingPlanId(null);
       }
     },
-    [activatingPlanId, refetch]
+    [activatingPlanId, refetch, t]
   );
 
   const handleRefresh = useCallback(async () => {
@@ -1078,12 +1084,12 @@ export default function PlansScreen(): React.ReactElement {
       if (msg.includes('paid_tier_required')) {
         haptics.error();
         Alert.alert(
-          'Pro feature',
-          'Training Engine plans are a paid-tier feature. Upgrade to Peak Fettle Pro.'
+          t('tabs:plans.proFeatureTitle'),
+          t('tabs:plans.proFeatureMessage')
         );
       }
     }
-  }, [generate]);
+  }, [generate, t]);
 
   const handleGeneratePress = useCallback(() => {
     clearGenerateError();
@@ -1114,10 +1120,10 @@ export default function PlansScreen(): React.ReactElement {
             style={[styles.planBuilderButton, { borderColor: theme.colors.accentDefault }]}
             onPress={() => router.push('/plan-survey')}
             accessibilityRole="button"
-            accessibilityLabel="Open the deep plan builder"
+            accessibilityLabel={t('tabs:plans.openDeepPlanBuilder')}
           >
             <Text style={[styles.planBuilderText, { color: theme.colors.accentDefault }]}>
-              {syncsToServer(user) ? 'Build a detailed plan (Pro)' : 'Generate plan (Pro)'}
+              {syncsToServer(user) ? t('tabs:plans.buildDetailedPlanPro') : t('tabs:plans.generatePlanPro')}
             </Text>
           </TouchableOpacity>
           {localPlan && !showLocalPlan ? (
@@ -1128,10 +1134,10 @@ export default function PlansScreen(): React.ReactElement {
               ]}
               onPress={() => setShowLocalPlan(true)}
               accessibilityRole="button"
-              accessibilityLabel="View your last generated plan"
+              accessibilityLabel={t('tabs:plans.viewLastGeneratedPlan')}
             >
               <Text style={[styles.viewLastPlanText, { color: theme.colors.accentDefault }]}>
-                View your latest plan
+                {t('tabs:plans.viewYourLatestPlan')}
               </Text>
             </TouchableOpacity>
           ) : null}
@@ -1145,9 +1151,9 @@ export default function PlansScreen(): React.ReactElement {
                 style={styles.generateRetryButton}
                 onPress={() => router.push('/training-survey' as never)}
                 accessibilityRole="button"
-                accessibilityLabel="Open training profile"
+                accessibilityLabel={t('tabs:plans.openTrainingProfile')}
               >
-                <Text style={[styles.generateRetryText, { color: theme.colors.statusError }]}>Set up</Text>
+                <Text style={[styles.generateRetryText, { color: theme.colors.statusError }]}>{t('tabs:plans.setUp')}</Text>
               </TouchableOpacity>
             </View>
           ) : null}
@@ -1176,7 +1182,7 @@ export default function PlansScreen(): React.ReactElement {
           isLoading ? (
             <View style={styles.centered}>
               <ActivityIndicator size="large" color={theme.colors.accentDefault} />
-              <Text style={[styles.loadingText, { color: theme.colors.textTertiary }]}>Loading plans…</Text>
+              <Text style={[styles.loadingText, { color: theme.colors.textTertiary }]}>{t('tabs:plans.loadingPlans')}</Text>
             </View>
           ) : error ? (
             <View style={[
@@ -1188,16 +1194,16 @@ export default function PlansScreen(): React.ReactElement {
                 style={[styles.retryButton, { backgroundColor: theme.colors.statusError }]}
                 onPress={refetch}
                 accessibilityRole="button"
-                accessibilityLabel="Retry loading plans"
+                accessibilityLabel={t('tabs:plans.retryLoadingPlans')}
               >
-                <Text style={[styles.retryButtonText, { color: theme.colors.textPrimary }]}>Retry</Text>
+                <Text style={[styles.retryButtonText, { color: theme.colors.textPrimary }]}>{t('tabs:plans.retry')}</Text>
               </TouchableOpacity>
             </View>
           ) : (
             <>
               {userPlans.length > 0 ? (
                 <View style={styles.section}>
-                  <Text style={[styles.sectionHeader, { color: theme.colors.textTertiary }]}>SAVED PLANS</Text>
+                  <Text style={[styles.sectionHeader, { color: theme.colors.textTertiary }]}>{t('tabs:plans.savedPlansSectionHeader')}</Text>
                   {userPlans.map((plan) => (
                     <PlanCard
                       key={plan.id}
@@ -1212,7 +1218,7 @@ export default function PlansScreen(): React.ReactElement {
 
               {templates.length > 0 ? (
                 <View style={styles.section}>
-                  <Text style={[styles.sectionHeader, { color: theme.colors.textTertiary }]}>TEMPLATES</Text>
+                  <Text style={[styles.sectionHeader, { color: theme.colors.textTertiary }]}>{t('tabs:plans.templatesSectionHeader')}</Text>
                   {templates.map((plan) => (
                     <PlanCard
                       key={plan.id}
@@ -1230,7 +1236,7 @@ export default function PlansScreen(): React.ReactElement {
         <View style={{ paddingHorizontal: spacing.s4, paddingBottom: spacing.s3 }}>
           <PFButton
             variant="ghost"
-            label="Browse Workout Templates"
+            label={t('tabs:plans.browseWorkoutTemplates')}
             onPress={() => router.push('/templates')}
           />
         </View>

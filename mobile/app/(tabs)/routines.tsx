@@ -62,6 +62,7 @@ import ScheduleEditorSheet from '../../src/components/ScheduleEditorSheet'; // T
 import { loadSchedule, resolveNextUp, skipToNext, Schedule, NextUp, ScheduleSlot } from '../../src/data/schedule';
 import { localDb } from '../../src/db/localDb'; // TICKET-097: react to schedule changes
 import { createShareLink } from '../../src/data/shareLinks'; // TICKET-138
+import { useTranslation } from 'react-i18next';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -70,12 +71,12 @@ type SheetMode = 'new' | null;
 /** Starter-split goal filters (option 14). */
 type GoalFilter = 'all' | 'strength' | 'hypertrophy' | 'ppl' | 'full-body';
 
-const GOAL_CHIPS: { key: GoalFilter; label: string }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'strength', label: 'Strength' },
-  { key: 'hypertrophy', label: 'Hypertrophy' },
-  { key: 'ppl', label: 'PPL' },
-  { key: 'full-body', label: 'Full body' },
+const GOAL_CHIPS: { key: GoalFilter; labelKey: string }[] = [
+  { key: 'all', labelKey: 'tabs:routines.goalAll' },
+  { key: 'strength', labelKey: 'tabs:routines.goalStrength' },
+  { key: 'hypertrophy', labelKey: 'tabs:routines.goalHypertrophy' },
+  { key: 'ppl', labelKey: 'tabs:routines.goalPpl' },
+  { key: 'full-body', labelKey: 'tabs:routines.goalFullBody' },
 ];
 
 const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -83,7 +84,7 @@ const WEEKDAY_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 /** Compact relative label for an ISO timestamp, e.g. "2d ago", "3w ago". */
-function relativeFromIso(iso: string | undefined): string | null {
+function relativeFromIso(iso: string | undefined, t: (key: string, opts?: Record<string, unknown>) => string): string | null {
   if (!iso) return null;
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return null;
@@ -91,13 +92,13 @@ function relativeFromIso(iso: string | undefined): string | null {
   if (diffMs < 0) return null;
   const day = 86_400_000;
   const days = Math.floor(diffMs / day);
-  if (days === 0) return 'today';
-  if (days === 1) return 'yesterday';
-  if (days < 7) return `${days}d ago`;
+  if (days === 0) return t('tabs:routines.relToday');
+  if (days === 1) return t('tabs:routines.relYesterday');
+  if (days < 7) return t('tabs:routines.relDaysAgo', { count: days });
   const weeks = Math.floor(days / 7);
-  if (weeks < 5) return `${weeks}w ago`;
+  if (weeks < 5) return t('tabs:routines.relWeeksAgo', { count: weeks });
   const months = Math.floor(days / 30);
-  return months <= 1 ? '1mo ago' : `${months}mo ago`;
+  return months <= 1 ? t('tabs:routines.relMonthAgo') : t('tabs:routines.relMonthsAgo', { count: months });
 }
 
 /**
@@ -140,6 +141,7 @@ export default function RoutinesPage(): React.ReactElement {
   const c = theme.colors;
   const { user } = useAuth();
   const userId = user?.id ?? '';
+  const { t } = useTranslation();
 
   // TICKET-095: anchor the "＋ New" button so the welcome tour can spotlight it.
   const newRoutineAnchor = useTourAnchor('routines-new');
@@ -266,7 +268,7 @@ export default function RoutinesPage(): React.ReactElement {
       closeSheet();
       setEditorRoutine(r);
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Could not save routine');
+      Alert.alert(t('tabs:routines.errorTitle'), err instanceof Error ? err.message : t('tabs:routines.couldNotSaveRoutine'));
     } finally {
       setSaving(false);
     }
@@ -274,19 +276,19 @@ export default function RoutinesPage(): React.ReactElement {
 
   const handleDelete = useCallback((routine: Routine) => {
     Alert.alert(
-      'Delete routine',
-      `Delete "${routine.name}"? This cannot be undone.`,
+      t('tabs:routines.deleteRoutineTitle'),
+      t('tabs:routines.deleteRoutineMessage', { name: routine.name }),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('tabs:routines.cancel'), style: 'cancel' },
         {
-          text: 'Delete',
+          text: t('tabs:routines.delete'),
           style: 'destructive',
           onPress: async () => {
             try {
               await deleteRoutine(user, routine.id);
               setRoutines((prev) => prev.filter((r) => r.id !== routine.id));
             } catch {
-              Alert.alert('Error', 'Could not delete routine');
+              Alert.alert(t('tabs:routines.errorTitle'), t('tabs:routines.couldNotDeleteRoutine'));
             }
           },
         },
@@ -299,11 +301,11 @@ export default function RoutinesPage(): React.ReactElement {
     try {
       const copy = await duplicateRoutine(user, routine, userId);
       setRoutines((prev) => [copy, ...prev]);
-      showToast('Copied to Yours');
+      showToast(t('tabs:routines.copiedToYours'));
       setRenamingId(copy.id);
       setRenameValue(copy.name);
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Could not duplicate routine');
+      Alert.alert(t('tabs:routines.errorTitle'), err instanceof Error ? err.message : t('tabs:routines.couldNotDuplicateRoutine'));
     }
   }, [user, userId, showToast]);
 
@@ -315,22 +317,22 @@ export default function RoutinesPage(): React.ReactElement {
   const [sharingId, setSharingId] = useState<string | null>(null);
   const handleShare = useCallback(async (routine: Routine) => {
     if (!userId) {
-      Alert.alert('Sign in required', 'Sign in to create a share link for this routine.');
+      Alert.alert(t('tabs:routines.signInRequiredTitle'), t('tabs:routines.signInRequiredMessage'));
       return;
     }
     if (routine.exercises.length === 0) {
-      Alert.alert('Add an exercise first', `"${routine.name}" has no exercises yet.`);
+      Alert.alert(t('tabs:routines.addExerciseFirstTitle'), t('tabs:routines.addExerciseFirstMessage', { name: routine.name }));
       return;
     }
     setSharingId(routine.id);
     try {
       const link = await createShareLink(routine.id);
       await Share.share({
-        message: `Check out my "${routine.name}" routine on Peak Fettle: ${link.deep_link}\n(or open on the web: ${link.preview_url})`,
+        message: t('tabs:routines.shareMessage', { name: routine.name, link: link.deep_link, previewUrl: link.preview_url }),
         url: link.deep_link, // iOS uses `url` when present
       });
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Could not create a share link');
+      Alert.alert(t('tabs:routines.errorTitle'), err instanceof Error ? err.message : t('tabs:routines.couldNotCreateShareLink'));
     } finally {
       setSharingId(null);
     }
@@ -353,7 +355,7 @@ export default function RoutinesPage(): React.ReactElement {
     } catch {
       // Roll back to whatever we had.
       setRoutines((prev) => prev.map((r) => (r.id === id ? current : r)));
-      Alert.alert('Error', 'Could not rename routine');
+      Alert.alert(t('tabs:routines.errorTitle'), t('tabs:routines.couldNotRenameRoutine'));
     }
   }, [renamingId, renameValue, routines, user]);
 
@@ -379,9 +381,9 @@ export default function RoutinesPage(): React.ReactElement {
       }
       setRoutines((prev) => [...created, ...prev]);
       setPreviewTpl(null);
-      showToast(created.length > 1 ? `Added ${created.length} routines` : 'Copied to Yours');
+      showToast(created.length > 1 ? t('tabs:routines.addedRoutinesCount', { count: created.length }) : t('tabs:routines.copiedToYours'));
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Could not add this split');
+      Alert.alert(t('tabs:routines.errorTitle'), err instanceof Error ? err.message : t('tabs:routines.couldNotAddSplit'));
     } finally {
       setSaving(false);
     }
@@ -397,11 +399,11 @@ export default function RoutinesPage(): React.ReactElement {
   const handleStart = useCallback((routine: Routine) => {
     if (routine.exercises.length === 0) {
       Alert.alert(
-        'Add an exercise first',
-        `"${routine.name}" has no exercises yet. Add at least one before starting.`,
+        t('tabs:routines.addExerciseFirstTitle'),
+        t('tabs:routines.addExerciseFirstBeforeStartMessage', { name: routine.name }),
         [
-          { text: 'Not now', style: 'cancel' },
-          { text: 'Edit routine', onPress: () => setEditorRoutine(routine) },
+          { text: t('tabs:routines.notNow'), style: 'cancel' },
+          { text: t('tabs:routines.editRoutine'), onPress: () => setEditorRoutine(routine) },
         ],
       );
       return;
@@ -417,7 +419,7 @@ export default function RoutinesPage(): React.ReactElement {
   }, []);
   const handleStartNextUp = useCallback((nu: NextUp) => {
     if (nu.isRest || !nu.slot.routineId) {
-      Alert.alert('Rest day', 'Today is a rest day in your schedule. Enjoy the recovery.');
+      Alert.alert(t('tabs:routines.restDayTitle'), t('tabs:routines.restDayMessage'));
       return;
     }
     const name = routines.find((r) => r.id === nu.slot.routineId)?.name ?? nu.slot.routineName ?? '';
@@ -442,7 +444,7 @@ export default function RoutinesPage(): React.ReactElement {
     (schedule.mode === 'weekly' ? true : schedule.cycle.length > 1);
   const nextUpName =
     nextUp && nextUp.slot.routineId
-      ? routines.find((r) => r.id === nextUp.slot.routineId)?.name ?? nextUp.slot.routineName ?? 'Routine'
+      ? routines.find((r) => r.id === nextUp.slot.routineId)?.name ?? nextUp.slot.routineName ?? t('tabs:routines.routineFallbackName')
       : null;
 
   // Per-routine schedule chip text (option 13): which weekdays / cycle position
@@ -466,7 +468,7 @@ export default function RoutinesPage(): React.ReactElement {
         ((schedule.position % schedule.cycle.length) + schedule.cycle.length) %
           (schedule.cycle.length || 1)
       ];
-      if (slot?.routineId) map.set(slot.routineId, 'Next in cycle');
+      if (slot?.routineId) map.set(slot.routineId, t('tabs:routines.nextInCycle'));
     }
     return map;
   }, [schedule]);
@@ -509,42 +511,42 @@ export default function RoutinesPage(): React.ReactElement {
         onPress={() => handleShare(routine)}
         disabled={sharingId === routine.id}
         accessibilityRole="button"
-        accessibilityLabel={`Share ${routine.name}`}
+        accessibilityLabel={t('tabs:routines.shareRoutine', { name: routine.name })}
       >
         {sharingId === routine.id ? (
           <ActivityIndicator size="small" color={c.accentDefault} />
         ) : (
           <Ionicons name="share-outline" size={18} color={c.accentDefault} />
         )}
-        <Text style={[styles.swipeActionLabel, { color: c.accentDefault }]}>Share</Text>
+        <Text style={[styles.swipeActionLabel, { color: c.accentDefault }]}>{t('tabs:routines.share')}</Text>
       </TouchableOpacity>
       <TouchableOpacity
         style={[styles.swipeAction, { backgroundColor: c.accentSecondary }]}
         onPress={() => handleDuplicateRoutine(routine)}
         accessibilityRole="button"
-        accessibilityLabel={`Duplicate ${routine.name}`}
+        accessibilityLabel={t('tabs:routines.duplicateRoutine', { name: routine.name })}
       >
         <Ionicons name="copy-outline" size={18} color={c.accentDefault} />
-        <Text style={[styles.swipeActionLabel, { color: c.accentDefault }]}>Copy</Text>
+        <Text style={[styles.swipeActionLabel, { color: c.accentDefault }]}>{t('tabs:routines.copy')}</Text>
       </TouchableOpacity>
       <TouchableOpacity
         style={[styles.swipeAction, { backgroundColor: c.bgElevated }]}
         onPress={() => openEditor(routine)}
         accessibilityRole="button"
-        accessibilityLabel={`Edit ${routine.name}`}
+        accessibilityLabel={t('tabs:routines.editRoutineLabel', { name: routine.name })}
       >
         <Ionicons name="pencil" size={18} color={c.textSecondary} />
-        <Text style={[styles.swipeActionLabel, { color: c.textSecondary }]}>Edit</Text>
+        <Text style={[styles.swipeActionLabel, { color: c.textSecondary }]}>{t('tabs:routines.edit')}</Text>
       </TouchableOpacity>
       <TouchableOpacity
         style={[styles.swipeAction, { backgroundColor: c.statusError }]}
         onPress={() => handleDelete(routine)}
         accessibilityRole="button"
-        accessibilityLabel={`Delete ${routine.name}`}
+        accessibilityLabel={t('tabs:routines.deleteRoutineLabel', { name: routine.name })}
       >
         <Ionicons name="trash-outline" size={18} color={theme.components.buttonDestructiveText} />
         <Text style={[styles.swipeActionLabel, { color: theme.components.buttonDestructiveText }]}>
-          Delete
+          {t('tabs:routines.delete2')}
         </Text>
       </TouchableOpacity>
     </View>
@@ -557,16 +559,16 @@ export default function RoutinesPage(): React.ReactElement {
       <GestureHandlerRootView style={styles.root}>
         {/* ── Page header — single clear "＋ New" (option 4) ─────────────── */}
         <View style={[styles.pageHeader, { borderBottomColor: c.borderDefault }]}>
-          <Text style={[styles.pageTitle, { color: c.textPrimary }]}>Routines</Text>
+          <Text style={[styles.pageTitle, { color: c.textPrimary }]}>{t('tabs:routines.pageTitle')}</Text>
           <TouchableOpacity
             ref={newRoutineAnchor.ref}
             style={[styles.newPill, { backgroundColor: c.accentDefault }]}
             onPress={openNewSheet}
             accessibilityRole="button"
-            accessibilityLabel="New routine"
+            accessibilityLabel={t('tabs:routines.newRoutine')}
           >
             <Ionicons name="add" size={16} color={theme.components.buttonPrimaryText} />
-            <Text style={[styles.newPillLabel, { color: theme.components.buttonPrimaryText }]}>New</Text>
+            <Text style={[styles.newPillLabel, { color: theme.components.buttonPrimaryText }]}>{t('tabs:routines.new')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -588,26 +590,26 @@ export default function RoutinesPage(): React.ReactElement {
                         onPress={handleSkipNextUp}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         accessibilityRole="button"
-                        accessibilityLabel={`Skip ${nextUp.isRest ? 'rest day' : nextUpName ?? 'this routine'}`}
+                        accessibilityLabel={t('tabs:routines.skipLabel', { what: nextUp.isRest ? t('tabs:routines.restDayLower') : nextUpName ?? t('tabs:routines.thisRoutine') })}
                       >
-                        <Text style={[styles.nextUpSkip, { color: c.accentDefault }]}>Skip ›</Text>
+                        <Text style={[styles.nextUpSkip, { color: c.accentDefault }]}>{t('tabs:routines.skip')}</Text>
                       </TouchableOpacity>
                     ) : null}
                   </View>
                   <View style={styles.nextUpRow}>
                     <Text style={[styles.nextUpName, { color: c.textPrimary }]} numberOfLines={1}>
-                      {nextUp.isRest ? 'Rest day' : nextUpName}
+                      {nextUp.isRest ? t('tabs:routines.restDay') : nextUpName}
                     </Text>
                     {!nextUp.isRest ? (
                       <TouchableOpacity
                         onPress={() => handleStartNextUp(nextUp)}
                         style={[styles.nextUpStart, { backgroundColor: c.accentDefault }]}
                         accessibilityRole="button"
-                        accessibilityLabel={`Start ${nextUpName ?? 'next workout'}`}
+                        accessibilityLabel={t('tabs:routines.startLabel', { name: nextUpName ?? t('tabs:routines.nextWorkoutFallback') })}
                       >
                         <Ionicons name="play" size={13} color={theme.components.buttonPrimaryText} />
                         <Text style={[styles.nextUpStartLabel, { color: theme.components.buttonPrimaryText }]}>
-                          Start
+                          {t('tabs:routines.start')}
                         </Text>
                       </TouchableOpacity>
                     ) : null}
@@ -615,7 +617,7 @@ export default function RoutinesPage(): React.ReactElement {
                 </>
               ) : (
                 <Text style={[styles.nextUpHint, { color: c.textSecondary }]}>
-                  Plan your week or build a repeating split — e.g. Push → Pull → Legs and back again.
+                  {t('tabs:routines.nextUpHint')}
                 </Text>
               )}
               <TouchableOpacity
@@ -623,42 +625,42 @@ export default function RoutinesPage(): React.ReactElement {
                 onPress={openScheduleEditor}
                 style={[styles.scheduleBtn, { borderColor: c.accentDefault }]}
                 accessibilityRole="button"
-                accessibilityLabel={hasSchedule ? 'Edit schedule' : 'Create schedule'}
+                accessibilityLabel={hasSchedule ? t('tabs:routines.editSchedule') : t('tabs:routines.createSchedule')}
               >
                 <Ionicons name="calendar-outline" size={14} color={c.accentDefault} />
                 <Text style={[styles.scheduleBtnLabel, { color: c.accentDefault }]}>
-                  {hasSchedule ? 'Edit schedule' : 'Create schedule'}
+                  {hasSchedule ? t('tabs:routines.editSchedule') : t('tabs:routines.createSchedule')}
                 </Text>
               </TouchableOpacity>
             </View>
 
             {/* ── YOURS section (shared section grammar — option 12) ──────── */}
-            <Text style={[styles.sectionLabel, { color: c.textTertiary }]}>YOURS</Text>
+            <Text style={[styles.sectionLabel, { color: c.textTertiary }]}>{t('tabs:routines.yoursSectionLabel')}</Text>
 
             {routines.length === 0 ? (
               // Real empty state + CTAs (option 3).
               <View style={[styles.emptyCard, { backgroundColor: c.bgSecondary, borderColor: c.borderDefault }]}>
                 <Ionicons name="barbell-outline" size={28} color={c.textTertiary} />
-                <Text style={[styles.emptyTitle, { color: c.textPrimary }]}>No routines yet</Text>
+                <Text style={[styles.emptyTitle, { color: c.textPrimary }]}>{t('tabs:routines.noRoutinesYet')}</Text>
                 <Text style={[styles.emptyBody, { color: c.textSecondary }]}>
-                  Build your own session, or duplicate a starter split to get going fast.
+                  {t('tabs:routines.noRoutinesBody')}
                 </Text>
                 <TouchableOpacity
                   style={[styles.emptyPrimaryBtn, { backgroundColor: c.accentDefault }]}
                   onPress={openNewSheet}
                   accessibilityRole="button"
-                  accessibilityLabel="Build your first routine"
+                  accessibilityLabel={t('tabs:routines.buildFirstRoutine')}
                 >
                   <Text style={[styles.emptyPrimaryLabel, { color: theme.components.buttonPrimaryText }]}>
-                    Build your first routine
+                    {t('tabs:routines.buildFirstRoutine')}
                   </Text>
                 </TouchableOpacity>
-                <Text style={[styles.emptyOr, { color: c.textTertiary }]}>or duplicate a starter split below</Text>
+                <Text style={[styles.emptyOr, { color: c.textTertiary }]}>{t('tabs:routines.orDuplicateBelow')}</Text>
               </View>
             ) : (
               routines.map((routine) => {
                 const startable = routine.exercises.length > 0;
-                const last = relativeFromIso(lastPerformed.get(routine.id));
+                const last = relativeFromIso(lastPerformed.get(routine.id), t);
                 const chip = scheduleChips.get(routine.id);
                 const isRenaming = renamingId === routine.id;
                 return (
@@ -683,14 +685,14 @@ export default function RoutinesPage(): React.ReactElement {
                             selectTextOnFocus
                             maxLength={100}
                             returnKeyType="done"
-                            accessibilityLabel="Rename routine"
+                            accessibilityLabel={t('tabs:routines.renameRoutine')}
                           />
                         ) : (
                           <TouchableOpacity
                             style={styles.routineNameWrap}
                             onPress={() => openEditor(routine)}
                             accessibilityRole="button"
-                            accessibilityLabel={`Edit ${routine.name}`}
+                            accessibilityLabel={t('tabs:routines.editRoutineLabel', { name: routine.name })}
                           >
                             <Text style={[styles.routineName, { color: c.textPrimary }]} numberOfLines={1}>
                               {routine.name}
@@ -716,7 +718,7 @@ export default function RoutinesPage(): React.ReactElement {
                         <View style={[styles.metaBadge, { backgroundColor: c.bgTertiary }]}>
                           <Ionicons name="list-outline" size={12} color={c.textSecondary} />
                           <Text style={[styles.metaBadgeText, { color: c.textSecondary }]}>
-                            {routine.exercises.length} exercise{routine.exercises.length !== 1 ? 's' : ''}
+                            {t('tabs:routines.exerciseCount', { count: routine.exercises.length })}
                           </Text>
                         </View>
                         {last ? (
@@ -731,7 +733,7 @@ export default function RoutinesPage(): React.ReactElement {
                             style={[styles.metaBadge, { backgroundColor: c.accentSecondary }]}
                             onPress={openScheduleEditor}
                             accessibilityRole="button"
-                            accessibilityLabel={`Scheduled ${chip} — edit schedule`}
+                            accessibilityLabel={t('tabs:routines.scheduledEditSchedule', { chip })}
                           >
                             <Ionicons name="calendar-outline" size={12} color={c.accentDefault} />
                             <Text style={[styles.metaBadgeText, { color: c.accentDefault }]}>{chip}</Text>
@@ -751,25 +753,25 @@ export default function RoutinesPage(): React.ReactElement {
                           accessibilityRole="button"
                           accessibilityState={{ disabled: !startable }}
                           accessibilityLabel={
-                            startable ? `Start ${routine.name}` : `Start ${routine.name} (add an exercise first)`
+                            startable ? t('tabs:routines.startLabel', { name: routine.name }) : t('tabs:routines.startRoutineDisabled', { name: routine.name })
                           }
                         >
                           <Ionicons name="play" size={13} color={startable ? c.accentDefault : c.textTertiary} />
                           <Text style={[styles.actionBtnPrimaryLabel, { color: startable ? c.accentDefault : c.textTertiary }]}>
-                            Start
+                            {t('tabs:routines.start')}
                           </Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={[styles.actionBtnGhost, { borderColor: c.borderDefault }]}
                           onPress={() => openEditor(routine)}
                           accessibilityRole="button"
-                          accessibilityLabel={`Edit ${routine.name}`}
+                          accessibilityLabel={t('tabs:routines.editRoutineLabel', { name: routine.name })}
                         >
                           <Ionicons name="pencil" size={13} color={c.textSecondary} />
-                          <Text style={[styles.actionBtnGhostLabel, { color: c.textSecondary }]}>Edit</Text>
+                          <Text style={[styles.actionBtnGhostLabel, { color: c.textSecondary }]}>{t('tabs:routines.edit')}</Text>
                         </TouchableOpacity>
                       </View>
-                      <Text style={[styles.swipeHint, { color: c.textTertiary }]}>Swipe left for more</Text>
+                      <Text style={[styles.swipeHint, { color: c.textTertiary }]}>{t('tabs:routines.swipeForMore')}</Text>
                     </View>
                   </ReanimatedSwipeable>
                 );
@@ -778,7 +780,7 @@ export default function RoutinesPage(): React.ReactElement {
 
             {/* ── STARTER SPLITS section (shared section grammar — option 12) ─ */}
             <Text style={[styles.sectionLabel, { color: c.textTertiary, marginTop: spacing.s5 }]}>
-              STARTER SPLITS
+              {t('tabs:routines.starterSplitsSectionLabel')}
             </Text>
 
             {/* Goal filter chips (option 14) */}
@@ -803,7 +805,7 @@ export default function RoutinesPage(): React.ReactElement {
                     onPress={() => setGoalFilter(g.key)}
                     accessibilityRole="button"
                     accessibilityState={{ selected: active }}
-                    accessibilityLabel={`Filter starter splits by ${g.label}`}
+                    accessibilityLabel={t('tabs:routines.filterByGoal', { goal: t(g.labelKey as any) })}
                   >
                     <Text
                       style={[
@@ -811,7 +813,7 @@ export default function RoutinesPage(): React.ReactElement {
                         { color: active ? theme.components.buttonPrimaryText : c.textSecondary },
                       ]}
                     >
-                      {g.label}
+                      {t(g.labelKey as any)}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -821,7 +823,7 @@ export default function RoutinesPage(): React.ReactElement {
             {filteredTemplates.length === 0 ? (
               <View style={[styles.emptyCard, { backgroundColor: c.bgSecondary, borderColor: c.borderDefault }]}>
                 <Text style={[styles.emptyBody, { color: c.textSecondary, textAlign: 'center' }]}>
-                  No starter splits match this goal.
+                  {t('tabs:routines.noStarterSplitsMatch')}
                 </Text>
               </View>
             ) : (
@@ -834,7 +836,7 @@ export default function RoutinesPage(): React.ReactElement {
                     style={[styles.templateCard, { backgroundColor: c.bgSecondary, borderColor: c.borderDefault }]}
                     onPress={() => openPreview(tpl)}
                     accessibilityRole="button"
-                    accessibilityLabel={`Preview ${tpl.name}`}
+                    accessibilityLabel={t('tabs:routines.previewTemplate', { name: tpl.name })}
                   >
                     <View style={styles.templateCardTop}>
                       <Text style={[styles.templateName, { color: c.textPrimary }]} numberOfLines={1}>
@@ -844,8 +846,8 @@ export default function RoutinesPage(): React.ReactElement {
                     </View>
                     <Text style={[styles.templateMeta, { color: c.textSecondary }]} numberOfLines={1}>
                       {[
-                        days ? `${days} day${days !== 1 ? 's' : ''}` : null,
-                        exercises ? `${exercises} exercises` : null,
+                        days ? t('tabs:routines.dayCount', { count: days }) : null,
+                        exercises ? t('tabs:routines.exercisesCountPlain', { count: exercises }) : null,
                         tpl.discipline,
                       ]
                         .filter(Boolean)
@@ -887,12 +889,12 @@ export default function RoutinesPage(): React.ReactElement {
             <Pressable style={styles.sheetBackdrop} onPress={closeSheet} />
             <View style={[styles.sheet, { backgroundColor: stepperPalette.card, borderColor: stepperPalette.accentLine }]}>
               <View style={styles.sheetHandle} />
-              <Text style={styles.sheetTitle}>New routine</Text>
+              <Text style={styles.sheetTitle}>{t('tabs:routines.newRoutine')}</Text>
               <TextInput
                 style={styles.sheetInput}
                 value={nameInput}
                 onChangeText={setNameInput}
-                placeholder="e.g. Push A"
+                placeholder={t('tabs:routines.pushAPlaceholder')}
                 placeholderTextColor={stepperPalette.muted}
                 autoFocus
                 maxLength={100}
@@ -901,7 +903,7 @@ export default function RoutinesPage(): React.ReactElement {
               />
               <View style={styles.sheetActions}>
                 <TouchableOpacity style={styles.sheetCancelBtn} onPress={closeSheet}>
-                  <Text style={styles.sheetCancelLabel}>Cancel</Text>
+                  <Text style={styles.sheetCancelLabel}>{t('tabs:routines.cancel')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.sheetSaveBtn, !nameInput.trim() && styles.sheetSaveBtnDisabled]}
@@ -910,7 +912,7 @@ export default function RoutinesPage(): React.ReactElement {
                 >
                   {saving
                     ? <ActivityIndicator size="small" color={stepperPalette.accentInk} />
-                    : <Text style={styles.sheetSaveLabel}>Create</Text>
+                    : <Text style={styles.sheetSaveLabel}>{t('tabs:routines.create')}</Text>
                   }
                 </TouchableOpacity>
               </View>
@@ -926,7 +928,7 @@ export default function RoutinesPage(): React.ReactElement {
           description={previewTpl?.description}
           exercises={previewExercises}
           onStart={() => { if (previewTpl) handleUseTemplate(previewTpl); }}
-          startLabel={saving ? 'Adding…' : 'Use this'}
+          startLabel={saving ? t('tabs:routines.adding') : t('tabs:routines.useThis')}
         />
 
         {/* ── Full-screen routine editor ───────────────────────────────────── */}

@@ -40,6 +40,8 @@ import { useTheme } from '../src/theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../src/theme/tokens';
 import { ScreenLayout } from '../src/components/ui';
 import { useAuth } from '../src/hooks/useAuth';
+import { useTranslation } from 'react-i18next';
+import i18n from '../src/i18n';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -54,8 +56,8 @@ function formatDate(dateStr: string): string {
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const yesterdayKey = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
 
-  if (dateStr === todayKey) return 'Today';
-  if (dateStr === yesterdayKey) return 'Yesterday';
+  if (dateStr === todayKey) return i18n.t('screens:healthMetrics.today');
+  if (dateStr === yesterdayKey) return i18n.t('screens:healthMetrics.yesterday');
 
   return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 }
@@ -248,6 +250,7 @@ export default function HealthMetricsScreen(): React.ReactElement {
   const router = useRouter();
   const { theme } = useTheme();
   const { user } = useAuth();
+  const { t } = useTranslation();
   const unitPref: 'kg' | 'lbs' = user?.unit_pref === 'lbs' ? 'lbs' : 'kg';
   const {
     metrics,
@@ -279,11 +282,11 @@ export default function HealthMetricsScreen(): React.ReactElement {
           style={styles.backButton}
           onPress={() => router.back()}
           accessibilityRole="button"
-          accessibilityLabel="Go back"
+          accessibilityLabel={t('screens:healthMetrics.goBack')}
         >
-          <Text style={[styles.backButtonText, { color: theme.colors.accentDefault }]}>‹ Back</Text>
+          <Text style={[styles.backButtonText, { color: theme.colors.accentDefault }]}>{t('screens:healthMetrics.backLabel')}</Text>
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.colors.textPrimary }]}>Health Metrics</Text>
+        <Text style={[styles.headerTitle, { color: theme.colors.textPrimary }]}>{t('screens:healthMetrics.title')}</Text>
         <View style={styles.headerRight} />
       </View>
 
@@ -300,33 +303,33 @@ export default function HealthMetricsScreen(): React.ReactElement {
         {/* ── A. 7-day summary chips ── */}
         {summary ? (
           <View style={styles.section}>
-            <Text style={[styles.sectionHeader, { color: theme.colors.textTertiary }]}>7-DAY AVERAGE</Text>
+            <Text style={[styles.sectionHeader, { color: theme.colors.textTertiary }]}>{t('screens:healthMetrics.sevenDayAverage')}</Text>
             <View style={styles.summaryGrid}>
               <SummaryChip
-                label="Resting HR"
+                label={t('screens:healthMetrics.restingHr')}
                 value={fmt(summary.avg_resting_hr_bpm, ' bpm')}
-                sub="heart rate"
+                sub={t('screens:healthMetrics.heartRateSub')}
                 valueColor={hrColorToken(summary.avg_resting_hr_bpm, theme)}
               />
               <SummaryChip
-                label="HRV"
+                label={t('screens:healthMetrics.hrv')}
                 value={fmt(summary.avg_hrv_ms, ' ms')}
-                sub="variability"
+                sub={t('screens:healthMetrics.variabilitySub')}
                 valueColor={hrvColorToken(summary.avg_hrv_ms, theme)}
               />
               <SummaryChip
-                label="Sleep"
+                label={t('screens:healthMetrics.sleep')}
                 value={fmt(summary.avg_sleep_hours, 'h', 1)}
-                sub="per night"
+                sub={t('screens:healthMetrics.perNightSub')}
               />
               <SummaryChip
-                label="Active"
+                label={t('screens:healthMetrics.active')}
                 value={fmt(summary.avg_active_kcal, ' kcal')}
-                sub="per day"
+                sub={t('screens:healthMetrics.perDaySub')}
               />
             </View>
             <Text style={[styles.summaryNote, { color: theme.colors.textTertiary, fontVariant: ['tabular-nums'] }]}>
-              {summary.days_logged} of {summary.window_days} days logged
+              {t('screens:healthMetrics.daysLogged', { logged: summary.days_logged, total: summary.window_days })}
             </Text>
           </View>
         ) : null}
@@ -334,21 +337,19 @@ export default function HealthMetricsScreen(): React.ReactElement {
         {/* ── B. HealthKit sync ── */}
         {Platform.OS === 'ios' ? (
           <View style={styles.section}>
-            <Text style={[styles.sectionHeader, { color: theme.colors.textTertiary }]}>SYNC</Text>
+            <Text style={[styles.sectionHeader, { color: theme.colors.textTertiary }]}>{t('screens:healthMetrics.sync')}</Text>
             <View style={[
               styles.syncCard,
               { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
             ]}>
               <View style={styles.syncCardText}>
-                <Text style={[styles.syncCardTitle, { color: theme.colors.textPrimary }]}>Apple HealthKit</Text>
+                <Text style={[styles.syncCardTitle, { color: theme.colors.textPrimary }]}>{t('screens:healthMetrics.appleHealthKit')}</Text>
                 <Text style={[styles.syncCardSub, { color: theme.colors.textTertiary }]}>
-                  Sync resting HR, HRV, sleep, and active calories from the Health app.
-                  Used by the AI planner to adjust training intensity.
+                  {t('screens:healthMetrics.syncCardSub')}
                 </Text>
                 {!isHealthKitAvailable ? (
                   <Text style={[styles.syncUnavailableNote, { color: theme.colors.statusWarning }]}>
-                    ⚠ HealthKit requires a development build (EAS).
-                    Tap to see the setup guide.
+                    {t('screens:healthMetrics.healthKitUnavailable')}
                   </Text>
                 ) : null}
               </View>
@@ -362,12 +363,12 @@ export default function HealthMetricsScreen(): React.ReactElement {
                 onPress={sync}
                 disabled={isSyncing}
                 accessibilityRole="button"
-                accessibilityLabel="Sync from HealthKit"
+                accessibilityLabel={t('screens:healthMetrics.syncFromHealthKit')}
               >
                 {isSyncing ? (
                   <ActivityIndicator color={theme.components.buttonPrimaryText} size="small" />
                 ) : (
-                  <Text style={[styles.syncButtonText, { color: theme.components.buttonPrimaryText }]}>Sync Now</Text>
+                  <Text style={[styles.syncButtonText, { color: theme.components.buttonPrimaryText }]}>{t('screens:healthMetrics.syncNow')}</Text>
                 )}
               </TouchableOpacity>
 
@@ -388,8 +389,7 @@ export default function HealthMetricsScreen(): React.ReactElement {
               { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
             ]}>
               <Text style={[styles.androidNoteText, { color: theme.colors.textTertiary }]}>
-                HealthKit sync is available on iOS only. Garmin Connect IQ
-                integration (TICKET-029) will provide health data on Android.
+                {t('screens:healthMetrics.androidNote')}
               </Text>
             </View>
           </View>
@@ -397,12 +397,12 @@ export default function HealthMetricsScreen(): React.ReactElement {
 
         {/* ── C. Daily history ── */}
         <View style={styles.section}>
-          <Text style={[styles.sectionHeader, { color: theme.colors.textTertiary }]}>RECENT DAYS</Text>
+          <Text style={[styles.sectionHeader, { color: theme.colors.textTertiary }]}>{t('screens:healthMetrics.recentDays')}</Text>
 
           {isLoading ? (
             <View style={styles.centered}>
               <ActivityIndicator size="large" color={theme.colors.accentDefault} />
-              <Text style={[styles.loadingText, { color: theme.colors.textTertiary }]}>Loading…</Text>
+              <Text style={[styles.loadingText, { color: theme.colors.textTertiary }]}>{t('common:loading')}</Text>
             </View>
           ) : error ? (
             <View style={[
@@ -410,17 +410,17 @@ export default function HealthMetricsScreen(): React.ReactElement {
               { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.statusError },
             ]}>
               <Text style={[styles.errorText, { color: theme.colors.statusError }]}>{error}</Text>
-              <TouchableOpacity onPress={refetch} accessibilityRole="button" accessibilityLabel="Retry">
-                <Text style={[styles.retryText, { color: theme.colors.statusError }]}>Retry</Text>
+              <TouchableOpacity onPress={refetch} accessibilityRole="button" accessibilityLabel={t('common:retry')}>
+                <Text style={[styles.retryText, { color: theme.colors.statusError }]}>{t('common:retry')}</Text>
               </TouchableOpacity>
             </View>
           ) : metrics.length === 0 ? (
             <View style={styles.emptyState}>
-              <Text style={[styles.emptyStateTitle, { color: theme.colors.textPrimary }]}>No health data yet</Text>
+              <Text style={[styles.emptyStateTitle, { color: theme.colors.textPrimary }]}>{t('screens:healthMetrics.noHealthData')}</Text>
               <Text style={[styles.emptyStateSubtitle, { color: theme.colors.textTertiary }]}>
                 {Platform.OS === 'ios'
-                  ? 'Tap "Sync Now" above to import data from Apple Health.'
-                  : 'Connect a wearable to start logging health metrics.'}
+                  ? t('screens:healthMetrics.emptyStateIos')
+                  : t('screens:healthMetrics.emptyStateAndroid')}
               </Text>
             </View>
           ) : (
@@ -432,9 +432,9 @@ export default function HealthMetricsScreen(): React.ReactElement {
               <View style={[styles.legendRow, { borderBottomColor: theme.colors.borderDefault }]}>
                 <Text style={styles.legendSpacer} />
                 <View style={styles.dayRowStats}>
-                  <Text style={[styles.legendLabel, { color: theme.colors.textTertiary }]}>HR</Text>
-                  <Text style={[styles.legendLabel, { color: theme.colors.textTertiary }]}>HRV</Text>
-                  <Text style={[styles.legendLabel, { color: theme.colors.textTertiary }]}>Sleep</Text>
+                  <Text style={[styles.legendLabel, { color: theme.colors.textTertiary }]}>{t('screens:healthMetrics.legendHr')}</Text>
+                  <Text style={[styles.legendLabel, { color: theme.colors.textTertiary }]}>{t('screens:healthMetrics.legendHrv')}</Text>
+                  <Text style={[styles.legendLabel, { color: theme.colors.textTertiary }]}>{t('screens:healthMetrics.legendSleep')}</Text>
                 </View>
               </View>
 
@@ -451,7 +451,7 @@ export default function HealthMetricsScreen(): React.ReactElement {
             so it stays out of the way for lift-only users. */}
         {cardioSessions.length > 0 ? (
           <View style={styles.section}>
-            <Text style={[styles.sectionHeader, { color: theme.colors.textTertiary }]}>RECENT CARDIO</Text>
+            <Text style={[styles.sectionHeader, { color: theme.colors.textTertiary }]}>{t('screens:healthMetrics.recentCardio')}</Text>
             <View style={[
               styles.dayList,
               { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },

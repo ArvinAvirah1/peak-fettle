@@ -64,7 +64,12 @@ for (const file of targets) {
   KEY_RE.lastIndex = 0;
   let m;
   while ((m = KEY_RE.exec(src)) !== null) {
-    if (!known.has(m[1])) { console.log(`MISSING KEY  ${m[1]}  (${file})`); missingKeys++; }
+    // i18next plural convention: t('k', {count}) resolves k_one / k_other.
+    const k = m[1];
+    if (!known.has(k) && !known.has(`${k}_one`) && !known.has(`${k}_other`)) {
+      console.log(`MISSING KEY  ${k}  (${file})`);
+      missingKeys++;
+    }
   }
 
   // JSXText can only exist in .tsx; data-only .ts files (e.g. the derived

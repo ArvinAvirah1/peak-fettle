@@ -55,6 +55,8 @@ import { fontSize, fontWeight, spacing, radius } from '../src/theme/tokens';
 import { ScreenLayout, PFButton, PFProgressBar } from '../src/components/ui';
 import { formatWeight } from '../src/constants/units';
 import { getLeaderboardOptIn, setLeaderboardOptIn } from '../src/data/groupSignals';
+import { useTranslation } from 'react-i18next';
+import i18n from '../src/i18n';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -101,6 +103,7 @@ interface GroupHeaderProps {
 
 function GroupHeader({ name, memberCount, streakWeeks, onBack }: GroupHeaderProps) {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const hasStreak = streakWeeks > 0;
 
   return (
@@ -118,7 +121,7 @@ function GroupHeader({ name, memberCount, streakWeeks, onBack }: GroupHeaderProp
         style={styles.backBtn}
         onPress={onBack}
         accessibilityRole="button"
-        accessibilityLabel="Go back"
+        accessibilityLabel={t('screens:groupDetail.goBack')}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       >
         <Text style={[styles.backChevron, { color: theme.colors.accentDefault }]}>‹</Text>
@@ -133,8 +136,8 @@ function GroupHeader({ name, memberCount, streakWeeks, onBack }: GroupHeaderProp
           {name}
         </Text>
         <Text style={[styles.headerSubtitle, { color: theme.colors.textSecondary }]}>
-          {memberCount} member{memberCount !== 1 ? 's' : ''}
-          {hasStreak ? `  ·  🔥 ${streakWeeks}-wk streak` : ''}
+          {t('screens:groupDetail.memberCount', { count: memberCount })}
+          {hasStreak ? t('screens:groupDetail.streakSuffix', { weeks: streakWeeks }) : ''}
         </Text>
       </View>
 
@@ -173,6 +176,7 @@ interface WeeklyGoalCardProps {
 
 function WeeklyGoalCard({ activeCount, membersHitThisWeek, goalLabel }: WeeklyGoalCardProps) {
   const { theme } = useTheme();
+  const { t } = useTranslation();
 
   // >50% threshold per spec §5
   const threshold = activeCount > 0 ? Math.floor(activeCount / 2) + 1 : 1;
@@ -194,7 +198,7 @@ function WeeklyGoalCard({ activeCount, membersHitThisWeek, goalLabel }: WeeklyGo
       {/* Card header row */}
       <View style={styles.cardHeaderRow}>
         <Text style={[styles.cardLabel, { color: theme.colors.textTertiary }]}>
-          THIS WEEK
+          {t('screens:groupDetail.thisWeek')}
         </Text>
         <View
           style={[
@@ -213,7 +217,7 @@ function WeeklyGoalCard({ activeCount, membersHitThisWeek, goalLabel }: WeeklyGo
               color: onTrack ? theme.colors.statusSuccess : theme.colors.statusWarning,
             }}
           >
-            {onTrack ? '✓ On track' : '⏳ In progress'}
+            {onTrack ? t('screens:groupDetail.onTrack') : t('screens:groupDetail.inProgress')}
           </Text>
         </View>
       </View>
@@ -240,7 +244,7 @@ function WeeklyGoalCard({ activeCount, membersHitThisWeek, goalLabel }: WeeklyGo
 
       {/* Threshold note */}
       <Text style={[styles.thresholdNote, { color: theme.colors.textTertiary }]}>
-        {threshold} of {activeCount} must hit goal for group credit
+        {t('screens:groupDetail.thresholdNote', { threshold, activeCount })}
       </Text>
     </View>
   );
@@ -294,7 +298,7 @@ function LeaderboardWeekTable({
       </Text>
       {sorted.length === 0 ? (
         <Text style={[styles.emptyHistoryText, { color: theme.colors.textTertiary }]}>
-          No members yet.
+          {i18n.t('screens:groupDetail.noMembersYet')}
         </Text>
       ) : (
         sorted.map((entry, idx) => (
@@ -314,7 +318,7 @@ function LeaderboardWeekTable({
               style={[styles.leaderboardName, { color: theme.colors.textPrimary }]}
               numberOfLines={1}
             >
-              {entry.display_name ?? 'Member'}
+              {entry.display_name ?? i18n.t('screens:groupDetail.memberFallback')}
             </Text>
             <Text
               style={[
@@ -346,6 +350,7 @@ function LeaderboardWeekTable({
 
 function LeaderboardCard({ leaderboard, unitPref }: LeaderboardCardProps) {
   const { theme } = useTheme();
+  const { t } = useTranslation();
 
   return (
     <View
@@ -361,24 +366,22 @@ function LeaderboardCard({ leaderboard, unitPref }: LeaderboardCardProps) {
     >
       <View style={styles.cardHeaderRow}>
         <Text style={[styles.cardLabel, { color: theme.colors.textTertiary }]}>
-          LEADERBOARD
+          {t('screens:groupDetail.leaderboard')}
         </Text>
       </View>
       <Text style={[styles.leaderboardNote, { color: theme.colors.textTertiary }]}>
-        Volume logged this week and last, for members who've opted in. Volume
-        isn't a strength comparison — it just reflects how much work each
-        person logged.
+        {t('screens:groupDetail.leaderboardNote')}
       </Text>
 
       <LeaderboardWeekTable
-        title="THIS WEEK"
+        title={t('screens:groupDetail.thisWeekCaps')}
         entries={leaderboard.current_week.entries}
         unitPref={unitPref}
         theme={theme}
       />
       {leaderboard.last_week && (
         <LeaderboardWeekTable
-          title="LAST WEEK"
+          title={t('screens:groupDetail.lastWeekCaps')}
           entries={leaderboard.last_week.entries}
           unitPref={unitPref}
           theme={theme}
@@ -400,6 +403,7 @@ interface LeaderboardOptInRowProps {
 
 function LeaderboardOptInRow({ optedIn, isLoading, onToggle }: LeaderboardOptInRowProps) {
   const { theme } = useTheme();
+  const { t } = useTranslation();
 
   return (
     <TouchableOpacity
@@ -416,7 +420,7 @@ function LeaderboardOptInRow({ optedIn, isLoading, onToggle }: LeaderboardOptInR
       activeOpacity={0.7}
       accessibilityRole="switch"
       accessibilityState={{ checked: optedIn, disabled: isLoading }}
-      accessibilityLabel="Share my volume in this group's leaderboard"
+      accessibilityLabel={t('screens:groupDetail.shareVolumeLabel')}
     >
       <Ionicons
         name={optedIn ? 'checkmark-circle' : 'ellipse-outline'}
@@ -424,7 +428,7 @@ function LeaderboardOptInRow({ optedIn, isLoading, onToggle }: LeaderboardOptInR
         color={optedIn ? theme.colors.statusSuccess : theme.colors.textTertiary}
       />
       <Text style={[styles.editGoalText, { color: theme.colors.textPrimary }]}>
-        Share my volume in this group's leaderboard
+        {t('screens:groupDetail.shareVolumeLabel')}
       </Text>
       {isLoading ? (
         <ActivityIndicator size="small" />
@@ -449,6 +453,7 @@ interface MemberRowProps {
 
 function MemberRow({ member, weekStatus, isCurrentUser, isAdmin, onKick }: MemberRowProps) {
   const { theme } = useTheme();
+  const { t } = useTranslation();
 
   // This-week icon and colour
   const statusIcon =
@@ -463,14 +468,14 @@ function MemberRow({ member, weekStatus, isCurrentUser, isAdmin, onKick }: Membe
   const handleLongPress = () => {
     if (!isAdmin || isCurrentUser || member.status !== 'active') return;
     Alert.alert(
-      `Kick ${member.display_name ?? 'member'}?`,
-      'They cannot rejoin for 4 weeks.',
+      t('screens:groupDetail.kickMemberTitle', { name: member.display_name ?? t('screens:groupDetail.memberFallbackLower') }),
+      t('screens:groupDetail.kickMemberMessage'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common:cancel'), style: 'cancel' },
         {
-          text: 'Kick',
+          text: t('screens:groupDetail.kick'),
           style: 'destructive',
-          onPress: () => onKick(member.user_id, member.display_name ?? 'Member'),
+          onPress: () => onKick(member.user_id, member.display_name ?? t('screens:groupDetail.memberFallback')),
         },
       ]
     );
@@ -489,7 +494,7 @@ function MemberRow({ member, weekStatus, isCurrentUser, isAdmin, onKick }: Membe
       onLongPress={handleLongPress}
       activeOpacity={isAdmin && !isCurrentUser ? 0.7 : 1}
       accessibilityRole="button"
-      accessibilityLabel={`${member.display_name ?? 'Member'}${isCurrentUser ? ', you' : ''}`}
+      accessibilityLabel={`${member.display_name ?? t('screens:groupDetail.memberFallback')}${isCurrentUser ? t('screens:groupDetail.youSuffix') : ''}`}
     >
       {/* Avatar — accentDefault bg, bold white initial */}
       <View style={[styles.avatar, { backgroundColor: theme.colors.accentDefault }]}>
@@ -504,10 +509,10 @@ function MemberRow({ member, weekStatus, isCurrentUser, isAdmin, onKick }: Membe
           style={[styles.memberName, { color: theme.colors.textPrimary }]}
           numberOfLines={1}
         >
-          {member.display_name ?? 'Unknown'}
+          {member.display_name ?? t('screens:groupDetail.unknown')}
           {isCurrentUser ? (
             <Text style={{ color: theme.colors.textTertiary, fontWeight: fontWeight.regular }}>
-              {' '}(you)
+              {' '}{t('screens:groupDetail.youParen')}
             </Text>
           ) : null}
         </Text>
@@ -536,6 +541,7 @@ interface CreditCardProps {
 
 function CreditCard({ balance }: CreditCardProps) {
   const { theme } = useTheme();
+  const { t } = useTranslation();
 
   return (
     <View
@@ -562,7 +568,7 @@ function CreditCard({ balance }: CreditCardProps) {
       {/* Balance text */}
       <View style={{ flex: 1 }}>
         <Text style={[styles.cardLabel, { color: theme.colors.textTertiary }]}>
-          GROUP CREDIT BALANCE
+          {t('screens:groupDetail.groupCreditBalance')}
         </Text>
         <Text
           style={[
@@ -570,7 +576,7 @@ function CreditCard({ balance }: CreditCardProps) {
             { color: theme.colors.textPrimary, fontVariant: ['tabular-nums'] },
           ]}
         >
-          {balance.toLocaleString()} credits
+          {t('screens:groups.creditsAmount', { amount: balance.toLocaleString() })}
         </Text>
       </View>
     </View>
@@ -587,6 +593,7 @@ interface HistoryGridProps {
 
 function HistoryGrid({ evaluations }: HistoryGridProps) {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const recent = evaluations.slice(0, 4); // last 4 completed weeks
 
   return (
@@ -602,22 +609,22 @@ function HistoryGrid({ evaluations }: HistoryGridProps) {
       ]}
     >
       <Text style={[styles.cardLabel, { color: theme.colors.textTertiary, marginBottom: spacing.s3 }]}>
-        HISTORY{recent.length > 0 ? ` — LAST ${recent.length} WEEKS` : ''}
+        {recent.length > 0 ? t('screens:groupDetail.historyWithCount', { count: recent.length }) : t('screens:groupDetail.historyNoCount')}
       </Text>
 
       {recent.length === 0 ? (
         <Text style={[styles.emptyHistoryText, { color: theme.colors.textTertiary }]}>
-          No completed weeks yet. Check back after the first Monday boundary.
+          {t('screens:groupDetail.noCompletedWeeks')}
         </Text>
       ) : (
         <>
           {/* Column headers */}
           <View style={styles.historyHeaderRow}>
-            <Text style={[styles.historyColLabel, { color: theme.colors.textTertiary, flex: 2 }]}>Week</Text>
-            <Text style={[styles.historyColLabel, { color: theme.colors.textTertiary, flex: 0.6, textAlign: 'center' }]}>Result</Text>
-            <Text style={[styles.historyColLabel, { color: theme.colors.textTertiary, flex: 1, textAlign: 'center' }]}>Hits</Text>
-            <Text style={[styles.historyColLabel, { color: theme.colors.textTertiary, flex: 1, textAlign: 'right' }]}>Credits</Text>
-            <Text style={[styles.historyColLabel, { color: theme.colors.textTertiary, flex: 0.8, textAlign: 'right' }]}>Mult</Text>
+            <Text style={[styles.historyColLabel, { color: theme.colors.textTertiary, flex: 2 }]}>{t('screens:groupDetail.colWeek')}</Text>
+            <Text style={[styles.historyColLabel, { color: theme.colors.textTertiary, flex: 0.6, textAlign: 'center' }]}>{t('screens:groupDetail.colResult')}</Text>
+            <Text style={[styles.historyColLabel, { color: theme.colors.textTertiary, flex: 1, textAlign: 'center' }]}>{t('screens:groupDetail.colHits')}</Text>
+            <Text style={[styles.historyColLabel, { color: theme.colors.textTertiary, flex: 1, textAlign: 'right' }]}>{t('screens:groupDetail.colCredits')}</Text>
+            <Text style={[styles.historyColLabel, { color: theme.colors.textTertiary, flex: 0.8, textAlign: 'right' }]}>{t('screens:groupDetail.colMult')}</Text>
           </View>
 
           {/* Data rows */}
@@ -702,11 +709,13 @@ function Skeleton() {
 // GoalChangeModal — queued personal weekly goal update
 // ---------------------------------------------------------------------------
 
-const GOAL_OPTIONS: { value: WeeklyGoal; label: string; modifier: string }[] = [
-  { value: 1, label: '1 workout / week', modifier: '0.5× credits' },
-  { value: 2, label: '2 workouts / week', modifier: '0.75× credits' },
-  { value: 3, label: '3+ workouts / week', modifier: '1.0× credits' },
-];
+function getGoalOptions(): { value: WeeklyGoal; label: string; modifier: string }[] {
+  return [
+    { value: 1, label: i18n.t('screens:groups.goal1'), modifier: i18n.t('screens:groups.goal1Modifier') },
+    { value: 2, label: i18n.t('screens:groups.goal2'), modifier: i18n.t('screens:groups.goal2Modifier') },
+    { value: 3, label: i18n.t('screens:groups.goal3'), modifier: i18n.t('screens:groups.goal3Modifier') },
+  ];
+}
 
 interface GoalChangeModalProps {
   visible: boolean;
@@ -726,6 +735,7 @@ function GoalChangeModal({
   error,
 }: GoalChangeModalProps) {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const [selected, setSelected] = useState<WeeklyGoal>(currentGoal);
 
   return (
@@ -737,16 +747,16 @@ function GoalChangeModal({
         {/* Header */}
         <View style={[styles.modalHeader, { borderBottomColor: theme.colors.borderDefault }]}>
           <Text style={[styles.modalTitle, { color: theme.colors.textPrimary }]}>
-            Change Weekly Goal
+            {t('screens:groupDetail.changeWeeklyGoal')}
           </Text>
           <TouchableOpacity
             onPress={onClose}
             disabled={isLoading}
             accessibilityRole="button"
-            accessibilityLabel="Cancel goal change"
+            accessibilityLabel={t('screens:groupDetail.cancelGoalChange')}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Text style={[styles.modalCancel, { color: theme.colors.accentDefault }]}>Cancel</Text>
+            <Text style={[styles.modalCancel, { color: theme.colors.accentDefault }]}>{t('common:cancel')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -757,11 +767,10 @@ function GoalChangeModal({
           keyboardShouldPersistTaps="handled"
         >
           <Text style={[styles.modalNote, { color: theme.colors.textTertiary }]}>
-            Changes take effect at the next Monday 00:00 UTC boundary. Your
-            current week always uses your existing goal.
+            {t('screens:groupDetail.goalChangeNote')}
           </Text>
 
-          {GOAL_OPTIONS.map((opt) => {
+          {getGoalOptions().map((opt) => {
             const isSelected = selected === opt.value;
             return (
               <TouchableOpacity
@@ -819,11 +828,11 @@ function GoalChangeModal({
           ]}
         >
           <PFButton
-            label={selected === currentGoal ? 'No change' : 'Queue change'}
+            label={selected === currentGoal ? t('screens:groupDetail.noChange') : t('screens:groupDetail.queueChange')}
             onPress={() => onSubmit(selected)}
             disabled={isLoading || selected === currentGoal}
             loading={isLoading}
-            accessibilityLabel="Confirm goal change"
+            accessibilityLabel={t('screens:groupDetail.confirmGoalChange')}
           />
         </View>
       </SafeAreaView>
@@ -840,6 +849,7 @@ export default function GroupDetailScreen() {
   const router = useRouter();
   const { user } = useAuth();
   const { theme } = useTheme();
+  const { t } = useTranslation();
 
   // useGroups for leaveGroup (the detail hook doesn't expose leave)
   const { leaveGroup, isLeaving } = useGroups();
@@ -887,7 +897,7 @@ export default function GroupDetailScreen() {
       await setLeaderboardOptIn(groupId, next);
       setLeaderboardOptInState(next);
     } catch {
-      Alert.alert('Error', 'Could not update your leaderboard setting. Please try again.');
+      Alert.alert(t('screens:groupDetail.errorTitle'), t('screens:groupDetail.leaderboardSettingError'));
     } finally {
       setOptInLoading(false);
     }
@@ -918,8 +928,8 @@ export default function GroupDetailScreen() {
     : 1;
   const goalLabel =
     activeMembers.length >= 2
-      ? `${thresholdCount} of ${activeMembers.length} members must hit their personal weekly goal`
-      : 'Needs at least 2 active members to start earning credits';
+      ? t('screens:groupDetail.goalLabelActive', { thresholdCount, activeCount: activeMembers.length })
+      : t('screens:groupDetail.goalLabelInactive');
 
   // Credit balance approximation from evaluation history
   // (real balance shown on the Groups list screen via /credits/balance)
@@ -940,7 +950,7 @@ export default function GroupDetailScreen() {
       try {
         await kickMember(userId);
       } catch {
-        Alert.alert('Error', kickError ?? `Could not kick ${name}. Please try again.`);
+        Alert.alert(t('screens:groupDetail.errorTitle'), kickError ?? t('screens:groupDetail.kickError', { name }));
       }
     },
     [kickMember, kickError]
@@ -960,12 +970,12 @@ export default function GroupDetailScreen() {
 
   const handleLeave = useCallback(() => {
     Alert.alert(
-      'Leave group?',
-      "Your banked credits are kept. You'll be excluded from next week's evaluation.",
+      t('screens:groupDetail.leaveGroupTitle'),
+      t('screens:groupDetail.leaveGroupMessage'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('common:cancel'), style: 'cancel' },
         {
-          text: 'Leave',
+          text: t('screens:groupDetail.leave'),
           style: 'destructive',
           onPress: async () => {
             try {
@@ -973,13 +983,13 @@ export default function GroupDetailScreen() {
               // Navigate back to the groups tab after leaving
               router.replace('/(tabs)/');
             } catch {
-              Alert.alert('Error', 'Could not leave the group. Please try again.');
+              Alert.alert(t('screens:groupDetail.errorTitle'), t('screens:groupDetail.leaveGroupError'));
             }
           },
         },
       ]
     );
-  }, [groupId, leaveGroup, router]);
+  }, [groupId, leaveGroup, router, t]);
 
   // ---------------------------------------------------------------------------
   // Guard: no ID
@@ -989,7 +999,7 @@ export default function GroupDetailScreen() {
     return (
       <ScreenLayout>
         <Text style={{ color: theme.colors.statusError, fontSize: fontSize.bodySm }}>
-          No group ID provided.
+          {t('screens:groupDetail.noGroupId')}
         </Text>
       </ScreenLayout>
     );
@@ -1003,7 +1013,7 @@ export default function GroupDetailScreen() {
     <ScreenLayout horizontalPadding={false}>
       {/* ── 1. Header ── */}
       <GroupHeader
-        name={detail?.name ?? 'Group'}
+        name={detail?.name ?? t('screens:groupDetail.groupFallback')}
         memberCount={activeMembers.length}
         streakWeeks={detail?.current_streak_weeks ?? 0}
         onBack={() => router.back()}
@@ -1029,9 +1039,9 @@ export default function GroupDetailScreen() {
             <TouchableOpacity
               onPress={refetch}
               accessibilityRole="button"
-              accessibilityLabel="Retry loading group"
+              accessibilityLabel={t('screens:groupDetail.retryLoadingGroup')}
             >
-              <Text style={[styles.retryText, { color: theme.colors.accentDefault }]}>Retry</Text>
+              <Text style={[styles.retryText, { color: theme.colors.accentDefault }]}>{t('common:retry')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1075,11 +1085,11 @@ export default function GroupDetailScreen() {
           <View>
             <View style={styles.sectionHeaderRow}>
               <Text style={[styles.sectionLabel, { color: theme.colors.textTertiary }]}>
-                MEMBERS ({detail.members.length})
+                {t('screens:groupDetail.membersCount', { count: detail.members.length })}
               </Text>
               {isAdmin && (
                 <Text style={[styles.adminHint, { color: theme.colors.textTertiary }]}>
-                  Long-press to kick
+                  {t('screens:groupDetail.longPressToKick')}
                 </Text>
               )}
             </View>
@@ -1097,11 +1107,11 @@ export default function GroupDetailScreen() {
                 ]}
                 onPress={() => setShowGoalModal(true)}
                 accessibilityRole="button"
-                accessibilityLabel="Change your weekly goal"
+                accessibilityLabel={t('screens:groupDetail.changeYourWeeklyGoal')}
               >
                 <Ionicons name="flag-outline" size={15} color="#0080FF" />
                 <Text style={[styles.editGoalText, { color: '#0080FF' }]}>
-                  Change my weekly goal
+                  {t('screens:groupDetail.changeMyWeeklyGoal')}
                 </Text>
                 <Ionicons name="chevron-forward" size={13} color="#888888" />
               </TouchableOpacity>
@@ -1150,15 +1160,15 @@ export default function GroupDetailScreen() {
           {/* ── 6. Leave Group ── */}
           <View style={styles.leaveSection}>
             <PFButton
-              label="Leave Group"
+              label={t('screens:groupDetail.leaveGroupButton')}
               variant="destructive"
               onPress={handleLeave}
               loading={isLeaving}
               disabled={isLeaving}
-              accessibilityLabel="Leave this group"
+              accessibilityLabel={t('screens:groupDetail.leaveThisGroup')}
             />
             <Text style={[styles.leaveNote, { color: '#888888' }]}>
-              Your banked credits are kept when you leave.
+              {t('screens:groupDetail.leaveNote')}
             </Text>
           </View>
         </ScrollView>

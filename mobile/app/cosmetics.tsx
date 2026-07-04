@@ -44,6 +44,8 @@ import {
   type AvatarCategory,
   type UnlockTier,
 } from '../src/components/avatar/peakAvatarOptions';
+import { useTranslation } from 'react-i18next';
+import i18n from '../src/i18n';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -110,6 +112,7 @@ function StreakProgressBanner({
   isLoading: boolean;
 }): React.ReactElement {
   const { theme, fontSize, fontWeight, radius, spacing } = useTheme();
+  const { t } = useTranslation();
   const next = nextMilestone(streak);
   const prev = prevMilestone(streak);
 
@@ -146,7 +149,11 @@ function StreakProgressBanner({
             flex: 1,
           }}
         >
-          {isLoading ? 'Loading streak…' : allUnlocked ? 'All streak tiers unlocked!' : `${streak}-day streak`}
+          {isLoading
+            ? t('screens:cosmetics.loadingStreak')
+            : allUnlocked
+            ? t('screens:cosmetics.allTiersUnlocked')
+            : t('screens:cosmetics.dayStreak', { count: streak })}
         </Text>
         {!isLoading && !allUnlocked && (
           <Text
@@ -156,7 +163,7 @@ function StreakProgressBanner({
               color: theme.colors.accentDefault,
             }}
           >
-            {`Next: ${next} days`}
+            {t('screens:cosmetics.nextDays', { count: next })}
           </Text>
         )}
       </View>
@@ -216,6 +223,7 @@ function StreakProgressBanner({
 /** The Pro tier locked banner shown at the top of the Pro section. */
 function ProLockedBanner(): React.ReactElement {
   const { theme, fontSize, fontWeight, radius, spacing } = useTheme();
+  const { t } = useTranslation();
   return (
     <View
       style={[
@@ -229,7 +237,7 @@ function ProLockedBanner(): React.ReactElement {
         },
       ]}
       accessibilityRole="none"
-      accessibilityLabel="Pro cosmetics are locked. Upgrade to Pro to unlock them."
+      accessibilityLabel={t('screens:cosmetics.proLockedA11y')}
     >
       <View style={styles.streakHeaderRow}>
         <Ionicons
@@ -247,7 +255,7 @@ function ProLockedBanner(): React.ReactElement {
             flex: 1,
           }}
         >
-          PRO — Exclusive cosmetics
+          {t('screens:cosmetics.proExclusive')}
         </Text>
       </View>
       <Text
@@ -258,9 +266,7 @@ function ProLockedBanner(): React.ReactElement {
           lineHeight: 18,
         }}
       >
-        Upgrade to Peak Fettle Pro to unlock gradient backgrounds, animated
-        accessories, premium outfits, and more. Purchase coming in a future
-        update.
+        {t('screens:cosmetics.proLockedBody')}
       </Text>
     </View>
   );
@@ -316,7 +322,7 @@ function CategorySectionHeader({
               color: theme.colors.accentDefault,
             }}
           >
-            PRO
+            {i18n.t('screens:cosmetics.proBadge')}
           </Text>
         </View>
       )}
@@ -345,6 +351,7 @@ function OptionChip({
   onEquip,
 }: OptionChipProps): React.ReactElement {
   const { theme, fontSize, fontWeight, radius, spacing } = useTheme();
+  const { t } = useTranslation();
 
   const unlocked = isUnlocked(optionId, { streak, isPaid: isPaidUser });
   const locked = !unlocked;
@@ -387,10 +394,10 @@ function OptionChip({
       accessibilityRole="button"
       accessibilityLabel={
         locked
-          ? `${optionId} locked — requires ${tierLabel}`
+          ? t('screens:cosmetics.lockedRequires', { optionId, tierLabel })
           : isEquipped
-          ? `${optionId} equipped`
-          : `Equip ${optionId}`
+          ? t('screens:cosmetics.equipped', { optionId })
+          : t('screens:cosmetics.equip', { optionId })
       }
       accessibilityState={{ selected: isEquipped, disabled: locked }}
     >
@@ -519,6 +526,7 @@ function ProOptionGroup({
 
 export default function CosmeticsScreen(): React.ReactElement {
   const { theme, fontSize, fontWeight, radius, spacing } = useTheme();
+  const { t } = useTranslation();
   const { user } = useAuth();
   const isPaidUser = !!user?.is_paid;
 
@@ -603,7 +611,7 @@ export default function CosmeticsScreen(): React.ReactElement {
             marginBottom: spacing.s3,
           }}
         >
-          Achievements & Shop
+          {t('screens:cosmetics.title')}
         </Text>
         <Text
           style={{
@@ -613,8 +621,7 @@ export default function CosmeticsScreen(): React.ReactElement {
             lineHeight: 20,
           }}
         >
-          Customise your avatar by equipping unlocked items. Reach streak milestones to
-          earn more — or upgrade to Pro for the full catalog.
+          {t('screens:cosmetics.subtitle')}
         </Text>
 
         {/* Streak progress banner */}
@@ -694,7 +701,7 @@ export default function CosmeticsScreen(): React.ReactElement {
               marginBottom: spacing.s3,
             }}
           >
-            Pro Exclusives
+            {t('screens:cosmetics.proExclusives')}
           </Text>
 
           {/* Locked hint for free users */}
@@ -751,7 +758,7 @@ export default function CosmeticsScreen(): React.ReactElement {
                               padding: isColor ? spacing.s1 : spacing.s2,
                             },
                           ]}
-                          accessibilityLabel={`${optionId} — Pro only`}
+                          accessibilityLabel={t('screens:cosmetics.proOnly', { optionId })}
                         >
                           {swatchColor ? (
                             <View

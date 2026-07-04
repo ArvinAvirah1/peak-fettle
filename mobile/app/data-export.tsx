@@ -50,6 +50,8 @@ import {
 } from '../src/data/backup/backupManager';
 import { useRouter } from 'expo-router';
 import { useReduceMotion } from '../src/hooks/useReduceMotion';
+import { useTranslation } from 'react-i18next';
+import i18n from '../src/i18n';
 
 // ---------------------------------------------------------------------------
 // Stagger helper
@@ -122,7 +124,7 @@ function SkeletonStatusLine(): React.ReactElement {
         opacity: pulse,
         marginBottom: 12,
       }}
-      accessibilityLabel="Loading backup status"
+      accessibilityLabel={i18n.t('screens:dataExport.loadingBackupStatus')}
     />
   );
 }
@@ -147,11 +149,11 @@ async function downloadAndShare(url: string, filename: string): Promise<void> {
 
   const canShare: boolean = await Sharing.isAvailableAsync();
   if (!canShare) {
-    throw new Error('Sharing is not available on this device.');
+    throw new Error(i18n.t('screens:dataExport.sharingUnavailable'));
   }
   await Sharing.shareAsync(fileUri, {
     mimeType: filename.endsWith('.csv') ? 'text/csv' : 'application/json',
-    dialogTitle: 'Save or share your data',
+    dialogTitle: i18n.t('screens:dataExport.saveOrShareDialogTitle'),
   });
 }
 
@@ -165,6 +167,7 @@ export default function DataExportScreen(): React.ReactElement {
   const { user } = useAuth();
   const localFirst = isLocalFirst(user);
   const reduceMotion = useReduceMotion();
+  const { t } = useTranslation();
   const [jsonLoading, setJsonLoading] = useState(false);
   const [csvLoading, setCsvLoading] = useState(false);
   const [backupLoading, setBackupLoading] = useState(false);
@@ -198,7 +201,7 @@ export default function DataExportScreen(): React.ReactElement {
     try {
       const result = await backupNow();
       if (!result.ok) {
-        Alert.alert('Backup failed', result.error);
+        Alert.alert(t('screens:dataExport.backupFailedTitle'), result.error);
         return;
       }
       if ('needsRecoveryAck' in result && result.needsRecoveryAck) {
@@ -206,9 +209,9 @@ export default function DataExportScreen(): React.ReactElement {
         return;
       }
       getStatus().then(setCloudStatus).catch(() => {});
-      Alert.alert('Backup complete', 'Your data has been encrypted and backed up.');
+      Alert.alert(t('screens:dataExport.backupCompleteTitle'), t('screens:dataExport.backupCompleteMessage'));
     } catch (err) {
-      Alert.alert('Backup failed', err instanceof Error ? err.message : String(err));
+      Alert.alert(t('screens:dataExport.backupFailedTitle'), err instanceof Error ? err.message : String(err));
     } finally {
       setCloudBackupLoading(false);
     }
@@ -217,28 +220,28 @@ export default function DataExportScreen(): React.ReactElement {
   const handleCloudRestore = async () => {
     if (showRecoveryInput) {
       if (!recoveryCodeInput.trim()) {
-        Alert.alert('Recovery code required', 'Enter your recovery code to restore from the cloud backup.');
+        Alert.alert(t('screens:dataExport.recoveryCodeRequiredTitle'), t('screens:dataExport.recoveryCodeRequiredMessage'));
         return;
       }
       Alert.alert(
-        'Restore from cloud?',
-        'This will replace all training data on this device with your cloud backup. This cannot be undone.',
+        t('screens:dataExport.restoreFromCloudTitle'),
+        t('screens:dataExport.restoreFromCloudMessage'),
         [
-          { text: 'Cancel', style: 'cancel' },
+          { text: t('common:cancel'), style: 'cancel' },
           {
-            text: 'Restore',
+            text: t('screens:dataExport.restore'),
             style: 'destructive',
             onPress: async () => {
               setCloudRestoreLoading(true);
               try {
                 const result = await restoreFromCloud({ recoveryCode: recoveryCodeInput.trim() });
                 if (!result.ok) {
-                  Alert.alert('Restore failed', result.error);
+                  Alert.alert(t('screens:dataExport.restoreFailedTitle'), result.error);
                 } else {
                   setShowRecoveryInput(false);
                   setRecoveryCodeInput('');
                   getStatus().then(setCloudStatus).catch(() => {});
-                  Alert.alert('Restore complete', `Your data has been restored (${result.restored} records).`);
+                  Alert.alert(t('screens:dataExport.restoreCompleteTitle'), t('screens:dataExport.restoreCompleteMessage', { count: result.restored }));
                 }
               } finally {
                 setCloudRestoreLoading(false);
@@ -259,10 +262,10 @@ export default function DataExportScreen(): React.ReactElement {
           setShowRecoveryInput(true);
           return;
         }
-        Alert.alert('Restore failed', result.error);
+        Alert.alert(t('screens:dataExport.restoreFailedTitle'), result.error);
       } else {
         getStatus().then(setCloudStatus).catch(() => {});
-        Alert.alert('Restore complete', `Your data has been restored (${result.restored} records).`);
+        Alert.alert(t('screens:dataExport.restoreCompleteTitle'), t('screens:dataExport.restoreCompleteMessage', { count: result.restored }));
       }
     } finally {
       setCloudRestoreLoading(false);
@@ -272,8 +275,8 @@ export default function DataExportScreen(): React.ReactElement {
   const handleExportJson = async () => {
     if (localFirst) {
       Alert.alert(
-        'Use “Export backup” instead',
-        'Server export is for synced (Pro) accounts. Your data lives on this device — use the encrypted backup export below to save all of it.',
+        t('screens:dataExport.useExportBackupTitle'),
+        t('screens:dataExport.useExportBackupMessage'),
       );
       return;
     }
@@ -284,11 +287,11 @@ export default function DataExportScreen(): React.ReactElement {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('MODULE_NOT_FOUND') || msg.includes("Cannot find module")) {
         Alert.alert(
-          'expo-file-system required',
-          'Run: npx expo install expo-file-system expo-sharing\nthen rebuild the app.',
+          t('screens:dataExport.fileSystemRequiredTitle'),
+          t('screens:dataExport.fileSystemSharingRunMessage'),
         );
       } else {
-        Alert.alert('Export failed', msg);
+        Alert.alert(t('screens:dataExport.exportFailedTitle'), msg);
       }
     } finally {
       setJsonLoading(false);
@@ -308,20 +311,20 @@ export default function DataExportScreen(): React.ReactElement {
       const fileUri = `${FileSystem.cacheDirectory}peak-fettle-backup-${today}.json`;
       await FileSystem.writeAsStringAsync(fileUri, json, { encoding: FileSystem.EncodingType.UTF8 });
       const canShare: boolean = await Sharing.isAvailableAsync();
-      if (!canShare) throw new Error('Sharing is not available on this device.');
+      if (!canShare) throw new Error(t('screens:dataExport.sharingUnavailable'));
       await Sharing.shareAsync(fileUri, {
         mimeType: 'application/json',
-        dialogTitle: 'Save your Peak Fettle backup',
+        dialogTitle: t('screens:dataExport.savePeakFettleBackupTitle'),
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('MODULE_NOT_FOUND') || msg.includes('Cannot find module')) {
         Alert.alert(
-          'expo-file-system required',
-          'Run: npx expo install expo-file-system expo-sharing\nthen rebuild the app.',
+          t('screens:dataExport.fileSystemRequiredTitle'),
+          t('screens:dataExport.fileSystemSharingRunMessage'),
         );
       } else {
-        Alert.alert('Backup failed', msg);
+        Alert.alert(t('screens:dataExport.backupFailedTitle'), msg);
       }
     } finally {
       setBackupLoading(false);
@@ -345,30 +348,30 @@ export default function DataExportScreen(): React.ReactElement {
       try {
         parsedJson = JSON.parse(raw);
       } catch {
-        Alert.alert('Restore failed', 'That file is not a valid Peak Fettle backup.');
+        Alert.alert(t('screens:dataExport.restoreFailedTitle'), t('screens:dataExport.notValidBackupMessage'));
         return;
       }
       const result = parseImport(parsedJson);
       if (!result.ok) {
-        Alert.alert('Restore failed', result.error);
+        Alert.alert(t('screens:dataExport.restoreFailedTitle'), result.error);
         return;
       }
       const rowCount = Object.values(result.tables).reduce((n, rows) => n + rows.length, 0);
       Alert.alert(
-        'Restore backup?',
-        `This replaces the training data on this device with the backup (${rowCount} records). This cannot be undone.`,
+        t('screens:dataExport.restoreBackupTitle'),
+        t('screens:dataExport.restoreBackupMessage', { count: rowCount }),
         [
-          { text: 'Cancel', style: 'cancel' },
+          { text: t('common:cancel'), style: 'cancel' },
           {
-            text: 'Restore',
+            text: t('screens:dataExport.restore'),
             style: 'destructive',
             onPress: async () => {
               try {
                 await localDb.init();
                 await restoreBackupToDb(localDb, result.tables);
-                Alert.alert('Restore complete', 'Your training data has been restored on this device.');
+                Alert.alert(t('screens:dataExport.restoreCompleteTitle'), t('screens:dataExport.restoreCompleteDeviceMessage'));
               } catch (err) {
-                Alert.alert('Restore failed', err instanceof Error ? err.message : String(err));
+                Alert.alert(t('screens:dataExport.restoreFailedTitle'), err instanceof Error ? err.message : String(err));
               }
             },
           },
@@ -378,11 +381,11 @@ export default function DataExportScreen(): React.ReactElement {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('MODULE_NOT_FOUND') || msg.includes('Cannot find module')) {
         Alert.alert(
-          'Missing module',
-          'Run: npx expo install expo-file-system expo-document-picker\nthen rebuild the app.',
+          t('screens:dataExport.missingModuleTitle'),
+          t('screens:dataExport.missingModuleMessage'),
         );
       } else {
-        Alert.alert('Restore failed', msg);
+        Alert.alert(t('screens:dataExport.restoreFailedTitle'), msg);
       }
     } finally {
       setRestoreLoading(false);
@@ -392,8 +395,8 @@ export default function DataExportScreen(): React.ReactElement {
   const handleExportCsv = async () => {
     if (localFirst) {
       Alert.alert(
-        'Use “Export backup” instead',
-        'Server CSV export is for synced (Pro) accounts. On a free account your sets are on this device — use the encrypted backup export below.',
+        t('screens:dataExport.useExportBackupTitle'),
+        t('screens:dataExport.useExportBackupCsvMessage'),
       );
       return;
     }
@@ -404,11 +407,11 @@ export default function DataExportScreen(): React.ReactElement {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('MODULE_NOT_FOUND') || msg.includes("Cannot find module")) {
         Alert.alert(
-          'expo-file-system required',
-          'Run: npx expo install expo-file-system expo-sharing\nthen rebuild the app.',
+          t('screens:dataExport.fileSystemRequiredTitle'),
+          t('screens:dataExport.fileSystemSharingRunMessage'),
         );
       } else {
-        Alert.alert('Export failed', msg);
+        Alert.alert(t('screens:dataExport.exportFailedTitle'), msg);
       }
     } finally {
       setCsvLoading(false);
@@ -426,7 +429,7 @@ export default function DataExportScreen(): React.ReactElement {
           style={[styles.title, { color: colors.textPrimary, fontSize: fs.heading2, fontWeight: fontWeight.bold, marginBottom: sp.s2 }]}
           accessibilityRole="header"
         >
-          Export my data
+          {t('screens:dataExport.title')}
         </Text>
 
         {/* ── Ownership card ── */}
@@ -445,13 +448,13 @@ export default function DataExportScreen(): React.ReactElement {
             ]}
           >
             <Text style={{ color: colors.textPrimary, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold, marginBottom: sp.s2 }}>
-              Your data, your property
+              {t('screens:dataExport.ownershipTitle')}
             </Text>
             <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, lineHeight: 20 }}>
-              Everything you log in Peak Fettle belongs to you. Export a full copy at any time — workouts, sets, health metrics, plans, and personal bests — in an open format you can use anywhere.
+              {t('screens:dataExport.ownershipBody')}
             </Text>
             <Text style={{ color: colors.textTertiary, fontSize: fs.caption, marginTop: sp.s2 }}>
-              Exports are available on all plans. No data is shared with third parties without your explicit consent.
+              {t('screens:dataExport.ownershipNote')}
             </Text>
           </View>
         </Animated.View>
@@ -463,7 +466,7 @@ export default function DataExportScreen(): React.ReactElement {
             onPress={handleExportJson}
             disabled={jsonLoading || csvLoading}
             accessibilityRole="button"
-            accessibilityLabel="Export full data as JSON"
+            accessibilityLabel={t('screens:dataExport.exportJsonA11y')}
             style={[
               styles.exportBtn,
               {
@@ -480,10 +483,10 @@ export default function DataExportScreen(): React.ReactElement {
             <View style={styles.btnContent}>
               <View>
                 <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold }}>
-                  {jsonLoading ? 'Preparing…' : 'Export JSON'}
+                  {jsonLoading ? t('screens:dataExport.preparing') : t('screens:dataExport.exportJson')}
                 </Text>
                 <Text style={{ color: theme.components.buttonPrimaryText + 'CC', fontSize: fs.caption, marginTop: 2 }}>
-                  Full profile, all workouts, plans, health metrics
+                  {t('screens:dataExport.exportJsonSub')}
                 </Text>
               </View>
             </View>
@@ -494,7 +497,7 @@ export default function DataExportScreen(): React.ReactElement {
             onPress={handleExportCsv}
             disabled={jsonLoading || csvLoading}
             accessibilityRole="button"
-            accessibilityLabel="Export sets as CSV"
+            accessibilityLabel={t('screens:dataExport.exportCsvA11y')}
             style={[
               styles.exportBtn,
               {
@@ -512,10 +515,10 @@ export default function DataExportScreen(): React.ReactElement {
             <View style={styles.btnContent}>
               <View>
                 <Text style={{ color: colors.accentDefault, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold }}>
-                  {csvLoading ? 'Preparing…' : 'Export CSV'}
+                  {csvLoading ? t('screens:dataExport.preparing') : t('screens:dataExport.exportCsv')}
                 </Text>
                 <Text style={{ color: colors.textSecondary, fontSize: fs.caption, marginTop: 2 }}>
-                  Flat set log: date, exercise, weight, reps, RIR
+                  {t('screens:dataExport.exportCsvSub')}
                 </Text>
               </View>
             </View>
@@ -539,10 +542,10 @@ export default function DataExportScreen(): React.ReactElement {
             ]}
           >
             <Text style={{ color: colors.textPrimary, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold, marginBottom: sp.s2 }}>
-              Cloud backup
+              {t('screens:dataExport.cloudBackupTitle')}
             </Text>
             <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, lineHeight: 20, marginBottom: sp.s2 }}>
-              Encrypted on your phone before upload — we can't read it.
+              {t('screens:dataExport.cloudBackupBody')}
             </Text>
             {/* Status line — skeleton while loading */}
             {cloudStatusLoading ? (
@@ -557,9 +560,9 @@ export default function DataExportScreen(): React.ReactElement {
               >
                 {cloudStatus.lastLocalAt
                   ? (cloudStatus.stale
-                    ? 'Last backed up: ' + new Date(cloudStatus.lastLocalAt).toLocaleDateString() + ' — backup is overdue'
-                    : 'Last backed up: ' + new Date(cloudStatus.lastLocalAt).toLocaleDateString())
-                  : 'Never backed up'}
+                    ? t('screens:dataExport.lastBackedUpOverdue', { date: new Date(cloudStatus.lastLocalAt).toLocaleDateString() })
+                    : t('screens:dataExport.lastBackedUp', { date: new Date(cloudStatus.lastLocalAt).toLocaleDateString() }))
+                  : t('screens:dataExport.neverBackedUp')}
               </Text>
             ) : null}
           </View>
@@ -572,7 +575,7 @@ export default function DataExportScreen(): React.ReactElement {
             onPress={handleCloudBackup}
             disabled={cloudBackupLoading || cloudRestoreLoading}
             accessibilityRole="button"
-            accessibilityLabel="Back up now to cloud"
+            accessibilityLabel={t('screens:dataExport.backUpNowA11y')}
             style={[
               styles.exportBtn,
               {
@@ -589,10 +592,10 @@ export default function DataExportScreen(): React.ReactElement {
             <View style={styles.btnContent}>
               <View>
                 <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold }}>
-                  {cloudBackupLoading ? 'Backing up…' : 'Back up now'}
+                  {cloudBackupLoading ? t('screens:dataExport.backingUp') : t('screens:dataExport.backUpNow')}
                 </Text>
                 <Text style={{ color: theme.components.buttonPrimaryText + 'CC', fontSize: fs.caption, marginTop: 2 }}>
-                  Encrypted backup sent to your account
+                  {t('screens:dataExport.backUpNowSub')}
                 </Text>
               </View>
             </View>
@@ -621,10 +624,10 @@ export default function DataExportScreen(): React.ReactElement {
                   marginBottom: sp.s2,
                   minHeight: 44,
                 },
-                accessibilityLabel: 'Enter recovery code',
+                accessibilityLabel: t('screens:dataExport.enterRecoveryCode'),
               })}
               <Text style={{ color: colors.textTertiary, fontSize: fs.caption, lineHeight: 16 }}>
-                Enter the recovery code you saved when you first backed up.
+                {t('screens:dataExport.recoveryCodeHint')}
               </Text>
             </View>
           )}
@@ -633,7 +636,7 @@ export default function DataExportScreen(): React.ReactElement {
             onPress={handleCloudRestore}
             disabled={cloudBackupLoading || cloudRestoreLoading}
             accessibilityRole="button"
-            accessibilityLabel="Restore from cloud backup"
+            accessibilityLabel={t('screens:dataExport.restoreFromCloudA11y')}
             style={[
               styles.exportBtn,
               {
@@ -652,10 +655,10 @@ export default function DataExportScreen(): React.ReactElement {
             <View style={styles.btnContent}>
               <View>
                 <Text style={{ color: colors.statusError, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold }}>
-                  {cloudRestoreLoading ? 'Restoring…' : 'Restore from cloud'}
+                  {cloudRestoreLoading ? t('screens:dataExport.restoring') : t('screens:dataExport.restoreFromCloud')}
                 </Text>
                 <Text style={{ color: colors.textSecondary, fontSize: fs.caption, marginTop: 2 }}>
-                  Replaces this device's data with your cloud backup
+                  {t('screens:dataExport.restoreFromCloudSub')}
                 </Text>
               </View>
             </View>
@@ -679,13 +682,13 @@ export default function DataExportScreen(): React.ReactElement {
             ]}
           >
             <Text style={{ color: colors.textPrimary, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold, marginBottom: sp.s2 }}>
-              Moving to a new phone?
+              {t('screens:dataExport.movingToNewPhone')}
             </Text>
             <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, lineHeight: 20 }}>
-              {'1. On this phone: tap "Save backup file" below and store it somewhere you can reach from the new phone (Files, Drive, email to yourself).\n2. On the new phone: install Peak Fettle and sign in to the same account.\n3. Open Profile → Export my data → "Restore from backup file" and pick the file.'}
+              {t('screens:dataExport.movingToNewPhoneSteps')}
             </Text>
             <Text style={{ color: colors.textTertiary, fontSize: fs.caption, marginTop: sp.s2, lineHeight: 18 }}>
-              Pro members don't need this — training data syncs to your account automatically. Automatic encrypted backups for all plans are in the works.
+              {t('screens:dataExport.proMembersNote')}
             </Text>
           </View>
 
@@ -693,7 +696,7 @@ export default function DataExportScreen(): React.ReactElement {
             onPress={handleExportBackup}
             disabled={backupLoading || restoreLoading}
             accessibilityRole="button"
-            accessibilityLabel="Save device backup file"
+            accessibilityLabel={t('screens:dataExport.saveDeviceBackupA11y')}
             style={[
               styles.exportBtn,
               {
@@ -712,10 +715,10 @@ export default function DataExportScreen(): React.ReactElement {
             <View style={styles.btnContent}>
               <View>
                 <Text style={{ color: colors.accentDefault, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold }}>
-                  {backupLoading ? 'Preparing…' : 'Save backup file'}
+                  {backupLoading ? t('screens:dataExport.preparing') : t('screens:dataExport.saveBackupFile')}
                 </Text>
                 <Text style={{ color: colors.textSecondary, fontSize: fs.caption, marginTop: 2 }}>
-                  Everything stored on this device, one file
+                  {t('screens:dataExport.saveBackupFileSub')}
                 </Text>
               </View>
             </View>
@@ -725,7 +728,7 @@ export default function DataExportScreen(): React.ReactElement {
             onPress={handleImportBackup}
             disabled={backupLoading || restoreLoading}
             accessibilityRole="button"
-            accessibilityLabel="Restore from backup file"
+            accessibilityLabel={t('screens:dataExport.restoreFromBackupFileA11y')}
             style={[
               styles.exportBtn,
               {
@@ -743,10 +746,10 @@ export default function DataExportScreen(): React.ReactElement {
             <View style={styles.btnContent}>
               <View>
                 <Text style={{ color: colors.textPrimary, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold }}>
-                  {restoreLoading ? 'Opening…' : 'Restore from backup file'}
+                  {restoreLoading ? t('screens:dataExport.opening') : t('screens:dataExport.restoreFromBackupFile')}
                 </Text>
                 <Text style={{ color: colors.textSecondary, fontSize: fs.caption, marginTop: 2 }}>
-                  Replaces this device's data with a saved backup
+                  {t('screens:dataExport.restoreFromBackupFileSub')}
                 </Text>
               </View>
             </View>
@@ -754,7 +757,7 @@ export default function DataExportScreen(): React.ReactElement {
 
           {/* Note about dependencies */}
           <Text style={{ color: colors.textTertiary, fontSize: fs.micro, textAlign: 'center', marginTop: sp.s5, lineHeight: 16 }}>
-            Requires expo-file-system and expo-sharing (included in EAS builds).
+            {t('screens:dataExport.requiresModulesNote')}
           </Text>
         </Animated.View>
       </ScrollView>

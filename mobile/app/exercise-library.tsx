@@ -68,6 +68,8 @@ import {
 } from '../src/constants/units'; // A4-03
 import { MuscleMap } from '../src/components/MuscleMap';
 import { muscleGroupsForExercise } from '../src/data/muscleRegions';
+import { useTranslation } from 'react-i18next';
+import i18n from '../src/i18n';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -342,7 +344,7 @@ function CategoryChip({ label, selected, onPress }: ChipProps): React.ReactEleme
     <Pressable
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel={`Filter by ${label}`}
+      accessibilityLabel={i18n.t('screens:exerciseLibrary.filterBy', { label })}
       accessibilityState={{ selected }}
       style={({ pressed }) => [
         styles.chip,
@@ -467,7 +469,7 @@ function ExerciseCard({ exercise, onPress }: ExerciseCardProps): React.ReactElem
               fontWeight: fontWeight.medium,
             }}
           >
-            {exercise.kind === 'cardio' ? 'Cardio' : 'Lift'}
+            {exercise.kind === 'cardio' ? i18n.t('screens:exerciseLibrary.cardio') : i18n.t('screens:exerciseLibrary.lift')}
           </Text>
         </View>
 
@@ -490,12 +492,13 @@ interface VolumeChartProps {
 
 function VolumeChart({ sessions }: VolumeChartProps): React.ReactElement {
   const { theme, fontSize } = useTheme();
+  const { t } = useTranslation();
   const colors = theme.colors;
 
   if (sessions.length === 0) {
     return (
       <Text style={{ fontSize: fontSize.bodySm, color: colors.textTertiary, textAlign: 'center' }}>
-        No session history yet
+        {t('screens:exerciseLibrary.noSessionHistory')}
       </Text>
     );
   }
@@ -521,7 +524,7 @@ function VolumeChart({ sessions }: VolumeChartProps): React.ReactElement {
         })}
       </View>
       <Text style={{ fontSize: fontSize.caption, color: colors.textTertiary, textAlign: 'center' }}>
-        Recent session volume
+        {t('screens:exerciseLibrary.recentSessionVolume')}
       </Text>
     </View>
   );
@@ -539,6 +542,7 @@ interface DetailModalProps {
 
 function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): React.ReactElement {
   const { theme, fontSize, fontWeight, spacing, radius } = useTheme();
+  const { t } = useTranslation();
   const colors = theme.colors;
   const router = useRouter();
   const { user } = useAuth();
@@ -653,7 +657,7 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
         if (!cancelled) setSets(rows);
       })
       .catch(() => {
-        if (!cancelled) setSetsError('Could not load history.');
+        if (!cancelled) setSetsError(t('screens:exerciseLibrary.couldNotLoadHistory'));
       })
       .finally(() => {
         if (!cancelled) setSetsLoading(false);
@@ -732,7 +736,7 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
           <Pressable
             onPress={onClose}
             accessibilityRole="button"
-            accessibilityLabel="Close exercise detail"
+            accessibilityLabel={t('screens:exerciseLibrary.closeDetail')}
             style={({ pressed }) => [
               styles.closeButton,
               {
@@ -818,7 +822,7 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
                 marginBottom: spacing.s3,
               }}
             >
-              Personal Best
+              {t('screens:exerciseLibrary.personalBest')}
             </Text>
 
             {setsLoading ? (
@@ -838,7 +842,7 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
                     fontVariant: ['tabular-nums'],
                   }}
                 >
-                  {personalBest.e1rmKg.toFixed(1)} kg est. max
+                  {t('screens:exerciseLibrary.estMax', { value: personalBest.e1rmKg.toFixed(1) })}
                 </Text>
                 {/* Best set detail */}
                 <Text
@@ -849,7 +853,7 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
                     fontVariant: ['tabular-nums'],
                   }}
                 >
-                  Best set: {personalBest.displaySet}
+                  {t('screens:exerciseLibrary.bestSet', { set: personalBest.displaySet })}
                 </Text>
                 <Text
                   style={{
@@ -863,7 +867,7 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
               </View>
             ) : (
               <Text style={{ fontSize: fontSize.bodySm, color: colors.textTertiary }}>
-                No logged sets yet
+                {t('screens:exerciseLibrary.noLoggedSets')}
               </Text>
             )}
           </View>
@@ -892,7 +896,7 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
                 marginBottom: spacing.s3,
               }}
             >
-              Goal
+              {t('screens:exerciseLibrary.goal')}
             </Text>
 
             {goalEditing ? (
@@ -902,9 +906,9 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
                     value={goalWeight}
                     onChangeText={setGoalWeight}
                     keyboardType="decimal-pad"
-                    placeholder={`Weight (${unitPref})`}
+                    placeholder={t('screens:exerciseLibrary.weightPlaceholder', { unit: unitPref })}
                     placeholderTextColor={colors.textTertiary}
-                    accessibilityLabel={`Goal weight in ${unitPref === 'lbs' ? 'pounds' : 'kilograms'}`}
+                    accessibilityLabel={t('screens:exerciseLibrary.goalWeightA11y', { unit: unitPref === 'lbs' ? t('screens:exerciseLibrary.pounds') : t('screens:exerciseLibrary.kilograms') })}
                     style={{
                       flex: 1,
                       minHeight: 48,
@@ -921,9 +925,9 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
                     value={goalReps}
                     onChangeText={setGoalReps}
                     keyboardType="number-pad"
-                    placeholder="Reps"
+                    placeholder={t('screens:exerciseLibrary.repsPlaceholder')}
                     placeholderTextColor={colors.textTertiary}
-                    accessibilityLabel="Goal reps"
+                    accessibilityLabel={t('screens:exerciseLibrary.goalRepsA11y')}
                     style={{
                       flex: 1,
                       minHeight: 48,
@@ -949,28 +953,28 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
                     <Pressable
                       onPress={handleRemoveGoal}
                       accessibilityRole="button"
-                      accessibilityLabel="Remove goal"
+                      accessibilityLabel={t('screens:exerciseLibrary.removeGoal')}
                       style={{ minHeight: 48, justifyContent: 'center' }}
                     >
-                      <Text style={{ color: colors.statusError, fontSize: fontSize.bodySm }}>Remove</Text>
+                      <Text style={{ color: colors.statusError, fontSize: fontSize.bodySm }}>{t('screens:exerciseLibrary.remove')}</Text>
                     </Pressable>
                   ) : null}
                   <Pressable
                     onPress={() => setGoalEditing(false)}
                     accessibilityRole="button"
-                    accessibilityLabel="Cancel goal editing"
+                    accessibilityLabel={t('screens:exerciseLibrary.cancelGoalEditing')}
                     style={{ minHeight: 48, justifyContent: 'center' }}
                   >
-                    <Text style={{ color: colors.textSecondary, fontSize: fontSize.bodySm }}>Cancel</Text>
+                    <Text style={{ color: colors.textSecondary, fontSize: fontSize.bodySm }}>{t('common:cancel')}</Text>
                   </Pressable>
                   <Pressable
                     onPress={handleSaveGoal}
                     accessibilityRole="button"
-                    accessibilityLabel="Save goal"
+                    accessibilityLabel={t('screens:exerciseLibrary.saveGoal')}
                     style={{ minHeight: 48, justifyContent: 'center' }}
                   >
                     <Text style={{ color: colors.accentDefault, fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold }}>
-                      Save
+                      {t('common:save')}
                     </Text>
                   </Pressable>
                 </View>
@@ -996,8 +1000,8 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
                   }}
                 >
                   {goal.achieved_at
-                    ? `Achieved ${new Date(goal.achieved_at).toLocaleDateString()}`
-                    : 'In progress — log a set that meets both targets'}
+                    ? t('screens:exerciseLibrary.achievedOn', { date: new Date(goal.achieved_at).toLocaleDateString() })
+                    : t('screens:exerciseLibrary.goalInProgress')}
                 </Text>
                 <Pressable
                   onPress={() => {
@@ -1006,11 +1010,11 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
                     setGoalEditing(true);
                   }}
                   accessibilityRole="button"
-                  accessibilityLabel={goal.achieved_at ? 'Set a new goal' : 'Edit goal'}
+                  accessibilityLabel={goal.achieved_at ? t('screens:exerciseLibrary.setNewGoal') : t('screens:exerciseLibrary.editGoal')}
                   style={{ minHeight: 48, justifyContent: 'center' }}
                 >
                   <Text style={{ color: colors.accentDefault, fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold }}>
-                    {goal.achieved_at ? 'Set a new goal' : 'Edit goal'}
+                    {goal.achieved_at ? t('screens:exerciseLibrary.setNewGoal') : t('screens:exerciseLibrary.editGoal')}
                   </Text>
                 </Pressable>
               </View>
@@ -1018,11 +1022,11 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
               <Pressable
                 onPress={() => { setGoalWeight(''); setGoalReps(''); setGoalEditing(true); }}
                 accessibilityRole="button"
-                accessibilityLabel="Set a weight and rep goal for this exercise"
+                accessibilityLabel={t('screens:exerciseLibrary.setGoalA11y')}
                 style={{ minHeight: 48, justifyContent: 'center' }}
               >
                 <Text style={{ color: colors.accentDefault, fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold }}>
-                  ＋ Set a goal (weight × reps)
+                  {t('screens:exerciseLibrary.setGoalCta')}
                 </Text>
               </Pressable>
             )}
@@ -1052,7 +1056,7 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
                 marginBottom: spacing.s2,
               }}
             >
-              Volume History (kg · reps)
+              {t('screens:exerciseLibrary.volumeHistory')}
             </Text>
 
             {setsLoading ? (
@@ -1066,11 +1070,15 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
 
           {/* View progress section */}
           <PFButton
-            label={showProgressChart ? 'Hide Progress Chart' : 'View Progress'}
+            label={showProgressChart ? t('screens:exerciseLibrary.hideProgressChart') : t('screens:exerciseLibrary.viewProgress')}
             onPress={() => setShowProgressChart((v) => !v)}
             variant="ghost"
             size="lg"
-            accessibilityLabel={`${showProgressChart ? 'Hide' : 'View'} progress chart for ${exercise.name}`}
+            accessibilityLabel={
+              showProgressChart
+                ? t('screens:exerciseLibrary.hideProgressChartFor', { name: exercise.name })
+                : t('screens:exerciseLibrary.viewProgressChartFor', { name: exercise.name })
+            }
             style={{ marginBottom: spacing.s3 }}
           />
           {showProgressChart ? (
@@ -1093,11 +1101,11 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
 
           {/* Log This Exercise CTA */}
           <PFButton
-            label="Log This Exercise"
+            label={t('screens:exerciseLibrary.logThisExercise')}
             onPress={handleLogPress}
             variant="primary"
             size="lg"
-            accessibilityLabel={`Log ${exercise.name}`}
+            accessibilityLabel={t('screens:exerciseLibrary.logExerciseA11y', { name: exercise.name })}
           />
         </ScrollView>
       </SafeAreaView>
@@ -1111,6 +1119,7 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
 
 export default function ExerciseLibraryScreen(): React.ReactElement {
   const { theme, fontSize, fontWeight, spacing, radius } = useTheme();
+  const { t } = useTranslation();
   const colors = theme.colors;
 
   // Search + filter state
@@ -1147,7 +1156,7 @@ export default function ExerciseLibraryScreen(): React.ReactElement {
           params: { q: searchQuery.trim() },
         })
         .then((res) => setExercises((res.data.results ?? []).map(normalizeExercise)))
-        .catch(() => setListError('Could not load exercises. Check your connection.'))
+        .catch(() => setListError(t('screens:exerciseLibrary.couldNotLoadExercises')))
         .finally(() => setListLoading(false));
     } else {
       // ── Browse all: use the grouped browse endpoint ──────────────────────
@@ -1166,7 +1175,7 @@ export default function ExerciseLibraryScreen(): React.ReactElement {
           const flat = (Object.values(grouped) as RawExercise[][]).flat();
           setExercises(flat.map(normalizeExercise));
         })
-        .catch(() => setListError('Could not load exercises. Check your connection.'))
+        .catch(() => setListError(t('screens:exerciseLibrary.couldNotLoadExercises')))
         .finally(() => setListLoading(false));
     }
   }, []);
@@ -1251,8 +1260,8 @@ export default function ExerciseLibraryScreen(): React.ReactElement {
           }}
         >
           {query || category !== 'All'
-            ? `No exercises match "${query || category}"`
-            : 'No exercises found'}
+            ? t('screens:exerciseLibrary.noExercisesMatch', { term: query || category })
+            : t('screens:exerciseLibrary.noExercisesFound')}
         </Text>
         {listError ? (
           <Text
@@ -1313,7 +1322,7 @@ export default function ExerciseLibraryScreen(): React.ReactElement {
               paddingVertical: spacing.s3,
             },
           ]}
-          placeholder="Search exercises…"
+          placeholder={t('screens:exerciseLibrary.searchPlaceholder')}
           placeholderTextColor={colors.textTertiary}
           value={query}
           onChangeText={handleSearchChange}
@@ -1321,7 +1330,7 @@ export default function ExerciseLibraryScreen(): React.ReactElement {
           autoCapitalize="none"
           returnKeyType="search"
           clearButtonMode="while-editing"
-          accessibilityLabel="Search exercises"
+          accessibilityLabel={t('screens:exerciseLibrary.searchPlaceholder')}
         />
       </View>
 
@@ -1335,7 +1344,7 @@ export default function ExerciseLibraryScreen(): React.ReactElement {
         }}
         keyboardShouldPersistTaps="handled"
         accessibilityRole="tablist"
-        accessibilityLabel="Filter by muscle group"
+        accessibilityLabel={t('screens:exerciseLibrary.filterByMuscleGroup')}
       >
         {CATEGORIES.map((cat) => (
           <CategoryChip
@@ -1357,7 +1366,7 @@ export default function ExerciseLibraryScreen(): React.ReactElement {
             marginBottom: spacing.s2,
           }}
         >
-          {filteredExercises.length} {filteredExercises.length === 1 ? 'exercise' : 'exercises'}
+          {t('screens:exerciseLibrary.exerciseCount', { count: filteredExercises.length })}
         </Text>
       )}
 

@@ -16,6 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../src/theme/ThemeContext';
+import { useTranslation } from 'react-i18next';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -28,18 +29,18 @@ interface IntroSlide {
 const SLIDES: IntroSlide[] = [
   {
     icon: '🏋️',
-    headline: 'Built for every body.',
-    body: "Whether you're picking up a barbell for the first time or chasing a podium finish, Peak Fettle meets you where you are. No judgement. Just progress.",
+    headline: 'intro.slide1Headline',
+    body: 'intro.slide1Body',
   },
   {
     icon: '📊',
-    headline: 'Log your sessions. See your rank.',
-    body: "Log your workouts in seconds. We'll show you exactly where you stand compared to people at your level — not the internet's strongest 1%.",
+    headline: 'intro.slide2Headline',
+    body: 'intro.slide2Body',
   },
   {
     icon: '🔥',
-    headline: 'Even a 5-minute session counts.',
-    body: "Rest days don't break your streak. Only missing sessions back-to-back does. We built it this way on purpose.",
+    headline: 'intro.slide3Headline',
+    body: 'intro.slide3Body',
   },
 ];
 
@@ -47,6 +48,7 @@ export default function IntroScreen(): React.ReactElement {
   const router = useRouter();
   const { theme, fontSize, fontWeight, spacing, radius } = useTheme();
   const { colors } = theme;
+  const { t } = useTranslation();
   const [step, setStep] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
 
@@ -115,7 +117,7 @@ export default function IntroScreen(): React.ReactElement {
                 },
               ]}
             >
-              {slide.headline}
+              {t(`screens:${slide.headline}`)}
             </Text>
             <Text
               style={[
@@ -126,7 +128,7 @@ export default function IntroScreen(): React.ReactElement {
                 },
               ]}
             >
-              {slide.body}
+              {t(`screens:${slide.body}`)}
             </Text>
           </View>
         ))}
@@ -147,7 +149,7 @@ export default function IntroScreen(): React.ReactElement {
                 },
               ]}
               accessibilityRole="button"
-              accessibilityLabel="Let's go"
+              accessibilityLabel={t('screens:intro.letsGoLabel')}
             >
               <Text
                 style={{
@@ -157,14 +159,14 @@ export default function IntroScreen(): React.ReactElement {
                   textAlign: 'center',
                 }}
               >
-                {"Let's go →"}
+                {t('screens:intro.letsGo')}
               </Text>
             </Pressable>
             <Pressable
               onPress={goToOnboarding}
               style={[styles.ghostButton, { marginTop: spacing.s3 }]}
               accessibilityRole="button"
-              accessibilityLabel="Skip intro"
+              accessibilityLabel={t('screens:intro.skipIntro')}
             >
               <Text
                 style={{
@@ -173,7 +175,7 @@ export default function IntroScreen(): React.ReactElement {
                   textAlign: 'center',
                 }}
               >
-                Skip intro
+                {t('screens:intro.skipIntro')}
               </Text>
             </Pressable>
           </>
@@ -190,7 +192,7 @@ export default function IntroScreen(): React.ReactElement {
                 },
               ]}
               accessibilityRole="button"
-              accessibilityLabel="Next"
+              accessibilityLabel={t('screens:intro.next')}
             >
               <Text
                 style={{
@@ -200,14 +202,14 @@ export default function IntroScreen(): React.ReactElement {
                   textAlign: 'center',
                 }}
               >
-                Next
+                {t('screens:intro.next')}
               </Text>
             </Pressable>
             <Pressable
               onPress={goToOnboarding}
               style={[styles.ghostButton, { marginTop: spacing.s3 }]}
               accessibilityRole="button"
-              accessibilityLabel="Skip intro"
+              accessibilityLabel={t('screens:intro.skipIntro')}
             >
               <Text
                 style={{
@@ -216,7 +218,7 @@ export default function IntroScreen(): React.ReactElement {
                   textAlign: 'center',
                 }}
               >
-                Skip intro
+                {t('screens:intro.skipIntro')}
               </Text>
             </Pressable>
           </>

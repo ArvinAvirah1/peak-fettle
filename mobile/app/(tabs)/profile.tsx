@@ -89,6 +89,9 @@ import {
 } from '../../src/data/appSettings';
 import { BADGE_DEFS, BadgeDef } from '../../src/data/badges/badgeDefs'; // TICKET-143
 import { localDb as badgeLocalDb } from '../../src/db/localDb'; // TICKET-143 (badges_earned reads)
+import { useTranslation } from 'react-i18next';
+import { setAppLanguageAndApply } from '../../src/i18n';
+import { getAppLanguage, AppLanguage } from '../../src/data/appSettings';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -96,19 +99,19 @@ import { localDb as badgeLocalDb } from '../../src/db/localDb'; // TICKET-143 (b
 
 // Built-in constraint types shown as quick-pick chips.
 const PRESET_CONSTRAINTS = [
-  { type: 'lower_back', label: 'Lower Back' },
-  { type: 'knees', label: 'Knees' },
-  { type: 'shoulders', label: 'Shoulders' },
-  { type: 'wrists', label: 'Wrists' },
-  { type: 'ankles', label: 'Ankles' },
-  { type: 'neck', label: 'Neck' },
-  { type: 'hip', label: 'Hip' },
-  { type: 'upper_back', label: 'Upper Back' },
-  { type: 'elbows', label: 'Elbows' },
-  { type: 'no_barbells', label: 'No Barbells' },
-  { type: 'no_machines', label: 'No Machines' },
-  { type: 'no_cables', label: 'No Cables' },
-  { type: 'bodyweight_only', label: 'Bodyweight Only' },
+  { type: 'lower_back', labelKey: 'settings:profile.constraintLowerBack' },
+  { type: 'knees', labelKey: 'settings:profile.constraintKnees' },
+  { type: 'shoulders', labelKey: 'settings:profile.constraintShoulders' },
+  { type: 'wrists', labelKey: 'settings:profile.constraintWrists' },
+  { type: 'ankles', labelKey: 'settings:profile.constraintAnkles' },
+  { type: 'neck', labelKey: 'settings:profile.constraintNeck' },
+  { type: 'hip', labelKey: 'settings:profile.constraintHip' },
+  { type: 'upper_back', labelKey: 'settings:profile.constraintUpperBack' },
+  { type: 'elbows', labelKey: 'settings:profile.constraintElbows' },
+  { type: 'no_barbells', labelKey: 'settings:profile.constraintNoBarbells' },
+  { type: 'no_machines', labelKey: 'settings:profile.constraintNoMachines' },
+  { type: 'no_cables', labelKey: 'settings:profile.constraintNoCables' },
+  { type: 'bodyweight_only', labelKey: 'settings:profile.constraintBodyweightOnly' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -141,6 +144,7 @@ const LIFEOS_DEEP_LINK = 'lifeos://';
 function LifeOSCard(): React.ReactElement {
   const { user } = useAuth();
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const isPro = !!user?.is_paid;
 
   // Local streak — reads on-device SQLite for free users (no REST on mount).
@@ -199,8 +203,8 @@ function LifeOSCard(): React.ReactElement {
   }, [lifeosInstalled]);
 
   const ctaLabel = lifeosInstalled
-    ? 'Open LifeOS'
-    : 'Get LifeOS — included with Pro';
+    ? t('settings:profile.lifeosOpen')
+    : t('settings:profile.lifeosGet');
 
   return (
     <View style={[
@@ -210,11 +214,11 @@ function LifeOSCard(): React.ReactElement {
       {/* Header row */}
       <View style={lifeosCardStyles.headerRow}>
         <Text style={[lifeosCardStyles.title, { color: theme.colors.textPrimary }]}>
-          LifeOS
+          {t('settings:profile.lifeosTitle')}
         </Text>
         <View style={[lifeosCardStyles.badge, { backgroundColor: theme.colors.accentSecondary }]}>
           <Text style={[lifeosCardStyles.badgeText, { color: theme.colors.accentHover }]}>
-            Companion
+            {t('settings:profile.lifeosCompanionBadge')}
           </Text>
         </View>
       </View>
@@ -222,8 +226,8 @@ function LifeOSCard(): React.ReactElement {
       {/* Streak line */}
       <Text style={[lifeosCardStyles.streakLine, { color: theme.colors.textSecondary }]}>
         {streakLoading
-          ? 'Your whole-person streak: —'
-          : `Your whole-person streak: ${displayStreak} day${displayStreak === 1 ? '' : 's'}`}
+          ? t('settings:profile.lifeosStreakLoading')
+          : t('settings:profile.lifeosStreakLine', { count: displayStreak })}
       </Text>
 
       {/* CTA button */}
@@ -263,6 +267,7 @@ function SectionHeader({ label }: { label: string }): React.ReactElement {
 
 function BadgeCard({ def, earned }: { def: BadgeDef; earned: boolean }): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   return (
     <View
       style={[
@@ -274,7 +279,7 @@ function BadgeCard({ def, earned }: { def: BadgeDef; earned: boolean }): React.R
       ]}
       accessible
       accessibilityLabel={
-        earned ? `${def.name}, earned` : `${def.name}, locked. ${def.rule}`
+        earned ? t('settings:profile.badgeEarnedLabel', { name: def.name }) : t('settings:profile.badgeLockedLabel', { name: def.name, rule: def.rule })
       }
     >
       <Ionicons
@@ -300,6 +305,7 @@ function BadgeCard({ def, earned }: { def: BadgeDef; earned: boolean }): React.R
 
 function BadgeCaseSection(): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const [earnedIds, setEarnedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
 
@@ -325,9 +331,9 @@ function BadgeCaseSection(): React.ReactElement {
 
   return (
     <View style={styles.section}>
-      <SectionHeader label="ACHIEVEMENTS" />
+      <SectionHeader label={t('settings:profile.achievementsSectionHeader')} />
       <Text style={[styles.sectionNote, { color: theme.colors.textTertiary }]}>
-        {loading ? 'Loading badge case…' : `${earnedCount} of ${BADGE_DEFS.length} earned`}
+        {loading ? t('settings:profile.loadingBadgeCase') : t('settings:profile.earnedOfTotal', { earned: earnedCount, total: BADGE_DEFS.length })}
       </Text>
       {loading ? (
         <ActivityIndicator color={theme.colors.textTertiary} style={{ marginVertical: spacing.s4 }} />
@@ -378,6 +384,7 @@ const badgeCaseStyles = StyleSheet.create({
 function UserInfoCard({ avatar, onEditAvatar }: { avatar: AvatarConfig | null; onEditAvatar: () => void }): React.ReactElement {
   const { user, updateUser, upgradeToPro, downgradeToFree } = useAuth();
   const { theme } = useTheme();
+  const { t } = useTranslation();
 
   const isPro = !!user?.is_paid;
 
@@ -414,8 +421,8 @@ function UserInfoCard({ avatar, onEditAvatar }: { avatar: AvatarConfig | null; o
     } catch (err) {
       // Surface a real failure (D-3) — never silently swallow the write.
       Alert.alert(
-        'Could not save name',
-        err instanceof Error ? err.message : 'Could not save your display name'
+        t('settings:profile.couldNotSaveNameTitle'),
+        err instanceof Error ? err.message : t('settings:profile.couldNotSaveDisplayName')
       );
     } finally {
       setSavingName(false);
@@ -443,11 +450,11 @@ function UserInfoCard({ avatar, onEditAvatar }: { avatar: AvatarConfig | null; o
       // reflects Pro automatically. Surface the migration tally so the user knows
       // what synced. (revert-on-failure is handled in catch; nothing to undo here.)
       haptics.success();
-      const parts = [`${outcome.uploaded} item${outcome.uploaded === 1 ? '' : 's'} backed up to the cloud.`];
+      const parts = [t('settings:profile.uploadedItemsBackedUp', { count: outcome.uploaded })];
       if (outcome.skipped > 0) {
-        parts.push(`${outcome.skipped} item${outcome.skipped === 1 ? '' : 's'} stayed on this device (no online match).`);
+        parts.push(t('settings:profile.skippedItemsStayedOnDevice', { count: outcome.skipped }));
       }
-      Alert.alert("You're Pro now", parts.join('\n\n'));
+      Alert.alert(t('settings:profile.youreProNowTitle'), parts.join('\n\n'));
     } catch (err) {
       // Transient (network/5xx) failure. upgradeToPro flips is_paid LAST, so the
       // user is still Free and the local data is untouched — the UI reverts on
@@ -455,12 +462,12 @@ function UserInfoCard({ avatar, onEditAvatar }: { avatar: AvatarConfig | null; o
       // + idempotent via the migration ledger, so re-running finishes the rest).
       haptics.error();
       Alert.alert(
-        'Upgrade incomplete',
-        (err instanceof Error ? err.message : 'Could not back up your data to the cloud.') +
-          '\n\nYour data is safe on this device. You can try again.',
+        t('settings:profile.upgradeIncompleteTitle'),
+        (err instanceof Error ? err.message : t('settings:profile.couldNotBackUpToCloud')) +
+          t('settings:profile.dataSafeTryAgain'),
         [
-          { text: 'Not now', style: 'cancel' },
-          { text: 'Try again', onPress: () => { void handleUpgrade(); } },
+          { text: t('settings:profile.notNow'), style: 'cancel' },
+          { text: t('settings:profile.tryAgain'), onPress: () => { void handleUpgrade(); } },
         ]
       );
     } finally {
@@ -472,12 +479,12 @@ function UserInfoCard({ avatar, onEditAvatar }: { avatar: AvatarConfig | null; o
   const handleDowngrade = useCallback(() => {
     if (isUpgrading || !isPro) return;
     Alert.alert(
-      'Switch to Free?',
-      'Your data stays in the cloud, but Free mode stores everything on this device and stops syncing across your devices. You can switch back to Pro anytime.',
+      t('settings:profile.switchToFreeTitle'),
+      t('settings:profile.switchToFreeMessage'),
       [
-        { text: 'Stay on Pro', style: 'cancel' },
+        { text: t('settings:profile.stayOnPro'), style: 'cancel' },
         {
-          text: 'Switch to Free',
+          text: t('settings:profile.switchToFree'),
           style: 'destructive',
           onPress: async () => {
             haptics.warning();
@@ -485,8 +492,8 @@ function UserInfoCard({ avatar, onEditAvatar }: { avatar: AvatarConfig | null; o
               await downgradeToFree();
             } catch (err) {
               Alert.alert(
-                'Could not switch to Free',
-                err instanceof Error ? err.message : 'Please try again.'
+                t('settings:profile.couldNotSwitchToFreeTitle'),
+                err instanceof Error ? err.message : t('settings:profile.pleaseTryAgain')
               );
             }
           },
@@ -504,7 +511,7 @@ function UserInfoCard({ avatar, onEditAvatar }: { avatar: AvatarConfig | null; o
       <Pressable
         onPress={onEditAvatar}
         accessibilityRole="button"
-        accessibilityLabel="Edit avatar"
+        accessibilityLabel={t('settings:profile.editAvatar')}
         style={{ marginBottom: spacing.s3 }}
       >
         <PeakAvatar config={avatar} size={84} ring={theme.colors.borderDefault} />
@@ -520,14 +527,14 @@ function UserInfoCard({ avatar, onEditAvatar }: { avatar: AvatarConfig | null; o
             <PFInput
               value={nameDraft}
               onChangeText={setNameDraft}
-              placeholder="Your name"
+              placeholder={t('settings:profile.yourNamePlaceholder')}
               autoFocus
               maxLength={40}
               autoCapitalize="words"
               returnKeyType="done"
               onSubmitEditing={saveName}
               editable={!savingName}
-              accessibilityLabel="Edit display name"
+              accessibilityLabel={t('settings:profile.editDisplayName')}
             />
           </View>
           <TouchableOpacity
@@ -535,7 +542,7 @@ function UserInfoCard({ avatar, onEditAvatar }: { avatar: AvatarConfig | null; o
             disabled={savingName}
             style={[styles.nameEditBtn, { backgroundColor: theme.colors.accentDefault }]}
             accessibilityRole="button"
-            accessibilityLabel="Save name"
+            accessibilityLabel={t('settings:profile.saveName')}
           >
             {savingName ? (
               <ActivityIndicator size="small" color={theme.components.buttonPrimaryText} />
@@ -548,7 +555,7 @@ function UserInfoCard({ avatar, onEditAvatar }: { avatar: AvatarConfig | null; o
             disabled={savingName}
             style={[styles.nameEditBtn, { borderColor: theme.colors.borderDefault, borderWidth: 1 }]}
             accessibilityRole="button"
-            accessibilityLabel="Cancel editing name"
+            accessibilityLabel={t('settings:profile.cancelEditingName')}
           >
             <Ionicons name="close" size={18} color={theme.colors.textTertiary} />
           </TouchableOpacity>
@@ -558,10 +565,10 @@ function UserInfoCard({ avatar, onEditAvatar }: { avatar: AvatarConfig | null; o
           onPress={beginEditName}
           style={styles.nameDisplayRow}
           accessibilityRole="button"
-          accessibilityLabel={user?.display_name ? `Edit name, currently ${user.display_name}` : 'Add your name'}
+          accessibilityLabel={user?.display_name ? t('settings:profile.editNameCurrently', { name: user.display_name }) : t('settings:profile.addYourName')}
         >
           <Text style={[styles.displayName, { color: user?.display_name ? theme.colors.textPrimary : theme.colors.textTertiary }]}>
-            {user?.display_name || 'Add your name'}
+            {user?.display_name || t('settings:profile.addYourName')}
           </Text>
           <Ionicons name="pencil" size={14} color={theme.colors.textTertiary} style={styles.nameEditPencil} />
         </TouchableOpacity>
@@ -582,7 +589,7 @@ function UserInfoCard({ avatar, onEditAvatar }: { avatar: AvatarConfig | null; o
             ? { color: theme.colors.accentHover }
             : { color: theme.colors.textTertiary },
         ]}>
-          {isPro ? '⭐ Pro' : 'Free'}
+          {isPro ? t('settings:profile.proTag') : t('settings:profile.freeTag')}
         </Text>
       </View>
 
@@ -590,19 +597,19 @@ function UserInfoCard({ avatar, onEditAvatar }: { avatar: AvatarConfig | null; o
           action. "Pro for now" — there is intentionally NO payment flow. */}
       <Text style={[styles.tierStorageCopy, { color: theme.colors.textTertiary }]}>
         {isPro
-          ? 'Synced across your devices'
-          : 'Stored on this device'}
+          ? t('settings:profile.syncedAcrossDevices')
+          : t('settings:profile.storedOnThisDevice')}
       </Text>
 
       {isUpgrading ? (
         <View
           style={styles.tierUpgradingBox}
           accessibilityRole="progressbar"
-          accessibilityLabel="Backing up your data to the cloud"
+          accessibilityLabel={t('settings:profile.backingUpToCloud')}
         >
           <ActivityIndicator color={theme.colors.accentDefault} />
           <Text style={[styles.tierUpgradingText, { color: theme.colors.textSecondary }]}>
-            Backing up your data to the cloud…
+            {t('settings:profile.backingUpToCloudEllipsis')}
           </Text>
           {upgradeProgress && upgradeProgress.total > 0 ? (
             <Text style={[styles.tierUpgradingMeta, { color: theme.colors.textTertiary }]}>
@@ -615,10 +622,10 @@ function UserInfoCard({ avatar, onEditAvatar }: { avatar: AvatarConfig | null; o
           onPress={handleDowngrade}
           style={[styles.tierActionGhost, { borderColor: theme.colors.borderDefault }]}
           accessibilityRole="button"
-          accessibilityLabel="Switch to the Free plan"
+          accessibilityLabel={t('settings:profile.switchToFreePlan')}
         >
           <Text style={[styles.tierActionGhostText, { color: theme.colors.textSecondary }]}>
-            Switch to Free
+            {t('settings:profile.switchToFree')}
           </Text>
         </TouchableOpacity>
       ) : (
@@ -626,11 +633,11 @@ function UserInfoCard({ avatar, onEditAvatar }: { avatar: AvatarConfig | null; o
           onPress={handleUpgrade}
           style={[styles.tierActionPrimary, { backgroundColor: theme.colors.accentDefault }]}
           accessibilityRole="button"
-          accessibilityLabel="Upgrade to Pro and sync across your devices"
+          accessibilityLabel={t('settings:profile.upgradeToProAndSync')}
         >
           <Ionicons name="cloud-upload-outline" size={16} color={theme.components.buttonPrimaryText} />
           <Text style={[styles.tierActionPrimaryText, { color: theme.components.buttonPrimaryText }]}>
-            Upgrade to Pro
+            {t('settings:profile.upgradeToPro')}
           </Text>
         </TouchableOpacity>
       )}
@@ -658,14 +665,15 @@ function UnitToggleRow({
   isUpdating,
 }: UnitToggleRowProps): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const isLbs = currentPref === 'lbs';
 
   return (
     <View style={styles.settingRow}>
       <View style={styles.settingLabelGroup}>
-        <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Units</Text>
+        <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>{t('settings:profile.units')}</Text>
         <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
-          {isLbs ? 'Pounds (lbs)' : 'Kilograms (kg)'}
+          {isLbs ? t('settings:profile.poundsLbs') : t('settings:profile.kilogramsKg')}
         </Text>
       </View>
       {isUpdating ? (
@@ -682,14 +690,14 @@ function UnitToggleRow({
             ]}
             onPress={() => onChange('kg')}
             accessibilityRole="button"
-            accessibilityLabel="Switch to kg"
+            accessibilityLabel={t('settings:profile.switchToKg')}
           >
             <Text style={[
               styles.unitButtonText,
               { color: theme.colors.textTertiary },
               !isLbs && { color: theme.components.buttonPrimaryText },
             ]}>
-              kg
+              {t('settings:profile.kgShort')}
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -699,14 +707,14 @@ function UnitToggleRow({
             ]}
             onPress={() => onChange('lbs')}
             accessibilityRole="button"
-            accessibilityLabel="Switch to lbs"
+            accessibilityLabel={t('settings:profile.switchToLbs')}
           >
             <Text style={[
               styles.unitButtonText,
               { color: theme.colors.textTertiary },
               isLbs && { color: theme.components.buttonPrimaryText },
             ]}>
-              lbs
+              {t('settings:profile.lbsShort')}
             </Text>
           </TouchableOpacity>
         </View>
@@ -733,6 +741,7 @@ function AddConstraintModal({
   onClose,
 }: AddConstraintModalProps): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const reduceMotion = useReduceMotion();
   const [customNote, setCustomNote] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -800,28 +809,28 @@ function AddConstraintModal({
 
             {/* Header */}
             <View style={[addConstraintStyles.header, { borderBottomColor: theme.colors.bgSecondary }]}>
-              <Text style={[addConstraintStyles.headerTitle, { color: theme.colors.textPrimary }]}>Add Restriction</Text>
+              <Text style={[addConstraintStyles.headerTitle, { color: theme.colors.textPrimary }]}>{t('settings:profile.addRestriction')}</Text>
               <TouchableOpacity
                 style={addConstraintStyles.closeButton}
                 onPress={onClose}
                 accessibilityRole="button"
-                accessibilityLabel="Close"
+                accessibilityLabel={t('settings:profile.close')}
               >
-                <Text style={[addConstraintStyles.closeButtonText, { color: theme.colors.accentDefault }]}>Cancel</Text>
+                <Text style={[addConstraintStyles.closeButtonText, { color: theme.colors.accentDefault }]}>{t('settings:profile.cancel')}</Text>
               </TouchableOpacity>
             </View>
 
             <ScrollView contentContainerStyle={addConstraintStyles.scrollContent} keyboardShouldPersistTaps="handled">
               <Text style={[addConstraintStyles.note, { color: theme.colors.textTertiary }]}>
-                These restrictions are used by the Training Engine to avoid exercises
-                that could aggravate your conditions.
+                {t('settings:profile.constraintNote')}
               </Text>
 
               {/* Preset chips */}
-              <Text style={[addConstraintStyles.chipSectionLabel, { color: theme.colors.textTertiary }]}>QUICK ADD</Text>
+              <Text style={[addConstraintStyles.chipSectionLabel, { color: theme.colors.textTertiary }]}>{t('settings:profile.quickAdd')}</Text>
               <View style={addConstraintStyles.chipsWrap}>
-                {PRESET_CONSTRAINTS.map(({ type, label }) => {
+                {PRESET_CONSTRAINTS.map(({ type, labelKey }) => {
                   const alreadyAdded = existingTypes.has(type);
+                  const label = t(labelKey as any);
                   return (
                     <TouchableOpacity
                       key={type}
@@ -834,7 +843,7 @@ function AddConstraintModal({
                       disabled={alreadyAdded || isSaving}
                       accessibilityRole="button"
                       accessibilityLabel={
-                        alreadyAdded ? `${label} — already added` : `Add ${label}`
+                        alreadyAdded ? t('settings:profile.alreadyAdded', { label }) : t('settings:profile.addLabel', { label })
                       }
                     >
                       <Text
@@ -844,7 +853,7 @@ function AddConstraintModal({
                           alreadyAdded && { color: theme.colors.accentHover },
                         ]}
                       >
-                        {alreadyAdded ? `✓ ${label}` : label}
+                        {alreadyAdded ? t('settings:profile.alreadyAddedCheck', { label }) : label}
                       </Text>
                     </TouchableOpacity>
                   );
@@ -852,15 +861,15 @@ function AddConstraintModal({
               </View>
 
               {/* P2-006: PFInput replaces raw TextInput for custom restriction */}
-              <Text style={[addConstraintStyles.chipSectionLabel, { color: theme.colors.textTertiary }]}>CUSTOM RESTRICTION</Text>
+              <Text style={[addConstraintStyles.chipSectionLabel, { color: theme.colors.textTertiary }]}>{t('settings:profile.customRestriction')}</Text>
               <PFInput
-                placeholder="e.g. avoid overhead pressing due to AC joint"
+                placeholder={t('settings:profile.customRestrictionPlaceholder')}
                 value={customNote}
                 onChangeText={setCustomNote}
                 multiline
                 numberOfLines={3}
                 returnKeyType="done"
-                accessibilityLabel="Custom restriction note"
+                accessibilityLabel={t('settings:profile.customRestrictionNoteLabel')}
               />
               <TouchableOpacity
                 style={[
@@ -870,13 +879,13 @@ function AddConstraintModal({
                 ]}
                 onPress={handleCustom}
                 accessibilityRole="button"
-                accessibilityLabel="Save constraint"
+                accessibilityLabel={t('settings:profile.saveConstraint')}
                 disabled={customNote.trim().length === 0 || isSaving}
               >
                 {isSaving ? (
                   <ActivityIndicator color={theme.components.buttonPrimaryText} />
                 ) : (
-                  <Text style={[addConstraintStyles.saveButtonText, { color: theme.components.buttonPrimaryText }]}>Add Custom Restriction</Text>
+                  <Text style={[addConstraintStyles.saveButtonText, { color: theme.components.buttonPrimaryText }]}>{t('settings:profile.addCustomRestriction')}</Text>
                 )}
               </TouchableOpacity>
             </ScrollView>
@@ -894,6 +903,7 @@ function AddConstraintModal({
 export default function ProfileScreen(): React.ReactElement {
   const { user, logout, updateUser } = useAuth();
   const { theme, themeName } = useTheme();
+  const { t } = useTranslation();
   const router = useRouter();
   const { startTour } = useTour(); // TICKET-095: replay welcome tour
 
@@ -953,6 +963,36 @@ export default function ProfileScreen(): React.ReactElement {
   useEffect(() => {
     getAutoregSuggestionsEnabled().then(setAutoregEnabled).catch(() => {});
   }, []);
+
+  // TICKET-146: app language override — same optimistic-update / local-only
+  // pattern as effortDisplayPref / groupRestModePref above. 'system' default;
+  // 'pseudo' only ever offered in __DEV__ builds (see the chips row below).
+  const [languagePref, setLanguagePref] = useState<AppLanguage>('system');
+  const [isUpdatingLanguage, setIsUpdatingLanguage] = useState(false);
+  useEffect(() => {
+    getAppLanguage().then(setLanguagePref).catch(() => {});
+  }, []);
+
+  const handleLanguageChange = useCallback(
+    async (lang: AppLanguage) => {
+      const prev = languagePref;
+      if (lang === prev) return;
+      setLanguagePref(lang); // optimistic
+      setIsUpdatingLanguage(true);
+      try {
+        await setAppLanguageAndApply(lang);
+      } catch (err) {
+        setLanguagePref(prev);
+        Alert.alert(
+          t('settings:profile.couldNotSavePreferenceTitle'),
+          err instanceof Error ? err.message : t('settings:profile.couldNotSaveYourSetting')
+        );
+      } finally {
+        setIsUpdatingLanguage(false);
+      }
+    },
+    [languagePref, t]
+  );
 
   // Notification preferences
   const [streakNotifEnabled, setStreakNotifEnabled] = useState(
@@ -1027,7 +1067,7 @@ export default function ProfileScreen(): React.ReactElement {
       }
     } catch (err) {
       setConstraintsError(
-        err instanceof Error ? err.message : 'Failed to load restrictions'
+        err instanceof Error ? err.message : t('settings:profile.failedToLoadRestrictions')
       );
     } finally {
       setConstraintsLoading(false);
@@ -1052,11 +1092,11 @@ export default function ProfileScreen(): React.ReactElement {
           err != null && typeof err === 'object' && 'response' in err
             ? ((err as { response?: { data?: { message?: string; error?: string } } }).response?.data?.message ??
                (err as { response?: { data?: { error?: string } } }).response?.data?.error ??
-               'Could not save unit preference')
+               t('settings:profile.couldNotSaveUnitPreference'))
             : err instanceof Error
             ? err.message
-            : 'Could not save unit preference';
-        Alert.alert('Could not save preference', msg);
+            : t('settings:profile.couldNotSaveUnitPreference');
+        Alert.alert(t('settings:profile.couldNotSavePreferenceTitle'), msg);
       } finally {
         setIsUpdatingUnit(false);
       }
@@ -1076,8 +1116,8 @@ export default function ProfileScreen(): React.ReactElement {
         // Revert on failure and surface a real error (D-3).
         setUse1rmConfirmation(!value);
         Alert.alert(
-          'Could not save preference',
-          err instanceof Error ? err.message : 'Could not save your setting'
+          t('settings:profile.couldNotSavePreferenceTitle'),
+          err instanceof Error ? err.message : t('settings:profile.couldNotSaveYourSetting')
         );
       } finally {
         setIsUpdating1rm(false);
@@ -1097,8 +1137,8 @@ export default function ProfileScreen(): React.ReactElement {
         // Revert + surface failure (D-3) — never leave a toggle looking saved.
         setStreakNotifEnabled(!value);
         Alert.alert(
-          'Could not save preference',
-          err instanceof Error ? err.message : 'Could not save your notification setting'
+          t('settings:profile.couldNotSavePreferenceTitle'),
+          err instanceof Error ? err.message : t('settings:profile.couldNotSaveNotificationSetting')
         );
       }
     },
@@ -1113,8 +1153,8 @@ export default function ProfileScreen(): React.ReactElement {
       } catch (err) {
         setPlanNotifEnabled(!value);
         Alert.alert(
-          'Could not save preference',
-          err instanceof Error ? err.message : 'Could not save your notification setting'
+          t('settings:profile.couldNotSavePreferenceTitle'),
+          err instanceof Error ? err.message : t('settings:profile.couldNotSaveNotificationSetting')
         );
       }
     },
@@ -1134,8 +1174,8 @@ export default function ProfileScreen(): React.ReactElement {
       } catch (err) {
         setRestTimerDefault(prev);
         Alert.alert(
-          'Could not save preference',
-          err instanceof Error ? err.message : 'Could not save rest timer setting'
+          t('settings:profile.couldNotSavePreferenceTitle'),
+          err instanceof Error ? err.message : t('settings:profile.couldNotSaveRestTimerSetting')
         );
       } finally {
         setIsUpdatingRestTimer(false);
@@ -1160,8 +1200,8 @@ export default function ProfileScreen(): React.ReactElement {
       } catch (err) {
         setEffortDisplayPref(prev);
         Alert.alert(
-          'Could not save preference',
-          err instanceof Error ? err.message : 'Could not save effort display setting'
+          t('settings:profile.couldNotSavePreferenceTitle'),
+          err instanceof Error ? err.message : t('settings:profile.couldNotSaveEffortDisplaySetting')
         );
       } finally {
         setIsUpdatingEffortDisplay(false);
@@ -1188,8 +1228,8 @@ export default function ProfileScreen(): React.ReactElement {
       } catch (err) {
         setGroupRestModePref(prev);
         Alert.alert(
-          'Could not save preference',
-          err instanceof Error ? err.message : 'Could not save superset rest setting'
+          t('settings:profile.couldNotSavePreferenceTitle'),
+          err instanceof Error ? err.message : t('settings:profile.couldNotSaveSupersetRestSetting')
         );
       } finally {
         setIsUpdatingGroupRestMode(false);
@@ -1236,14 +1276,12 @@ export default function ProfileScreen(): React.ReactElement {
 
   const handleDeleteConstraint = useCallback((constraint: UserConstraint) => {
     Alert.alert(
-      'Remove Restriction',
-      `Remove "${
-        constraint.custom_note ?? constraint.constraint_type.replace(/_/g, ' ')
-      }" from your restrictions?`,
+      t('settings:profile.removeRestrictionTitle'),
+      t('settings:profile.removeRestrictionMessage', { name: constraint.custom_note ?? constraint.constraint_type.replace(/_/g, ' ') }),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('settings:profile.cancel'), style: 'cancel' },
         {
-          text: 'Remove',
+          text: t('settings:profile.remove'),
           style: 'destructive',
           onPress: async () => {
             try {
@@ -1260,8 +1298,8 @@ export default function ProfileScreen(): React.ReactElement {
               setConstraints((prev) => prev.filter((c) => c.id !== constraint.id));
             } catch (err) {
               Alert.alert(
-                'Error',
-                err instanceof Error ? err.message : 'Failed to remove restriction'
+                t('settings:profile.errorTitle'),
+                err instanceof Error ? err.message : t('settings:profile.failedToRemoveRestriction')
               );
             }
           },
@@ -1300,35 +1338,35 @@ export default function ProfileScreen(): React.ReactElement {
       );
     } catch (err) {
       Alert.alert(
-        'Export failed',
-        err instanceof Error ? err.message : 'Could not export data'
+        t('settings:profile.exportFailedTitle'),
+        err instanceof Error ? err.message : t('settings:profile.couldNotExportData')
       );
     } finally {
       setIsExportingData(false);
     }
-  }, [user]);
+  }, [user, t]);
 
   // ── D. Account deletion ──────────────────────────────────────────────────
 
   const handleDeleteAccount = useCallback(() => {
     Alert.alert(
-      'Delete Account',
-      'This will permanently delete your account and all associated data. This cannot be undone.',
+      t('settings:profile.deleteAccountConfirmTitle'),
+      t('settings:profile.deleteAccountConfirmMessage'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('settings:profile.cancel'), style: 'cancel' },
         {
-          text: 'Delete My Account',
+          text: t('settings:profile.deleteMyAccount'),
           style: 'destructive',
           onPress: () => {
             haptics.warning(); // E-006: destructive confirmation
             // Second confirmation — belt-and-suspenders
             Alert.alert(
-              'Are you sure?',
-              'All your workouts, sets, plans and health data will be deleted permanently.',
+              t('settings:profile.areYouSureTitle'),
+              t('settings:profile.areYouSureMessage'),
               [
-                { text: 'No, keep my account', style: 'cancel' },
+                { text: t('settings:profile.noKeepMyAccount'), style: 'cancel' },
                 {
-                  text: 'Yes, delete everything',
+                  text: t('settings:profile.yesDeleteEverything'),
                   style: 'destructive',
                   onPress: async () => {
                     setIsDeletingAccount(true);
@@ -1352,8 +1390,8 @@ export default function ProfileScreen(): React.ReactElement {
                     } catch (err) {
                       if (mountedRef.current) setIsDeletingAccount(false);
                       Alert.alert(
-                        'Deletion failed',
-                        err instanceof Error ? err.message : 'Could not delete account'
+                        t('settings:profile.deletionFailedTitle'),
+                        err instanceof Error ? err.message : t('settings:profile.couldNotDeleteAccount')
                       );
                     }
                   },
@@ -1364,15 +1402,15 @@ export default function ProfileScreen(): React.ReactElement {
         },
       ]
     );
-  }, [logout, user]);
+  }, [logout, user, t]);
 
   // ── E. Sign out ──────────────────────────────────────────────────────────
 
   const handleSignOut = useCallback(() => {
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert(t('settings:profile.signOutTitle'), t('settings:profile.signOutMessage'), [
+      { text: t('settings:profile.cancel'), style: 'cancel' },
       {
-        text: 'Sign Out',
+        text: t('settings:profile.signOutLabel'),
         style: 'destructive',
         onPress: async () => {
           haptics.warning(); // E-006: destructive confirmation
@@ -1388,7 +1426,7 @@ export default function ProfileScreen(): React.ReactElement {
         },
       },
     ]);
-  }, [logout]);
+  }, [logout, t]);
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -1405,7 +1443,7 @@ export default function ProfileScreen(): React.ReactElement {
 
       {/* ── B. Settings ── */}
       <View style={styles.section}>
-        <SectionHeader label="SETTINGS" />
+        <SectionHeader label={t('settings:profile.settingsSectionHeader')} />
         <View style={[
           styles.settingsCard,
           { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
@@ -1424,10 +1462,9 @@ export default function ProfileScreen(): React.ReactElement {
             { borderBottomColor: theme.colors.borderDefault, borderTopColor: theme.colors.borderDefault },
           ]}>
             <View style={styles.settingLabelGroup}>
-              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Confirm estimated maxes</Text>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>{t('settings:profile.confirmEstimatedMaxes')}</Text>
               <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
-                When on, you'll confirm each estimated 1RM before it affects your ranking.
-                Off by default — rankings use estimates automatically.
+                {t('settings:profile.confirmEstimatedMaxesMeta')}
               </Text>
             </View>
             {isUpdating1rm ? (
@@ -1438,7 +1475,7 @@ export default function ProfileScreen(): React.ReactElement {
                 onValueChange={handle1rmConfirmationToggle}
                 trackColor={{ false: theme.colors.borderDefault, true: theme.colors.accentDefault }}
                 thumbColor={use1rmConfirmation ? theme.colors.accentDefault : theme.colors.textTertiary}
-                accessibilityLabel="Confirm estimated maxes"
+                accessibilityLabel={t('settings:profile.confirmEstimatedMaxes')}
               />
             )}
           </View>
@@ -1451,9 +1488,9 @@ export default function ProfileScreen(): React.ReactElement {
             { borderTopColor: theme.colors.borderDefault },
           ]}>
             <View style={styles.settingLabelGroup}>
-              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Default rest timer</Text>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>{t('settings:profile.defaultRestTimer')}</Text>
               <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
-                {restTimerDefault}s between sets
+                {t('settings:profile.secondsBetweenSets', { sec: restTimerDefault })}
               </Text>
             </View>
             {isUpdatingRestTimer ? (
@@ -1477,7 +1514,7 @@ export default function ProfileScreen(): React.ReactElement {
                       ]}
                       onPress={() => handleRestTimerPreset(sec)}
                       accessibilityRole="button"
-                      accessibilityLabel={`Set rest timer to ${sec} seconds`}
+                      accessibilityLabel={t('settings:profile.setRestTimerTo', { sec })}
                       accessibilityState={{ selected }}
                     >
                       <Text style={[
@@ -1485,7 +1522,7 @@ export default function ProfileScreen(): React.ReactElement {
                         { color: theme.colors.textTertiary },
                         selected && { color: theme.components.buttonPrimaryText },
                       ]}>
-                        {(sec % 60 === 0) ? `${sec / 60}m` : `${sec}s`}
+                        {(sec % 60 === 0) ? t('settings:profile.restTimerMinutesShort', { min: sec / 60 }) : t('settings:profile.restTimerSecondsShort', { sec })}
                       </Text>
                     </TouchableOpacity>
                   );
@@ -1503,10 +1540,10 @@ export default function ProfileScreen(): React.ReactElement {
           ]}>
             <View style={styles.settingLabelGroup}>
               <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>
-                Show effort as RPE
+                {t('settings:profile.showEffortAsRpe')}
               </Text>
               <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
-                RPE 8 = RIR 2 — same number, different direction.
+                {t('settings:profile.effortDisplayMeta')}
               </Text>
             </View>
             {isUpdatingEffortDisplay ? (
@@ -1517,7 +1554,7 @@ export default function ProfileScreen(): React.ReactElement {
                 onValueChange={handleEffortDisplayToggle}
                 trackColor={{ false: theme.colors.borderDefault, true: theme.colors.accentDefault }}
                 thumbColor={effortDisplayPref === 'rpe' ? theme.colors.accentDefault : theme.colors.textTertiary}
-                accessibilityLabel="Show effort as RPE instead of RIR"
+                accessibilityLabel={t('settings:profile.showEffortAsRpeLabel')}
               />
             )}
           </View>
@@ -1532,11 +1569,11 @@ export default function ProfileScreen(): React.ReactElement {
             { borderTopColor: theme.colors.borderDefault },
           ]}>
             <View style={styles.settingLabelGroup}>
-              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Superset rest</Text>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>{t('settings:profile.supersetRest')}</Text>
               <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
                 {groupRestModePref === 'after_exercise'
-                  ? 'Rest after every exercise in a circuit'
-                  : 'Rest after each full round'}
+                  ? t('settings:profile.restAfterEveryExercise')
+                  : t('settings:profile.restAfterEachRound')}
               </Text>
             </View>
             {isUpdatingGroupRestMode ? (
@@ -1549,10 +1586,11 @@ export default function ProfileScreen(): React.ReactElement {
                 style={styles.restTimerPresets}
               >
                 {([
-                  { mode: 'after_round' as GroupRestMode, label: 'After each round' },
-                  { mode: 'after_exercise' as GroupRestMode, label: 'After every exercise' },
-                ]).map(({ mode, label }) => {
+                  { mode: 'after_round' as GroupRestMode, labelKey: 'settings:profile.afterEachRound' },
+                  { mode: 'after_exercise' as GroupRestMode, labelKey: 'settings:profile.afterEveryExercise' },
+                ]).map(({ mode, labelKey }) => {
                   const selected = groupRestModePref === mode;
+                  const label = t(labelKey as any);
                   return (
                     <TouchableOpacity
                       key={mode}
@@ -1563,7 +1601,7 @@ export default function ProfileScreen(): React.ReactElement {
                       ]}
                       onPress={() => handleGroupRestModeChange(mode)}
                       accessibilityRole="button"
-                      accessibilityLabel={`Superset rest: ${label}`}
+                      accessibilityLabel={t('settings:profile.supersetRestLabel', { label })}
                       accessibilityState={{ selected }}
                     >
                       <Text style={[
@@ -1588,10 +1626,10 @@ export default function ProfileScreen(): React.ReactElement {
           ]}>
             <View style={styles.settingLabelGroup}>
               <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>
-                Suggested next loads
+                {t('settings:profile.suggestedNextLoads')}
               </Text>
               <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
-                On-device suggestions for your next set's weight, from your recent history. Every suggestion shows its rule.
+                {t('settings:profile.suggestedNextLoadsMeta')}
               </Text>
             </View>
             <Switch
@@ -1602,8 +1640,66 @@ export default function ProfileScreen(): React.ReactElement {
               }}
               trackColor={{ false: theme.colors.borderDefault, true: theme.colors.accentDefault }}
               thumbColor={autoregEnabled ? theme.colors.accentDefault : theme.colors.textTertiary}
-              accessibilityLabel="Enable suggested next loads in the logger"
+              accessibilityLabel={t('settings:profile.enableSuggestedNextLoads')}
             />
+          </View>
+
+          {/* TICKET-146: language override row — same chip-row pattern as
+              "Superset rest" above (two-plus discrete choices, no Switch). */}
+          <View style={[
+            styles.settingRow,
+            styles.settingRowTop,
+            { borderTopColor: theme.colors.borderDefault },
+          ]}>
+            <View style={styles.settingLabelGroup}>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>
+                {t('settings:language.label')}
+              </Text>
+              <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
+                {t('settings:language.meta')}
+              </Text>
+            </View>
+            {isUpdatingLanguage ? (
+              <ActivityIndicator color={theme.colors.accentDefault} style={styles.toggleSpinner} />
+            ) : (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.restTimerPresetsContent}
+                style={styles.restTimerPresets}
+              >
+                {([
+                  { lang: 'system' as AppLanguage, labelKey: 'settings:language.system' },
+                  { lang: 'en' as AppLanguage, labelKey: 'settings:language.english' },
+                  ...(__DEV__ ? [{ lang: 'pseudo' as AppLanguage, labelKey: 'settings:language.pseudo' }] : []),
+                ]).map(({ lang, labelKey }) => {
+                  const selected = languagePref === lang;
+                  const label = t(labelKey as any);
+                  return (
+                    <TouchableOpacity
+                      key={lang}
+                      style={[
+                        styles.restTimerChip,
+                        { borderColor: theme.colors.borderDefault },
+                        selected && { backgroundColor: theme.colors.accentDefault, borderColor: theme.colors.accentDefault },
+                      ]}
+                      onPress={() => handleLanguageChange(lang)}
+                      accessibilityRole="button"
+                      accessibilityLabel={label}
+                      accessibilityState={{ selected }}
+                    >
+                      <Text style={[
+                        styles.restTimerChipText,
+                        { color: theme.colors.textTertiary },
+                        selected && { color: theme.components.buttonPrimaryText },
+                      ]}>
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
           </View>
         </View>
       </View>
@@ -1611,7 +1707,7 @@ export default function ProfileScreen(): React.ReactElement {
 
       {/* ── Training ── */}
       <View style={styles.section}>
-        <SectionHeader label="TRAINING" />
+        <SectionHeader label={t('settings:profile.trainingSectionHeader')} />
         <View style={[
           styles.settingsCard,
           { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
@@ -1621,12 +1717,12 @@ export default function ProfileScreen(): React.ReactElement {
             style={styles.settingRow}
             onPress={() => router.push('/training-survey')}
             accessibilityRole="button"
-            accessibilityLabel="Edit training profile"
+            accessibilityLabel={t('settings:profile.editTrainingProfile')}
           >
             <View style={styles.settingLabelGroup}>
-              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Training profile</Text>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>{t('settings:profile.trainingProfile')}</Text>
               <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
-                Goal, schedule, equipment & season
+                {t('settings:profile.trainingProfileMeta')}
               </Text>
             </View>
             <Text style={[styles.settingChevron, { color: theme.colors.textTertiary }]}>›</Text>
@@ -1638,12 +1734,12 @@ export default function ProfileScreen(): React.ReactElement {
               { borderTopColor: theme.colors.borderDefault, borderBottomColor: theme.colors.borderDefault }]}
             onPress={() => router.push('/insights')}
             accessibilityRole="button"
-            accessibilityLabel="View readiness and recovery"
+            accessibilityLabel={t('settings:profile.viewReadinessAndRecovery')}
           >
             <View style={styles.settingLabelGroup}>
-              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Readiness &amp; recovery</Text>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>{t('settings:profile.readinessAndRecovery')}</Text>
               <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
-                Daily readiness score, muscle freshness &amp; deload alerts
+                {t('settings:profile.readinessAndRecoveryMeta')}
               </Text>
             </View>
             <Text style={[styles.settingChevron, { color: theme.colors.textTertiary }]}>›</Text>
@@ -1655,12 +1751,12 @@ export default function ProfileScreen(): React.ReactElement {
               { borderTopColor: theme.colors.borderDefault, borderBottomColor: theme.colors.borderDefault }]}
             onPress={() => router.push('/data-export')}
             accessibilityRole="button"
-            accessibilityLabel="Export my data"
+            accessibilityLabel={t('settings:profile.exportMyData')}
           >
             <View style={styles.settingLabelGroup}>
-              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Export my data</Text>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>{t('settings:profile.exportMyDataLabel')}</Text>
               <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
-                Download your full workout history as JSON or CSV
+                {t('settings:profile.exportMyDataMeta')}
               </Text>
             </View>
             <Text style={[styles.settingChevron, { color: theme.colors.textTertiary }]}>›</Text>
@@ -1670,7 +1766,7 @@ export default function ProfileScreen(): React.ReactElement {
 
       {/* ── Appearance ── */}
       <View style={styles.section}>
-        <SectionHeader label="APPEARANCE" />
+        <SectionHeader label={t('settings:profile.appearanceSectionHeader')} />
         <View style={[
           styles.settingsCard,
           { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
@@ -1679,9 +1775,9 @@ export default function ProfileScreen(): React.ReactElement {
             style={styles.settingRow}
             onPress={() => setShowThemePicker(true)}
             accessibilityRole="button"
-            accessibilityLabel="Change theme"
+            accessibilityLabel={t('settings:profile.changeTheme')}
           >
-            <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Theme</Text>
+            <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>{t('settings:profile.theme')}</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.s2 }}>
               <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
                 {activeThemeDisplayName}
@@ -1694,9 +1790,9 @@ export default function ProfileScreen(): React.ReactElement {
 
       {/* ── C. Physical constraints ── */}
       <View style={styles.section}>
-        <SectionHeader label="PHYSICAL RESTRICTIONS" />
+        <SectionHeader label={t('settings:profile.physicalRestrictionsSectionHeader')} />
         <Text style={[styles.sectionNote, { color: theme.colors.textTertiary }]}>
-          These constraints are shared with the Training Engine to avoid incompatible exercises.
+          {t('settings:profile.physicalRestrictionsNote')}
         </Text>
 
         {constraintsLoading ? (
@@ -1709,8 +1805,8 @@ export default function ProfileScreen(): React.ReactElement {
             { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
           ]}>
             <Text style={[styles.constraintsErrorText, { color: theme.colors.statusError }]}>{constraintsError}</Text>
-            <TouchableOpacity onPress={loadConstraints} accessibilityRole="button" accessibilityLabel="Retry loading constraints">
-              <Text style={[styles.retryLink, { color: theme.colors.accentDefault }]}>Retry</Text>
+            <TouchableOpacity onPress={loadConstraints} accessibilityRole="button" accessibilityLabel={t('settings:profile.retryLoadingConstraints')}>
+              <Text style={[styles.retryLink, { color: theme.colors.accentDefault }]}>{t('settings:profile.retry')}</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -1719,7 +1815,7 @@ export default function ProfileScreen(): React.ReactElement {
             { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
           ]}>
             {constraints.length === 0 ? (
-              <Text style={[styles.noConstraints, { color: theme.colors.textTertiary }]}>No restrictions added</Text>
+              <Text style={[styles.noConstraints, { color: theme.colors.textTertiary }]}>{t('settings:profile.noRestrictionsAdded')}</Text>
             ) : (
               constraints.map((c) => (
                 <View key={c.id} style={[
@@ -1729,7 +1825,7 @@ export default function ProfileScreen(): React.ReactElement {
                   <View style={styles.constraintLabelGroup}>
                     <Text style={[styles.constraintType, { color: theme.colors.textPrimary }]}>
                       {c.constraint_type === 'custom'
-                        ? 'Custom'
+                        ? t('settings:profile.customType')
                         : c.constraint_type.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase())}
                     </Text>
                     {c.custom_note ? (
@@ -1741,7 +1837,7 @@ export default function ProfileScreen(): React.ReactElement {
                     onPress={() => handleDeleteConstraint(c)}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     accessibilityRole="button"
-                    accessibilityLabel="Remove restriction"
+                    accessibilityLabel={t('settings:profile.removeRestriction')}
                   >
                     <Text style={[styles.removeConstraintIcon, { color: theme.colors.textTertiary }]}>✕</Text>
                   </TouchableOpacity>
@@ -1754,9 +1850,9 @@ export default function ProfileScreen(): React.ReactElement {
               style={styles.addConstraintRow}
               onPress={() => setShowAddConstraint(true)}
               accessibilityRole="button"
-              accessibilityLabel="Add a physical restriction"
+              accessibilityLabel={t('settings:profile.addPhysicalRestriction')}
             >
-              <Text style={[styles.addConstraintText, { color: theme.colors.accentDefault }]}>+ Add Restriction</Text>
+              <Text style={[styles.addConstraintText, { color: theme.colors.accentDefault }]}>{t('settings:profile.addRestrictionPlus')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -1767,7 +1863,7 @@ export default function ProfileScreen(): React.ReactElement {
 
       {/* ── Notifications ── */}
       <View style={styles.section}>
-        <SectionHeader label="NOTIFICATIONS" />
+        <SectionHeader label={t('settings:profile.notificationsSectionHeader')} />
         <View style={[
           styles.settingsCard,
           { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
@@ -1775,9 +1871,9 @@ export default function ProfileScreen(): React.ReactElement {
           {/* Streak milestones */}
           <View style={[styles.settingRow, { justifyContent: 'space-between' }]}>
             <View style={styles.settingLabelGroup}>
-              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Streak milestones</Text>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>{t('settings:profile.streakMilestones')}</Text>
               <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
-                Celebrate 7, 30, and 100-day streaks
+                {t('settings:profile.streakMilestonesMeta')}
               </Text>
             </View>
             <Switch
@@ -1785,7 +1881,7 @@ export default function ProfileScreen(): React.ReactElement {
               onValueChange={handleStreakNotifToggle}
               trackColor={{ false: theme.colors.borderDefault, true: theme.colors.accentDefault }}
               thumbColor={streakNotifEnabled ? theme.colors.accentDefault : theme.colors.textTertiary}
-              accessibilityLabel="Streak milestone notifications"
+              accessibilityLabel={t('settings:profile.streakMilestoneNotifLabel')}
             />
           </View>
 
@@ -1797,9 +1893,9 @@ export default function ProfileScreen(): React.ReactElement {
             { justifyContent: 'space-between', borderTopColor: theme.colors.borderDefault, borderBottomColor: theme.colors.borderDefault },
           ]}>
             <View style={styles.settingLabelGroup}>
-              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Plan notifications</Text>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>{t('settings:profile.planNotifications')}</Text>
               <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
-                Notify when your plan is ready
+                {t('settings:profile.planNotificationsMeta')}
               </Text>
             </View>
             <Switch
@@ -1807,7 +1903,7 @@ export default function ProfileScreen(): React.ReactElement {
               onValueChange={handlePlanNotifToggle}
               trackColor={{ false: theme.colors.borderDefault, true: theme.colors.accentDefault }}
               thumbColor={planNotifEnabled ? theme.colors.accentDefault : theme.colors.textTertiary}
-              accessibilityLabel="Plan ready notifications"
+              accessibilityLabel={t('settings:profile.planReadyNotifLabel')}
             />
           </View>
 
@@ -1823,17 +1919,16 @@ export default function ProfileScreen(): React.ReactElement {
             ]}>
               <View style={styles.settingLabelGroup}>
                 <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>
-                  Siri &amp; Shortcuts
+                  {t('settings:profile.siriAndShortcuts')}
                 </Text>
                 <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
-                  Try "Hey Siri, log a set in Peak Fettle", "start a workout", or
-                  "start rest". Manage phrases in the Shortcuts app.
+                  {t('settings:profile.siriAndShortcutsMeta')}
                 </Text>
               </View>
               <TouchableOpacity
                 onPress={() => Linking.openURL('shortcuts://').catch(() => {})}
                 accessibilityRole="button"
-                accessibilityLabel="Open the Shortcuts app to manage Peak Fettle voice phrases"
+                accessibilityLabel={t('settings:profile.openShortcutsApp')}
                 style={styles.toggleSpinner}
               >
                 <Ionicons name="chevron-forward" size={18} color={theme.colors.textTertiary} />
@@ -1845,7 +1940,7 @@ export default function ProfileScreen(): React.ReactElement {
 
       {/* ── D. Data & privacy ── */}
       <View style={styles.section}>
-        <SectionHeader label="DATA & PRIVACY" />
+        <SectionHeader label={t('settings:profile.dataAndPrivacySectionHeader')} />
         <View style={[
           styles.settingsCard,
           { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
@@ -1855,12 +1950,12 @@ export default function ProfileScreen(): React.ReactElement {
             style={[styles.settingRow, styles.settingRowBordered, { borderBottomColor: theme.colors.borderDefault }]}
             onPress={() => router.push('/health-metrics')}
             accessibilityRole="button"
-            accessibilityLabel="View health metrics"
+            accessibilityLabel={t('settings:profile.viewHealthMetrics')}
           >
             <View style={styles.settingLabelGroup}>
-              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Health Metrics</Text>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>{t('settings:profile.healthMetrics')}</Text>
               <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
-                {Platform.OS === 'ios' ? 'Sync from Apple Health · HR, HRV, sleep' : 'HR, HRV, sleep data'}
+                {Platform.OS === 'ios' ? t('settings:profile.healthMetricsMetaIos') : t('settings:profile.healthMetricsMetaOther')}
               </Text>
             </View>
             <Text style={[styles.settingChevron, { color: theme.colors.textTertiary }]}>›</Text>
@@ -1872,14 +1967,14 @@ export default function ProfileScreen(): React.ReactElement {
           styles.settingsCard,
           { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault, marginBottom: spacing.s4 },
         ]}>
-          <Text style={[styles.sectionLabel, { color: theme.colors.textTertiary }]}>YOUR DATA</Text>
+          <Text style={[styles.sectionLabel, { color: theme.colors.textTertiary }]}>{t('settings:profile.yourDataSectionHeader')}</Text>
 
           {/* Data category rows */}
           {[
-            { label: 'Workouts', description: 'Session logs, sets, reps, weights' },
-            { label: 'Plans', description: 'Evidence-based training plans' },
-            { label: 'Health Metrics', description: 'HealthKit data and manual entries' },
-            { label: 'Profile', description: 'Account info and preferences' },
+            { label: t('settings:profile.categoryWorkouts'), description: t('settings:profile.categoryWorkoutsDesc') },
+            { label: t('settings:profile.categoryPlans'), description: t('settings:profile.categoryPlansDesc') },
+            { label: t('settings:profile.categoryHealthMetrics'), description: t('settings:profile.categoryHealthMetricsDesc') },
+            { label: t('settings:profile.categoryProfile'), description: t('settings:profile.categoryProfileDesc') },
           ].map((category, i) => (
             <View key={category.label} style={[styles.settingRow, i > 0 && { borderTopWidth: 1, borderTopColor: theme.colors.borderDefault }]}>
               <View style={styles.settingLabelGroup}>
@@ -1894,11 +1989,11 @@ export default function ProfileScreen(): React.ReactElement {
             onPress={() => router.push('/trends')}
             style={[styles.settingRow, { borderTopWidth: 1, borderColor: theme.colors.borderDefault }]}
             accessibilityRole="button"
-            accessibilityLabel="View progress and trends"
+            accessibilityLabel={t('settings:profile.viewProgressAndTrends')}
           >
             <Ionicons name="trending-up-outline" size={20} color={theme.colors.textSecondary} />
             <Text style={[styles.settingLabel, { color: theme.colors.textPrimary, marginLeft: spacing.s3, flex: 1 }]}>
-              Progress &amp; Trends
+              {t('settings:profile.progressAndTrends')}
             </Text>
             <Ionicons name="chevron-forward-outline" size={16} color={theme.colors.textTertiary} />
           </Pressable>
@@ -1908,11 +2003,11 @@ export default function ProfileScreen(): React.ReactElement {
             onPress={() => router.push('/exercise-library')}
             style={[styles.settingRow, { borderTopWidth: 1, borderColor: theme.colors.borderDefault }]}
             accessibilityRole="button"
-            accessibilityLabel="Browse exercise library"
+            accessibilityLabel={t('settings:profile.browseExerciseLibrary')}
           >
             <Ionicons name="barbell-outline" size={20} color={theme.colors.textSecondary} />
             <Text style={[styles.settingLabel, { color: theme.colors.textPrimary, marginLeft: spacing.s3, flex: 1 }]}>
-              Exercise Library
+              {t('settings:profile.exerciseLibrary')}
             </Text>
             <Ionicons name="chevron-forward-outline" size={16} color={theme.colors.textTertiary} />
           </Pressable>
@@ -1922,11 +2017,11 @@ export default function ProfileScreen(): React.ReactElement {
             onPress={() => router.push('/cosmetics')}
             style={[styles.settingRow, { borderTopWidth: 1, borderColor: theme.colors.borderDefault }]}
             accessibilityRole="button"
-            accessibilityLabel="View achievements and cosmetics shop"
+            accessibilityLabel={t('settings:profile.viewAchievementsAndShop')}
           >
             <Ionicons name="trophy-outline" size={20} color={theme.colors.textSecondary} />
             <Text style={[styles.settingLabel, { color: theme.colors.textPrimary, marginLeft: spacing.s3, flex: 1 }]}>
-              Achievements &amp; Shop
+              {t('settings:profile.achievementsAndShop')}
             </Text>
             <Ionicons name="chevron-forward-outline" size={16} color={theme.colors.textTertiary} />
           </Pressable>
@@ -1936,11 +2031,11 @@ export default function ProfileScreen(): React.ReactElement {
             onPress={() => startTour()}
             style={[styles.settingRow, { borderTopWidth: 1, borderColor: theme.colors.borderDefault }]}
             accessibilityRole="button"
-            accessibilityLabel="Replay welcome tour"
+            accessibilityLabel={t('settings:profile.replayWelcomeTour')}
           >
             <Ionicons name="help-circle-outline" size={20} color={theme.colors.textSecondary} />
             <Text style={[styles.settingLabel, { color: theme.colors.textPrimary, marginLeft: spacing.s3, flex: 1 }]}>
-              Replay welcome tour
+              {t('settings:profile.replayWelcomeTour')}
             </Text>
             <Ionicons name="chevron-forward-outline" size={16} color={theme.colors.textTertiary} />
           </Pressable>
@@ -1950,11 +2045,11 @@ export default function ProfileScreen(): React.ReactElement {
             onPress={() => router.push('/csv-import')}
             style={[styles.settingRow, { borderTopWidth: 1, borderColor: theme.colors.borderDefault }]}
             accessibilityRole="button"
-            accessibilityLabel="Import activity data from Garmin or Strava"
+            accessibilityLabel={t('settings:profile.importActivityData')}
           >
             <Ionicons name="cloud-upload-outline" size={20} color={theme.colors.textSecondary} />
             <Text style={[styles.settingLabel, { color: theme.colors.textPrimary, marginLeft: spacing.s3, flex: 1 }]}>
-              Import Activity Data
+              {t('settings:profile.importActivityDataLabel')}
             </Text>
             <Ionicons name="chevron-forward-outline" size={16} color={theme.colors.textTertiary} />
           </Pressable>
@@ -1964,10 +2059,10 @@ export default function ProfileScreen(): React.ReactElement {
             onPress={handleDataExport}
             style={[styles.settingRow, { borderTopWidth: 1, borderTopColor: theme.colors.borderDefault }]}
             accessibilityRole="button"
-            accessibilityLabel="Export all my data"
+            accessibilityLabel={t('settings:profile.exportAllMyData')}
           >
             <Text style={{ color: theme.colors.accentDefault, fontSize: fontSize.bodyMd, fontWeight: fontWeight.medium }}>
-              Export All My Data
+              {t('settings:profile.exportAllMyDataLabel')}
             </Text>
             <Ionicons name="download-outline" size={18} color={theme.colors.accentDefault} />
           </TouchableOpacity>
@@ -1978,9 +2073,9 @@ export default function ProfileScreen(): React.ReactElement {
             onPress={() => router.push('/diagnostics')}
             style={[styles.settingRow, { borderTopWidth: 1, borderTopColor: theme.colors.borderDefault }]}
             accessibilityRole="button"
-            accessibilityLabel="Diagnostics"
+            accessibilityLabel={t('settings:profile.diagnostics')}
           >
-            <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Diagnostics</Text>
+            <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>{t('settings:profile.diagnostics')}</Text>
             <Ionicons name="pulse-outline" size={18} color={theme.colors.textTertiary} />
           </TouchableOpacity>
         </View>
@@ -1995,13 +2090,13 @@ export default function ProfileScreen(): React.ReactElement {
             onPress={handleDeleteAccount}
             disabled={isDeletingAccount}
             accessibilityRole="button"
-            accessibilityLabel="Delete account"
+            accessibilityLabel={t('settings:profile.deleteAccount')}
           >
             <View style={styles.settingLabelGroup}>
               <Text style={[styles.settingLabel, { color: theme.colors.statusError }]}>
-                Delete Account
+                {t('settings:profile.deleteAccountLabel')}
               </Text>
-              <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>Permanently removes all your data</Text>
+              <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>{t('settings:profile.deleteAccountMeta')}</Text>
             </View>
             {isDeletingAccount ? (
               <ActivityIndicator color={theme.colors.statusError} />
@@ -2022,17 +2117,17 @@ export default function ProfileScreen(): React.ReactElement {
         onPress={handleSignOut}
         disabled={isSigningOut}
         accessibilityRole="button"
-        accessibilityLabel="Sign out"
+        accessibilityLabel={t('settings:profile.signOut')}
       >
         {isSigningOut ? (
           <ActivityIndicator color={theme.colors.statusError} />
         ) : (
-          <Text style={[styles.signOutText, { color: theme.colors.statusError }]}>Sign Out</Text>
+          <Text style={[styles.signOutText, { color: theme.colors.statusError }]}>{t('settings:profile.signOutLabel')}</Text>
         )}
       </TouchableOpacity>
 
       {/* App version note */}
-      <Text style={[styles.appVersion, { color: theme.colors.borderDefault }]}>Peak Fettle</Text>
+      <Text style={[styles.appVersion, { color: theme.colors.borderDefault }]}>{t('settings:profile.appVersionNote')}</Text>
 
       <View style={styles.bottomPad} />
 

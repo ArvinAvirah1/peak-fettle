@@ -7,9 +7,11 @@
 
 import { Stack } from 'expo-router';
 import { useTheme } from '../../src/theme/ThemeContext';
+import { useTranslation } from 'react-i18next';
 
 export default function AuthLayout(): React.ReactElement {
   const { theme, fontWeight } = useTheme();
+  const { t } = useTranslation();
   return (
     <Stack
       screenOptions={{
@@ -19,8 +21,8 @@ export default function AuthLayout(): React.ReactElement {
         contentStyle: { backgroundColor: theme.colors.bgPrimary },
       }}
     >
-      <Stack.Screen name="login" options={{ title: 'Sign In', headerShown: false }} />
-      <Stack.Screen name="register" options={{ title: 'Create Account', headerShown: false }} />
+      <Stack.Screen name="login" options={{ title: t('tabs:authLayout.signIn'), headerShown: false }} />
+      <Stack.Screen name="register" options={{ title: t('tabs:authLayout.createAccount'), headerShown: false }} />
     </Stack>
   );
 }

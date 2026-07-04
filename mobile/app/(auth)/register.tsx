@@ -25,6 +25,7 @@ import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
 import { ScreenLayout, PFButton, PFInput } from '../../src/components/ui';
 import { BrandLogo } from '../../src/components/BrandLogo';
 import { OAuthButtons } from '../../src/components/auth/OAuthButtons';
+import { useTranslation } from 'react-i18next';
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -38,17 +39,17 @@ interface FieldErrors {
   displayName?: string;
 }
 
-function validate(email: string, password: string): FieldErrors {
+function validate(email: string, password: string, t: (key: string) => string): FieldErrors {
   const errors: FieldErrors = {};
   if (!email.trim()) {
-    errors.email = 'Email is required.';
+    errors.email = t('tabs:register.emailRequired');
   } else if (!EMAIL_REGEX.test(email.trim())) {
-    errors.email = 'Enter a valid email address.';
+    errors.email = t('tabs:register.emailInvalid');
   }
   if (!password) {
-    errors.password = 'Password is required.';
+    errors.password = t('tabs:register.passwordRequired');
   } else if (password.length < 8) {
-    errors.password = 'Password must be at least 8 characters.';
+    errors.password = t('tabs:register.passwordTooShort');
   }
   return errors;
 }
@@ -61,6 +62,7 @@ export default function RegisterScreen(): React.ReactElement {
   const { register } = useAuth();
   const { theme } = useTheme();
   const router = useRouter();
+  const { t } = useTranslation();
 
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -74,7 +76,7 @@ export default function RegisterScreen(): React.ReactElement {
     // can never get wedged disabled: it always re-enables in finally{}.
     if (isSubmitting) return;
 
-    const errors = validate(email, password);
+    const errors = validate(email, password, t);
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
       return;
@@ -95,7 +97,7 @@ export default function RegisterScreen(): React.ReactElement {
       // first replace can't leave the user stranded on a re-enabled button.
       router.replace('/splash');
     } catch (err: unknown) {
-      setServerError(extractErrorMessage(err));
+      setServerError(extractErrorMessage(err, t));
     } finally {
       setIsSubmitting(false);
     }
@@ -108,16 +110,16 @@ export default function RegisterScreen(): React.ReactElement {
         <BrandLogo height={100} dark />
       </View>
       <Text style={[styles.subtitle, { color: theme.colors.textSecondary }]}>
-        Create your account
+        {t('tabs:register.subtitle')}
       </Text>
 
       {/* Display name (optional) */}
       <View style={styles.fieldGroup}>
         <PFInput
-          label="Display Name (optional)"
+          label={t('tabs:register.displayNameLabel')}
           value={displayName}
           onChangeText={setDisplayName}
-          placeholder="Your name"
+          placeholder={t('tabs:register.displayNamePlaceholder')}
           autoCapitalize="words"
           autoCorrect={false}
           autoComplete="name"
@@ -129,14 +131,14 @@ export default function RegisterScreen(): React.ReactElement {
       {/* Email */}
       <View style={styles.fieldGroup}>
         <PFInput
-          label="Email"
+          label={t('tabs:register.emailLabel')}
           value={email}
           onChangeText={(text) => {
             setEmail(text);
             if (fieldErrors.email) setFieldErrors((prev) => ({ ...prev, email: undefined }));
           }}
           error={fieldErrors.email}
-          placeholder="you@example.com"
+          placeholder={t('tabs:register.emailPlaceholder')}
           keyboardType="email-address"
           autoCapitalize="none"
           autoCorrect={false}
@@ -149,7 +151,7 @@ export default function RegisterScreen(): React.ReactElement {
       {/* Password */}
       <View style={styles.fieldGroup}>
         <PFInput
-          label="Password"
+          label={t('tabs:register.passwordLabel')}
           value={password}
           onChangeText={(text) => {
             setPassword(text);
@@ -157,7 +159,7 @@ export default function RegisterScreen(): React.ReactElement {
               setFieldErrors((prev) => ({ ...prev, password: undefined }));
           }}
           error={fieldErrors.password}
-          placeholder="Min. 8 characters"
+          placeholder={t('tabs:register.passwordPlaceholder')}
           secureTextEntry
           autoComplete="new-password"
           disabled={isSubmitting}
@@ -186,7 +188,7 @@ export default function RegisterScreen(): React.ReactElement {
       {/* Submit */}
       <PFButton
         variant="primary"
-        label="Create Account"
+        label={t('tabs:register.submit')}
         onPress={handleRegister}
         loading={isSubmitting}
       />
@@ -196,11 +198,11 @@ export default function RegisterScreen(): React.ReactElement {
 
       <View style={styles.footer}>
         <Text style={[styles.footerText, { color: theme.colors.textSecondary }]}>
-          Already have an account?
+          {t('tabs:register.haveAccount')}
         </Text>
         <PFButton
           variant="ghost"
-          label="Sign in"
+          label={t('tabs:register.signIn')}
           onPress={() => router.push('/(auth)/login')}
           size="sm"
         />
@@ -213,18 +215,18 @@ export default function RegisterScreen(): React.ReactElement {
 // Error extraction helper
 // ---------------------------------------------------------------------------
 
-function extractErrorMessage(err: unknown): string {
+function extractErrorMessage(err: unknown, t: (key: string) => string): string {
   if (typeof err === 'object' && err !== null && 'response' in err) {
     const axiosErr = err as { response?: { status?: number; data?: { error?: string; message?: string } } };
     const status = axiosErr.response?.status;
     if (status === 409 || axiosErr.response?.data?.error === 'email_taken') {
-      return 'An account with this email already exists.';
+      return t('tabs:register.emailTaken');
     }
     if (axiosErr.response?.data?.message) {
       return axiosErr.response.data.message;
     }
   }
-  return 'Something went wrong. Please try again.';
+  return t('tabs:register.genericError');
 }
 
 // ---------------------------------------------------------------------------

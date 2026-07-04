@@ -20,6 +20,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { useTheme } from '../src/theme/ThemeContext';
+import { useTranslation } from 'react-i18next';
 import { GLOSSARY_TERMS, GlossaryTermEntry } from '../src/utils/glossaryTerms';
 // TICKET-128: RIR ⇄ RPE display toggle. Local-only KV read (zero network,
 // safe on mount) — the glossary badges whichever of RIR/RPE is the user's
@@ -40,6 +41,7 @@ function TermRow({
 }): React.ReactElement {
   const { theme, fontSize, fontWeight, spacing, radius } = useTheme();
   const colors = theme.colors;
+  const { t } = useTranslation();
   // Badge whichever of the RIR/RPE glossary rows matches the user's CURRENT
   // setting — the glossary "respects the setting" by pointing at the active one
   // rather than changing the (educational) definition text itself.
@@ -114,7 +116,7 @@ function TermRow({
                 fontWeight: fontWeight.medium,
               }}
             >
-              Your setting
+              {t('screens:glossary.yourSetting')}
             </Text>
           </View>
         ) : null}
@@ -141,6 +143,7 @@ export default function GlossaryScreen(): React.ReactElement {
   const { term: initialTerm } = useLocalSearchParams<{ term?: string }>();
   const [query, setQuery] = useState<string>(initialTerm ?? '');
   const { theme, fontSize, spacing, radius } = useTheme();
+  const { t } = useTranslation();
   const colors = theme.colors;
   const listRef = useRef<FlatList<GlossaryTermEntry>>(null);
 
@@ -205,7 +208,7 @@ export default function GlossaryScreen(): React.ReactElement {
             color: colors.textPrimary,
             paddingVertical: spacing.s3,
           }}
-          placeholder="Search terms…"
+          placeholder={t('screens:glossary.searchPlaceholder')}
           placeholderTextColor={colors.textTertiary}
           value={query}
           onChangeText={setQuery}
@@ -225,7 +228,7 @@ export default function GlossaryScreen(): React.ReactElement {
           marginBottom: spacing.s2,
         }}
       >
-        {filtered.length} {filtered.length === 1 ? 'term' : 'terms'}
+        {t('screens:glossary.termCount', { count: filtered.length })}
       </Text>
 
       {/* Term list */}
@@ -244,7 +247,7 @@ export default function GlossaryScreen(): React.ReactElement {
         ListEmptyComponent={
           <View style={[styles.empty, { marginTop: spacing.s6 ?? 48 }]}>
             <Text style={{ fontSize: fontSize.bodyMd, color: colors.textTertiary, textAlign: 'center' }}>
-              No terms match "{query}"
+              {t('screens:glossary.noMatch', { query })}
             </Text>
           </View>
         }

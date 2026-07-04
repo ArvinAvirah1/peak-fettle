@@ -63,6 +63,8 @@ import { parseCsv } from '../src/lib/importers/csvUtil';
 import { importParsedFile } from '../src/lib/importers/importEngine';
 import { MatchCandidate } from '../src/lib/importers/nameMapping';
 import { ImportSummary, ParsedImportFile } from '../src/lib/importers/types';
+import { useTranslation } from 'react-i18next';
+import i18n from '../src/i18n';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -107,7 +109,7 @@ async function pickCsvFile(): Promise<PickedFile | null> {
 
     // Validate extension client-side
     if (!asset.name.toLowerCase().endsWith('.csv')) {
-      Alert.alert('Wrong file type', 'Please select a .csv file exported from Garmin Connect, Strava, Strong, or Hevy.');
+      Alert.alert(i18n.t('screens:csvImport.wrongFileTypeTitle'), i18n.t('screens:csvImport.wrongFileTypeMessage'));
       return null;
     }
 
@@ -115,11 +117,11 @@ async function pickCsvFile(): Promise<PickedFile | null> {
   } catch (e: any) {
     if (e?.code === 'MODULE_NOT_FOUND' || e?.message?.includes("Cannot find module 'expo-document-picker'")) {
       Alert.alert(
-        'Package not installed',
-        'expo-document-picker is required for file picking.\n\nRun:\n  npx expo install expo-document-picker\nthen rebuild the app.',
+        i18n.t('screens:csvImport.packageNotInstalledTitle'),
+        i18n.t('screens:csvImport.docPickerMissingMessage'),
       );
     } else {
-      Alert.alert('Error', 'Could not open the file picker. Please try again.');
+      Alert.alert(i18n.t('screens:csvImport.errorTitle'), i18n.t('screens:csvImport.pickerErrorMessage'));
     }
     return null;
   }
@@ -135,11 +137,11 @@ async function readCsvText(uri: string): Promise<string | null> {
   } catch (e: any) {
     if (e?.code === 'MODULE_NOT_FOUND' || e?.message?.includes("Cannot find module 'expo-file-system'")) {
       Alert.alert(
-        'Package not installed',
-        'expo-file-system is required to read the file.\n\nRun:\n  npx expo install expo-file-system\nthen rebuild the app.',
+        i18n.t('screens:csvImport.packageNotInstalledTitle'),
+        i18n.t('screens:csvImport.fileSystemMissingMessage'),
       );
     } else {
-      Alert.alert('Error', 'Could not read the selected file. Please try again.');
+      Alert.alert(i18n.t('screens:csvImport.errorTitle'), i18n.t('screens:csvImport.readErrorMessage'));
     }
     return null;
   }
@@ -176,6 +178,7 @@ interface ManualMatchSheetProps {
 function ManualMatchSheet({ visible, rawName, candidates, onResolve }: ManualMatchSheetProps): React.ReactElement {
   const { theme, fontSize, fontWeight, spacing, radius } = useTheme();
   const { colors } = theme;
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState('');
 
@@ -194,7 +197,7 @@ function ManualMatchSheet({ visible, rawName, candidates, onResolve }: ManualMat
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={() => onResolve(null)} statusBarTranslucent>
-      <Pressable style={styles.backdrop} onPress={() => onResolve(null)} accessibilityLabel="Dismiss match sheet" />
+      <Pressable style={styles.backdrop} onPress={() => onResolve(null)} accessibilityLabel={t('screens:csvImport.dismissMatchSheet')} />
       <View
         style={[
           styles.sheet,
@@ -209,16 +212,16 @@ function ManualMatchSheet({ visible, rawName, candidates, onResolve }: ManualMat
       >
         <View style={[styles.handle, { backgroundColor: colors.borderDefault }]} />
         <Text style={{ fontSize: fontSize.heading3, fontWeight: fontWeight.semibold, color: colors.textPrimary, marginTop: spacing.s3 }}>
-          Match "{rawName}"
+          {t('screens:csvImport.matchTitle', { rawName })}
         </Text>
         <Text style={{ fontSize: fontSize.bodySm, color: colors.textSecondary, marginTop: spacing.s2, marginBottom: spacing.s3, lineHeight: 20 }}>
-          We couldn't automatically match this exercise. Pick the closest one, or create it as a custom exercise.
+          {t('screens:csvImport.matchBody')}
         </Text>
 
         <TextInput
           value={query}
           onChangeText={setQuery}
-          placeholder="Search or type a new name…"
+          placeholder={t('screens:csvImport.searchOrTypeName')}
           placeholderTextColor={colors.textTertiary}
           style={[
             styles.input,
@@ -230,7 +233,7 @@ function ManualMatchSheet({ visible, rawName, candidates, onResolve }: ManualMat
               marginBottom: spacing.s3,
             },
           ]}
-          accessibilityLabel="Search exercises or type a custom name"
+          accessibilityLabel={t('screens:csvImport.searchExercisesLabel')}
         />
 
         <ScrollView style={{ maxHeight: 280 }} keyboardShouldPersistTaps="handled">
@@ -240,25 +243,25 @@ function ManualMatchSheet({ visible, rawName, candidates, onResolve }: ManualMat
               style={[styles.matchRow, { borderBottomColor: colors.borderDefault }]}
               onPress={() => onResolve({ exerciseId: c.id, exerciseName: c.name })}
               accessibilityRole="button"
-              accessibilityLabel={`Match to ${c.name}`}
+              accessibilityLabel={t('screens:csvImport.matchTo', { name: c.name })}
             >
               <Text style={{ fontSize: fontSize.bodyMd, color: colors.textPrimary }}>{c.name}</Text>
             </TouchableOpacity>
           ))}
           {filtered.length === 0 && (
             <Text style={{ fontSize: fontSize.bodySm, color: colors.textTertiary, paddingVertical: spacing.s3 }}>
-              No matches — create it as a custom exercise below.
+              {t('screens:csvImport.noMatches')}
             </Text>
           )}
         </ScrollView>
 
         <View style={{ marginTop: spacing.s4, flexDirection: 'row' }}>
           <View style={{ flex: 1, marginRight: spacing.s2 }}>
-            <PFButton label="Skip this exercise" onPress={() => onResolve(null)} variant="secondary" fullWidth />
+            <PFButton label={t('screens:csvImport.skipExercise')} onPress={() => onResolve(null)} variant="secondary" fullWidth />
           </View>
           <View style={{ flex: 1, marginLeft: spacing.s2 }}>
             <PFButton
-              label={query.trim() ? 'Create custom' : 'Create custom'}
+              label={t('screens:csvImport.createCustom')}
               onPress={handleCreateCustom}
               variant="primary"
               fullWidth
@@ -278,6 +281,7 @@ function ManualMatchSheet({ visible, rawName, candidates, onResolve }: ManualMat
 export default function CsvImportScreen(): React.ReactElement {
   const { theme, fontSize, fontWeight, spacing, radius } = useTheme();
   const { colors } = theme;
+  const { t } = useTranslation();
   const { user } = useAuth();
   const localFirst = isLocalFirst(user);
   const unitPref = user?.unit_pref ?? 'kg';
@@ -377,7 +381,7 @@ export default function CsvImportScreen(): React.ReactElement {
         // network call at all, so there is no Pro gate here (unlike Garmin/Strava).
         const parsed = format === 'strong' ? parseStrongCsv(text) : parseHevyCsv(text);
         if (!parsed) {
-          setUploadError('Could not read this file as a Strong or Hevy export. Check it is unmodified from the app\'s export.');
+          setUploadError(t('screens:csvImport.notParsedError'));
           return;
         }
         await runLocalImport(parsed);
@@ -386,7 +390,7 @@ export default function CsvImportScreen(): React.ReactElement {
 
       // ── Garmin/Strava — unchanged server-side path ───────────────────────
       if (localFirst) {
-        setUploadError('Garmin/Strava CSV import needs a synced (Pro) account — your free data is stored on-device only.');
+        setUploadError(t('screens:csvImport.needsProAccount'));
         return;
       }
 
@@ -407,7 +411,7 @@ export default function CsvImportScreen(): React.ReactElement {
       const msg =
         e?.response?.data?.message ??
         e?.message ??
-        'Import failed. Check your connection and try again.';
+        t('screens:csvImport.importFailedGeneric');
       setUploadError(msg);
     } finally {
       setUploading(false);
@@ -436,49 +440,49 @@ export default function CsvImportScreen(): React.ReactElement {
                 marginBottom: spacing.s3,
               }}
             >
-              Import your workout history
+              {t('screens:csvImport.importHistoryTitle')}
             </Text>
             <Text style={{ fontSize: fontSize.bodyMd, color: colors.textSecondary, lineHeight: 24, marginBottom: spacing.s4 }}>
-              Export your history from Garmin Connect, Strava, Strong, or Hevy as a CSV, then upload it here. Peak Fettle will detect the format automatically, import your sessions, skip any duplicates, and flag anything it could not parse.
+              {t('screens:csvImport.importHistoryBody')}
             </Text>
 
             {/* Strong instructions */}
             <View style={[styles.instructionBlock, { backgroundColor: colors.bgTertiary, borderRadius: radius.md, padding: spacing.s3, marginBottom: spacing.s3 }]}>
               <Text style={{ fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold, color: colors.accentDefault, marginBottom: 6 }}>
-                Strong export steps
+                {t('screens:csvImport.strongStepsTitle')}
               </Text>
               <Text style={{ fontSize: fontSize.caption, color: colors.textSecondary, lineHeight: 18 }}>
-                {'1. Open Strong → Profile tab\n2. Settings (gear icon) → Export Data\n3. Choose CSV export\n4. Save/share the file, then upload it here.'}
+                {t('screens:csvImport.strongSteps')}
               </Text>
             </View>
 
             {/* Hevy instructions */}
             <View style={[styles.instructionBlock, { backgroundColor: colors.bgTertiary, borderRadius: radius.md, padding: spacing.s3, marginBottom: spacing.s3 }]}>
               <Text style={{ fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold, color: colors.accentDefault, marginBottom: 6 }}>
-                Hevy export steps
+                {t('screens:csvImport.hevyStepsTitle')}
               </Text>
               <Text style={{ fontSize: fontSize.caption, color: colors.textSecondary, lineHeight: 18 }}>
-                {'1. Open Hevy → Profile tab\n2. Settings → Export Workouts\n3. Hevy emails/saves a CSV\n4. Upload the CSV here.'}
+                {t('screens:csvImport.hevySteps')}
               </Text>
             </View>
 
             {/* Garmin instructions */}
             <View style={[styles.instructionBlock, { backgroundColor: colors.bgTertiary, borderRadius: radius.md, padding: spacing.s3, marginBottom: spacing.s3 }]}>
               <Text style={{ fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold, color: colors.accentDefault, marginBottom: 6 }}>
-                Garmin Connect export steps
+                {t('screens:csvImport.garminStepsTitle')}
               </Text>
               <Text style={{ fontSize: fontSize.caption, color: colors.textSecondary, lineHeight: 18 }}>
-                {'1. Open Garmin Connect on desktop (connect.garmin.com)\n2. Go to Activities → All Activities\n3. Click the export icon (top right) → Export to CSV\n4. Save the file and upload it here.'}
+                {t('screens:csvImport.garminSteps')}
               </Text>
             </View>
 
             {/* Strava instructions */}
             <View style={[styles.instructionBlock, { backgroundColor: colors.bgTertiary, borderRadius: radius.md, padding: spacing.s3 }]}>
               <Text style={{ fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold, color: colors.accentDefault, marginBottom: 6 }}>
-                Strava export steps
+                {t('screens:csvImport.stravaStepsTitle')}
               </Text>
               <Text style={{ fontSize: fontSize.caption, color: colors.textSecondary, lineHeight: 18 }}>
-                {'1. Go to strava.com → Settings → My Account\n2. Scroll to "Download or Delete Your Account"\n3. Click "Get Started" → Request Your Archive\n4. Strava emails you a zip. Extract it and find activities.csv\n5. Upload activities.csv here.'}
+                {t('screens:csvImport.stravaSteps')}
               </Text>
             </View>
           </View>
@@ -487,7 +491,7 @@ export default function CsvImportScreen(): React.ReactElement {
         {/* File picker */}
         <View style={{ marginTop: spacing.s6 }}>
           <PFButton
-            label={file ? 'Change file' : 'Choose file'}
+            label={file ? t('screens:csvImport.changeFile') : t('screens:csvImport.chooseFile')}
             onPress={handlePickFile}
             variant="secondary"
             fullWidth
@@ -529,7 +533,7 @@ export default function CsvImportScreen(): React.ReactElement {
         {file && (
           <View style={{ marginTop: spacing.s4 }}>
             <PFButton
-              label={uploading ? 'Importing…' : 'Import'}
+              label={uploading ? t('screens:csvImport.importing') : t('screens:csvImport.importAction')}
               onPress={handleImport}
               variant="primary"
               fullWidth
@@ -554,13 +558,13 @@ export default function CsvImportScreen(): React.ReactElement {
             ]}
           >
             <Text style={{ fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold, color: colors.statusError, marginBottom: spacing.s2 }}>
-              Import failed
+              {t('screens:csvImport.importFailed')}
             </Text>
             <Text style={{ fontSize: fontSize.bodySm, color: colors.textSecondary, lineHeight: 20 }}>
               {uploadError}
             </Text>
             <View style={{ marginTop: spacing.s4 }}>
-              <PFButton label="Try again" onPress={handleReset} variant="secondary" />
+              <PFButton label={t('screens:csvImport.tryAgain')} onPress={handleReset} variant="secondary" />
             </View>
           </View>
         )}
@@ -581,12 +585,12 @@ export default function CsvImportScreen(): React.ReactElement {
             ]}
           >
             <Text style={{ fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold, color: colors.statusSuccess, marginBottom: spacing.s4 }}>
-              Import complete
+              {t('screens:csvImport.importComplete')}
             </Text>
             <View style={styles.statRow}>
-              <StatBox label="Imported" value={result.imported} color={colors.statusSuccess} fontSize={fontSize} fontWeight={fontWeight} colors={colors} />
-              <StatBox label="Skipped" value={result.skipped} color={colors.statusWarning} fontSize={fontSize} fontWeight={fontWeight} colors={colors} />
-              <StatBox label="Errors" value={result.errors} color={result.errors > 0 ? colors.statusError : colors.textSecondary} fontSize={fontSize} fontWeight={fontWeight} colors={colors} />
+              <StatBox label={t('screens:csvImport.imported')} value={result.imported} color={colors.statusSuccess} fontSize={fontSize} fontWeight={fontWeight} colors={colors} />
+              <StatBox label={t('screens:csvImport.skipped')} value={result.skipped} color={colors.statusWarning} fontSize={fontSize} fontWeight={fontWeight} colors={colors} />
+              <StatBox label={t('screens:csvImport.errors')} value={result.errors} color={result.errors > 0 ? colors.statusError : colors.textSecondary} fontSize={fontSize} fontWeight={fontWeight} colors={colors} />
             </View>
             {result.message && (
               <Text style={{ fontSize: fontSize.bodySm, color: colors.textSecondary, marginTop: spacing.s3, lineHeight: 20 }}>
@@ -594,7 +598,7 @@ export default function CsvImportScreen(): React.ReactElement {
               </Text>
             )}
             <View style={{ marginTop: spacing.s4 }}>
-              <PFButton label="Import another file" onPress={handleReset} variant="ghost" />
+              <PFButton label={t('screens:csvImport.importAnotherFile')} onPress={handleReset} variant="ghost" />
             </View>
           </View>
         )}
@@ -615,24 +619,24 @@ export default function CsvImportScreen(): React.ReactElement {
             ]}
           >
             <Text style={{ fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold, color: colors.statusSuccess, marginBottom: spacing.s4 }}>
-              Import complete
+              {t('screens:csvImport.importComplete')}
             </Text>
             <View style={styles.statRow}>
-              <StatBox label="Workouts" value={localSummary.workoutsImported} color={colors.statusSuccess} fontSize={fontSize} fontWeight={fontWeight} colors={colors} />
-              <StatBox label="Sets imported" value={localSummary.setsImported} color={colors.statusSuccess} fontSize={fontSize} fontWeight={fontWeight} colors={colors} />
-              <StatBox label="Skipped" value={localSummary.setsSkipped} color={colors.statusWarning} fontSize={fontSize} fontWeight={fontWeight} colors={colors} />
-              <StatBox label="Unmatched" value={localSummary.setsUnmatched} color={localSummary.setsUnmatched > 0 ? colors.statusError : colors.textSecondary} fontSize={fontSize} fontWeight={fontWeight} colors={colors} />
+              <StatBox label={t('screens:csvImport.workouts')} value={localSummary.workoutsImported} color={colors.statusSuccess} fontSize={fontSize} fontWeight={fontWeight} colors={colors} />
+              <StatBox label={t('screens:csvImport.setsImported')} value={localSummary.setsImported} color={colors.statusSuccess} fontSize={fontSize} fontWeight={fontWeight} colors={colors} />
+              <StatBox label={t('screens:csvImport.skipped')} value={localSummary.setsSkipped} color={colors.statusWarning} fontSize={fontSize} fontWeight={fontWeight} colors={colors} />
+              <StatBox label={t('screens:csvImport.unmatched')} value={localSummary.setsUnmatched} color={localSummary.setsUnmatched > 0 ? colors.statusError : colors.textSecondary} fontSize={fontSize} fontWeight={fontWeight} colors={colors} />
             </View>
             {localSummary.unmatchedNames.length > 0 && (
               <Text style={{ fontSize: fontSize.bodySm, color: colors.textSecondary, marginTop: spacing.s3, lineHeight: 20 }}>
-                Skipped exercises: {localSummary.unmatchedNames.join(', ')}
+                {t('screens:csvImport.skippedExercises', { names: localSummary.unmatchedNames.join(', ') })}
               </Text>
             )}
             <Text style={{ fontSize: fontSize.caption, color: colors.textTertiary, marginTop: spacing.s3 }}>
-              Stored on this device — re-importing the same file won't create duplicates.
+              {t('screens:csvImport.storedOnDevice')}
             </Text>
             <View style={{ marginTop: spacing.s4 }}>
-              <PFButton label="Import another file" onPress={handleReset} variant="ghost" />
+              <PFButton label={t('screens:csvImport.importAnotherFile')} onPress={handleReset} variant="ghost" />
             </View>
           </View>
         )}

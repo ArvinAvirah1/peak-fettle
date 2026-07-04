@@ -74,6 +74,7 @@ import {
 } from '../../src/data/beginnerTemplates';
 // TICKET-095: welcome tour auto-start + anchor.
 import { useTour, useTourAnchor } from '../../src/components/tour/WelcomeTour';
+import { useTranslation } from 'react-i18next';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -114,19 +115,21 @@ function looksLikeRandomToken(name: string, userId?: string | null): boolean {
 function resolveGreetingName(
   displayName: string | null | undefined,
   email: string | null | undefined,
-  userId?: string | null
+  userId?: string | null,
+  fallback = 'there'
 ): string {
   const name = (displayName ?? '').trim();
   if (name.length > 0 && !looksLikeRandomToken(name, userId)) return name;
   const localPart = (email ?? '').split('@')[0]?.trim() ?? '';
   if (localPart.length > 0) return localPart;
-  return 'there';
+  return fallback;
 }
 
-function getGreeting(name: string): string {
+function getGreeting(name: string, t: (key: string, opts?: Record<string, unknown>) => string): string {
   const hour = new Date().getHours();
-  const period = hour < 12 ? 'morning' : hour < 18 ? 'afternoon' : 'evening';
-  return `Good ${period}, ${name}`;
+  if (hour < 12) return t('tabs:home.greetingMorning', { name });
+  if (hour < 18) return t('tabs:home.greetingAfternoon', { name });
+  return t('tabs:home.greetingEvening', { name });
 }
 
 function getFullDateLabel(): string {
@@ -148,6 +151,7 @@ function getFullDateLabel(): string {
 
 function SectionHeader({ label, onViewAll }: { label: string; onViewAll?: () => void }): React.ReactElement {
   const { theme, fontSize, fontWeight } = useTheme();
+  const { t } = useTranslation();
   if (onViewAll) {
     return (
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 12, marginBottom: 6 }}>
@@ -160,8 +164,8 @@ function SectionHeader({ label, onViewAll }: { label: string; onViewAll?: () => 
         }}>
           {label}
         </Text>
-        <TouchableOpacity onPress={onViewAll} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="link" accessibilityLabel={`View all ${label}`}>
-          <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.accentDefault }}>View all →</Text>
+        <TouchableOpacity onPress={onViewAll} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} accessibilityRole="link" accessibilityLabel={t('tabs:home.viewAll', { label })}>
+          <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.accentDefault }}>{t('tabs:home.viewAllArrow')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -188,6 +192,7 @@ interface StreakBadgeProps {
 
 function StreakBadge({ streak, onPress }: StreakBadgeProps): React.ReactElement {
   const { theme, fontSize, fontWeight, radius } = useTheme();
+  const { t } = useTranslation();
   const gradientColors = [
     theme.colors.accentSecondary + '33',
     theme.colors.accentDefault + '33',
@@ -198,7 +203,7 @@ function StreakBadge({ streak, onPress }: StreakBadgeProps): React.ReactElement 
       <TouchableOpacity
         onPress={onPress}
         accessibilityRole="button"
-        accessibilityLabel="View streak details"
+        accessibilityLabel={t('tabs:home.viewStreakDetails')}
         activeOpacity={0.8}
       >
         <LinearGradient
@@ -210,10 +215,10 @@ function StreakBadge({ streak, onPress }: StreakBadgeProps): React.ReactElement 
           <Text style={styles.streakEmoji}>🔥</Text>
           <View>
             <Text style={{ fontSize: fontSize.bodyMd, fontWeight: fontWeight.medium, color: theme.colors.textSecondary }}>
-              No worries — start a new streak today. 🌱
+              {t('tabs:home.noWorriesStartStreak')}
             </Text>
             <Text style={{ fontSize: fontSize.caption, color: theme.colors.textTertiary, marginTop: 2 }}>
-              Every workout is day one of something.
+              {t('tabs:home.everyWorkoutDayOne')}
             </Text>
           </View>
         </LinearGradient>
@@ -224,7 +229,7 @@ function StreakBadge({ streak, onPress }: StreakBadgeProps): React.ReactElement 
     <TouchableOpacity
       onPress={onPress}
       accessibilityRole="button"
-      accessibilityLabel="View streak details"
+      accessibilityLabel={t('tabs:home.viewStreakDetails')}
       activeOpacity={0.8}
     >
       <LinearGradient
@@ -239,7 +244,7 @@ function StreakBadge({ streak, onPress }: StreakBadgeProps): React.ReactElement 
           {streak}
         </Text>
         <Text style={{ fontSize: fontSize.bodyMd, fontWeight: fontWeight.medium, color: theme.colors.textSecondary }}>
-          {' '}day streak
+          {t('tabs:home.dayStreak')}
         </Text>
       </LinearGradient>
     </TouchableOpacity>
@@ -261,6 +266,7 @@ function TodayCard({
   onLogPress,
 }: TodayCardProps): React.ReactElement {
   const { theme, fontSize, fontWeight, radius } = useTheme();
+  const { t } = useTranslation();
 
   return (
     <View style={[styles.todayCard, {
@@ -273,7 +279,7 @@ function TodayCard({
       ) : setCount === 0 ? (
         <>
           <Text style={{ fontSize: fontSize.bodyMd, color: theme.colors.textTertiary, textAlign: 'center' }}>
-            No sets logged yet — tap to start
+            {t('tabs:home.noSetsLoggedTapToStart')}
           </Text>
           <TouchableOpacity
             style={[styles.ctaButton, {
@@ -283,10 +289,10 @@ function TodayCard({
             onPress={onLogPress}
             activeOpacity={0.75}
             accessibilityRole="button"
-            accessibilityLabel="Log workout"
+            accessibilityLabel={t('tabs:home.logWorkout')}
           >
             <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold }}>
-              Log a set →
+              {t('tabs:home.logASet')}
             </Text>
           </TouchableOpacity>
         </>
@@ -298,7 +304,7 @@ function TodayCard({
                 {setCount}
               </Text>
               <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.textTertiary }}>
-                sets logged
+                {t('tabs:home.setsLogged')}
               </Text>
             </View>
             <View style={[styles.todayDivider, { backgroundColor: theme.colors.borderDefault }]} />
@@ -307,7 +313,7 @@ function TodayCard({
                 {prsThisWeek}
               </Text>
               <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.textTertiary }}>
-                PRs this week
+                {t('tabs:home.prsThisWeek')}
               </Text>
             </View>
           </View>
@@ -319,10 +325,10 @@ function TodayCard({
             onPress={onLogPress}
             activeOpacity={0.75}
             accessibilityRole="button"
-            accessibilityLabel="Log a set"
+            accessibilityLabel={t('tabs:home.logASet')}
           >
             <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold }}>
-              Log a set →
+              {t('tabs:home.logASet')}
             </Text>
           </TouchableOpacity>
         </>
@@ -381,6 +387,7 @@ export default function HomeScreen(): React.ReactElement {
   const { sets: todaySets, isLoading: todayLoadingRaw } = useWorkout();
   const { history, streak: historyStreak, isLoading: historyLoadingRaw, refetch } = useWorkoutHistory();
   const { theme, fontSize, fontWeight, radius, spacing: sp } = useTheme();
+  const { t } = useTranslation();
   const loggerRef = useRef<WorkoutLoggerRef>(null);
 
   // Fall back to the locale default (US → lbs, else kg) only when the user has
@@ -572,7 +579,7 @@ export default function HomeScreen(): React.ReactElement {
       }
       await refetch();
     } catch {
-      Alert.alert('Could not log rest day', 'Please try again.');
+      Alert.alert(t('tabs:home.couldNotLogRestDayTitle'), t('tabs:home.pleaseTryAgain'));
     } finally {
       setRestDayLoading(false);
     }
@@ -594,7 +601,7 @@ export default function HomeScreen(): React.ReactElement {
       }
       await refetch();
     } catch {
-      Alert.alert('Could not undo rest day', 'Please try again.');
+      Alert.alert(t('tabs:home.couldNotUndoRestDayTitle'), t('tabs:home.pleaseTryAgain'));
     } finally {
       setRestDayLoading(false);
     }
@@ -786,24 +793,24 @@ export default function HomeScreen(): React.ReactElement {
             borderRadius: radius.lg,
           }]}>
             <Text style={{ fontSize: fontSize.heading2, fontWeight: fontWeight.bold, color: theme.colors.textPrimary, marginBottom: sp.s4 }}>
-              Streak Details
+              {t('tabs:home.streakDetailsTitle')}
             </Text>
             <View style={{ flexDirection: 'row', gap: sp.s4, marginBottom: sp.s4 }}>
               <View style={{ alignItems: 'center', flex: 1 }}>
                 <Text style={{ fontSize: fontSize.heading1, fontWeight: fontWeight.bold, color: theme.colors.accentDefault, fontVariant: ['tabular-nums'] }}>
                   {streak}
                 </Text>
-                <Text style={{ fontSize: fontSize.caption, color: theme.colors.textSecondary }}>Current streak</Text>
+                <Text style={{ fontSize: fontSize.caption, color: theme.colors.textSecondary }}>{t('tabs:home.currentStreak')}</Text>
               </View>
               <View style={{ alignItems: 'center', flex: 1 }}>
                 <Text style={{ fontSize: fontSize.heading1, fontWeight: fontWeight.bold, color: theme.colors.textPrimary, fontVariant: ['tabular-nums'] }}>
                   {longestStreak}
                 </Text>
-                <Text style={{ fontSize: fontSize.caption, color: theme.colors.textSecondary }}>Longest streak</Text>
+                <Text style={{ fontSize: fontSize.caption, color: theme.colors.textSecondary }}>{t('tabs:home.longestStreak')}</Text>
               </View>
             </View>
             <Text style={{ fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold, color: theme.colors.textTertiary, letterSpacing: 1, marginBottom: sp.s2 }}>
-              LAST 7 DAYS
+              {t('tabs:home.last7DaysLabel')}
             </Text>
             <View style={{ flexDirection: 'row', gap: sp.s2, marginBottom: sp.s5 }}>
               {last7DayDots.map((dot) => (
@@ -831,10 +838,10 @@ export default function HomeScreen(): React.ReactElement {
                 borderRadius: radius.md,
               }]}
               accessibilityRole="button"
-              accessibilityLabel="Close streak details"
+              accessibilityLabel={t('tabs:home.closeStreakDetails')}
             >
               <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold }}>
-                Done
+                {t('tabs:home.done')}
               </Text>
             </TouchableOpacity>
           </View>
@@ -851,38 +858,38 @@ export default function HomeScreen(): React.ReactElement {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalSheet, { backgroundColor: theme.colors.bgSecondary, borderRadius: radius.lg }]}>
             <Text style={{ fontSize: fontSize.bodyLg, fontWeight: fontWeight.bold, color: theme.colors.textPrimary, marginBottom: sp.s2 }}>
-              What do you need?
+              {t('tabs:home.whatDoYouNeed')}
             </Text>
             <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.textTertiary, marginBottom: sp.s4 }}>
-              Your sets are already saved.
+              {t('tabs:home.setsAlreadySaved')}
             </Text>
             <TouchableOpacity
               style={[{ backgroundColor: theme.colors.accentDefault, borderRadius: radius.md, paddingVertical: sp.s4, alignItems: 'center', marginBottom: sp.s2 }]}
               onPress={handleForgotSomething}
               accessibilityRole="button"
-              accessibilityLabel="Reopen stepper to add more sets"
+              accessibilityLabel={t('tabs:home.reopenStepper')}
             >
               <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold }}>
-                I forgot something
+                {t('tabs:home.iForgotSomething')}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[{ backgroundColor: theme.colors.bgElevated, borderRadius: radius.md, paddingVertical: sp.s4, alignItems: 'center', marginBottom: sp.s2, borderWidth: 1, borderColor: theme.colors.borderDefault }]}
               onPress={handleSeeTodayLifts}
               accessibilityRole="button"
-              accessibilityLabel="See all my lifts today"
+              accessibilityLabel={t('tabs:home.seeAllMyLiftsToday')}
             >
               <Text style={{ color: theme.colors.textPrimary, fontSize: fontSize.bodyMd, fontWeight: fontWeight.medium }}>
-                See all my lifts
+                {t('tabs:home.seeAllMyLifts')}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={{ paddingVertical: sp.s3, alignItems: 'center' }}
               onPress={() => setForgotPromptVisible(false)}
               accessibilityRole="button"
-              accessibilityLabel="Cancel"
+              accessibilityLabel={t('tabs:home.cancel')}
             >
-              <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodySm }}>Cancel</Text>
+              <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodySm }}>{t('tabs:home.cancel')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -898,12 +905,12 @@ export default function HomeScreen(): React.ReactElement {
         <View style={styles.modalOverlay}>
           <View style={[styles.modalSheet, { backgroundColor: theme.colors.bgSecondary, borderRadius: radius.lg, maxHeight: '80%' }]}>
             <Text style={{ fontSize: fontSize.bodyLg, fontWeight: fontWeight.bold, color: theme.colors.textPrimary, marginBottom: sp.s4 }}>
-              Today's lifts
+              {t('tabs:home.todaysLifts')}
             </Text>
             <ScrollView style={{ maxHeight: 320 }}>
               {todaySetsByExercise.length === 0 ? (
                 <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodySm, textAlign: 'center' }}>
-                  No sets logged yet today.
+                  {t('tabs:home.noSetsLoggedToday')}
                 </Text>
               ) : (
                 todaySetsByExercise.map((item) => (
@@ -915,7 +922,7 @@ export default function HomeScreen(): React.ReactElement {
                       {item.name}
                     </Text>
                     <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodySm, fontVariant: ['tabular-nums'] }}>
-                      {item.count} set{item.count !== 1 ? 's' : ''}
+                      {t('tabs:home.setCount', { count: item.count })}
                     </Text>
                   </View>
                 ))
@@ -925,9 +932,9 @@ export default function HomeScreen(): React.ReactElement {
               style={[{ backgroundColor: theme.colors.accentDefault, borderRadius: radius.md, paddingVertical: sp.s4, alignItems: 'center', marginTop: sp.s4 }]}
               onPress={() => setTodayLiftsVisible(false)}
               accessibilityRole="button"
-              accessibilityLabel="Done"
+              accessibilityLabel={t('tabs:home.done')}
             >
-              <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold }}>Done</Text>
+              <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold }}>{t('tabs:home.done')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -943,7 +950,7 @@ export default function HomeScreen(): React.ReactElement {
         <View style={styles.headerRow}>
           <Text style={{ fontSize: fontSize.heading2, fontWeight: fontWeight.bold, color: theme.colors.textPrimary, letterSpacing: -0.3 }}>
           {/* E-003: was fontWeight '700' */}
-            {getGreeting(resolveGreetingName(user?.display_name, user?.email, user?.id))}
+            {getGreeting(resolveGreetingName(user?.display_name, user?.email, user?.id, t('tabs:home.greetingFallbackName')), t)}
           </Text>
           <SyncStatusIndicator />
         </View>
@@ -959,11 +966,11 @@ export default function HomeScreen(): React.ReactElement {
           style={[styles.startWorkoutBtn, { backgroundColor: theme.colors.accentDefault, borderRadius: radius.md }]}
           onPress={() => loggerRef.current?.startWorkout()}
           accessibilityRole="button"
-          accessibilityLabel="Start workout"
+          accessibilityLabel={t('tabs:home.startWorkoutCta')}
           activeOpacity={0.85}
         >
           <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fontSize.bodyLg, fontWeight: fontWeight.bold }}>
-            Start workout
+            {t('tabs:home.startWorkoutCta')}
           </Text>
         </TouchableOpacity>
       )}
@@ -983,16 +990,16 @@ export default function HomeScreen(): React.ReactElement {
           style={[styles.forgotBtn, { borderColor: theme.colors.borderDefault, borderRadius: radius.md }]}
           onPress={() => setForgotPromptVisible(true)}
           accessibilityRole="button"
-          accessibilityLabel="Forgot to log something?"
+          accessibilityLabel={t('tabs:home.forgotToLogSomething')}
         >
           <Text style={{ color: theme.colors.textSecondary, fontSize: fontSize.bodySm }}>
-            Forgot to log something?
+            {t('tabs:home.forgotToLogSomething')}
           </Text>
         </TouchableOpacity>
       )}
 
       {/* ── B. Streak badge ── */}
-      <SectionHeader label="STREAK" />
+      <SectionHeader label={t('tabs:home.streakSectionLabel')} />
       {historyLoading ? (
         <View style={[styles.streakBadge, { backgroundColor: theme.colors.accentSecondary + '33' }]}>
           <ActivityIndicator color={theme.colors.textSecondary} />
@@ -1004,7 +1011,7 @@ export default function HomeScreen(): React.ReactElement {
       {/* ── C. Today's AI Plan card (paid tier only) ── */}
       {user?.is_paid && (planLoading || plan) ? (
         <>
-          <SectionHeader label="TODAY'S PLAN" />
+          <SectionHeader label={t('tabs:home.todaysPlanSectionLabel')} />
           {planLoading ? (
             <PFCard variant="elevated">
               <ActivityIndicator color={theme.colors.textSecondary} />
@@ -1012,11 +1019,11 @@ export default function HomeScreen(): React.ReactElement {
           ) : plan ? (
             <PFCard variant="elevated">
               <Text style={{ fontSize: fontSize.bodyLg, fontWeight: fontWeight.semibold, color: theme.colors.textPrimary }}>
-                {plan.name ?? "Today's Plan"}
+                {plan.name ?? t('tabs:home.todaysPlanFallbackName')}
               </Text>
               <View style={{ flexDirection: 'row', gap: sp.s3, marginTop: sp.s2 }}>
-                <MetricChip label="Exercises" value={planExercises.length} />
-                <MetricChip label="Sets" value={planTotalSets} />
+                <MetricChip label={t('tabs:home.exercisesLabel')} value={planExercises.length} />
+                <MetricChip label={t('tabs:home.setsLabel')} value={planTotalSets} />
               </View>
               {planReasoning ? (
                 <>
@@ -1024,10 +1031,10 @@ export default function HomeScreen(): React.ReactElement {
                     onPress={() => setReasonExpanded(!reasonExpanded)}
                     style={{ marginTop: sp.s3 }}
                     accessibilityRole="button"
-                    accessibilityLabel="Toggle workout reasoning"
+                    accessibilityLabel={t('tabs:home.toggleWorkoutReasoning')}
                   >
                     <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.accentDefault }}>
-                      Why this workout? {reasonExpanded ? '▾' : '›'}
+                      {t('tabs:home.whyThisWorkout', { icon: reasonExpanded ? '▾' : '›' })}
                     </Text>
                   </TouchableOpacity>
                   {reasonExpanded && (
@@ -1039,7 +1046,7 @@ export default function HomeScreen(): React.ReactElement {
               ) : null}
               <PFButton
                 variant="primary"
-                label="Start Workout"
+                label={t('tabs:home.startWorkoutButton')}
                 onPress={() => { loggerRef.current?.startWorkout(); }}
                 style={{ marginTop: sp.s3 }}
               />
@@ -1051,7 +1058,7 @@ export default function HomeScreen(): React.ReactElement {
       {/* ── D. Recent PRs horizontal scroll ── */}
       {!historyLoading && prChips.length > 0 ? (
         <>
-          <SectionHeader label="RECENT PRs" onViewAll={() => router.push('/workout-history')} />
+          <SectionHeader label={t('tabs:home.recentPrsSectionLabel')} onViewAll={() => router.push('/workout-history')} />
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: sp.s2 }}>
             {prChips.map((pr) => (
               <View
@@ -1081,11 +1088,11 @@ export default function HomeScreen(): React.ReactElement {
       {!historyLoading ? (
         <>
           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: sp.s2 }}>
-            <SectionHeader label="QUICK STATS" />
+            <SectionHeader label={t('tabs:home.quickStatsSectionLabel')} />
             <Pressable
               onPress={() => router.push('/progress')}
               accessibilityRole="link"
-              accessibilityLabel="View full progress and analytics"
+              accessibilityLabel={t('tabs:home.viewFullProgress')}
               style={({ pressed }) => ({
                 flexDirection: 'row',
                 alignItems: 'center',
@@ -1097,21 +1104,21 @@ export default function HomeScreen(): React.ReactElement {
               })}
             >
               <Text style={{ fontSize: fontSize.caption, color: theme.colors.accentDefault, fontWeight: fontWeight.medium }}>
-                View Progress
+                {t('tabs:home.viewProgress')}
               </Text>
               <Text style={{ fontSize: fontSize.caption, color: theme.colors.accentDefault }}>›</Text>
             </Pressable>
           </View>
           <View style={{ flexDirection: 'row', gap: sp.s3, marginBottom: sp.s2 }}>
-            <StatCard label="PRs this week" value={String(prsThisWeek)} />
-            <StatCard label="Sessions" value={`${sessionsThisMonth}`} />
-            <StatCard label="Best Rank" value={bestPercentile !== null ? `${bestPercentile}th` : '—'} />
+            <StatCard label={t('tabs:home.prsThisWeek')} value={String(prsThisWeek)} />
+            <StatCard label={t('tabs:home.sessions')} value={`${sessionsThisMonth}`} />
+            <StatCard label={t('tabs:home.bestRank')} value={bestPercentile !== null ? t('tabs:home.bestRankValue', { pct: bestPercentile }) : t('tabs:home.bestRankPlaceholder')} />
           </View>
         </>
       ) : null}
 
       {/* ── F. Today's workout card ── */}
-      <SectionHeader label="TODAY" />
+      <SectionHeader label={t('tabs:home.todaySectionLabel')} />
       <TodayCard
         setCount={todaySets.length}
         prsThisWeek={prsThisWeek}
@@ -1123,7 +1130,7 @@ export default function HomeScreen(): React.ReactElement {
         onPress={restDayLoggedToday ? undefined : handleLogRestDay}
         disabled={restDayLoading}
         accessibilityRole="button"
-        accessibilityLabel={restDayLoggedToday ? 'Rest day logged' : 'Log rest day'}
+        accessibilityLabel={restDayLoggedToday ? t('tabs:home.restDayLoggedLabel') : t('tabs:home.logRestDayLabel')}
         style={[
           styles.restDayButton,
           {
@@ -1144,16 +1151,16 @@ export default function HomeScreen(): React.ReactElement {
               fontWeight: fontWeight.medium,
               flex: 1,
             }}>
-              ✓ Rest day logged — your streak is safe.
+              {t('tabs:home.restDayLoggedText')}
             </Text>
             <TouchableOpacity
               onPress={handleUndoRestDay}
               hitSlop={{ top: 8, bottom: 8, left: 12, right: 0 }}
               accessibilityRole="button"
-              accessibilityLabel="Undo rest day"
+              accessibilityLabel={t('tabs:home.undoRestDay')}
             >
               <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.caption, marginLeft: 8 }}>
-                Undo
+                {t('tabs:home.undo')}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1163,13 +1170,13 @@ export default function HomeScreen(): React.ReactElement {
             fontSize: fontSize.bodySm,
             fontWeight: fontWeight.medium,
           }}>
-            😴 Log rest day
+            {t('tabs:home.logRestDayEmoji')}
           </Text>
         )}
       </TouchableOpacity>
 
       {/* ── G. Recent history ── */}
-      <SectionHeader label="RECENT ACTIVITY" onViewAll={() => router.push('/workout-history')} />
+      <SectionHeader label={t('tabs:home.recentActivitySectionLabel')} onViewAll={() => router.push('/workout-history')} />
       {historyLoading ? (
         <ActivityIndicator color={theme.colors.textTertiary} style={styles.historyLoader} />
       ) : recentDays.length === 0 ? (
@@ -1183,7 +1190,7 @@ export default function HomeScreen(): React.ReactElement {
             borderRadius: radius.lg,
           }]}>
             <Text style={{ fontSize: fontSize.bodyMd, color: theme.colors.textSecondary, textAlign: 'center' }}>
-              No sessions yet — start your first workout.
+              {t('tabs:home.noSessionsYet')}
             </Text>
             <TouchableOpacity
               style={[styles.ctaButton, {
@@ -1193,16 +1200,16 @@ export default function HomeScreen(): React.ReactElement {
               onPress={() => loggerRef.current?.startWorkout()}
               activeOpacity={0.75}
               accessibilityRole="button"
-              accessibilityLabel="Start your first workout"
+              accessibilityLabel={t('tabs:home.startYourFirstWorkout')}
             >
               <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold }}>
-                Start workout →
+                {t('tabs:home.startWorkoutArrow')}
               </Text>
             </TouchableOpacity>
           </View>
         ) : (
           <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.textTertiary, textAlign: 'center', marginTop: 12 }}>
-            No workouts in the last 7 days
+            {t('tabs:home.noWorkoutsLast7Days')}
           </Text>
         )
       ) : (
@@ -1219,7 +1226,7 @@ export default function HomeScreen(): React.ReactElement {
             }
             const prCount = prExerciseIds.size;
             const hasPR = prCount > 0;
-            const prLabel = `🏆 ${prCount} PR${prCount !== 1 ? 's' : ''}`;
+            const prLabel = t('tabs:home.prCount', { count: prCount });
             const isToday = workout.day_key === todayKey;
             const isRestDay = workout.session_type === 'rest_day';
 
@@ -1287,12 +1294,12 @@ export default function HomeScreen(): React.ReactElement {
                     )}
                   </View>
                   <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.textSecondary }} numberOfLines={1}>
-                    {displayNames || (isRestDay ? '😴 Rest day' : 'No lifts recorded')}
+                    {displayNames || (isRestDay ? t('tabs:home.restDayEmoji') : t('tabs:home.noLiftsRecorded'))}
                   </Text>
                 </View>
                 <View style={styles.historyRight}>
                   <Text style={{ fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold, color: theme.colors.textPrimary, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
-                    {setCount} sets
+                    {t('tabs:home.setCount', { count: setCount })}
                   </Text>
                   <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.textTertiary, textAlign: 'right', fontVariant: ['tabular-nums'] }}>
                     {rowVolumeDisplay}
@@ -1307,7 +1314,7 @@ export default function HomeScreen(): React.ReactElement {
       {/* ── H. History folders by routine (tap to view past sessions) ── */}
       {routineFolders.length > 0 ? (
         <>
-          <SectionHeader label="BY ROUTINE" />
+          <SectionHeader label={t('tabs:home.byRoutineSectionLabel')} />
           <View style={styles.folderList}>
             {routineFolders.map((folder) => (
               <TouchableOpacity
@@ -1319,7 +1326,7 @@ export default function HomeScreen(): React.ReactElement {
                 }]}
                 activeOpacity={0.7}
                 accessibilityRole="button"
-                accessibilityLabel={`${folder.routineName}, ${folder.sessionCount} sessions`}
+                accessibilityLabel={t('tabs:home.folderLabel', { name: folder.routineName, count: folder.sessionCount })}
                 onPress={() => router.push(`/routine-history?name=${encodeURIComponent(folder.routineName)}` as any)}
               >
                 <Text style={styles.folderEmoji}>📁</Text>
@@ -1331,7 +1338,7 @@ export default function HomeScreen(): React.ReactElement {
                     {folder.routineName}
                   </Text>
                   <Text style={{ fontSize: fontSize.caption, color: theme.colors.textTertiary }}>
-                    {folder.sessionCount} session{folder.sessionCount !== 1 ? 's' : ''}
+                    {t('tabs:home.sessionCount', { count: folder.sessionCount })}
                   </Text>
                 </View>
                 <Text style={{ fontSize: fontSize.bodyLg, color: theme.colors.textTertiary }}>›</Text>

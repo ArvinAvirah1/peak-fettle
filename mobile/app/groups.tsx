@@ -60,6 +60,8 @@ import { fontSize, fontWeight, spacing, radius } from '../src/theme/tokens';
 import { ScreenLayout } from '../src/components/ui';
 import { PFInput } from '../src/components/ui';
 import { useReduceMotion } from '../src/hooks/useReduceMotion';
+import { useTranslation } from 'react-i18next';
+import i18n from '../src/i18n';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -71,9 +73,9 @@ function multiplierLabel(streakWeeks: number): string {
 }
 
 function streakLabel(weeks: number): string {
-  if (weeks === 0) return 'No streak';
-  if (weeks === 1) return '1 week';
-  return `${weeks} weeks`;
+  if (weeks === 0) return i18n.t('screens:groups.noStreak');
+  if (weeks === 1) return i18n.t('screens:groups.oneWeek');
+  return i18n.t('screens:groups.weeksCount', { count: weeks });
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +89,7 @@ interface BalanceBannerProps {
 
 function BalanceBanner({ balance, totalEarned }: BalanceBannerProps) {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   return (
     <View style={[
       styles.balanceBanner,
@@ -95,10 +98,10 @@ function BalanceBanner({ balance, totalEarned }: BalanceBannerProps) {
       <Text style={styles.balanceGem}>💎</Text>
       <View style={styles.balanceTextBlock}>
         <Text style={[styles.balanceAmount, { color: theme.colors.accentHover }]}>
-          {balance.toLocaleString()} credits
+          {t('screens:groups.creditsAmount', { amount: balance.toLocaleString() })}
         </Text>
         <Text style={[styles.balanceSubtitle, { color: theme.colors.textTertiary }]}>
-          {totalEarned.toLocaleString()} earned all-time
+          {t('screens:groups.earnedAllTime', { amount: totalEarned.toLocaleString() })}
         </Text>
       </View>
     </View>
@@ -116,6 +119,7 @@ interface GroupRowProps {
 
 function GroupRow({ group, onPress }: GroupRowProps) {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const streakActive = group.current_streak_weeks > 0;
 
   return (
@@ -136,15 +140,15 @@ function GroupRow({ group, onPress }: GroupRowProps) {
           </Text>
         </View>
         <Text style={[styles.groupMeta, { color: theme.colors.textSecondary }]}>
-          {group.active_count} member{group.active_count !== 1 ? 's' : ''}
+          {t('screens:groups.memberCount', { count: group.active_count })}
           {' · '}
           {streakLabel(group.current_streak_weeks)}
           {streakActive
-            ? ` · ${multiplierLabel(group.current_streak_weeks)} multiplier`
+            ? t('screens:groups.multiplierSuffix', { multiplier: multiplierLabel(group.current_streak_weeks) })
             : ''}
         </Text>
         {group.active_count < 2 && (
-          <Text style={[styles.dormantBadge, { color: theme.colors.statusWarning }]}>⏸ Dormant (needs ≥2 members)</Text>
+          <Text style={[styles.dormantBadge, { color: theme.colors.statusWarning }]}>{t('screens:groups.dormantBadge')}</Text>
         )}
       </View>
       <Text style={[styles.chevron, { color: theme.colors.textTertiary }]}>›</Text>
@@ -161,18 +165,21 @@ interface GoalPickerProps {
   onChange: (goal: WeeklyGoal) => void;
 }
 
-const GOAL_OPTIONS: { value: WeeklyGoal; label: string; modifier: string }[] = [
-  { value: 1, label: '1 workout / week', modifier: '0.5× credits' },
-  { value: 2, label: '2 workouts / week', modifier: '0.75× credits' },
-  { value: 3, label: '3+ workouts / week', modifier: '1.0× credits' },
-];
+function getGoalOptions(): { value: WeeklyGoal; label: string; modifier: string }[] {
+  return [
+    { value: 1, label: i18n.t('screens:groups.goal1'), modifier: i18n.t('screens:groups.goal1Modifier') },
+    { value: 2, label: i18n.t('screens:groups.goal2'), modifier: i18n.t('screens:groups.goal2Modifier') },
+    { value: 3, label: i18n.t('screens:groups.goal3'), modifier: i18n.t('screens:groups.goal3Modifier') },
+  ];
+}
 
 function GoalPicker({ value, onChange }: GoalPickerProps) {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   return (
     <View style={styles.goalPicker}>
-      <Text style={[styles.inputLabel, { color: theme.colors.textSecondary }]}>Your weekly goal</Text>
-      {GOAL_OPTIONS.map((opt) => (
+      <Text style={[styles.inputLabel, { color: theme.colors.textSecondary }]}>{t('screens:groups.weeklyGoalLabel')}</Text>
+      {getGoalOptions().map((opt) => (
         <TouchableOpacity
           key={opt.value}
           style={[
@@ -209,7 +216,7 @@ function GoalPicker({ value, onChange }: GoalPickerProps) {
         </TouchableOpacity>
       ))}
       <Text style={[styles.goalNote, { color: theme.colors.textTertiary }]}>
-        A harder goal earns more credits. You can change this once per week.
+        {t('screens:groups.goalNote')}
       </Text>
     </View>
   );
@@ -237,6 +244,7 @@ function CreateGroupModal({
   error,
 }: CreateGroupModalProps) {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const reduceMotion = useReduceMotion();
   const [name, setName] = useState('');
   const [goal, setGoal] = useState<WeeklyGoal>(3);
@@ -260,11 +268,11 @@ function CreateGroupModal({
   const handleSubmit = async () => {
     const trimmed = name.trim();
     if (!trimmed) {
-      Alert.alert('Group name required', 'Please enter a name for your group.');
+      Alert.alert(t('screens:groups.groupNameRequiredTitle'), t('screens:groups.groupNameRequiredMessage'));
       return;
     }
     if (trimmed.length > 40) {
-      Alert.alert('Name too long', 'Group name must be 40 characters or less.');
+      Alert.alert(t('screens:groups.nameTooLongTitle'), t('screens:groups.nameTooLongMessage'));
       return;
     }
     await onSubmit(trimmed, goal);
@@ -281,19 +289,19 @@ function CreateGroupModal({
         >
           <View style={[styles.modalHandle, { backgroundColor: theme.colors.borderDefault }]} />
           <View style={[styles.modalHeader, { borderBottomColor: theme.colors.bgSecondary }]}>
-            <Text style={[styles.modalTitle, { color: theme.colors.textPrimary }]}>Create a Group</Text>
-            <TouchableOpacity onPress={onClose} disabled={isLoading} accessibilityRole="button" accessibilityLabel="Cancel">
-              <Text style={[styles.modalCancel, { color: theme.colors.accentDefault }]}>Cancel</Text>
+            <Text style={[styles.modalTitle, { color: theme.colors.textPrimary }]}>{t('screens:groups.createAGroup')}</Text>
+            <TouchableOpacity onPress={onClose} disabled={isLoading} accessibilityRole="button" accessibilityLabel={t('common:cancel')}>
+              <Text style={[styles.modalCancel, { color: theme.colors.accentDefault }]}>{t('common:cancel')}</Text>
             </TouchableOpacity>
           </View>
 
           <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
             {/* P2-006: PFInput replaces raw TextInput */}
             <PFInput
-              label="Group name"
+              label={t('screens:groups.groupNameLabel')}
               value={name}
               onChangeText={setName}
-              placeholder="e.g. Morning Lifters"
+              placeholder={t('screens:groups.groupNamePlaceholder')}
               maxLength={40}
               autoFocus
             />
@@ -301,8 +309,7 @@ function CreateGroupModal({
             <GoalPicker value={goal} onChange={setGoal} />
 
             <Text style={[styles.sectionNote, { color: theme.colors.textTertiary }]}>
-              After creating, share your invite code with up to 11 others.
-              Groups need ≥2 members to start earning credits.
+              {t('screens:groups.createGroupNote')}
             </Text>
 
             {error && <Text style={[styles.errorText, { color: theme.colors.statusError }]}>{error}</Text>}
@@ -323,7 +330,7 @@ function CreateGroupModal({
               {isLoading ? (
                 <ActivityIndicator color={theme.components.buttonPrimaryText} />
               ) : (
-                <Text style={[styles.primaryButtonText, { color: theme.components.buttonPrimaryText }]}>Create Group</Text>
+                <Text style={[styles.primaryButtonText, { color: theme.components.buttonPrimaryText }]}>{t('screens:groups.createGroup')}</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -356,6 +363,7 @@ function JoinGroupModal({
   error,
 }: JoinGroupModalProps) {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const reduceMotion = useReduceMotion();
   const [inviteCode, setInviteCode] = useState('');
   const [goal, setGoal] = useState<WeeklyGoal>(3);
@@ -379,7 +387,7 @@ function JoinGroupModal({
   const handleSubmit = async () => {
     const trimmed = inviteCode.trim().toUpperCase();
     if (!trimmed) {
-      Alert.alert('Invite code required', 'Please paste the invite code.');
+      Alert.alert(t('screens:groups.inviteCodeRequiredTitle'), t('screens:groups.inviteCodeRequiredMessage'));
       return;
     }
     await onSubmit(trimmed, goal);
@@ -396,19 +404,19 @@ function JoinGroupModal({
         >
           <View style={[styles.modalHandle, { backgroundColor: theme.colors.borderDefault }]} />
           <View style={[styles.modalHeader, { borderBottomColor: theme.colors.bgSecondary }]}>
-            <Text style={[styles.modalTitle, { color: theme.colors.textPrimary }]}>Join a Group</Text>
-            <TouchableOpacity onPress={onClose} disabled={isLoading} accessibilityRole="button" accessibilityLabel="Cancel">
-              <Text style={[styles.modalCancel, { color: theme.colors.accentDefault }]}>Cancel</Text>
+            <Text style={[styles.modalTitle, { color: theme.colors.textPrimary }]}>{t('screens:groups.joinAGroup')}</Text>
+            <TouchableOpacity onPress={onClose} disabled={isLoading} accessibilityRole="button" accessibilityLabel={t('common:cancel')}>
+              <Text style={[styles.modalCancel, { color: theme.colors.accentDefault }]}>{t('common:cancel')}</Text>
             </TouchableOpacity>
           </View>
 
           <ScrollView style={styles.modalBody} keyboardShouldPersistTaps="handled">
             {/* P2-006: PFInput replaces raw TextInput */}
             <PFInput
-              label="Invite code"
+              label={t('screens:groups.inviteCodeLabel')}
               value={inviteCode}
               onChangeText={setInviteCode}
-              placeholder="Paste code here"
+              placeholder={t('screens:groups.inviteCodePlaceholder')}
               autoCapitalize="characters"
               autoFocus
             />
@@ -416,9 +424,7 @@ function JoinGroupModal({
             <GoalPicker value={goal} onChange={setGoal} />
 
             <Text style={[styles.sectionNote, { color: theme.colors.textTertiary }]}>
-              If you join mid-week, your first counted week starts next Monday.
-              Your first 2 weeks earn credits at 1.0× regardless of the group's
-              current streak.
+              {t('screens:groups.joinGroupNote')}
             </Text>
 
             {error && <Text style={[styles.errorText, { color: theme.colors.statusError }]}>{error}</Text>}
@@ -435,12 +441,12 @@ function JoinGroupModal({
               disabled={isLoading}
               activeOpacity={0.8}
               accessibilityRole="button"
-              accessibilityLabel="Join group"
+              accessibilityLabel={t('screens:groups.joinGroup')}
             >
               {isLoading ? (
                 <ActivityIndicator color={theme.components.buttonPrimaryText} />
               ) : (
-                <Text style={[styles.primaryButtonText, { color: theme.components.buttonPrimaryText }]}>Join Group</Text>
+                <Text style={[styles.primaryButtonText, { color: theme.components.buttonPrimaryText }]}>{t('screens:groups.joinGroup')}</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -459,6 +465,7 @@ function JoinGroupModal({
 
 export default function GroupsScreen() {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const {
     groups,
     creditBalance,
@@ -522,10 +529,10 @@ export default function GroupsScreen() {
         styles.header,
         { backgroundColor: theme.colors.bgPrimary, borderBottomColor: theme.colors.bgSecondary },
       ]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel="Go back">
+        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} accessibilityRole="button" accessibilityLabel={t('screens:groups.goBack')}>
           <Text style={[styles.backChevron, { color: theme.colors.accentDefault }]}>‹</Text>
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: theme.colors.textPrimary }]}>Groups</Text>
+        <Text style={[styles.headerTitle, { color: theme.colors.textPrimary }]}>{t('screens:groups.title')}</Text>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -555,8 +562,8 @@ export default function GroupsScreen() {
             { backgroundColor: theme.colors.statusError + '18', borderColor: theme.colors.statusError + '60' },
           ]}>
             <Text style={[styles.errorText, { color: theme.colors.statusError }]}>{error}</Text>
-            <TouchableOpacity onPress={refetch} style={styles.retryBtn} accessibilityRole="button" accessibilityLabel="Retry">
-              <Text style={[styles.retryText, { color: theme.colors.accentDefault }]}>Retry</Text>
+            <TouchableOpacity onPress={refetch} style={styles.retryBtn} accessibilityRole="button" accessibilityLabel={t('common:retry')}>
+              <Text style={[styles.retryText, { color: theme.colors.accentDefault }]}>{t('common:retry')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -573,7 +580,7 @@ export default function GroupsScreen() {
         {/* Groups list */}
         {groups.length > 0 && (
           <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: theme.colors.textTertiary }]}>Your Groups</Text>
+            <Text style={[styles.sectionTitle, { color: theme.colors.textTertiary }]}>{t('screens:groups.yourGroups')}</Text>
             {groups.map((g) => (
               <GroupRow key={g.id} group={g} onPress={() => handleGroupPress(g)} />
             ))}
@@ -584,10 +591,9 @@ export default function GroupsScreen() {
         {!isLoading && groups.length === 0 && !error && (
           <View style={styles.emptyState}>
             <Text style={styles.emptyEmoji}>👥</Text>
-            <Text style={[styles.emptyTitle, { color: theme.colors.textPrimary }]}>No groups yet</Text>
+            <Text style={[styles.emptyTitle, { color: theme.colors.textPrimary }]}>{t('screens:groups.noGroupsYet')}</Text>
             <Text style={[styles.emptySubtitle, { color: theme.colors.textTertiary }]}>
-              Create a group or join one with an invite code to start earning
-              streak credits with friends.
+              {t('screens:groups.emptyStateBody')}
             </Text>
           </View>
         )}
@@ -601,12 +607,12 @@ export default function GroupsScreen() {
               atGroupCap && { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault, borderWidth: 1 },
             ]}
             accessibilityRole="button"
-            accessibilityLabel="Create a group"
+            accessibilityLabel={t('screens:groups.createAGroupLabel')}
             onPress={() => {
               if (atGroupCap) {
                 Alert.alert(
-                  'Group limit reached',
-                  'You can be in up to 3 groups at once. Leave a group to create or join another.'
+                  t('screens:groups.groupLimitTitle'),
+                  t('screens:groups.groupLimitMessage')
                 );
                 return;
               }
@@ -620,7 +626,7 @@ export default function GroupsScreen() {
               { color: theme.components.buttonPrimaryText },
               atGroupCap && { color: theme.colors.textTertiary },
             ]}>
-              + Create Group
+              {t('screens:groups.createGroupCta')}
             </Text>
           </TouchableOpacity>
 
@@ -632,12 +638,12 @@ export default function GroupsScreen() {
               atGroupCap && { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
             ]}
             accessibilityRole="button"
-            accessibilityLabel="Join a group"
+            accessibilityLabel={t('screens:groups.joinAGroupLabel')}
             onPress={() => {
               if (atGroupCap) {
                 Alert.alert(
-                  'Group limit reached',
-                  'You can be in up to 3 groups at once. Leave a group to create or join another.'
+                  t('screens:groups.groupLimitTitle'),
+                  t('screens:groups.groupLimitMessage')
                 );
                 return;
               }
@@ -653,14 +659,14 @@ export default function GroupsScreen() {
                 atGroupCap && { color: theme.colors.textTertiary },
               ]}
             >
-              Join via invite
+              {t('screens:groups.joinViaInvite')}
             </Text>
           </TouchableOpacity>
         </View>
 
         {atGroupCap && (
           <Text style={[styles.capNote, { color: theme.colors.textTertiary }]}>
-            You're in 3 groups (the maximum). Leave one to create or join another.
+            {t('screens:groups.capNote')}
           </Text>
         )}
       </ScrollView>
