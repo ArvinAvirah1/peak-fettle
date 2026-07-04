@@ -91,6 +91,8 @@ import { SetNoteSheet } from './logger/SetNoteSheet';
 import { getLocalSetNoteFlags, saveSetNoteFlags } from '../data/setNotes';
 // TICKET-136: best-effort write of the finished workout to Apple Health / Health Connect.
 import { writeWorkoutToHealthKit, getHealthWriteEnabled } from '../services/healthKit';
+// TICKET-143: badge evaluation after a workout is saved (cheap, fire-and-forget).
+import { runBadgeEvaluation } from '../data/badges/evaluator';
 import { useRestTimer, REST_TIMER_STEP } from '../hooks/useRestTimer';
 // Founder logger fixes #1/#2: the mini-bar (minimize-to-bubble) + the pure
 // timer helper that derives the countdown from an ABSOLUTE deadline (no drift).
@@ -1576,6 +1578,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
               setStepperVisible(false);
               if (finishedRoutineId) markRoutineCompleted(finishedRoutineId).catch(() => {});
               writeFinishedWorkoutToHealth(); // TICKET-136 (toggle-gated, best-effort)
+              runBadgeEvaluation(user?.id ?? 'local').catch(() => {}); // TICKET-143
               // TICKET-131: capture the share payload BEFORE teardown — the
               // session clear + navigation run when the share card closes
               // (ShareCardSheet onClose below). Zero network; all values local.
@@ -1893,6 +1896,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
                       onPress: () => {
                         haptics.success();
                         writeFinishedWorkoutToHealth(); // TICKET-136
+                        runBadgeEvaluation(user?.id ?? 'local').catch(() => {}); // TICKET-143
                         terminateSession(finishedRoutineId);
                       },
                     },
@@ -2022,6 +2026,10 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
                     });
                   });
               }}
+              // TICKET-141: no next-load suggestions while CORRECTING a past
+              // set (history-edit mode) — the user isn't about to log a new
+              // set, so a suggestion strip would be a non-sequitur here.
+              suppressAutoregSuggestions={historyMode}
             />
           )}
         </Modal>

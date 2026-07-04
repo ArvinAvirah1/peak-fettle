@@ -161,6 +161,15 @@ export async function clearAllLocalPersonalData(): Promise<void> {
     }
   }
 
+  // 1b. TICKET-133: progress-photo FILES live outside SQLite (app documents
+  //     dir) — deleting the metadata rows above is not enough; wipe the dir.
+  try {
+    const { clearAllProgressPhotoFiles } = require('./progressPhotos');
+    await clearAllProgressPhotoFiles();
+  } catch {
+    // Best-effort — an absent module/dir must not abort the teardown.
+  }
+
   // 2. AsyncStorage flags. multiRemove is atomic-ish and cheaper than N calls;
   //    fall back to per-key removal if it throws so one bad key can't block all.
   try {

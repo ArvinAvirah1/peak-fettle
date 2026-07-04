@@ -630,6 +630,34 @@ export default function ProgressScreen(): React.ReactElement {
         </View>
       </PressableCard>
 
+      {/* TICKET-133: progress photos entry point — private, on-device gallery +
+          two-up compare. Photos never touch the server on any tier (see
+          src/data/progressPhotos.ts's file header for the full tier note). */}
+      <PressableCard
+        onPress={() => router.push('/progress-photos' as any)}
+        style={{
+          marginBottom: spacing.s2,
+          borderRadius: radius.md,
+          borderWidth: 1,
+          borderColor: theme.colors.borderDefault,
+          backgroundColor: theme.colors.bgSecondary,
+          paddingHorizontal: spacing.s4,
+          paddingVertical: spacing.s4,
+        }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold, color: theme.colors.textPrimary }}>
+              Progress photos
+            </Text>
+            <Text style={{ fontSize: fontSize.caption, color: theme.colors.textSecondary, marginTop: 2 }}>
+              Private, on-device — never leaves your phone
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={theme.colors.textTertiary} />
+        </View>
+      </PressableCard>
+
       {/* ── Error state ── */}
       {error ? (
         <View style={[styles.errorBlock, { marginTop: spacing.s6 }]}>

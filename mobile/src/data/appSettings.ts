@@ -26,6 +26,15 @@
  *   setting only controls how RIR is presented (see loggerLogic.ts's
  *   rirToRpe/formatEffort, which do the pure conversion).
  *
+ * TICKET-141 — autoregulation suggestions (in-session load suggestions):
+ *   • getAutoregSuggestionsEnabled() — boolean, defaulting to FALSE. v1 ships
+ *     dark; the founder flips it after a self-test week (per the ticket's
+ *     acceptance criterion 5). Purely a display/compute gate — the rule
+ *     module (lib/trainingEngine/v2/autoregulation.ts) is never invoked when
+ *     this is off, so there is zero extra work done for users who haven't
+ *     opted in.
+ *   • setAutoregSuggestionsEnabled(enabled) — persists the flag.
+ *
  * All reads are best-effort: any SQLite failure resolves to the default/null
  * rather than throwing, so a settings read can never block a screen.
  */
@@ -37,6 +46,8 @@ const REST_TIMER_FALLBACK_SEC = 120;
 
 const EFFORT_DISPLAY_KEY = 'effort_display';
 const EFFORT_DISPLAY_FALLBACK: EffortDisplay = 'rir';
+
+const AUTOREG_SUGGESTIONS_ENABLED_KEY = 'autoreg_suggestions_enabled';
 
 /** Display mode for logged effort: raw RIR, or RPE (10 − RIR, 5–10 band). */
 export type EffortDisplay = 'rir' | 'rpe';
@@ -120,4 +131,24 @@ export async function getEffortDisplay(): Promise<EffortDisplay> {
 export async function setEffortDisplay(mode: EffortDisplay): Promise<void> {
   const value: EffortDisplay = mode === 'rpe' ? 'rpe' : 'rir';
   await setSetting(EFFORT_DISPLAY_KEY, value);
+}
+
+// ---------------------------------------------------------------------------
+// Typed convenience — autoregulation suggestions flag (TICKET-141)
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether in-session autoregulation suggestions (next-load hints computed by
+ * lib/trainingEngine/v2/autoregulation.ts) should render in the logger.
+ * Defaults to FALSE (off) — v1 ships dark per the ticket's acceptance
+ * criteria; only an explicit 'true' stored value turns it on.
+ */
+export async function getAutoregSuggestionsEnabled(): Promise<boolean> {
+  const raw = await getSetting(AUTOREG_SUGGESTIONS_ENABLED_KEY);
+  return raw === 'true';
+}
+
+/** Persist the autoregulation-suggestions flag. */
+export async function setAutoregSuggestionsEnabled(enabled: boolean): Promise<void> {
+  await setSetting(AUTOREG_SUGGESTIONS_ENABLED_KEY, enabled ? 'true' : 'false');
 }

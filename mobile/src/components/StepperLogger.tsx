@@ -95,6 +95,14 @@ import { getExercisePrefs, setExercisePrefs } from '../data/exercisePrefs';
 import { getExerciseGoal, setExerciseGoal, clearExerciseGoal, ExerciseGoal } from '../data/exerciseGoals'; // WIDGET-002
 import { REST_TIMER_DEFAULT } from '../hooks/useRestTimer';
 import { displayToKg, kgToInputValue } from '../constants/units';
+// TICKET-141: in-session autoregulation suggestions — deterministic rule
+// module (FROZEN, not edited by this ticket) + the local history/target
+// assembly layer. Zero network on any tier (see autoregHistory.ts header).
+import { getAutoregSuggestionsEnabled } from '../data/appSettings';
+import { isAutoregMuted, setAutoregMuted } from '../data/exercisePrefs';
+import { getAutoregContext } from '../data/autoregHistory';
+import { suggestNextLoad, AutoregSuggestion } from '../lib/trainingEngine/v2/autoregulation';
+import AutoregStrip from './logger/AutoregStrip';
 
 // expo-haptics is wrapped in utils/haptics with a platform guard; import the
 // wrapper so a missing native module never throws (option 11 / log confirmation).
@@ -379,6 +387,14 @@ interface Props {
    * updated `note`/`flags` via the next currentExerciseSets render.
    */
   onOpenSetNote?: (setId: string, index: number) => void;
+  /**
+   * TICKET-141: suppress the autoregulation suggestion strip entirely (e.g.
+   * WorkoutLoggerHost's history-edit mode, where the user is CORRECTING a
+   * past logged set rather than about to log a new one — suggesting a
+   * 'next load' makes no sense there). Defaults to false (strip may render,
+   * subject to its own enabled/mute/dismiss gates).
+   */
+  suppressAutoregSuggestions?: boolean;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -459,6 +475,19 @@ const BODYWEIGHT_NAME_RE =
   /\b(pull[\s-]?ups?|chin[\s-]?ups?|push[\s-]?ups?|press[\s-]?ups?|dips?|planks?|sit[\s-]?ups?|crunch(es)?|leg raises?|muscle[\s-]?ups?|pistol squats?|burpees?|mountain climbers?|hanging|inverted rows?|nordic|bodyweight)\b/i;
 function isBodyweightExercise(name?: string): boolean {
   return !!name && BODYWEIGHT_NAME_RE.test(name);
+}
+
+/**
+ * TICKET-141: a lightweight LOCAL fallback equipment guess (used only until
+ * getAutoregContext's own resolveAutoregEquipment lookup resolves — see
+ * data/autoregHistory.ts, which is the source of truth and runs the same
+ * bodyweight-name heuristic plus a static-catalog lookup). Kept here too so
+ * the effect has an equipment value on the very first render before the
+ * async context resolves, avoiding a one-frame 'barbell default' flash for
+ * obviously-bodyweight movements.
+ */
+function resolveEquipmentForAutoreg(name?: string): 'bodyweight' | 'other' {
+  return isBodyweightExercise(name) ? 'bodyweight' : 'other';
 }
 
 /**
@@ -701,6 +730,7 @@ export default function StepperLogger({
   onStartDropChain,
   onEndDropChain,
   onOpenSetNote,
+  suppressAutoregSuggestions = false,
 }: Props): React.ReactElement {
   const { exercises, currentIndex, name: routineName } = routineSession;
   const reducedMotion = useReducedMotion(); // 2026-06-10 aesthetic pass
@@ -844,6 +874,80 @@ export default function StepperLogger({
   const persistWuPrefs = useCallback((enabled: boolean, sets: number) => {
     const id = currentEx?.exerciseId;
     if (id) setExercisePrefs(id, { warmup_enabled: enabled, warmup_sets: sets }).catch(() => {});
+  }, [currentEx?.exerciseId]);
+
+  // ── TICKET-141: in-session autoregulation suggestions ────────────────────
+  // Computed for the CURRENT exercise only, on exercise-change/mount — never
+  // per keystroke (the effect's dep list is currentEx?.exerciseId plus the
+  // enabled/mute gates, NOT weight/reps/rir). `now` is captured ONCE at the
+  // moment of computation (a UI-event-adjacent read, same pattern as the rest
+  // timer) and passed into the pure rule as a parameter — the rule itself
+  // never reads the clock (CLAUDE.md Workflow lint).
+  const [autoregEnabled, setAutoregEnabledState] = useState(false);
+  const [autoregSuggestion, setAutoregSuggestion] = useState<AutoregSuggestion | null>(null);
+  // Session-local dismiss set (NOT persisted — reappears next time this
+  // exercise is logged in a future session). Keyed by exerciseId.
+  const autoregDismissedRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    let cancelled = false;
+    getAutoregSuggestionsEnabled()
+      .then((enabled) => { if (!cancelled) setAutoregEnabledState(enabled); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    const id = currentEx?.exerciseId;
+    const name = currentEx?.name;
+    if (!autoregEnabled || !id || !name || isCardio || suppressAutoregSuggestions) {
+      setAutoregSuggestion(null);
+      return;
+    }
+    if (autoregDismissedRef.current.has(id)) {
+      setAutoregSuggestion(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const muted = await isAutoregMuted(id);
+        if (cancelled || muted) {
+          if (!cancelled) setAutoregSuggestion(null);
+          return;
+        }
+        const equipmentGuess = resolveEquipmentForAutoreg(name);
+        const ctx = await getAutoregContext(id, name, currentEx?.targetReps ?? null);
+        if (cancelled) return;
+        const nowIso = new Date().toISOString(); // UI-event-adjacent clock read (see comment above)
+        const suggestion = suggestNextLoad(ctx.history, ctx.targets, {
+          unitPref,
+          equipment: ctx.equipment ?? equipmentGuess,
+          effortDisplay,
+          now: nowIso,
+        });
+        if (!cancelled) setAutoregSuggestion(suggestion);
+      } catch {
+        if (!cancelled) setAutoregSuggestion(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [autoregEnabled, currentEx?.exerciseId, currentEx?.name, currentEx?.targetReps, isCardio, unitPref, effortDisplay, suppressAutoregSuggestions]);
+
+  const handleAutoregApply = useCallback((suggestedKg: number) => {
+    setWeight(kgToInputValue(suggestedKg, unitPref));
+  }, [unitPref]);
+
+  const handleAutoregDismiss = useCallback(() => {
+    const id = currentEx?.exerciseId;
+    if (id) autoregDismissedRef.current.add(id);
+    setAutoregSuggestion(null);
+  }, [currentEx?.exerciseId]);
+
+  const handleAutoregMute = useCallback(() => {
+    const id = currentEx?.exerciseId;
+    if (id) setAutoregMuted(id, true).catch(() => {});
+    setAutoregSuggestion(null);
   }, [currentEx?.exerciseId]);
 
   // ── Per-exercise goal (WIDGET-002, founder 2026-06-11): one weight x reps
@@ -1584,6 +1688,19 @@ export default function StepperLogger({
                   <Text style={wuStyles.lastSessionText}>Last session: {lastSessionLabel}</Text>
                 ) : null}
               </View>
+            )}
+
+            {/* TICKET-141: suggestion strip renders for the CURRENT exercise
+                only, computed on-device (see the effect above). Null suggestion
+                (disabled/muted/dismissed/no history) renders nothing. */}
+            {!isCardio && (
+              <AutoregStrip
+                suggestion={autoregSuggestion}
+                unitPref={unitPref}
+                onApply={handleAutoregApply}
+                onDismiss={handleAutoregDismiss}
+                onMute={handleAutoregMute}
+              />
             )}
 
             {/* ── Per-exercise goal (WIDGET-002): single weight x reps target.

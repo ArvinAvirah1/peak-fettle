@@ -72,6 +72,13 @@
         }
       ],
       "react-native-health-connect",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Peak Fettle imports the progress photos you choose. They stay on your phone.",
+          "cameraPermission": "Peak Fettle takes progress photos. They stay on your phone."
+        }
+      ],
       "@bacons/apple-targets",
       "expo-localization"
     ],

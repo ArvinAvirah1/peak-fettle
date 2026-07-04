@@ -195,15 +195,15 @@ function eq(a, b, msg) {
     await runMigrations(db);
     const v2 = db._pragmas.user_version;
     eq(v1, v2, 'version changed on second run:');
-    eq(v1, 12, 'expected version 12:');
+    eq(v1, 15, 'expected version 15:');
   });
 
   // 2. Fresh install reaches the latest version
-  await test('fresh install reaches user_version 12', async () => {
+  await test('fresh install reaches user_version 15', async () => {
     const db = makeStubDb();
     eq(db._pragmas.user_version, 0, 'starts at 0:');
     await runMigrations(db);
-    eq(db._pragmas.user_version, 12, 'should be 12 after migration:');
+    eq(db._pragmas.user_version, 15, 'should be 15 after migration:');
   });
 
   // 3. v2 tables created (10 spot-checked)
@@ -319,12 +319,73 @@ function eq(a, b, msg) {
 
     await runMigrations(db);
 
-    eq(db._pragmas.user_version, 12, 'should reach 12 from a v10 baseline:');
+    eq(db._pragmas.user_version, 15, 'should reach 15 from a v10 baseline:');
     assert(db._tableColumns['sets'].has('note'), 'v10->v11 upgrade missing sets.note');
     assert(db._tableColumns['sets'].has('flags'), 'v10->v11 upgrade missing sets.flags');
     assert(db._createdTables.has('body_measurements'), 'v11->v12 upgrade missing body_measurements');
+    assert(db._createdTables.has('progress_photos'), 'v12->v13 upgrade missing progress_photos');
+    assert(db._createdTables.has('badges_earned'), 'v13->v14 upgrade missing badges_earned');
     // The pre-existing v3 columns must NOT have been touched/duplicated (additive-only).
     assert(db._tableColumns['sets'].has('weight_kg'), 'pre-existing weight_kg column lost on upgrade');
+  });
+
+  // 3i. TICKET-133: v13 creates the progress_photos table + its indexes.
+  await test('fresh install creates progress_photos table + indexes (v13)', async () => {
+    const db = makeStubDb();
+    await runMigrations(db);
+    assert(db._createdTables.has('progress_photos'), 'table not created: progress_photos');
+    const cols = db._tableColumns['progress_photos'];
+    assert(cols, 'progress_photos has no recorded columns');
+    for (const c of ['id', 'file_name', 'taken_at', 'pose', 'note']) {
+      assert(cols.has(c), 'progress_photos.' + c + ' column missing after v13 migration');
+    }
+    assert(
+      db._executedSql.some((s) => /idx_progress_photos_taken_at/i.test(s)),
+      'v13 progress_photos taken_at index statement never executed'
+    );
+    assert(
+      db._executedSql.some((s) => /idx_progress_photos_pose/i.test(s)),
+      'v13 progress_photos pose index statement never executed'
+    );
+  });
+
+  // 3j. TICKET-143: v14 creates the badges_earned table.
+  await test('fresh install creates badges_earned table (v14)', async () => {
+    const db = makeStubDb();
+    await runMigrations(db);
+    assert(db._createdTables.has('badges_earned'), 'table not created: badges_earned');
+    const cols = db._tableColumns['badges_earned'];
+    assert(cols, 'badges_earned has no recorded columns');
+    for (const c of ['badge_id', 'earned_at']) {
+      assert(cols.has(c), 'badges_earned.' + c + ' column missing after v14 migration');
+    }
+  });
+
+  // 3k. TICKET-141: v15 guarded ALTER lands exercise_prefs.autoreg_muted on a
+  // fresh install (exercise_prefs itself is a v1 base table, not created by
+  // runMigrations — same situation as v11's sets.note/sets.flags above; the
+  // guarded ALTER still lands because the runner's pragma_table_info check
+  // treats an untracked table as "column absent" and proceeds).
+  await test('fresh install adds exercise_prefs.autoreg_muted (v15)', async () => {
+    const db = makeStubDb();
+    await runMigrations(db);
+    const cols = db._tableColumns['exercise_prefs'];
+    assert(cols, 'exercise_prefs has no recorded columns');
+    assert(cols.has('autoreg_muted'), 'exercise_prefs.autoreg_muted column missing after v15 migration');
+  });
+
+  // 3l. v13(progress_photos)->v15 upgrade path: a DB already at user_version 13
+  // (post-TICKET-133, pre-TICKET-143/141) only applies v14 + v15, and both
+  // land correctly (badges_earned created, autoreg_muted added) without
+  // re-running anything already applied.
+  await test('v13->v15 upgrade path applies only the new migrations', async () => {
+    const db = makeStubDb();
+    db._pragmas.user_version = 13;
+    await runMigrations(db);
+    eq(db._pragmas.user_version, 15, 'should reach 15 from a v13 baseline:');
+    assert(db._createdTables.has('badges_earned'), 'v13->v15 upgrade missing badges_earned');
+    const cols = db._tableColumns['exercise_prefs'];
+    assert(cols && cols.has('autoreg_muted'), 'v13->v15 upgrade missing exercise_prefs.autoreg_muted');
   });
 
   // 4. SCHEMA_V2_STATEMENTS shape
@@ -398,8 +459,8 @@ function eq(a, b, msg) {
     eq(BACKUP_SCHEMA_VERSION, 2, 'BACKUP_SCHEMA_VERSION:');
   });
 
-  // 9. BACKUP_TABLES contains all 23 tables
-  await test('BACKUP_TABLES contains all 23 registered tables', () => {
+  // 9. BACKUP_TABLES contains all 25 tables
+  await test('BACKUP_TABLES contains all 25 registered tables', () => {
     const expected = [
       'workouts', 'sets', 'schedule', 'avatar', 'bodyweight', 'exercise_prefs', 'exercise_goals',
       'plans', 'routines', 'streaks', 'streak_overrides', 'daily_health_log', 'daily_health_metrics',
@@ -407,6 +468,8 @@ function eq(a, b, msg) {
       'user_cosmetics', 'user_equipped_cosmetics', 'user_profile',
       'generated_plans', // v9
       'body_measurements', // v12 (TICKET-130)
+      'progress_photos', // v13 (TICKET-133)
+      'badges_earned', // v14 (TICKET-143)
     ];
     eq(BACKUP_TABLES.length, expected.length,
       'BACKUP_TABLES.length ' + BACKUP_TABLES.length + ' expected ' + expected.length + ':');
@@ -451,6 +514,29 @@ function eq(a, b, msg) {
     eq(result.tables['body_measurements'].length, 1, 'body_measurements row survives round-trip:');
     eq(result.tables['body_measurements'][0].metric, 'waist', 'body_measurements.metric survives round-trip:');
     eq(result.tables['body_measurements'][0].value, 81.5, 'body_measurements.value survives round-trip:');
+  });
+
+  // 12. TICKET-133/143: export -> import round-trip survives progress_photos
+  // METADATA (not the image file — that's a separate opt-in bundle) and a
+  // badges_earned row.
+  await test('export->import round-trip preserves progress_photos metadata + badges_earned', () => {
+    const tables = {
+      progress_photos: [
+        { id: 'p1', file_name: 'pf_photo_1.jpg', taken_at: '2026-07-03T00:00:00.000Z', pose: 'front', note: 'week 1' },
+      ],
+      badges_earned: [
+        { badge_id: 'workouts_10', earned_at: '2026-07-03T00:00:00.000Z' },
+      ],
+    };
+    const doc = makeExportDoc(tables);
+    const roundTripped = JSON.parse(JSON.stringify(doc));
+    const result = parseImport(roundTripped, BACKUP_SCHEMA_VERSION);
+    assert(result.ok, 'round-trip parseImport failed');
+    eq(result.tables['progress_photos'].length, 1, 'progress_photos row survives round-trip:');
+    eq(result.tables['progress_photos'][0].file_name, 'pf_photo_1.jpg', 'progress_photos.file_name survives round-trip:');
+    eq(result.tables['progress_photos'][0].pose, 'front', 'progress_photos.pose survives round-trip:');
+    eq(result.tables['badges_earned'].length, 1, 'badges_earned row survives round-trip:');
+    eq(result.tables['badges_earned'][0].badge_id, 'workouts_10', 'badges_earned.badge_id survives round-trip:');
   });
 
   // ---------------------------------------------------------------------------

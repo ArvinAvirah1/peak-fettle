@@ -40,7 +40,8 @@ import { makeWatchToken } from '../db/localDb';
 import { syncEngine } from '../db/syncEngine';
 import { useAuth } from './useAuth';
 import { isLocalFirst } from '../data/backup/tierPolicy';
-import { maybeSendWeeklySignals, getActiveGroupIds } from '../data/groupSignals';
+import { maybeSendWeeklySignals, getActiveGroupIds, VolumeSetRow } from '../data/groupSignals';
+import { computeStreak } from './useStreak';
 import { ensureLocalWorkoutForDay } from '../data/localWorkouts';
 import { localDb } from '../db/localDb';
 import {
@@ -474,6 +475,13 @@ export function usePowerSyncLog(): UsePowerSyncLogResult {
       // ── Group weekly signal (free + pro, fire-and-forget) ─────────────────
       // Count workouts logged in this ISO week (including today) so the signal
       // reflects accurate progress. Errors are fully swallowed in the helper.
+      //
+      // TICKET-139: also gather the inputs for the OPT-IN leaderboard aggregates
+      // (this-week `sets` rows for volume, and the user's week-streak). Both are
+      // best-effort local reads — a failure here must never block logSet, and
+      // groupSignals.ts itself only forwards the aggregates for groups where the
+      // per-group opt-in flag is on. This rides the SAME weekly-signal POST —
+      // no new network call is introduced.
       void (async () => {
         try {
           const weekMonday = (() => {
@@ -486,7 +494,42 @@ export function usePowerSyncLog(): UsePowerSyncLogResult {
             `SELECT COUNT(*) as cnt FROM workouts WHERE day_key >= ?`,
             [weekMonday]
           );
-          await maybeSendWeeklySignals(getActiveGroupIds(), row?.cnt ?? 1);
+
+          let volumeRows: VolumeSetRow[] | undefined;
+          let streakWeeks: number | undefined;
+          try {
+            volumeRows = await localDb.getAll<VolumeSetRow>(
+              `SELECT kind, weight_kg, weight_raw, reps, logged_at
+                 FROM sets
+                WHERE logged_at >= ?`,
+              [weekMonday]
+            );
+          } catch { /* best-effort — omit volume aggregate on failure */ }
+          try {
+            const workoutRows = await localDb.getAll<{ id: string; day_key: string }>(
+              `SELECT id, day_key FROM workouts`
+            );
+            // computeStreak only reads day_key; the remaining Workout fields are
+            // stubbed since this is a local, throwaway shape for streak counting.
+            streakWeeks = computeStreak(
+              workoutRows.map((w) => ({
+                id: w.id,
+                user_id: userId ?? '',
+                day_key: w.day_key,
+                notes: null,
+                created_at: '',
+                updated_at: '',
+              }))
+            );
+          } catch { /* best-effort — omit streak aggregate on failure */ }
+
+          await maybeSendWeeklySignals(
+            getActiveGroupIds(),
+            row?.cnt ?? 1,
+            3,
+            volumeRows,
+            streakWeeks,
+          );
         } catch { /* swallow — never block logSet */ }
       })();
 

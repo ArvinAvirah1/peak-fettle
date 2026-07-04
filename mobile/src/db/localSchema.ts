@@ -780,3 +780,114 @@ export const SCHEMA_V12_STATEMENTS: MigrationStatement[] = [
   CREATE_BODY_MEASUREMENTS,
   CREATE_BODY_MEASUREMENTS_METRIC_IDX,
 ];
+
+// ---------------------------------------------------------------------------
+// v13 statements — TICKET-133: progress photos (private, on-device).
+//
+// `progress_photos` holds METADATA ONLY — one row per captured/imported photo.
+// The image FILE itself lives under the app's private document directory
+// (mobile/src/data/progressPhotos.ts owns the file path convention + writes),
+// never in the camera roll and never uploaded anywhere. This table is
+// registered in BACKUP_TABLES (exportEngine) so the metadata always survives
+// a JSON export/import, but the image FILES are deliberately excluded from the
+// default E2E blob — included only behind an explicit "include photos" toggle
+// (see progressPhotos.ts / data-export.tsx), per the ticket's privacy spec.
+//
+// Columns:
+//   id         TEXT PK   — genId() UUID.
+//   file_name  TEXT      — the file's name under the private photos directory
+//                          (NOT a full path — the directory itself may move
+//                          between OS versions/reinstalls; the app resolves
+//                          documentDirectory + PHOTOS_DIR_NAME + file_name at
+//                          read time). EXIF-stripped copy, never the original.
+//   taken_at   TEXT      — ISO datetime the photo represents (user-editable —
+//                          may differ from the file's actual capture time if
+//                          importing an older photo).
+//   pose       TEXT      — 'front' | 'side' | 'back' | 'custom' (free-text
+//                          allowed for 'custom' via a separate note, not this
+//                          column — pose stays a small fixed vocabulary so the
+//                          gallery can group by it reliably).
+//   note       TEXT      — optional free-text note (nullable).
+//
+// Free tier: photos NEVER touch the server, full stop — there is no server
+// counterpart table and no sync path. Pro tier: photos are STILL local-only in
+// v1 (no photo sync) — same as free. This mirrors the tierPolicy.ts pattern
+// but is actually simpler than most local-first tables: BOTH tiers are
+// local-only here, so progressPhotos.ts has no isLocalFirst() branch (see its
+// file header for the explicit tier-policy note).
+//
+// CREATE TABLE IF NOT EXISTS — idempotent, no ALTER guard needed. Registered
+// in exportEngine BACKUP_TABLES + migrations.test.js. Added 2026-07-03
+// (TICKET-133).
+export const CREATE_PROGRESS_PHOTOS = `
+CREATE TABLE IF NOT EXISTS progress_photos (
+  id TEXT PRIMARY KEY,
+  file_name TEXT NOT NULL,
+  taken_at TEXT NOT NULL,
+  pose TEXT,
+  note TEXT
+)`;
+
+export const CREATE_PROGRESS_PHOTOS_TAKEN_AT_IDX = `
+CREATE INDEX IF NOT EXISTS idx_progress_photos_taken_at ON progress_photos(taken_at)`;
+
+export const CREATE_PROGRESS_PHOTOS_POSE_IDX = `
+CREATE INDEX IF NOT EXISTS idx_progress_photos_pose ON progress_photos(pose, taken_at)`;
+
+export const SCHEMA_V13_STATEMENTS: MigrationStatement[] = [
+  CREATE_PROGRESS_PHOTOS,
+  CREATE_PROGRESS_PHOTOS_TAKEN_AT_IDX,
+  CREATE_PROGRESS_PHOTOS_POSE_IDX,
+];
+
+/** Pose tag vocabulary (TICKET-133) — shared by the gallery, compare view, and capture sheet. */
+export const PHOTO_POSE_DEFS: { key: string; label: string }[] = [
+  { key: 'front', label: 'Front' },
+  { key: 'side', label: 'Side' },
+  { key: 'back', label: 'Back' },
+  { key: 'custom', label: 'Custom' },
+];
+
+// ---------------------------------------------------------------------------
+// v14 statements — TICKET-143: achievements/badges -> cosmetics unlocks.
+//
+// `badges_earned` records which STATIC badge definitions (see
+// mobile/src/data/badges/badgeDefs.ts) this install has earned, and when. The
+// badge rule catalogue itself is static TS/JSON, not a DB table — only the
+// earned-state is persisted (mirrors how COSMETIC_TIERS is static but
+// user_cosmetics/user_equipped_cosmetics persist state).
+//
+// Columns:
+//   badge_id   TEXT PK  — matches a BadgeDef.id from badgeDefs.ts. A badge_id
+//                        that no longer exists in the catalogue (removed in a
+//                        later release) simply never renders — harmless dead
+//                        row, not cleaned up automatically (safe by default).
+//   earned_at  TEXT     — ISO datetime the evaluator first granted it.
+//
+// CREATE TABLE IF NOT EXISTS — idempotent, no ALTER guard needed. Registered
+// in exportEngine BACKUP_TABLES + migrations.test.js. Added 2026-07-03
+// (TICKET-143).
+export const CREATE_BADGES_EARNED = `
+CREATE TABLE IF NOT EXISTS badges_earned (
+  badge_id TEXT PRIMARY KEY,
+  earned_at TEXT NOT NULL
+)`;
+
+export const SCHEMA_V14_STATEMENTS: MigrationStatement[] = [
+  CREATE_BADGES_EARNED,
+];
+
+// ---------------------------------------------------------------------------
+// v15 statements — TICKET-141: in-session autoregulation suggestions.
+//
+// `exercise_prefs.autoreg_muted` (INTEGER DEFAULT 0, boolean-as-int like the
+// existing `warmup_enabled` column on the same table) lets a user silence the
+// suggestion strip for ONE exercise without disabling the feature globally
+// (the global on/off is the separate `autoreg_suggestions_enabled` row in
+// `app_settings`, unrelated to this table). Guarded ALTER ADD COLUMN — same
+// idempotency pattern as v3/v4/v6/v8/v11 (pragma_table_info check in the
+// migration runner). Additive only; existing rows read back autoreg_muted=0
+// (not muted). Added 2026-07-03 (TICKET-141).
+export const SCHEMA_V15_STATEMENTS: MigrationStatement[] = [
+  { type: 'alter_add_column', table: 'exercise_prefs', column: 'autoreg_muted', definition: 'INTEGER DEFAULT 0' },
+];

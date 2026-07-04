@@ -414,8 +414,45 @@ export interface GroupWeekEvaluation {
   evaluated_at: string;
 }
 
+/**
+ * TICKET-139 — one member's row in the opt-in group leaderboard.
+ * `total_volume_kg` / `session_count` / `streak_weeks` are null for members
+ * who have NOT opted in for THIS group (or who have no signal yet for the
+ * week) — the UI must render "—" for null, never coerce to 0 (a non-
+ * participant is not the same as a participant with zero volume).
+ */
+export interface GroupLeaderboardEntry {
+  user_id: string;
+  display_name: string | null;
+  opted_in: boolean;
+  total_volume_kg: number | null;
+  session_count: number | null;
+  streak_weeks: number | null;
+}
+
+/** One week's leaderboard board (current or last week). */
+export interface GroupLeaderboardWeek {
+  /** ISO Monday (YYYY-MM-DD) this board covers. */
+  week_start: string;
+  entries: GroupLeaderboardEntry[];
+}
+
+/**
+ * TICKET-139 — group-scoped leaderboard, current + last week only. No
+ * cross-group or global rollups; volume is NOT a strength comparison (copy
+ * in group-detail.tsx makes this explicit). Additive/optional: absent on a
+ * drift-guarded server that hasn't run the migration yet (degrades to
+ * undefined, the screen simply hides the board section).
+ */
+export interface GroupLeaderboard {
+  current_week: GroupLeaderboardWeek;
+  last_week: GroupLeaderboardWeek | null;
+}
+
 export interface GroupDetail extends Omit<Group, 'active_count'> {
   members: GroupMember[];
+  /** TICKET-139: present only when the server has the leaderboard columns deployed. */
+  leaderboard?: GroupLeaderboard | null;
 }
 
 export interface CreditBalance {

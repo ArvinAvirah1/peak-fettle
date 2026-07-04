@@ -73,6 +73,12 @@ export const BACKUP_TABLES: string[] = [
   'generated_plans',
   // v12 table (TICKET-130: body measurements module — preset + custom metrics)
   'body_measurements',
+  // v13 table (TICKET-133: progress photos — METADATA only; the image FILES
+  // are intentionally NOT part of this JSON export — see progressPhotos.ts /
+  // the "include photos" toggle for the separate, opt-in file bundle).
+  'progress_photos',
+  // v14 table (TICKET-143: achievements/badges earned-state ledger)
+  'badges_earned',
 ];
 
 export type Row = Record<string, unknown>;
@@ -113,6 +119,7 @@ const COLUMN_ALLOWLIST: Record<string, Set<string>> = {
   bodyweight: new Set(['id', 'week_key', 'weight_kg', 'logged_at']),
   exercise_prefs: new Set([
     'exercise_id', 'warmup_enabled', 'warmup_sets', 'base_weight_kg', 'pulley_id', 'updated_at',
+    'autoreg_muted', // v15 (TICKET-141: in-session autoregulation suggestions)
   ]),
   exercise_goals: new Set([
     'exercise_id', 'exercise_name', 'target_weight_kg', 'target_reps', 'created_at', 'achieved_at',
@@ -168,6 +175,10 @@ const COLUMN_ALLOWLIST: Record<string, Set<string>> = {
   ]),
   // v12 (TICKET-130) - body measurements: one row per logged entry.
   body_measurements: new Set(['id', 'metric', 'value', 'unit', 'logged_at', 'synced']),
+  // v13 (TICKET-133) - progress photo METADATA only (no image bytes here).
+  progress_photos: new Set(['id', 'file_name', 'taken_at', 'pose', 'note']),
+  // v14 (TICKET-143) - badge earned-state ledger.
+  badges_earned: new Set(['badge_id', 'earned_at']),
 };
 
 /**

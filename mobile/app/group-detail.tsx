@@ -25,7 +25,7 @@
  *   - accessibilityRole + accessibilityLabel on every interactive element
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -47,11 +47,14 @@ import { useAuth } from '../src/hooks/useAuth';
 import {
   GroupMember,
   GroupWeekEvaluation,
+  GroupLeaderboard,
   WeeklyGoal,
 } from '../src/types/api';
 import { useTheme } from '../src/theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../src/theme/tokens';
 import { ScreenLayout, PFButton, PFProgressBar } from '../src/components/ui';
+import { formatWeight } from '../src/constants/units';
+import { getLeaderboardOptIn, setLeaderboardOptIn } from '../src/data/groupSignals';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -240,6 +243,195 @@ function WeeklyGoalCard({ activeCount, membersHitThisWeek, goalLabel }: WeeklyGo
         {threshold} of {activeCount} must hit goal for group credit
       </Text>
     </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 2b. Leaderboard — TICKET-139, opt-in, group-scoped weekly board
+//
+// Rides the SAME GET /groups/:id call this screen already makes on mount
+// (useGroupDetail → getGroupDetail) — no new network path. The server folds
+// `leaderboard` into that response (peak-fettle-agents/server/routes/groups.js);
+// it is undefined/null when the server hasn't deployed the migration yet
+// (drift-guarded), so the section simply doesn't render.
+//
+// Non-participants (opted_in: false) show "—" for every aggregate, never 0 —
+// a member who hasn't opted in is not the same as a member with zero volume.
+// Copy makes explicit that volume is NOT a strength comparison.
+// ---------------------------------------------------------------------------
+
+interface LeaderboardCardProps {
+  leaderboard: GroupLeaderboard;
+  unitPref: 'kg' | 'lbs';
+}
+
+function LeaderboardWeekTable({
+  title,
+  entries,
+  unitPref,
+  theme,
+}: {
+  title: string;
+  entries: GroupLeaderboard['current_week']['entries'];
+  unitPref: 'kg' | 'lbs';
+  theme: ReturnType<typeof useTheme>['theme'];
+}) {
+  // Rank opted-in members by volume (nulls/non-participants sort last, in
+  // roster order — not ranked, since they have no comparable value).
+  const sorted = [...entries].sort((a, b) => {
+    if (a.opted_in && b.opted_in) {
+      return (b.total_volume_kg ?? 0) - (a.total_volume_kg ?? 0);
+    }
+    if (a.opted_in) return -1;
+    if (b.opted_in) return 1;
+    return 0;
+  });
+
+  return (
+    <View style={{ marginTop: spacing.s3 }}>
+      <Text style={[styles.historyColLabel, { color: theme.colors.textTertiary, marginBottom: spacing.s2 }]}>
+        {title}
+      </Text>
+      {sorted.length === 0 ? (
+        <Text style={[styles.emptyHistoryText, { color: theme.colors.textTertiary }]}>
+          No members yet.
+        </Text>
+      ) : (
+        sorted.map((entry, idx) => (
+          <View
+            key={entry.user_id}
+            style={[styles.leaderboardRow, { borderTopColor: theme.colors.borderDefault }]}
+          >
+            <Text
+              style={[
+                styles.leaderboardRank,
+                { color: entry.opted_in ? theme.colors.textPrimary : theme.colors.textTertiary },
+              ]}
+            >
+              {entry.opted_in ? `${idx + 1}.` : '—'}
+            </Text>
+            <Text
+              style={[styles.leaderboardName, { color: theme.colors.textPrimary }]}
+              numberOfLines={1}
+            >
+              {entry.display_name ?? 'Member'}
+            </Text>
+            <Text
+              style={[
+                styles.leaderboardVolume,
+                {
+                  color: entry.opted_in ? theme.colors.textSecondary : theme.colors.textTertiary,
+                  fontVariant: ['tabular-nums'],
+                },
+              ]}
+            >
+              {entry.opted_in && entry.total_volume_kg != null
+                ? formatWeight(entry.total_volume_kg, unitPref, 0)
+                : '—'}
+            </Text>
+            <Text
+              style={[
+                styles.leaderboardStreak,
+                { color: theme.colors.textTertiary, fontVariant: ['tabular-nums'] },
+              ]}
+            >
+              {entry.opted_in && entry.streak_weeks != null ? `${entry.streak_weeks}wk` : '—'}
+            </Text>
+          </View>
+        ))
+      )}
+    </View>
+  );
+}
+
+function LeaderboardCard({ leaderboard, unitPref }: LeaderboardCardProps) {
+  const { theme } = useTheme();
+
+  return (
+    <View
+      style={[
+        styles.card,
+        {
+          backgroundColor: theme.colors.bgSecondary,
+          borderColor: theme.colors.borderDefault,
+          borderRadius: radius.lg,
+          padding: spacing.s4,
+        },
+      ]}
+    >
+      <View style={styles.cardHeaderRow}>
+        <Text style={[styles.cardLabel, { color: theme.colors.textTertiary }]}>
+          LEADERBOARD
+        </Text>
+      </View>
+      <Text style={[styles.leaderboardNote, { color: theme.colors.textTertiary }]}>
+        Volume logged this week and last, for members who've opted in. Volume
+        isn't a strength comparison — it just reflects how much work each
+        person logged.
+      </Text>
+
+      <LeaderboardWeekTable
+        title="THIS WEEK"
+        entries={leaderboard.current_week.entries}
+        unitPref={unitPref}
+        theme={theme}
+      />
+      {leaderboard.last_week && (
+        <LeaderboardWeekTable
+          title="LAST WEEK"
+          entries={leaderboard.last_week.entries}
+          unitPref={unitPref}
+          theme={theme}
+        />
+      )}
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 2c. Leaderboard opt-in row — per-group setting (default OFF)
+// ---------------------------------------------------------------------------
+
+interface LeaderboardOptInRowProps {
+  optedIn: boolean;
+  isLoading: boolean;
+  onToggle: () => void;
+}
+
+function LeaderboardOptInRow({ optedIn, isLoading, onToggle }: LeaderboardOptInRowProps) {
+  const { theme } = useTheme();
+
+  return (
+    <TouchableOpacity
+      style={[
+        styles.editGoalRow,
+        {
+          borderRadius: radius.md,
+          borderColor: theme.colors.borderDefault,
+          marginBottom: spacing.s2,
+        },
+      ]}
+      onPress={onToggle}
+      disabled={isLoading}
+      activeOpacity={0.7}
+      accessibilityRole="switch"
+      accessibilityState={{ checked: optedIn, disabled: isLoading }}
+      accessibilityLabel="Share my volume in this group's leaderboard"
+    >
+      <Ionicons
+        name={optedIn ? 'checkmark-circle' : 'ellipse-outline'}
+        size={18}
+        color={optedIn ? theme.colors.statusSuccess : theme.colors.textTertiary}
+      />
+      <Text style={[styles.editGoalText, { color: theme.colors.textPrimary }]}>
+        Share my volume in this group's leaderboard
+      </Text>
+      {isLoading ? (
+        <ActivityIndicator size="small" />
+      ) : (
+        <Ionicons name="chevron-forward" size={13} color={theme.colors.textTertiary} />
+      )}
+    </TouchableOpacity>
   );
 }
 
@@ -669,6 +861,38 @@ export default function GroupDetailScreen() {
 
   const [showGoalModal, setShowGoalModal] = useState(false);
 
+  // ── TICKET-139: per-group leaderboard opt-in (local app_settings KV) ──────
+  const [leaderboardOptIn, setLeaderboardOptInState] = useState(false);
+  const [optInLoading, setOptInLoading] = useState(false);
+
+  useEffect(() => {
+    if (!groupId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const v = await getLeaderboardOptIn(groupId);
+        if (!cancelled) setLeaderboardOptInState(v);
+      } catch {
+        // best-effort — default OFF on any read failure
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [groupId]);
+
+  const handleToggleLeaderboardOptIn = useCallback(async () => {
+    if (!groupId) return;
+    const next = !leaderboardOptIn;
+    setOptInLoading(true);
+    try {
+      await setLeaderboardOptIn(groupId, next);
+      setLeaderboardOptInState(next);
+    } catch {
+      Alert.alert('Error', 'Could not update your leaderboard setting. Please try again.');
+    } finally {
+      setOptInLoading(false);
+    }
+  }, [groupId, leaderboardOptIn]);
+
   // Derived data
   const currentUserMember = detail?.members.find((m) => m.user_id === user?.id);
   const isAdmin = detail?.admin_user_id === user?.id;
@@ -837,6 +1061,16 @@ export default function GroupDetailScreen() {
             />
           </View>
 
+          {/* ── 2a. Leaderboard (TICKET-139) — only renders when the server has
+              deployed the migration; degrades silently (leaderboard undefined)
+              on an older/drift-guarded prod DB. ── */}
+          {detail.leaderboard && (
+            <LeaderboardCard
+              leaderboard={detail.leaderboard}
+              unitPref={user?.unit_pref ?? 'kg'}
+            />
+          )}
+
           {/* ── 3. Member List ── */}
           <View>
             <View style={styles.sectionHeaderRow}>
@@ -873,6 +1107,17 @@ export default function GroupDetailScreen() {
               </TouchableOpacity>
             )}
 
+            {/* Leaderboard opt-in shortcut (TICKET-139) — only shown when the
+                server-side board is available; opting in when it isn't deployed
+                yet would store a flag with no visible effect. */}
+            {currentUserMember && detail.leaderboard && (
+              <LeaderboardOptInRow
+                optedIn={leaderboardOptIn}
+                isLoading={optInLoading}
+                onToggle={handleToggleLeaderboardOptIn}
+              />
+            )}
+
             <FlatList
               data={detail.members}
               keyExtractor={(m) => m.user_id}
@@ -886,7 +1131,7 @@ export default function GroupDetailScreen() {
                   onKick={handleKick}
                 />
               )}
-              ItemSeparatorComponent={() => <View style={{ height: spacing.s2 }} />}
+                            ItemSeparatorComponent={() => <View style={{ height: spacing.s2 }} />}
             />
 
             {kickError && (
@@ -1159,6 +1404,40 @@ const styles = StyleSheet.create({
   emptyHistoryText: {
     fontSize: fontSize.bodySm,
     lineHeight: 20,
+  },
+
+  // ── Leaderboard (TICKET-139) ──
+  leaderboardNote: {
+    fontSize: fontSize.caption,
+    lineHeight: 18,
+    marginBottom: spacing.s2,
+  },
+  leaderboardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.s2,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: spacing.s2,
+  },
+  leaderboardRank: {
+    fontSize: fontSize.bodySm,
+    fontWeight: fontWeight.semibold,
+    width: 22,
+  },
+  leaderboardName: {
+    flex: 1,
+    fontSize: fontSize.bodySm,
+    fontWeight: fontWeight.medium,
+  },
+  leaderboardVolume: {
+    fontSize: fontSize.bodySm,
+    minWidth: 64,
+    textAlign: 'right',
+  },
+  leaderboardStreak: {
+    fontSize: fontSize.caption,
+    minWidth: 40,
+    textAlign: 'right',
   },
 
   // ── Leave section ──

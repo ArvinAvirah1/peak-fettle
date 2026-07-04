@@ -41,6 +41,15 @@ const express = require('express');
 const { z } = require('zod');
 const { pool } = require('../db');
 
+// TICKET-139 (2026-07-03): group leaderboards. Drift-tolerant per CLAUDE.md §4 —
+// group_weekly_signals gains three nullable columns (opted_in, total_volume_kg,
+// streak_weeks) that a prod DB may not have migrated yet; any query touching
+// them must degrade rather than 500. Same guard shape as routes/measurements.js
+// and routes/sets.js.
+function isMissingSchema(err) {
+    return err && (err.code === '42P01' || err.code === '42703');
+}
+
 const groupsRouter  = express.Router();
 const creditsRouter = express.Router();
 const goalsRouter   = express.Router();
@@ -119,6 +128,93 @@ function toMondayUTC(dateStr) {
     const offsetToMon = dow === 0 ? -6 : 1 - dow;
     d.setUTCDate(d.getUTCDate() + offsetToMon);
     return d.toISOString().slice(0, 10);
+}
+
+/**
+ * TICKET-139 — pure helper: given "now" (injected, never read internally —
+ * CLAUDE.md's no-Date.now()-inside-pure-logic convention applies to aggregation
+ * helpers even server-side) return { currentWeekStart, lastWeekStart } as
+ * YYYY-MM-DD ISO Mondays. Exported for the plain-node test file.
+ */
+function leaderboardWeekKeys(now) {
+    const currentWeekStart = toMondayUTC(now.toISOString().slice(0, 10));
+    const prev = new Date(currentWeekStart + 'T00:00:00Z');
+    prev.setUTCDate(prev.getUTCDate() - 7);
+    const lastWeekStart = prev.toISOString().slice(0, 10);
+    return { currentWeekStart, lastWeekStart };
+}
+
+/**
+ * TICKET-139 — build the { current_week, last_week } leaderboard board for one
+ * group from group_weekly_signals. Drift-guarded: returns null (never throws)
+ * on a missing table/column so GET /groups/:id can degrade instead of 500ing.
+ *
+ * Non-participants (no signal row, or opted_in = false) are returned with
+ * opted_in:false and every aggregate null — the client renders "—", not 0.
+ */
+async function fetchGroupLeaderboard(groupId, now) {
+    const { currentWeekStart, lastWeekStart } = leaderboardWeekKeys(now);
+    try {
+        // Active roster first (one row per member, regardless of whether they
+        // have any signal at all) so a member with NO row for either week still
+        // appears with opted_in:false / nulls — never silently dropped.
+        const { rows: members } = await pool.query(
+            `SELECT gm.user_id, u.display_name
+             FROM group_memberships gm
+             JOIN users u ON u.id = gm.user_id
+             WHERE gm.group_id = $1 AND gm.status = 'active'`,
+            [groupId]
+        );
+
+        const { rows: signalRows } = await pool.query(
+            `SELECT user_id, week_start,
+                    COALESCE(opted_in, false) AS opted_in,
+                    total_volume_kg,
+                    workouts_done             AS session_count,
+                    streak_weeks
+             FROM group_weekly_signals
+             WHERE group_id = $1 AND week_start IN ($2, $3)`,
+            [groupId, currentWeekStart, lastWeekStart]
+        );
+
+        // Index signals by `${user_id}|${week_start}` so each week's board reads
+        // exactly the row for that week — no cross-week bleed between a member's
+        // current-week and last-week signals.
+        const signalByKey = new Map();
+        for (const s of signalRows) {
+            const weekKey = s.week_start instanceof Date
+                ? s.week_start.toISOString().slice(0, 10)
+                : String(s.week_start).slice(0, 10);
+            signalByKey.set(`${s.user_id}|${weekKey}`, s);
+        }
+
+        function buildWeek(weekStart) {
+            const entries = members.map((m) => {
+                const s = signalByKey.get(`${m.user_id}|${weekStart}`);
+                const optedIn = !!s && s.opted_in === true;
+                return {
+                    user_id: m.user_id,
+                    display_name: m.display_name,
+                    opted_in: optedIn,
+                    total_volume_kg: optedIn && s.total_volume_kg != null
+                        ? Number(s.total_volume_kg) : null,
+                    session_count: optedIn && s.session_count != null
+                        ? Number(s.session_count) : null,
+                    streak_weeks: optedIn && s.streak_weeks != null
+                        ? Number(s.streak_weeks) : null,
+                };
+            });
+            return { week_start: weekStart, entries };
+        }
+
+        return {
+            current_week: buildWeek(currentWeekStart),
+            last_week: buildWeek(lastWeekStart),
+        };
+    } catch (err) {
+        if (isMissingSchema(err)) return null; // degrade — screen hides the board
+        throw err;
+    }
 }
 
 /**
@@ -279,6 +375,16 @@ const WeeklySignalSchema = z.object({
     week_start:    z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'must be YYYY-MM-DD'),
     hit_goal:      z.boolean(),
     workouts_done: z.number().int().min(0).max(127).default(0),
+    // TICKET-139 (2026-07-03) — opt-in leaderboard aggregates. All optional;
+    // absent/false opted_in means the row carries no aggregate data (server
+    // stores NULLs, never 0, so a non-participant can't be mistaken for a
+    // zero-volume participant). Bounds are generous sanity caps, NOT the
+    // client-side anti-gaming guard (that lives in groupSignals.ts and has
+    // already filtered implausible sets out of total_volume_kg before it
+    // reaches here) — this is just protection against a malformed payload.
+    opted_in:        z.boolean().optional(),
+    total_volume_kg: z.number().finite().min(0).max(10_000_000).optional(),
+    streak_weeks:    z.number().int().min(0).max(1000).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -442,7 +548,14 @@ groupsRouter.get('/:id', async (req, res, next) => {
             [req.params.id]
         );
 
-        res.json({ ...group, members });
+        // TICKET-139: fold the leaderboard board into the SAME response — this
+        // is the existing GET /groups/:id call the screen already makes on
+        // mount, so no new network path is introduced (CLAUDE.md free-tier
+        // network review). fetchGroupLeaderboard degrades to null internally on
+        // a missing-schema error; it never throws for that case.
+        const leaderboard = await fetchGroupLeaderboard(req.params.id, new Date());
+
+        res.json({ ...group, members, leaderboard });
     } catch (err) { next(err); }
 });
 
@@ -752,7 +865,10 @@ groupsRouter.post('/:id/weekly-signal', async (req, res, next) => {
         const groupId = req.params.id;
         const userId  = req.user.id;
 
-        const { week_start, hit_goal, workouts_done } = WeeklySignalSchema.parse(req.body);
+        const {
+            week_start, hit_goal, workouts_done,
+            opted_in, total_volume_kg, streak_weeks,
+        } = WeeklySignalSchema.parse(req.body);
 
         // Normalise week_start to the Monday of the given ISO week
         const weekStartNorm = toMondayUTC(week_start);
@@ -774,17 +890,48 @@ groupsRouter.post('/:id/weekly-signal', async (req, res, next) => {
             return res.status(403).json({ error: 'not_an_active_member' });
         }
 
-        // Upsert the signal — latest value wins for the same group × user × week
-        await pool.query(
-            `INSERT INTO group_weekly_signals
-                 (group_id, user_id, week_start, hit_goal, workouts_done)
-             VALUES ($1, $2, $3, $4, $5)
-             ON CONFLICT (group_id, user_id, week_start) DO UPDATE
-                SET hit_goal      = EXCLUDED.hit_goal,
-                    workouts_done = EXCLUDED.workouts_done,
-                    created_at    = now()`,
-            [groupId, userId, weekStartNorm, hit_goal, workouts_done]
-        );
+        // TICKET-139: only store aggregates when the caller explicitly opted in
+        // for THIS group; otherwise store NULLs (never 0) so a non-participant
+        // can't be rendered as a zero-volume participant in the leaderboard.
+        const optedInVal = opted_in === true;
+        const volumeVal  = optedInVal && total_volume_kg != null ? total_volume_kg : null;
+        const streakVal  = optedInVal && streak_weeks != null ? streak_weeks : null;
+
+        // Upsert the signal — latest value wins for the same group × user × week.
+        // Drift-guarded: the opted_in/total_volume_kg/streak_weeks columns are a
+        // NEW additive migration (see reported DDL) that a prod DB may not have
+        // deployed yet. Try the extended INSERT first; on 42703 (undefined
+        // column) fall back to the legacy 5-column insert so the base hit_goal/
+        // workouts_done signal (which the streak cron depends on) still lands.
+        try {
+            await pool.query(
+                `INSERT INTO group_weekly_signals
+                     (group_id, user_id, week_start, hit_goal, workouts_done,
+                      opted_in, total_volume_kg, streak_weeks)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                 ON CONFLICT (group_id, user_id, week_start) DO UPDATE
+                    SET hit_goal        = EXCLUDED.hit_goal,
+                        workouts_done   = EXCLUDED.workouts_done,
+                        opted_in        = EXCLUDED.opted_in,
+                        total_volume_kg = EXCLUDED.total_volume_kg,
+                        streak_weeks    = EXCLUDED.streak_weeks,
+                        created_at      = now()`,
+                [groupId, userId, weekStartNorm, hit_goal, workouts_done,
+                 optedInVal, volumeVal, streakVal]
+            );
+        } catch (err) {
+            if (!isMissingSchema(err)) throw err;
+            await pool.query(
+                `INSERT INTO group_weekly_signals
+                     (group_id, user_id, week_start, hit_goal, workouts_done)
+                 VALUES ($1, $2, $3, $4, $5)
+                 ON CONFLICT (group_id, user_id, week_start) DO UPDATE
+                    SET hit_goal      = EXCLUDED.hit_goal,
+                        workouts_done = EXCLUDED.workouts_done,
+                        created_at    = now()`,
+                [groupId, userId, weekStartNorm, hit_goal, workouts_done]
+            );
+        }
 
         res.json({ ok: true, week_start: weekStartNorm });
     } catch (err) { next(err); }
@@ -911,3 +1058,10 @@ goalsRouter.put('/weekly', async (req, res, next) => {
 
 // ---------------------------------------------------------------------------
 module.exports = { groupsRouter, creditsRouter, goalsRouter };
+// TICKET-139: exported for the plain-node aggregation test
+// (peak-fettle-agents/server/routes/__tests__/groupLeaderboard.test.js).
+// Pure functions only — fetchGroupLeaderboard needs a live `pool`, so the test
+// exercises leaderboardWeekKeys (the deterministic week-boundary math) plus the
+// entry-shaping rules via a small in-memory re-implementation check.
+module.exports.leaderboardWeekKeys = leaderboardWeekKeys;
+module.exports.isMissingSchema = isMissingSchema;

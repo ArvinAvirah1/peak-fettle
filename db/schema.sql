@@ -7004,3 +7004,20 @@ DO $$ BEGIN
     CREATE POLICY "routine_share_links_owner_only" ON routine_share_links
         FOR ALL USING (auth.uid() = user_id);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+
+-- ===========================================================================
+-- WAVE 3 FOLD (2026-07-03) — TICKET-139 group leaderboards
+--
+-- Opt-in aggregates riding the existing weekly-signal row. All nullable /
+-- defaulted → purely additive; the streak cron reads only hit_goal and is
+-- unaffected. routes/groups.js degrades (legacy 5-column insert, leaderboard
+-- omitted) until this fold runs on prod. session_count intentionally reuses
+-- the existing workouts_done column (aliased in the route) — no duplicate.
+-- TICKET-133/143 (progress photos, badges) are LOCAL-ONLY: no server DDL.
+-- ===========================================================================
+
+ALTER TABLE group_weekly_signals
+    ADD COLUMN IF NOT EXISTS opted_in        BOOLEAN DEFAULT false,
+    ADD COLUMN IF NOT EXISTS total_volume_kg NUMERIC,
+    ADD COLUMN IF NOT EXISTS streak_weeks    SMALLINT;

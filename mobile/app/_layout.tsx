@@ -44,9 +44,13 @@ import * as SecureStore from 'expo-secure-store';
 import { registerForPushNotificationsAsync } from '../src/services/pushNotifications';
 import { TourProvider } from '../src/components/tour/WelcomeTour'; // TICKET-095
 import { startWidgetBridge } from '../src/services/widgetBridge'; // WIDGET-001
+// TICKET-145: Siri / App Intents bridge — same deferred-boot pattern as the
+// widget bridge; inert when the native side is absent (Expo Go / Android).
+import { startIntentBridge, setIntentBridgeContext } from '../src/lib/intents/intentBridge';
 import { localDb } from '../src/db/localDb'; // warm on-device SQLite once at root
 import { startPerfMonitor } from '../src/diagnostics/perfMonitor';
 import { parseRoutineShareUrl, importSharedRoutine } from '../src/data/shareLinks'; // TICKET-138
+import { runBadgeEvaluation } from '../src/data/badges/evaluator'; // TICKET-143
 
 // Perf diagnostics (2026-07-02): start at BUNDLE EVAL, before first render, so
 // the boot window - where the free-tier freeze lives - is captured. JS-only
@@ -158,9 +162,20 @@ function RootNavigator(): React.ReactElement {
     if (isLoading) return;
     const task = InteractionManager.runAfterInteractions(() => {
       startWidgetBridge();
+      startIntentBridge(); // TICKET-145 (cold-start catch-up + foreground polling)
     });
     return () => task.cancel();
   }, [isLoading]);
+
+  // TICKET-145: keep the intent bridge's user context current (unit pref for
+  // spoken-weight conversion, user/tier for the local-first write path).
+  useEffect(() => {
+    setIntentBridgeContext({
+      user: user ?? null,
+      unitPref: (user?.unit_pref as 'kg' | 'lbs') ?? 'kg',
+      userId: user?.id ?? 'local',
+    });
+  }, [user]);
 
   // TICKET-138: deep-link import — peak-fettle://routine/<linkId> (or the
   // https://.../share/<linkId> web-preview fallback). Handles both a cold
@@ -227,6 +242,22 @@ function RootNavigator(): React.ReactElement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // TICKET-143: on-app-open badge evaluation — cheap (a handful of indexed
+  // COUNT/SUM aggregates, see evaluator.ts), fire-and-forget, and deferred off
+  // the boot critical path via InteractionManager (same pattern as push
+  // registration / widget bridge / localDb warm-up above). Runs for both
+  // tiers (zero network either way) once authenticated, so a fresh
+  // sign-in/app-open retroactively grants any badge the user's existing local
+  // history already qualifies for (ticket AC5 — "retroactive grant on first
+  // run" — the SAME evaluation function covers "first run" and "every run").
+  useEffect(() => {
+    if (isLoading || !isAuthenticated) return;
+    const task = InteractionManager.runAfterInteractions(() => {
+      runBadgeEvaluation(user?.id ?? 'local').catch(() => {});
+    });
+    return () => task.cancel();
+  }, [isLoading, isAuthenticated, user?.id]);
+
   if (isLoading) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.colors.bgPrimary }]}>
@@ -275,6 +306,7 @@ function RootNavigator(): React.ReactElement {
 <Stack.Screen name="exercise-library" options={{ title: 'Exercise Library', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="progress" options={{ title: 'Progress', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="measurements" options={{ title: 'Body Measurements', headerShown: true, gestureEnabled: true }} />
+        <Stack.Screen name="progress-photos" options={{ title: 'Progress Photos', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="workout-day" options={{ title: '', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="workout-history" options={{ title: 'Workout History', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="routine-history" options={{ title: '', headerShown: true, gestureEnabled: true }} />

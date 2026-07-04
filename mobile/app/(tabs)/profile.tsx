@@ -79,9 +79,13 @@ import {
   getRestTimerDefaultSec,
   setRestTimerDefaultSec,
   getEffortDisplay,
+  getAutoregSuggestionsEnabled,
+  setAutoregSuggestionsEnabled,
   setEffortDisplay,
   EffortDisplay,
 } from '../../src/data/appSettings';
+import { BADGE_DEFS, BadgeDef } from '../../src/data/badges/badgeDefs'; // TICKET-143
+import { localDb as badgeLocalDb } from '../../src/db/localDb'; // TICKET-143 (badges_earned reads)
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -246,6 +250,123 @@ function SectionHeader({ label }: { label: string }): React.ReactElement {
   const { theme, themeName } = useTheme();
   return <Text style={[styles.sectionHeader, { color: theme.colors.textTertiary }]}>{label}</Text>;
 }
+
+// ---------------------------------------------------------------------------
+// Badge case — TICKET-143: earned vs locked, "locked show their rule" (no
+// mystery-box badges). No server, no sharing in v1 (share-card integration is
+// a later ticket). Reads badges_earned (schema v14) directly — a tiny,
+// indexed-by-primary-key SELECT, cheap enough for a profile-tab mount.
+// ---------------------------------------------------------------------------
+
+function BadgeCard({ def, earned }: { def: BadgeDef; earned: boolean }): React.ReactElement {
+  const { theme } = useTheme();
+  return (
+    <View
+      style={[
+        badgeCaseStyles.card,
+        {
+          backgroundColor: earned ? theme.colors.accentDefault + '14' : theme.colors.bgPrimary,
+          borderColor: earned ? theme.colors.accentDefault : theme.colors.borderDefault,
+        },
+      ]}
+      accessible
+      accessibilityLabel={
+        earned ? `${def.name}, earned` : `${def.name}, locked. ${def.rule}`
+      }
+    >
+      <Ionicons
+        name={earned ? 'trophy' : 'lock-closed-outline'}
+        size={22}
+        color={earned ? theme.colors.accentDefault : theme.colors.textTertiary}
+      />
+      <Text
+        style={[
+          badgeCaseStyles.name,
+          { color: earned ? theme.colors.textPrimary : theme.colors.textSecondary },
+        ]}
+        numberOfLines={1}
+      >
+        {def.name}
+      </Text>
+      <Text style={[badgeCaseStyles.rule, { color: theme.colors.textTertiary }]} numberOfLines={2}>
+        {def.rule}
+      </Text>
+    </View>
+  );
+}
+
+function BadgeCaseSection(): React.ReactElement {
+  const { theme } = useTheme();
+  const [earnedIds, setEarnedIds] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await badgeLocalDb.init();
+        const rows = await badgeLocalDb.getAll<{ badge_id: string }>(
+          'SELECT badge_id FROM badges_earned',
+        );
+        if (!cancelled) setEarnedIds(new Set(rows.map((r) => r.badge_id)));
+      } catch {
+        if (!cancelled) setEarnedIds(new Set());
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const earnedCount = BADGE_DEFS.filter((d) => earnedIds.has(d.id)).length;
+
+  return (
+    <View style={styles.section}>
+      <SectionHeader label="ACHIEVEMENTS" />
+      <Text style={[styles.sectionNote, { color: theme.colors.textTertiary }]}>
+        {loading ? 'Loading badge case…' : `${earnedCount} of ${BADGE_DEFS.length} earned`}
+      </Text>
+      {loading ? (
+        <ActivityIndicator color={theme.colors.textTertiary} style={{ marginVertical: spacing.s4 }} />
+      ) : (
+        <View style={badgeCaseStyles.grid}>
+          {BADGE_DEFS.map((def) => (
+            <BadgeCard key={def.id} def={def} earned={earnedIds.has(def.id)} />
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+const badgeCaseStyles = StyleSheet.create({
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.s2,
+  },
+  card: {
+    width: '31%',
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingVertical: spacing.s3,
+    paddingHorizontal: spacing.s2,
+    alignItems: 'center',
+    minHeight: 96,
+    justifyContent: 'center',
+  },
+  name: {
+    fontSize: fontSize.caption,
+    fontWeight: fontWeight.semibold,
+    textAlign: 'center',
+    marginTop: spacing.s1,
+  },
+  rule: {
+    fontSize: fontSize.micro,
+    textAlign: 'center',
+    marginTop: 2,
+  },
+});
 
 // ---------------------------------------------------------------------------
 // A. User info card
@@ -813,6 +934,13 @@ export default function ProfileScreen(): React.ReactElement {
     getEffortDisplay().then(setEffortDisplayPref).catch(() => {});
   }, []);
 
+  // TICKET-141: on-device next-load suggestions — off by default (ships dark;
+  // flips to default-on only after the founder's self-test week).
+  const [autoregEnabled, setAutoregEnabled] = useState(false);
+  useEffect(() => {
+    getAutoregSuggestionsEnabled().then(setAutoregEnabled).catch(() => {});
+  }, []);
+
   // Notification preferences
   const [streakNotifEnabled, setStreakNotifEnabled] = useState(
     user?.streak_notifications_enabled !== false // default true
@@ -1352,6 +1480,32 @@ export default function ProfileScreen(): React.ReactElement {
               />
             )}
           </View>
+
+          {/* TICKET-141: suggested next loads (engine rules, zero network). */}
+          <View style={[
+            styles.settingRow,
+            styles.settingRowTop,
+            { borderTopColor: theme.colors.borderDefault },
+          ]}>
+            <View style={styles.settingLabelGroup}>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>
+                Suggested next loads
+              </Text>
+              <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
+                On-device suggestions for your next set's weight, from your recent history. Every suggestion shows its rule.
+              </Text>
+            </View>
+            <Switch
+              value={autoregEnabled}
+              onValueChange={async (v) => {
+                setAutoregEnabled(v);
+                try { await setAutoregSuggestionsEnabled(v); } catch { setAutoregEnabled(!v); }
+              }}
+              trackColor={{ false: theme.colors.borderDefault, true: theme.colors.accentDefault }}
+              thumbColor={autoregEnabled ? theme.colors.accentDefault : theme.colors.textTertiary}
+              accessibilityLabel="Enable suggested next loads in the logger"
+            />
+          </View>
         </View>
       </View>
 
@@ -1509,6 +1663,9 @@ export default function ProfileScreen(): React.ReactElement {
         )}
       </View>
 
+      {/* TICKET-143: badge case — earned vs locked, "locked show their rule" */}
+      <BadgeCaseSection />
+
       {/* ── Notifications ── */}
       <View style={styles.section}>
         <SectionHeader label="NOTIFICATIONS" />
@@ -1554,6 +1711,36 @@ export default function ProfileScreen(): React.ReactElement {
               accessibilityLabel="Plan ready notifications"
             />
           </View>
+
+          {/* Siri phrase suggestions (TICKET-145) — iOS only. App Intents are
+              Siri-discoverable automatically once the widget extension ships;
+              this row surfaces the phrases + jumps into the Shortcuts app. */}
+          {Platform.OS === 'ios' && (
+            <View style={[
+              styles.settingRow,
+              styles.settingRowBordered,
+              styles.settingRowTop,
+              { borderTopColor: theme.colors.borderDefault, borderBottomColor: theme.colors.borderDefault },
+            ]}>
+              <View style={styles.settingLabelGroup}>
+                <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>
+                  Siri &amp; Shortcuts
+                </Text>
+                <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
+                  Try "Hey Siri, log a set in Peak Fettle", "start a workout", or
+                  "start rest". Manage phrases in the Shortcuts app.
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => Linking.openURL('shortcuts://').catch(() => {})}
+                accessibilityRole="button"
+                accessibilityLabel="Open the Shortcuts app to manage Peak Fettle voice phrases"
+                style={styles.toggleSpinner}
+              >
+                <Ionicons name="chevron-forward" size={18} color={theme.colors.textTertiary} />
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       </View>
 
@@ -2091,7 +2278,7 @@ const styles = StyleSheet.create({
     paddingTop: spacing.s3,
   },
 
-  // Sign out button
+  // Sign ou  // Sign out button
   signOutButton: {
     borderRadius: 12,
     borderWidth: 1,

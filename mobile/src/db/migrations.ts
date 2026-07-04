@@ -10,7 +10,7 @@
  *   When one or more migrations are applied, the runner writes a best-effort
  *   snapshot of the DB via expo-file-system (dynamic require) into
  *   documentDirectory as pf_premigration_v<N>.json (falling back to the
- *   migration_snapshots table when FS is unavailable). The v2..v8 migrations are
+ *   migration_snapshots table when FS is unavailable). The v2..v14 migrations are
  *   additive + guarded (CREATE IF NOT EXISTS / guarded ALTER ADD COLUMN), so the
  *   snapshot is taken immediately AFTER the migrations commit, is scheduled on a
  *   later macrotask, and is never awaited. This keeps a full ~21-table serialize
@@ -24,7 +24,7 @@
  * SPEC-094A Agent L, 2026-06-12.
  */
 
-import { SCHEMA_V2_STATEMENTS, SCHEMA_V3_STATEMENTS, SCHEMA_V4_STATEMENTS, SCHEMA_V5_STATEMENTS, SCHEMA_V6_STATEMENTS, SCHEMA_V7_STATEMENTS, SCHEMA_V8_STATEMENTS, SCHEMA_V9_STATEMENTS, SCHEMA_V10_STATEMENTS, SCHEMA_V11_STATEMENTS, SCHEMA_V12_STATEMENTS, MigrationStatement } from './localSchema';
+import { SCHEMA_V2_STATEMENTS, SCHEMA_V3_STATEMENTS, SCHEMA_V4_STATEMENTS, SCHEMA_V5_STATEMENTS, SCHEMA_V6_STATEMENTS, SCHEMA_V7_STATEMENTS, SCHEMA_V8_STATEMENTS, SCHEMA_V9_STATEMENTS, SCHEMA_V10_STATEMENTS, SCHEMA_V11_STATEMENTS, SCHEMA_V12_STATEMENTS, SCHEMA_V13_STATEMENTS, SCHEMA_V14_STATEMENTS, SCHEMA_V15_STATEMENTS, MigrationStatement } from './localSchema';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -185,7 +185,31 @@ const MIGRATION_V12: MigrationVersion = {
   statements: SCHEMA_V12_STATEMENTS,
 };
 
-export const MIGRATIONS: MigrationVersion[] = [MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6, MIGRATION_V7, MIGRATION_V8, MIGRATION_V9, MIGRATION_V10, MIGRATION_V11, MIGRATION_V12];
+// v13: TICKET-133 — progress photos (private, on-device). Creates
+// `progress_photos` (metadata only; image files live under the app document
+// dir, never here) + its taken_at/pose indexes. CREATE ... IF NOT EXISTS,
+// idempotent.
+const MIGRATION_V13: MigrationVersion = {
+  v: 13,
+  statements: SCHEMA_V13_STATEMENTS,
+};
+
+// v14: TICKET-143 — achievements/badges -> cosmetics unlocks. Creates
+// `badges_earned` (badge_id, earned_at). CREATE ... IF NOT EXISTS, idempotent.
+const MIGRATION_V14: MigrationVersion = {
+  v: 14,
+  statements: SCHEMA_V14_STATEMENTS,
+};
+
+// v15: TICKET-141 — in-session autoregulation suggestions. Adds
+// `exercise_prefs.autoreg_muted` (guarded ALTER ADD COLUMN, additive-only —
+// same idempotency pattern as v11's sets.note/sets.flags).
+const MIGRATION_V15: MigrationVersion = {
+  v: 15,
+  statements: SCHEMA_V15_STATEMENTS,
+};
+
+export const MIGRATIONS: MigrationVersion[] = [MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6, MIGRATION_V7, MIGRATION_V8, MIGRATION_V9, MIGRATION_V10, MIGRATION_V11, MIGRATION_V12, MIGRATION_V13, MIGRATION_V14, MIGRATION_V15];
 
 // ---------------------------------------------------------------------------
 // Runner

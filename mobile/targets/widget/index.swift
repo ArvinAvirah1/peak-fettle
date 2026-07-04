@@ -364,6 +364,78 @@ struct DaysSquare: View {
     }
 }
 
+// MARK: - Interactive quick actions (TICKET-145, iOS 17+ with static fallback)
+//
+// "Start workout" / "Start rest" buttons wired to WidgetStartWorkoutIntent /
+// WidgetStartRestIntent (AppIntents.swift). Button(intent:) requires iOS 17;
+// below that, StaticFallbackActions renders the SAME two chips as plain
+// widgetURL deep links (peak-fettle://start-workout, peak-fettle://start-rest)
+// so pre-17 devices still get one-tap access — just via an app launch instead
+// of an in-place widget action. The app's deep-link handler (owned by the
+// orchestrator / app root, not this file) is expected to route those two
+// paths to the same intentBridge plans this file's AppIntents post directly.
+
+struct QuickActionChip: View {
+    let label: String
+    let systemImage: String
+    let pal: Palette
+    var body: some View {
+        Label(label, systemImage: systemImage)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundColor(pal.ink)
+            .padding(.vertical, 7)
+            .padding(.horizontal, 11)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(pal.accent))
+    }
+}
+
+@available(iOSApplicationExtension 17.0, *)
+struct InteractiveQuickActions: View {
+    let entry: PFEntry
+    var body: some View {
+        HStack(spacing: 8) {
+            Button(intent: WidgetStartWorkoutIntent()) {
+                QuickActionChip(label: "Start", systemImage: "play.fill", pal: entry.pal)
+            }
+            .buttonStyle(.plain)
+            Button(intent: WidgetStartRestIntent()) {
+                QuickActionChip(label: "Rest", systemImage: "timer", pal: entry.pal)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+}
+
+/// Pre-iOS 17 fallback: same two chips, but each is its own tappable widgetURL
+/// deep link (a WidgetKit limitation — only ONE widgetURL applies per widget
+/// on older iOS, so this fallback is only shown standalone, never alongside
+/// another primary widgetURL on the same view — see TodayMedium/TodayLarge's
+/// use of `.today` links only through this row on pre-17).
+struct StaticFallbackActions: View {
+    let entry: PFEntry
+    var body: some View {
+        HStack(spacing: 8) {
+            Link(destination: URL(string: "peak-fettle://start-workout")!) {
+                QuickActionChip(label: "Start", systemImage: "play.fill", pal: entry.pal)
+            }
+            Link(destination: URL(string: "peak-fettle://start-rest")!) {
+                QuickActionChip(label: "Rest", systemImage: "timer", pal: entry.pal)
+            }
+        }
+    }
+}
+
+struct QuickActionsRow: View {
+    let entry: PFEntry
+    var body: some View {
+        if #available(iOSApplicationExtension 17.0, *) {
+            InteractiveQuickActions(entry: entry)
+        } else {
+            StaticFallbackActions(entry: entry)
+        }
+    }
+}
+
 // MARK: - Today widget
 
 struct TodaySmall: View {
@@ -387,7 +459,11 @@ struct TodayMedium: View {
     let entry: PFEntry
     var body: some View {
         HStack(alignment: .center, spacing: 14) {
-            SplitBlock(entry: entry, size: 22).frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 8) {
+                SplitBlock(entry: entry, size: 22)
+                QuickActionsRow(entry: entry)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             Rectangle().fill(entry.pal.muted.opacity(0.25)).frame(width: 1, height: 86)
             VStack(alignment: .leading, spacing: 9) {
                 MiniStat(value: "\(entry.prsThisWeek)", label: "PRs this week", pal: entry.pal, accent: true)
@@ -423,6 +499,8 @@ struct TodayLarge: View {
                 }
             }
             .padding(.top, 14)
+
+            QuickActionsRow(entry: entry).padding(.top, 14)
 
             Spacer(minLength: 0)
 
@@ -464,6 +542,13 @@ struct TodayInline: View {
     }
 }
 
+// TICKET-145: TodayMedium/TodayLarge nest a QuickActionsRow (Button(intent:)
+// on iOS 17+, plain Link on pre-17) INSIDE this view's own `.widgetURL`
+// below. This is standard, documented WidgetKit precedence — a tap that
+// lands on a nested Link/Button(intent:) is handled by that control; only
+// taps OUTSIDE any nested interactive control fall through to the
+// container's widgetURL. No conflict: the quick-action chips get their own
+// tap targets, the rest of the card still opens the app.
 struct TodayEntryView: View {
     @Environment(\.widgetFamily) var family
     let entry: PFEntry
