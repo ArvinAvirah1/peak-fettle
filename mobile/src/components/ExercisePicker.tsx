@@ -1,5 +1,5 @@
 /**
- * ExercisePicker — modal exercise search + browse sheet.
+ * ExercisePicker -- modal exercise search + browse sheet.
  *
  * Shows a search bar (debounced 300 ms) and a flat list of exercises
  * grouped by category. Tapping an exercise calls onSelect and closes.
@@ -9,8 +9,14 @@
  * POST /exercises (which uses ON CONFLICT DO NOTHING so the same name always
  * returns the same server-assigned UUID) and immediately selects the result.
  *
- * PowerSync does not cache the exercise library (read-only global table) —
+ * PowerSync does not cache the exercise library (read-only global table) --
  * direct API calls via getExercises/searchExercises are correct here.
+ *
+ * TICKET-134 (2026-07-03): each row now has a small (i) info button that opens
+ * ExerciseDetailSheet (muscle diagram + form cues + progress) WITHOUT
+ * selecting the exercise -- tapping the row itself still calls onSelect as
+ * before. The sheet's own data reads are local-first / already tier-branched
+ * (see ExerciseDetailSheet.tsx); this file makes no new network calls.
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -35,6 +41,8 @@ import { useAuth } from '../hooks/useAuth';
 import { isLocalFirst } from '../data/backup/tierPolicy';
 import { MuscleMap } from './MuscleMap';
 import { muscleGroupsForExercise } from '../data/muscleRegions';
+import { Ionicons } from './Icon';
+import { ExerciseDetailSheet, ExerciseDetailTarget } from './ExerciseDetailSheet';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -90,8 +98,13 @@ export function ExercisePicker({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listRef = useRef<FlatList>(null);
 
+  // TICKET-134 -- exercise media v1 detail sheet (muscle diagram + form cues).
+  // Tapping the (i) button on a row opens details WITHOUT selecting the
+  // exercise; the row's own onPress (handleSelect) is unaffected.
+  const [detailTarget, setDetailTarget] = useState<ExerciseDetailTarget | null>(null);
+
   // Load full library when modal opens.
-  // PowerSync does not cache exercises (global read-only library) — direct API call is correct.
+  // PowerSync does not cache exercises (global read-only library) -- direct API call is correct.
   useEffect(() => {
     if (!visible) return;
     setQuery('');
@@ -110,14 +123,14 @@ export function ExercisePicker({
       .finally(() => setIsLoading(false));
   }, [visible]);
 
-  // Scroll to top whenever the result set changes (search results ↔ full library).
+  // Scroll to top whenever the result set changes (search results <-> full library).
   // This ensures the top-ranked match is visible without manual scrolling.
   useEffect(() => {
     listRef.current?.scrollToOffset({ offset: 0, animated: false });
   }, [searchResults]);
 
   // Debounced search.
-  // PowerSync does not cache exercises (global read-only library) — direct API call is correct.
+  // PowerSync does not cache exercises (global read-only library) -- direct API call is correct.
   const handleQueryChange = useCallback((text: string) => {
     setQuery(text);
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -134,7 +147,7 @@ export function ExercisePicker({
         setSearchResults(result.results);
         setSearchFailed(false);
       } catch (err) {
-        // TICKET-089: a real failure is NOT "0 matches" — flag it so the UI shows
+        // TICKET-089: a real failure is NOT "0 matches" -- flag it so the UI shows
         // a retryable error instead of the misleading "add as custom" empty state.
         console.warn('[PF] ExercisePicker/handleQueryChange:', err instanceof Error ? err.message : String(err));
         setSearchResults([]);
@@ -171,7 +184,7 @@ export function ExercisePicker({
 
   // Create a custom exercise from the current search query, then select it.
   // Uses POST /exercises which returns the real server-assigned UUID (or the
-  // existing row's UUID if the name already exists — safe to call redundantly).
+  // existing row's UUID if the name already exists -- safe to call redundantly).
   // This is the correct path for exercises not in the library; using a mock
   // UUID would cause a FK violation on POST /sets.
   // FREE (local-first) users must not call POST /exercises (exercisepicker-free-user-api).
@@ -180,7 +193,7 @@ export function ExercisePicker({
     const name = query.trim();
     if (!name) return;
     if (localFirst) {
-      // Personal custom-exercise creation is a server write — gate it behind Pro.
+      // Personal custom-exercise creation is a server write -- gate it behind Pro.
       setError('Creating custom exercises requires a Pro account. Upgrade to add your own exercises.');
       return;
     }
@@ -222,7 +235,7 @@ export function ExercisePicker({
         accessibilityRole="button"
         accessibilityLabel={`Select ${exercise.name}`}
       >
-        {/* Compact muscle map — 44 pt tall, front view only */}
+        {/* Compact muscle map -- 44 pt tall, front view only */}
         <MuscleMap
           groups={muscleGroups}
           size={44}
@@ -240,6 +253,19 @@ export function ExercisePicker({
             <Text style={[styles.compoundBadgeText, { color: theme.colors.accentSecondary }]}>Compound</Text>
           </View>
         )}
+        {/* TICKET-134 -- open muscle diagram + form cues without selecting */}
+        <TouchableOpacity
+          onPress={(e) => {
+            e.stopPropagation();
+            setDetailTarget({ id: exercise.id, name: exercise.name });
+          }}
+          style={styles.infoButton}
+          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          accessibilityRole="button"
+          accessibilityLabel={`View details for ${exercise.name}`}
+        >
+          <Ionicons name="information-circle-outline" size={20} color={theme.colors.textTertiary} />
+        </TouchableOpacity>
       </TouchableOpacity>
     );
   };
@@ -300,7 +326,7 @@ export function ExercisePicker({
                 color: theme.colors.textPrimary,
                 borderColor: theme.colors.borderDefault,
               }]}
-              placeholder="Search exercises or type a custom name…"
+              placeholder="Search exercises or type a custom name..."
               placeholderTextColor={theme.colors.textTertiary}
               value={query}
               onChangeText={handleQueryChange}
@@ -342,7 +368,7 @@ export function ExercisePicker({
               </TouchableOpacity>
             </View>
           ) : searchFailed && query.trim().length > 0 ? (
-            // TICKET-089: search request failed (network/5xx) — show a retryable
+            // TICKET-089: search request failed (network/5xx) -- show a retryable
             // error, NOT the "add as custom" empty state (which would let users
             // create duplicates of exercises that actually exist).
             <View style={styles.centered}>
@@ -366,7 +392,7 @@ export function ExercisePicker({
               </TouchableOpacity>
             </View>
           ) : listItems.length === 0 && query.trim().length > 0 ? (
-            // No search results — offer to add the typed name as a custom exercise
+            // No search results -- offer to add the typed name as a custom exercise
             <View style={styles.centered}>
               <Text style={[styles.emptyText, { color: theme.colors.textTertiary }]}>
                 No exercises found for "{query}"
@@ -392,6 +418,13 @@ export function ExercisePicker({
           )}
         </KeyboardAvoidingView>
       </SafeAreaView>
+
+      {/* TICKET-134 -- muscle diagram + form cues detail sheet */}
+      <ExerciseDetailSheet
+        visible={detailTarget !== null}
+        exercise={detailTarget}
+        onClose={() => setDetailTarget(null)}
+      />
     </Modal>
   );
 }
@@ -488,6 +521,13 @@ const styles = StyleSheet.create({
   compoundBadgeText: {
     fontSize: fontSize.caption,
     fontWeight: fontWeight.semibold,
+  },
+  infoButton: {
+    minWidth: 32,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 4,
   },
   centered: {
     flex: 1,

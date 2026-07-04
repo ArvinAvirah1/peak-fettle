@@ -67,10 +67,19 @@ import {
   groupMembers,
   roundOf,
   restAfterSet,
+  formatEffort,
+  rpeToRir,
+  rirToRpe,
 } from './loggerLogic';
+// TICKET-128: RIR ⇄ RPE display toggle. Zero-network, local-only KV read —
+// safe to call on mount for both free and Pro (mirrors getExercisePrefs below).
+import { getEffortDisplay, EffortDisplay } from '../data/appSettings';
 // S1 dropset chain UI (amber chips + drop actions) — owns its own presentation.
 import DropChainBar, { type DropChainLink } from './logger/DropChainBar';
 import PlateCalculatorSheet from './PlateCalculatorSheet';
+// TICKET-134: exercise media v1 — muscle diagram + form cues sheet, reachable
+// from the logger header (zero network; static catalog + existing components).
+import { ExerciseDetailSheet, ExerciseDetailTarget } from './ExerciseDetailSheet';
 import Animated, {
   FadeIn,
   FadeInDown,
@@ -359,12 +368,15 @@ function SetChip({
   unitPref,
   onPress,
   editing,
+  effortDisplay = 'rir',
 }: {
   set: LoggedSet;
   index: number;
   unitPref?: 'kg' | 'lbs';
   onPress?: () => void;
   editing?: boolean;
+  /** TICKET-128: RIR ⇄ RPE display toggle. Storage is unaffected either way. */
+  effortDisplay?: EffortDisplay;
 }) {
   let label: string;
   if (set.durationSec != null) {
@@ -383,12 +395,11 @@ function SetChip({
     label = `Set ${index + 1} · ${durStr}${distStr}`;
   } else {
     const rirNum = set.rir != null && set.rir !== '' ? parseInt(set.rir, 10) : null;
-    const rirLabel =
-      rirNum == null || Number.isNaN(rirNum) || rirNum < 0
-        ? ''
-        : rirNum === 0
-          ? ' · to failure'
-          : ` · RIR ${rirNum}`;
+    // formatEffort is the single pure helper (loggerLogic.ts) — "to failure" /
+    // "RIR N" / "RPE N" / "RPE ≤ 5" all derive from the SAME stored rirNum, so
+    // the chip text changes with the setting but the underlying value never does.
+    const effort = formatEffort(rirNum, effortDisplay);
+    const rirLabel = effort ? ` · ${effort}` : '';
     label = `Set ${index + 1} · ${set.weight}×${set.reps}${rirLabel}`;
   }
   // Lift sets are tappable (to correct a mistyped value); cardio sets are not.
@@ -666,6 +677,10 @@ export default function StepperLogger({
   const isLast = currentIndex === exercises.length - 1;
   const isFreeLike = variant === 'free' || variant === 'smart';
 
+  // TICKET-134: exercise detail sheet target (muscle diagram + cues), opened
+  // from the header info button for the CURRENT exercise. Local UI state only.
+  const [detailTarget, setDetailTarget] = useState<ExerciseDetailTarget | null>(null);
+
   // ── Current exercise category ──────────────────────────────────────────────
   const isCardio = (currentEx?.category ?? 'lift') === 'cardio';
   const distanceLabel = unitPref === 'lbs' ? 'miles' : 'km';
@@ -684,9 +699,27 @@ export default function StepperLogger({
   const { user: authUser } = useAuth();
   const muscleSex = useMemo(() => normaliseSex(authUser?.sex), [authUser?.sex]);
 
+  // ── TICKET-128: effort display (RIR ⇄ RPE) ────────────────────────────────
+  // Local-only KV read, zero network, safe on mount (same shape as
+  // getExercisePrefs below). Defaults to 'rir' — unchanged behavior until the
+  // user opts in via Settings. sets.rir is ALWAYS what gets stored; this only
+  // controls the label/typed-value conversion in this component.
+  const [effortDisplay, setEffortDisplayState] = useState<EffortDisplay>('rir');
+  useEffect(() => {
+    let cancelled = false;
+    getEffortDisplay()
+      .then((mode) => { if (!cancelled) setEffortDisplayState(mode); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
   // ── Local form state — LIFT ──────────────────────────────────────────────
   const [weight, setWeight] = useState('');
   const [reps, setReps] = useState('');
+  // `rir` always holds the STORED-shape string (RIR), even when the user is
+  // typing in RPE display mode — see rirInputValue/handleRirInputChange below,
+  // which are the ONLY places that convert. onLogSet/onUpdateSet always read
+  // this state directly, so storage never sees an RPE number.
   const [rir, setRir] = useState('');
   const [showRir, setShowRir] = useState(false);
   // Edit mode: index of the logged set currently being corrected (null = adding a new set).
@@ -1007,6 +1040,36 @@ export default function StepperLogger({
     setReps(next === 0 ? '' : String(next));
     haptics?.light?.();
   }, [reps]);
+
+  // ── TICKET-128: RIR input field, displayed as RPE when the setting is on ──
+  // `rir` state ALWAYS holds the RIR string (what gets stored). These two
+  // helpers are the only place a typed/displayed value crosses to/from RPE:
+  //   - rirInputValue:      RIR (stored) -> what the field SHOWS.
+  //   - handleRirInputChange: what the user TYPED -> RIR (stored) via rpeToRir.
+  // onLogSet/onUpdateSet below always read the `rir` state directly, so the
+  // conversion never leaks into the write path — sets.rir is unaffected either way.
+  const rirInputValue = useMemo(() => {
+    if (effortDisplay !== 'rpe') return rir;
+    if (rir.trim() === '') return '';
+    const n = parseInt(rir, 10);
+    if (!Number.isFinite(n) || Number.isNaN(n)) return rir; // mid-typing / invalid — show as-is
+    const rpe = rirToRpe(n);
+    return rpe == null ? '' : String(rpe);
+  }, [rir, effortDisplay]);
+  const handleRirInputChange = useCallback((text: string) => {
+    if (effortDisplay !== 'rpe') { setRir(text); return; }
+    if (text.trim() === '') { setRir(''); return; }
+    const typed = parseInt(text, 10);
+    if (!Number.isFinite(typed) || Number.isNaN(typed)) { setRir(text); return; } // let the user keep typing
+    const storedRir = rpeToRir(typed);
+    setRir(storedRir == null ? '' : String(storedRir));
+  }, [effortDisplay]);
+  const rirFieldLabel = effortDisplay === 'rpe' ? 'RPE' : 'RIR';
+  const rirFieldAccessibilityLabel =
+    effortDisplay === 'rpe' ? 'Rate of perceived exertion (optional)' : 'Reps in reserve (optional)';
+  const rirFieldHint =
+    effortDisplay === 'rpe' ? 'RPE optional · 10 = to failure' : 'RIR optional · 0 = to failure';
+  const addRirLinkLabel = effortDisplay === 'rpe' ? '＋ Add RPE (optional)' : '＋ Add RIR (optional)';
 
   // ── Swipe between exercises (option 8) — keeps the existing buttons. ───────
   // Track whether the inner ScrollView has been scrolled down; we only claim
@@ -1357,6 +1420,17 @@ export default function StepperLogger({
             </Text>
           </>
         )}
+        {/* TICKET-134: exercise details (muscle diagram + form cues) */}
+        <TouchableOpacity
+          onPress={() =>
+            currentEx && setDetailTarget({ id: currentEx.exerciseId, name: currentEx.name })
+          }
+          style={styles.closeBtn}
+          accessibilityRole="button"
+          accessibilityLabel={`View details for ${currentEx?.name ?? 'exercise'}`}
+        >
+          <Ionicons name="information-circle-outline" size={20} color={stepperPalette.muted} />
+        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -1652,6 +1726,7 @@ export default function StepperLogger({
                       unitPref={unitPref}
                       onPress={onUpdateSet ? () => handleEditChip(i) : undefined}
                       editing={editingIndex === i}
+                      effortDisplay={effortDisplay}
                     />
                   </Animated.View>
                 ))}
@@ -1919,29 +1994,29 @@ export default function StepperLogger({
                   <>
                     <View style={styles.inputRow}>
                       <View style={styles.rirGroup}>
-                        <Text style={styles.inputLabel}>RIR</Text>
+                        <Text style={styles.inputLabel}>{rirFieldLabel}</Text>
                         <TextInput
                           style={styles.input}
-                          value={rir}
-                          onChangeText={setRir}
+                          value={rirInputValue}
+                          onChangeText={handleRirInputChange}
                           keyboardType="number-pad"
                           placeholder="–"
                           placeholderTextColor={stepperPalette.muted}
                           selectTextOnFocus
-                          accessibilityLabel="Reps in reserve (optional)"
+                          accessibilityLabel={rirFieldAccessibilityLabel}
                         />
                       </View>
                     </View>
-                    <Text style={styles.rirHint}>RIR optional · 0 = to failure</Text>
+                    <Text style={styles.rirHint}>{rirFieldHint}</Text>
                   </>
                 ) : (
                   <TouchableOpacity
                     onPress={() => setShowRir(true)}
                     style={styles.addRirLink}
                     accessibilityRole="button"
-                    accessibilityLabel="Add reps in reserve"
+                    accessibilityLabel={effortDisplay === 'rpe' ? 'Add rate of perceived exertion' : 'Add reps in reserve'}
                   >
-                    <Text style={styles.addRirLabel}>＋ Add RIR (optional)</Text>
+                    <Text style={styles.addRirLabel}>{addRirLinkLabel}</Text>
                   </TouchableOpacity>
                 )}
               </>
@@ -2303,6 +2378,13 @@ export default function StepperLogger({
         unitPref={unitPref}
         initialTarget={weight}
         onUseWeight={(w) => setWeight(String(w))}
+      />
+
+      {/* ── TICKET-134: exercise detail sheet (muscle diagram + cues) ───────── */}
+      <ExerciseDetailSheet
+        visible={detailTarget !== null}
+        exercise={detailTarget}
+        onClose={() => setDetailTarget(null)}
       />
     </KeyboardAvoidingView>
     </SafeAreaView>

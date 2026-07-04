@@ -472,3 +472,89 @@ export function isDropsetPlannedSet(
   }
   return ordinal > totalSets - lastN;
 }
+
+// ---------------------------------------------------------------------------
+// 7. Effort display — RIR ⇄ RPE (TICKET-128)
+// ---------------------------------------------------------------------------
+//
+// RIR (Reps In Reserve) is the ONLY stored value (sets.rir) — this is a
+// display-layer toggle only, never a migration. RPE = 10 − RIR, clamped to
+// the conventional 5–10 RPE band (RIR 0..5 → RPE 10..5). An RIR above 5 has
+// no single well-defined RPE (anything below "somewhat hard") — per spec we
+// render that as "RPE ≤ 5" rather than inventing a number below 5.
+//
+// Both directions are pure and total (never throw): invalid/null/undefined
+// input maps to null (rirToRpe) or NaN-safe fallback behavior — callers own
+// how to render a "no value" case.
+
+/** Display mode for logged effort. Mirrors appSettings.EffortDisplay. */
+export type EffortDisplay = 'rir' | 'rpe';
+
+/**
+ * Convert a stored RIR value to an RPE number, clamped to the 5–10 display
+ * band. RIR values above 5 all collapse to an RPE of 5 (the caller renders
+ * that case as "RPE ≤ 5" via formatEffort/rpeBandLabel — this function just
+ * returns the clamped number for anything that needs the raw value).
+ *
+ *   rir  0 → rpe 10   (to failure)
+ *   rir  2 → rpe 8
+ *   rir  5 → rpe 5
+ *   rir  7 → rpe 5    (clamped — "RPE ≤ 5" is the correct display, not "3")
+ *
+ * null/undefined/negative/non-finite RIR → null (no value to convert).
+ */
+export function rirToRpe(rir: number | null | undefined): number | null {
+  if (rir == null || !Number.isFinite(rir) || rir < 0) return null;
+  const raw = 10 - rir;
+  return Math.max(5, Math.min(10, raw));
+}
+
+/**
+ * True when the given RIR is high enough that its RPE is clamped (i.e. the
+ * exact RPE number is not meaningful and the display should read "RPE ≤ 5"
+ * rather than a specific number). RIR > 5 ⇒ true. null/undefined ⇒ false
+ * (nothing to clamp — formatEffort handles the "no value" case separately).
+ */
+export function isRpeClamped(rir: number | null | undefined): boolean {
+  return rir != null && Number.isFinite(rir) && rir > 5;
+}
+
+/**
+ * Convert a user-typed RPE (5–10 display band) back to the RIR value that
+ * must be STORED (sets.rir is canonical — RPE never touches the database).
+ * RPE = 10 − RIR, so RIR = 10 − RPE. Input is clamped to 0–10 before
+ * conversion so a stray out-of-range typed value never produces a negative
+ * or absurd RIR. null/undefined/non-finite RPE → null (nothing typed yet).
+ *
+ *   rpe 10 → rir 0
+ *   rpe  8 → rir 2
+ *   rpe  5 → rir 5
+ */
+export function rpeToRir(rpe: number | null | undefined): number | null {
+  if (rpe == null || !Number.isFinite(rpe)) return null;
+  const clamped = Math.max(0, Math.min(10, rpe));
+  return Math.round(10 - clamped);
+}
+
+/**
+ * Human-readable effort label for a stored RIR value, honoring the display
+ * mode. Returns null when there is no RIR to show (caller omits the chip).
+ *
+ *   mode 'rir', rir 2       → "RIR 2"
+ *   mode 'rir', rir 0       → "to failure"      (unchanged existing copy)
+ *   mode 'rpe', rir 2       → "RPE 8"
+ *   mode 'rpe', rir 7       → "RPE ≤ 5"         (clamped band)
+ *   any mode,   rir null    → null
+ */
+export function formatEffort(
+  rir: number | null | undefined,
+  mode: EffortDisplay,
+): string | null {
+  if (rir == null || !Number.isFinite(rir) || rir < 0) return null;
+  if (mode === 'rpe') {
+    const rpe = rirToRpe(rir);
+    if (rpe == null) return null;
+    return isRpeClamped(rir) ? 'RPE ≤ 5' : `RPE ${rpe}`;
+  }
+  return rir === 0 ? 'to failure' : `RIR ${rir}`;
+}

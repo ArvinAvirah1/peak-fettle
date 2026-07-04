@@ -1,0 +1,10 @@
+Date,Workout Name,Exercise Name,Set Order,Weight,Reps,RPE,Distance,Seconds,Notes,Workout Notes
+2026-06-01 08:00:00,Push Day,Bench Press,W1,95,8,,,,warmup,
+2026-06-01 08:00:00,Push Day,Bench Press,1,185,5,8,,,,
+2026-06-01 08:00:00,Push Day,Bench Press,2,185,5,9,,,,
+2026-06-01 08:00:00,Push Day,Bench Press,3,185,4,10,,,to failure,
+2026-06-01 08:05:00,Push Day,Overhead Press,1,95,8,7,,,,
+2026-06-01 08:05:00,Push Day,Overhead Press,2,95,7,,,,,
+2026-06-03 09:00:00,Leg Day,Back Squat,1,225,5,8,,,,
+2026-06-03 09:00:00,Leg Day,Back Squat,2,225,5,,,,,
+2026-06-03 09:00:00,Leg Day,Some Weird Machine Thing,1,50,12,,,,,

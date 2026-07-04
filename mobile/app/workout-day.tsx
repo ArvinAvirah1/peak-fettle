@@ -60,6 +60,15 @@ import {
   kgToInputValue,
 } from '../src/constants/units';
 import { UnitSystem } from '../src/constants/units';
+// TICKET-128: RIR ⇄ RPE display toggle. Local-only KV read (zero network,
+// safe on mount for both tiers) + the single pure conversion helper — sets.rir
+// itself is untouched, this only changes how the read-only history row labels it.
+import { getEffortDisplay, EffortDisplay } from '../src/data/appSettings';
+import { formatEffort } from '../src/components/loggerLogic';
+// TICKET-131: share a past workout as a summary card (zero network; the
+// percentile flex line + streak are computed on-device inside the sheet).
+import { ShareCardSheet } from '../src/components/ShareCardSheet';
+import { useLocalStreak } from '../src/hooks/useStreak';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -391,9 +400,11 @@ interface SetRowProps {
   setNumber: number;
   isBest: boolean;
   unitPref: UnitSystem;
+  /** TICKET-128: RIR ⇄ RPE display toggle. Defaults to 'rir' (unchanged copy). */
+  effortDisplay?: EffortDisplay;
 }
 
-function SetRow({ set, setNumber, isBest, unitPref }: SetRowProps): React.ReactElement {
+function SetRow({ set, setNumber, isBest, unitPref, effortDisplay = 'rir' }: SetRowProps): React.ReactElement {
   const { theme: { colors }, spacing, fontSize, fontWeight } = useTheme();
 
   const accentColor = isBest ? colors.accentDefault : colors.textPrimary;
@@ -420,6 +431,10 @@ function SetRow({ set, setNumber, isBest, unitPref }: SetRowProps): React.ReactE
   const e1rmKg = computeE1rm(weightKg, reps);
   const weightDisplay = formatWeight(weightKg, unitPref, 1);
   const e1rmDisplay = formatWeight(e1rmKg, unitPref, 0);
+  // TICKET-128: same stored set.rir, labeled per the effort-display setting
+  // ("RIR 2" / "RPE 8" / "to failure" / "RPE ≤ 5") — null when RIR was never
+  // recorded for this set, in which case nothing extra renders.
+  const effortLabel = formatEffort(set.rir ?? null, effortDisplay);
 
   return (
     <View style={[styles.setRow, { paddingVertical: spacing.s2, minHeight: 48 }]}>
@@ -443,6 +458,7 @@ function SetRow({ set, setNumber, isBest, unitPref }: SetRowProps): React.ReactE
         }}
       >
         {`${weightDisplay} × ${reps} reps`}
+        {effortLabel ? ` · ${effortLabel}` : ''}
         {isBest ? '  ★' : ''}
       </Text>
       <Text
@@ -527,6 +543,23 @@ export default function WorkoutDayScreen(): React.ReactElement {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dayData, setDayData] = useState<DayData | null>(null);
+
+  // TICKET-131: share-card sheet for this past workout. Streak comes from the
+  // local-first hook (free tier computes on-device; Pro passthrough is 0 and
+  // the card omits the streak line).
+  const [shareVisible, setShareVisible] = useState(false);
+  const { streak: shareStreakWeeks } = useLocalStreak(0, false);
+
+  // TICKET-128: RIR ⇄ RPE display toggle — local-only KV read, zero network,
+  // safe on mount. Defaults to 'rir' until loaded (unchanged existing copy).
+  const [effortDisplay, setEffortDisplay] = useState<EffortDisplay>('rir');
+  useEffect(() => {
+    let cancelled = false;
+    getEffortDisplay()
+      .then((mode) => { if (!cancelled) setEffortDisplay(mode); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   // ── Editing a past set now opens the FULL stepper flow (P1c) ─────────────────
   // Tapping a logged set opens StepperLogger (via WorkoutLoggerHost) seeded with
@@ -792,6 +825,17 @@ export default function WorkoutDayScreen(): React.ReactElement {
         ) : null}
       </View>
 
+      {/* TICKET-131: share this workout as a summary card (user-initiated). */}
+      {!loading && !error && dayData && !dayData.isRestDay && dayData.totalSets > 0 ? (
+        <View style={{ paddingHorizontal: spacing.s5, paddingTop: spacing.s2 }}>
+          <PFButton
+            variant="ghost"
+            label="Share workout card"
+            onPress={() => setShareVisible(true)}
+          />
+        </View>
+      ) : null}
+
       {/* ── Loading skeleton ───────────────────────────────────────────── */}
       {loading ? (
         <>
@@ -915,6 +959,7 @@ export default function WorkoutDayScreen(): React.ReactElement {
                 setNumber={index + 1}
                 isBest={bestSetIds.has(item.id)}
                 unitPref={unitPref}
+                effortDisplay={effortDisplay}
               />
             </TouchableOpacity>
           )}
@@ -941,6 +986,29 @@ export default function WorkoutDayScreen(): React.ReactElement {
           via loggerRef.startHistoryEdit(...) when a set is tapped. onChange/
           onFinish re-read SQLite so corrections show immediately. */}
       <WorkoutLoggerHost ref={loggerRef} onFinish={load} />
+
+      {/* TICKET-131: share card for this day's workout. PR badges are omitted
+          for past workouts in v1 (the per-session PR compare lives in the live
+          logger); the flex line still works from the day's best lift sets. */}
+      <ShareCardSheet
+        visible={shareVisible}
+        onClose={() => setShareVisible(false)}
+        workoutName={(dayData?.workout as { routine_name?: string | null } | null)?.routine_name ?? null}
+        dayKey={date ?? ''}
+        durationSec={null}
+        totalVolumeKg={dayData?.totalVolumeKg ?? 0}
+        setCount={dayData?.totalSets ?? 0}
+        streakWeeks={shareStreakWeeks}
+        prBadges={[]}
+        flexLineCandidateSets={(dayData?.exerciseGroups ?? []).flatMap((g) =>
+          g.sets.map((s) => ({
+            exerciseName: g.exerciseName,
+            weightKg: setKg(s),
+            reps: s.reps ?? null,
+          })),
+        )}
+        unitPref={unitPref}
+      />
     </ScreenLayout>
   );
 }

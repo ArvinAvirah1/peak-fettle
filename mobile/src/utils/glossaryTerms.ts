@@ -73,7 +73,7 @@ export const GLOSSARY_TERMS: readonly GlossaryTermEntry[] = [
     slug: 'rpe',
     term: 'RPE',
     definition:
-      'Rate of Perceived Exertion — a 1-to-10 score of how hard a set felt, where 10 means you could not have done another rep.',
+      'Rate of Perceived Exertion — a 1-to-10 score of how hard a set felt, where 10 means you could not have done another rep. Peak Fettle logs RIR and can display it as RPE (10 − RIR) — switch this in Settings.',
     category: 'logging',
     aliases: ['rate of perceived exertion'],
   },
@@ -81,7 +81,7 @@ export const GLOSSARY_TERMS: readonly GlossaryTermEntry[] = [
     slug: 'rir',
     term: 'RIR',
     definition:
-      'Reps In Reserve — how many more reps you could have done at the end of a set before failing.',
+      'Reps In Reserve — how many more reps you could have done at the end of a set before failing. This is what Peak Fettle stores; you can display it as RPE instead in Settings (RPE = 10 − RIR).',
     category: 'logging',
     aliases: ['reps in reserve'],
   },

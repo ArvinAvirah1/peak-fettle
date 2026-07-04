@@ -16,6 +16,16 @@
  *   • getRestTimerDefaultSec() — parsed seconds, defaulting to 120.
  *   • setRestTimerDefaultSec(n) — clamps to a sane positive integer and stores.
  *
+ * TICKET-128 — effort display (RIR ⇄ RPE):
+ *   • getEffortDisplay() — 'rir' | 'rpe', defaulting to 'rir' (unchanged
+ *     behavior for existing users — the display-layer toggle is opt-in).
+ *   • setEffortDisplay(mode) — persists the choice; any other string is
+ *     ignored (falls back to 'rir') so a corrupt stored value never breaks
+ *     a screen.
+ *   The STORED set value (`sets.rir`) is unaffected either way — this
+ *   setting only controls how RIR is presented (see loggerLogic.ts's
+ *   rirToRpe/formatEffort, which do the pure conversion).
+ *
  * All reads are best-effort: any SQLite failure resolves to the default/null
  * rather than throwing, so a settings read can never block a screen.
  */
@@ -24,6 +34,12 @@ import { localDb } from '../db/localDb';
 
 const REST_TIMER_DEFAULT_SEC_KEY = 'rest_timer_default_sec';
 const REST_TIMER_FALLBACK_SEC = 120;
+
+const EFFORT_DISPLAY_KEY = 'effort_display';
+const EFFORT_DISPLAY_FALLBACK: EffortDisplay = 'rir';
+
+/** Display mode for logged effort: raw RIR, or RPE (10 − RIR, 5–10 band). */
+export type EffortDisplay = 'rir' | 'rpe';
 
 // ---------------------------------------------------------------------------
 // Generic KV
@@ -80,4 +96,28 @@ export async function getRestTimerDefaultSec(): Promise<number> {
 export async function setRestTimerDefaultSec(n: number): Promise<void> {
   const sec = Number.isFinite(n) && n > 0 ? Math.round(n) : REST_TIMER_FALLBACK_SEC;
   await setSetting(REST_TIMER_DEFAULT_SEC_KEY, String(sec));
+}
+
+// ---------------------------------------------------------------------------
+// Typed convenience — effort display mode (TICKET-128, RIR ⇄ RPE)
+// ---------------------------------------------------------------------------
+
+/**
+ * The user's preferred effort-display mode. Defaults to 'rir' when unset or
+ * when the stored value is anything other than 'rir'/'rpe' — this keeps
+ * existing users' behavior unchanged (RIR was always the only display).
+ */
+export async function getEffortDisplay(): Promise<EffortDisplay> {
+  const raw = await getSetting(EFFORT_DISPLAY_KEY);
+  return raw === 'rpe' ? 'rpe' : EFFORT_DISPLAY_FALLBACK;
+}
+
+/**
+ * Persist the effort-display mode. Only 'rir'/'rpe' are accepted; anything
+ * else is coerced to the 'rir' fallback so a bad caller can never store junk.
+ * This is display-only — it never touches how sets.rir is written.
+ */
+export async function setEffortDisplay(mode: EffortDisplay): Promise<void> {
+  const value: EffortDisplay = mode === 'rpe' ? 'rpe' : 'rir';
+  await setSetting(EFFORT_DISPLAY_KEY, value);
 }

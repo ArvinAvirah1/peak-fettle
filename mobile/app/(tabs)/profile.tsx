@@ -78,6 +78,9 @@ import { AvatarConfig } from '../../src/components/avatar/peakAvatarOptions';
 import {
   getRestTimerDefaultSec,
   setRestTimerDefaultSec,
+  getEffortDisplay,
+  setEffortDisplay,
+  EffortDisplay,
 } from '../../src/data/appSettings';
 
 // ---------------------------------------------------------------------------
@@ -801,6 +804,15 @@ export default function ProfileScreen(): React.ReactElement {
     getRestTimerDefaultSec().then(setRestTimerDefault).catch(() => {});
   }, []);
 
+  // TICKET-128: effort display (RIR ⇄ RPE) — local-only, zero-network, no
+  // schema. Defaults to 'rir' (unchanged behavior) until the on-device
+  // setting loads.
+  const [effortDisplayPref, setEffortDisplayPref] = useState<EffortDisplay>('rir');
+  const [isUpdatingEffortDisplay, setIsUpdatingEffortDisplay] = useState(false);
+  useEffect(() => {
+    getEffortDisplay().then(setEffortDisplayPref).catch(() => {});
+  }, []);
+
   // Notification preferences
   const [streakNotifEnabled, setStreakNotifEnabled] = useState(
     user?.streak_notifications_enabled !== false // default true
@@ -989,6 +1001,32 @@ export default function ProfileScreen(): React.ReactElement {
       }
     },
     [restTimerDefault]
+  );
+
+  // ── B5. Effort display — RIR ⇄ RPE (TICKET-128) ──────────────────────────
+  // Display-only: sets.rir is ALWAYS what gets stored (see loggerLogic.ts's
+  // rirToRpe/rpeToRir/formatEffort) — this toggle just relabels the same value.
+
+  const handleEffortDisplayToggle = useCallback(
+    async (value: boolean) => {
+      const next: EffortDisplay = value ? 'rpe' : 'rir';
+      const prev = effortDisplayPref;
+      if (next === prev) return;
+      setEffortDisplayPref(next); // optimistic
+      setIsUpdatingEffortDisplay(true);
+      try {
+        await setEffortDisplay(next);
+      } catch (err) {
+        setEffortDisplayPref(prev);
+        Alert.alert(
+          'Could not save preference',
+          err instanceof Error ? err.message : 'Could not save effort display setting'
+        );
+      } finally {
+        setIsUpdatingEffortDisplay(false);
+      }
+    },
+    [effortDisplayPref]
   );
 
   // ── C. Constraints ───────────────────────────────────────────────────────
@@ -1284,6 +1322,34 @@ export default function ProfileScreen(): React.ReactElement {
                   );
                 })}
               </ScrollView>
+            )}
+          </View>
+
+          {/* Effort display: RIR ⇄ RPE (TICKET-128) — sets.rir is always what
+              gets stored; this only changes how it's labeled/entered. */}
+          <View style={[
+            styles.settingRow,
+            styles.settingRowTop,
+            { borderTopColor: theme.colors.borderDefault },
+          ]}>
+            <View style={styles.settingLabelGroup}>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>
+                Show effort as RPE
+              </Text>
+              <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
+                RPE 8 = RIR 2 — same number, different direction.
+              </Text>
+            </View>
+            {isUpdatingEffortDisplay ? (
+              <ActivityIndicator color={theme.colors.accentDefault} style={styles.toggleSpinner} />
+            ) : (
+              <Switch
+                value={effortDisplayPref === 'rpe'}
+                onValueChange={handleEffortDisplayToggle}
+                trackColor={{ false: theme.colors.borderDefault, true: theme.colors.accentDefault }}
+                thumbColor={effortDisplayPref === 'rpe' ? theme.colors.accentDefault : theme.colors.textTertiary}
+                accessibilityLabel="Show effort as RPE instead of RIR"
+              />
             )}
           </View>
         </View>

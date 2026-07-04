@@ -79,6 +79,13 @@ import { Exercise } from '../types/api';
 import { RoutineSession, RoutineSessionExercise, seedSessionExercise } from './RoutineStrip';
 import { suggestNextExercise, suggestNextExercises, SessionExercise, SuggestCandidate } from '../utils/smartSuggest';
 import PRToast, { PRToastData } from './PRToast';
+// TICKET-131: shareable workout summary card (zero network; user-initiated OS share).
+import { ShareCardSheet } from './ShareCardSheet';
+import type { ShareCardPrBadge } from '../lib/shareCard/shareCardData';
+import type { FlexLiftSetInput } from '../lib/shareCard/shareCardPercentile';
+import { useLocalStreak } from '../hooks/useStreak';
+// TICKET-134: exercise detail sheet, reachable from quick-swap candidates.
+import { ExerciseDetailSheet, ExerciseDetailTarget } from './ExerciseDetailSheet';
 import { useRestTimer, REST_TIMER_STEP } from '../hooks/useRestTimer';
 // Founder logger fixes #1/#2: the mini-bar (minimize-to-bubble) + the pure
 // timer helper that derives the countdown from an ABSOLUTE deadline (no drift).
@@ -381,6 +388,26 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
 
     // PR toast
     const [prToast, setPrToast] = useState<PRToastData | null>(null);
+
+    // TICKET-131: PR badges earned THIS session (exact kg — display conversion
+    // happens inside the card), plus the share payload captured at Finish time.
+    // Teardown/navigation is deferred until the share card closes.
+    const sessionPrBadgesRef = useRef<ShareCardPrBadge[]>([]);
+    const [shareCard, setShareCard] = useState<{
+      workoutName: string | null;
+      dayKey: string;
+      durationSec: number | null;
+      totalVolumeKg: number;
+      setCount: number;
+      prBadges: ShareCardPrBadge[];
+      flexSets: FlexLiftSetInput[];
+    } | null>(null);
+    // Streak for the card: free tier computes locally; Pro passthrough is 0 and
+    // the card simply omits the streak line (server streak isn't loaded here).
+    const { streak: shareStreakWeeks } = useLocalStreak(0, false);
+
+    // TICKET-134: detail sheet for a quick-swap candidate.
+    const [swapDetailTarget, setSwapDetailTarget] = useState<ExerciseDetailTarget | null>(null);
 
     // ── S1 dropset chain state ────────────────────────────────────────────────
     // A drop CHAIN = a top set + N drops logged back-to-back with rest fully
@@ -911,6 +938,12 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
                   e1rm: dispE1rm,
                   delta: Math.round((dispE1rm - dispPrior) * 10) / 10,
                   unitLabel,
+                });
+                // TICKET-131: remember the PR (exact kg) for the share card.
+                sessionPrBadgesRef.current.push({
+                  exerciseName: exName,
+                  e1rmKg: newE1rm,
+                  deltaKg: newE1rm - priorE1rm,
                 });
               }
             }
@@ -1470,19 +1503,34 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
               const finishedRoutineId =
                 routineSession?.source === 'routine' ? routineSession.routineId : undefined;
               setStepperVisible(false);
-              setRoutineSession(null);
-              setSelectedExercise(null);
               if (finishedRoutineId) markRoutineCompleted(finishedRoutineId).catch(() => {});
-              if (onFinish) {
-                onFinish();
-              } else {
-                router.replace('/(tabs)');
-              }
+              // TICKET-131: capture the share payload BEFORE teardown — the
+              // session clear + navigation run when the share card closes
+              // (ShareCardSheet onClose below). Zero network; all values local.
+              setShareCard({
+                workoutName: routineSession?.name ?? null,
+                dayKey: workout?.day_key ?? toDateKey(new Date()),
+                durationSec: elapsedSeconds > 0 ? elapsedSeconds : null,
+                totalVolumeKg: sets.reduce(
+                  (acc, s) =>
+                    acc + (s.kind === 'lift' && s.weight_kg && s.reps ? s.weight_kg * s.reps : 0),
+                  0,
+                ),
+                setCount: sets.length,
+                prBadges: sessionPrBadgesRef.current.slice(),
+                flexSets: sets
+                  .filter((s) => s.kind === 'lift')
+                  .map((s) => ({
+                    exerciseName: exerciseNames.get(s.exercise_id) ?? null,
+                    weightKg: s.weight_kg,
+                    reps: s.reps,
+                  })),
+              });
             },
           },
         ],
       );
-    }, [totalSets, router, onFinish, routineSession]);
+    }, [totalSets, routineSession, workout, elapsedSeconds, sets, exerciseNames]);
 
     // ── Fix #2: minimize / restore / terminate ────────────────────────────────
     // Shared teardown: fully end the session (used by the explicit Finish path).
@@ -1607,7 +1655,17 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           canMakePermanent={quickSwapCanPermanent}
           onSelect={handleQuickSwapSelect}
           onNeverSuggest={handleQuickSwapNeverSuggest}
+          onViewDetails={(c) =>
+            setSwapDetailTarget({ id: c.id, name: c.name, equipment: c.equipment })
+          }
           onClose={() => setQuickSwapVisible(false)}
+        />
+
+        {/* TICKET-134: detail sheet for a quick-swap candidate. */}
+        <ExerciseDetailSheet
+          visible={swapDetailTarget !== null}
+          exercise={swapDetailTarget}
+          onClose={() => setSwapDetailTarget(null)}
         />
 
         {/* Rest timer banner (hidden while minimized — the mini-bar shows the
@@ -1663,6 +1721,32 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
             setShowPaywall(false);
             router.push('/(tabs)/plans');
           }}
+        />
+
+        {/* TICKET-131: share card — offered after Finish; closing it completes
+            the deferred session teardown + navigation. */}
+        <ShareCardSheet
+          visible={shareCard !== null}
+          onClose={() => {
+            setShareCard(null);
+            sessionPrBadgesRef.current = [];
+            setRoutineSession(null);
+            setSelectedExercise(null);
+            if (onFinish) {
+              onFinish();
+            } else {
+              router.replace('/(tabs)');
+            }
+          }}
+          workoutName={shareCard?.workoutName}
+          dayKey={shareCard?.dayKey ?? toDateKey(new Date())}
+          durationSec={shareCard?.durationSec}
+          totalVolumeKg={shareCard?.totalVolumeKg ?? 0}
+          setCount={shareCard?.setCount ?? 0}
+          streakWeeks={shareStreakWeeks}
+          prBadges={shareCard?.prBadges ?? []}
+          flexLineCandidateSets={shareCard?.flexSets ?? []}
+          unitPref={unitPref}
         />
 
         {/* Focus Stepper modal.

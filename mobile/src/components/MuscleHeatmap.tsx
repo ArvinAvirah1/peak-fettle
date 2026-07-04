@@ -1,12 +1,12 @@
 /**
- * MuscleHeatmap — front/back SVG body outline with muscles coloured by
+ * MuscleHeatmap -- front/back SVG body outline with muscles coloured by
  * freshness score from GET /insights/recovery.
  *
- * Freshness colour mapping (spec §6):
- *   0–39  → theme statusError   (needs recovery)
- *   40–74 → theme statusWarning (moderate)
- *   75–100 → theme statusSuccess (fresh)
- *   Not in data (never trained) → borderDefault tint
+ * Freshness colour mapping (spec section 6):
+ *   0-39  -> theme statusError   (needs recovery)
+ *   40-74 -> theme statusWarning (moderate)
+ *   75-100 -> theme statusSuccess (fresh)
+ *   Not in data (never trained) -> borderDefault tint
  *
  * Agent K polish (2026-06-11):
  *   - Empty state: icon + headline + guidance when muscles array is empty
@@ -15,7 +15,7 @@
  *   - Detail modal dismiss button min touch target 44pt
  *
  * Uses react-native-svg (confirmed present in package.json).
- * No raw 'bold' — fontWeight token only.
+ * No raw 'bold' -- fontWeight token only.
  */
 
 import React, { useEffect, useRef, useState } from 'react';
@@ -35,7 +35,7 @@ import { MuscleRecovery } from '../api/insights';
 import { useReduceMotion } from '../hooks/useReduceMotion';
 
 // ---------------------------------------------------------------------------
-// Freshness → color
+// Freshness -> color
 // ---------------------------------------------------------------------------
 
 function freshnessColor(
@@ -49,7 +49,7 @@ function freshnessColor(
 }
 
 // ---------------------------------------------------------------------------
-// Muscle → canonical key mapping (normalise server names)
+// Muscle -> canonical key mapping (normalise server names)
 // ---------------------------------------------------------------------------
 
 const MUSCLE_ALIASES: Record<string, string> = {
@@ -91,9 +91,16 @@ function normalise(muscle: string): string {
 
 // ---------------------------------------------------------------------------
 // SVG region definitions
+//
+// TICKET-134 (2026-07-03): Region/ALL_REGIONS/BodyOutline are exported so
+// ExerciseDetailSheet can render the SAME body outline + dot layout for a
+// per-exercise primary/secondary muscle diagram, without a second hand-drawn
+// SVG (the ticket's "no new art pipeline" requirement). Nothing about this
+// component's own rendering changes -- these are additive named exports
+// alongside the unchanged default export.
 // ---------------------------------------------------------------------------
 
-interface Region {
+export interface Region {
   key: string;
   label: string;
   cx: number;
@@ -138,13 +145,13 @@ const MIRRORED: Region[] = [
   { key: 'hamstrings',  label: 'Hamstrings',   cx: 75, cy: 200, rx: 16, ry: 28, side: 'back' },
 ];
 
-const ALL_REGIONS = [...REGIONS, ...MIRRORED];
+export const ALL_REGIONS = [...REGIONS, ...MIRRORED];
 
 // ---------------------------------------------------------------------------
 // Body outline
 // ---------------------------------------------------------------------------
 
-function BodyOutline({ color }: { color: string }): React.ReactElement {
+export function BodyOutline({ color }: { color: string }): React.ReactElement {
   return (
     <G>
       <Ellipse cx={60} cy={28} rx={18} ry={22} stroke={color} strokeWidth={1.5} fill="none" />
@@ -204,7 +211,7 @@ function HeatmapEmptyState(): React.ReactElement {
       accessibilityLabel="No muscle recovery data yet"
     >
       <Text style={{ fontSize: 32, textAlign: 'center', marginBottom: sp.s3 }}>
-        💪
+        {'\u{1F4AA}'}
       </Text>
       <Text style={{ color: colors.textPrimary, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold, textAlign: 'center', marginBottom: sp.s2 }}>
         No muscle data yet
@@ -382,7 +389,7 @@ export default function MuscleHeatmap({ muscles, loading, onSuggestSubstitutes }
                     style={{ minHeight: 44, justifyContent: 'center' }}
                   >
                     <Text style={{ color: colors.accentDefault, fontSize: fs.bodySm, fontWeight: fontWeight.medium }}>
-                      Suggest substitute exercises →
+                      Suggest substitute exercises {'→'}
                     </Text>
                   </TouchableOpacity>
                 )}

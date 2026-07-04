@@ -18,8 +18,10 @@ import {
   ActivityIndicator,
   SafeAreaView,
   Platform,
+  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../src/theme/ThemeContext';
 import { useAuth } from '../src/hooks/useAuth';
 import { isLocalFirst } from '../src/data/backup/tierPolicy';
@@ -28,6 +30,13 @@ import { PFCard } from '../src/components/ui/PFCard';
 import { PFButton } from '../src/components/ui/PFButton';
 // TICKET-098: beginner programs bundled with the app (always load, no network).
 import { listBeginnerPrograms, BundledProgram, bundledExerciseName } from '../src/data/beginnerTemplates';
+// TICKET-132: prebuilt program shelf — static bundled JSON, works fully offline,
+// no server, no tier branch. Adoption runs through programAdoption (which mirrors
+// planGen/planAdoption's tier-branched createRoutine + saveSchedule contract) so
+// the engine owns progression thereafter.
+import { listPrograms, BEGINNER_SHELF_LINK, Program } from '../src/data/programs';
+import { adoptProgramToSchedule } from '../src/data/programs/programAdoption';
+import { hasExistingSchedule } from '../src/planGen/planAdoption';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -249,10 +258,20 @@ function TemplateCard({
 // Main screen
 // ---------------------------------------------------------------------------
 
+// Display labels for the shelf's progression-style chip — mirrors LEVEL_LABEL's
+// pattern of a small display-only lookup, kept next to the other constants.
+const PROGRESSION_STYLE_LABEL: Record<string, string> = {
+  linear: 'Linear',
+  wave: 'Wave',
+  dup: 'DUP',
+  block: 'Block',
+};
+
 export default function TemplatesScreen(): React.ReactElement {
   const router = useRouter();
   const { theme, fontSize, fontWeight, spacing, radius } = useTheme();
   const { colors } = theme;
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
 
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -267,6 +286,57 @@ export default function TemplatesScreen(): React.ReactElement {
   // TICKET-098: bundled beginner programs (offline-safe).
   const [bundledSelected, setBundledSelected] = useState<BundledProgram | null>(null);
   const bundledPrograms = listBeginnerPrograms();
+
+  // TICKET-132: prebuilt program shelf — static bundled JSON, always available,
+  // no network/DB read needed to populate the shelf itself (only adoption
+  // touches the tier-branched data layer).
+  const [programSelected, setProgramSelected] = useState<Program | null>(null);
+  const [adopting, setAdopting] = useState(false);
+  const shelfPrograms = listPrograms();
+
+  const handleAdoptProgram = useCallback(async (program: Program) => {
+    const userId = user?.id ?? 'local';
+    setAdopting(true);
+    const proceed = async () => {
+      try {
+        await adoptProgramToSchedule(user, userId, program, new Date());
+        setProgramSelected(null);
+        Alert.alert(
+          'Program added',
+          `${program.name} is on your schedule. Open the schedule screen to set timing.`,
+          [
+            { text: 'Later', style: 'cancel' },
+            { text: 'Open schedule', onPress: () => router.push('/routines' as any) },
+          ],
+        );
+      } catch {
+        Alert.alert('Could not add program', 'Something went wrong saving this program. Please try again.');
+      } finally {
+        setAdopting(false);
+      }
+    };
+    try {
+      // Never clobber an existing schedule silently — same replace/keep prompt
+      // planAdoption's callers (plan-survey.tsx) use for adopting a PlanV2.
+      if (await hasExistingSchedule()) {
+        setAdopting(false);
+        Alert.alert(
+          'Replace your schedule?',
+          'You already have a training schedule. Replace it with this program, or keep your current one?',
+          [
+            { text: 'Keep', style: 'cancel' },
+            { text: 'Replace', style: 'destructive', onPress: proceed },
+          ],
+          { cancelable: true },
+        );
+      } else {
+        await proceed();
+      }
+    } catch {
+      setAdopting(false);
+      Alert.alert('Could not add program', 'Something went wrong saving this program. Please try again.');
+    }
+  }, [user, router]);
 
   const fetchTemplates = useCallback(async () => {
     // Free/local-first users get the bundled beginner programs (rendered always,
@@ -422,6 +492,103 @@ export default function TemplatesScreen(): React.ReactElement {
           />
         ))}
       </ScrollView>
+
+      {/* TICKET-132: Prebuilt program shelf — static bundled JSON, fully offline,
+          no server, no tier branch. Card per program: days/week, level,
+          progression style, week-1 preview → "Adopt" (through programAdoption,
+          so the engine owns progression thereafter). Rendered above the
+          beginner-programs section so the shelf is the first thing a browsing
+          user sees on this screen. */}
+      <View style={{ paddingHorizontal: spacing.s4, paddingTop: spacing.s2 }}>
+        <Text
+          style={{
+            fontSize: fontSize.caption,
+            fontWeight: fontWeight.semibold,
+            color: colors.textTertiary,
+            letterSpacing: 0.5,
+            marginBottom: spacing.s2,
+          }}
+        >
+          PREBUILT PROGRAMS · WORKS OFFLINE
+        </Text>
+        {shelfPrograms.map((p) => {
+          const previewDay = p.days[0];
+          return (
+            <Pressable
+              key={p.id}
+              onPress={() => setProgramSelected(p)}
+              style={{
+                backgroundColor: colors.bgSecondary,
+                borderColor: colors.borderDefault,
+                borderWidth: 1,
+                borderRadius: radius.md,
+                padding: spacing.s3,
+                marginBottom: spacing.s2,
+              }}
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${p.name}`}
+            >
+              <Text style={{ fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold, color: colors.textPrimary }}>
+                {p.name}
+              </Text>
+              <Text style={{ fontSize: fontSize.caption, color: colors.textSecondary, marginTop: 2 }}>
+                {p.subtitle}
+              </Text>
+              <View style={[styles.chipRow, { marginTop: spacing.s2 }]}>
+                <View style={[styles.inlineChip, { backgroundColor: colors.bgTertiary, borderRadius: radius.sm, paddingHorizontal: spacing.s2, paddingVertical: 2 }]}>
+                  <Text style={{ fontSize: fontSize.caption, color: colors.textSecondary }}>
+                    {`${p.daysPerWeek}d/wk`}
+                  </Text>
+                </View>
+                <View style={[styles.inlineChip, { backgroundColor: colors.bgTertiary, borderRadius: radius.sm, paddingHorizontal: spacing.s2, paddingVertical: 2 }]}>
+                  <Text style={{ fontSize: fontSize.caption, color: colors.textSecondary }}>
+                    {LEVEL_LABEL[p.level] ?? p.level}
+                  </Text>
+                </View>
+                <View style={[styles.inlineChip, { backgroundColor: colors.accentSecondary, borderRadius: radius.sm, paddingHorizontal: spacing.s2, paddingVertical: 2 }]}>
+                  <Text style={{ fontSize: fontSize.caption, color: colors.accentDefault, fontWeight: fontWeight.medium }}>
+                    {PROGRESSION_STYLE_LABEL[p.progressionStyle] ?? p.progressionStyle}
+                  </Text>
+                </View>
+              </View>
+              {previewDay ? (
+                <Text
+                  style={{ fontSize: fontSize.caption, color: colors.textTertiary, marginTop: spacing.s2 }}
+                  numberOfLines={2}
+                >
+                  {`Week 1 preview — ${previewDay.name}: ${previewDay.exercises
+                    .map((ex) => ex.name)
+                    .join(', ')}`}
+                </Text>
+              ) : null}
+            </Pressable>
+          );
+        })}
+        {/* Link to the existing bundled beginner section instead of duplicating a
+            "full-body beginner" program — tapping it opens the same beginner
+            program picker the section below already provides. */}
+        <Pressable
+          onPress={() => setBundledSelected(bundledPrograms[0] ?? null)}
+          style={{
+            backgroundColor: colors.bgTertiary,
+            borderColor: colors.borderDefault,
+            borderWidth: 1,
+            borderStyle: 'dashed',
+            borderRadius: radius.md,
+            padding: spacing.s3,
+            marginBottom: spacing.s2,
+          }}
+          accessibilityRole="button"
+          accessibilityLabel={BEGINNER_SHELF_LINK.name}
+        >
+          <Text style={{ fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold, color: colors.textPrimary }}>
+            {BEGINNER_SHELF_LINK.name}
+          </Text>
+          <Text style={{ fontSize: fontSize.caption, color: colors.textSecondary, marginTop: 2 }}>
+            {BEGINNER_SHELF_LINK.subtitle}
+          </Text>
+        </Pressable>
+      </View>
 
       {/* TICKET-098: Bundled beginner programs — always available, no network/DB.
           Rendered above the server list so they show even while the API loads or
@@ -731,6 +898,134 @@ export default function TemplatesScreen(): React.ReactElement {
                   </Pressable>
                 ))}
               </ScrollView>
+            </>
+          )}
+        </View>
+      </Modal>
+
+      {/* TICKET-132: Prebuilt program shelf detail — days/week, level, progression
+          style, full week preview, source_notes, and "Adopt" (through
+          programAdoption so the engine owns progression thereafter). Header
+          applies CLAUDE.md §3's safe-area-in-Modal fix directly (paddingTop:
+          Math.max(insets.top, 12)) rather than relying on SafeAreaView, which
+          does not reliably propagate inside a <Modal>. */}
+      <Modal
+        visible={programSelected !== null}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setProgramSelected(null)}
+      >
+        <Pressable style={styles.modalBackdrop} onPress={() => setProgramSelected(null)} />
+        <View
+          style={[
+            styles.modalSheet,
+            {
+              backgroundColor: colors.bgSecondary,
+              borderTopLeftRadius: radius.lg,
+              borderTopRightRadius: radius.lg,
+              paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+            },
+          ]}
+        >
+          <View style={[styles.modalHandle, { backgroundColor: colors.bgElevated }]} />
+          {programSelected && (
+            <>
+              <View
+                style={{
+                  paddingHorizontal: spacing.s6,
+                  paddingTop: Math.max(insets.top, 12),
+                  paddingBottom: spacing.s2,
+                }}
+              >
+                <Text style={{ fontSize: fontSize.heading2, fontWeight: fontWeight.bold, color: colors.textPrimary, marginBottom: 4 }}>
+                  {programSelected.name}
+                </Text>
+                <Text style={{ fontSize: fontSize.bodySm, color: colors.textSecondary, marginBottom: spacing.s2 }}>
+                  {programSelected.subtitle}
+                </Text>
+                <View style={styles.chipRow}>
+                  <View style={[styles.inlineChip, { backgroundColor: colors.bgTertiary, borderRadius: radius.sm, paddingHorizontal: spacing.s2, paddingVertical: 2 }]}>
+                    <Text style={{ fontSize: fontSize.caption, color: colors.textSecondary }}>
+                      {`${programSelected.daysPerWeek} days/week`}
+                    </Text>
+                  </View>
+                  <View style={[styles.inlineChip, { backgroundColor: colors.bgTertiary, borderRadius: radius.sm, paddingHorizontal: spacing.s2, paddingVertical: 2 }]}>
+                    <Text style={{ fontSize: fontSize.caption, color: colors.textSecondary }}>
+                      {LEVEL_LABEL[programSelected.level] ?? programSelected.level}
+                    </Text>
+                  </View>
+                  <View style={[styles.inlineChip, { backgroundColor: colors.accentSecondary, borderRadius: radius.sm, paddingHorizontal: spacing.s2, paddingVertical: 2 }]}>
+                    <Text style={{ fontSize: fontSize.caption, color: colors.accentDefault, fontWeight: fontWeight.medium }}>
+                      {programSelected.progressionLabel}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              <ScrollView
+                style={{ maxHeight: 340 }}
+                contentContainerStyle={{ paddingHorizontal: spacing.s6, paddingBottom: spacing.s4 }}
+              >
+                <Text
+                  style={{
+                    fontSize: fontSize.heading3,
+                    fontWeight: fontWeight.semibold,
+                    color: colors.textPrimary,
+                    marginBottom: spacing.s3,
+                  }}
+                >
+                  {`Week 1 preview (${programSelected.days.length} sessions)`}
+                </Text>
+                {programSelected.days.map((day, di) => (
+                  <View
+                    key={day.slug}
+                    style={[
+                      styles.sessionRow,
+                      {
+                        backgroundColor: colors.bgTertiary,
+                        borderRadius: radius.md,
+                        padding: spacing.s3,
+                        marginBottom: spacing.s2,
+                      },
+                    ]}
+                  >
+                    <Text style={{ fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold, color: colors.textPrimary, marginBottom: 4 }}>
+                      {`Day ${di + 1}: ${day.name}`}
+                    </Text>
+                    {day.exercises.map((ex, ei) => (
+                      <Text key={ei} style={{ fontSize: fontSize.caption, color: colors.textSecondary }}>
+                        {`• ${ex.name}  ${ex.target_sets ?? '?'}×${ex.target_reps ?? '?'}`}
+                        {ex.superset_group ? `  (superset ${ex.superset_group})` : ''}
+                        {ex.dropset ? '  (dropset)' : ''}
+                      </Text>
+                    ))}
+                  </View>
+                ))}
+                <Text
+                  style={{
+                    fontSize: fontSize.caption,
+                    fontWeight: fontWeight.semibold,
+                    color: colors.textTertiary,
+                    marginTop: spacing.s2,
+                    marginBottom: 4,
+                  }}
+                >
+                  HOW PROGRESSION WORKS
+                </Text>
+                <Text style={{ fontSize: fontSize.caption, color: colors.textSecondary, lineHeight: 18 }}>
+                  {programSelected.source_notes}
+                </Text>
+              </ScrollView>
+
+              <View style={{ paddingHorizontal: spacing.s6, paddingTop: spacing.s2 }}>
+                <PFButton
+                  label={adopting ? 'Adding…' : 'Adopt'}
+                  onPress={() => handleAdoptProgram(programSelected)}
+                  variant="primary"
+                  fullWidth
+                  disabled={adopting}
+                />
+              </View>
             </>
           )}
         </View>

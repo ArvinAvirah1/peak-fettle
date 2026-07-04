@@ -456,5 +456,112 @@ test('isDropsetPlannedSet: numeric last_n needs a known total (no false auto-off
   eq(L.isDropsetPlannedSet(0, 4, plan), false, 'ordinal < 1 → false:');
 });
 
+// ── TICKET-128: effort display (RIR ⇄ RPE) ──────────────────────────────────
+// RIR stays the ONLY stored value; these are pure display-layer conversions.
+
+test('rirToRpe: standard band (rir 0..5 -> rpe 10..5)', () => {
+  eq(L.rirToRpe(0), 10, 'rir 0 -> rpe 10 (to failure):');
+  eq(L.rirToRpe(1), 9, 'rir 1 -> rpe 9:');
+  eq(L.rirToRpe(2), 8, 'rir 2 -> rpe 8:');
+  eq(L.rirToRpe(3), 7, 'rir 3 -> rpe 7:');
+  eq(L.rirToRpe(4), 6, 'rir 4 -> rpe 6:');
+  eq(L.rirToRpe(5), 5, 'rir 5 -> rpe 5:');
+});
+
+test('rirToRpe: clamps RIR > 5 to rpe 5 (band floor)', () => {
+  eq(L.rirToRpe(6), 5, 'rir 6 -> clamped 5:');
+  eq(L.rirToRpe(7), 5, 'rir 7 -> clamped 5:');
+  eq(L.rirToRpe(10), 5, 'rir 10 -> clamped 5:');
+  eq(L.rirToRpe(100), 5, 'rir 100 -> clamped 5:');
+});
+
+test('rirToRpe: null/undefined/negative/non-finite -> null', () => {
+  eq(L.rirToRpe(null), null, 'null:');
+  eq(L.rirToRpe(undefined), null, 'undefined:');
+  eq(L.rirToRpe(-1), null, 'negative:');
+  eq(L.rirToRpe(NaN), null, 'NaN:');
+});
+
+test('isRpeClamped: true only when RIR > 5', () => {
+  eq(L.isRpeClamped(5), false, 'rir 5 (boundary) -> not clamped:');
+  eq(L.isRpeClamped(6), true, 'rir 6 -> clamped:');
+  eq(L.isRpeClamped(0), false, 'rir 0 -> not clamped:');
+  eq(L.isRpeClamped(null), false, 'null -> false:');
+  eq(L.isRpeClamped(undefined), false, 'undefined -> false:');
+});
+
+test('rpeToRir: standard band (rpe 10..5 -> rir 0..5), the value that gets STORED', () => {
+  eq(L.rpeToRir(10), 0, 'rpe 10 -> rir 0:');
+  eq(L.rpeToRir(9), 1, 'rpe 9 -> rir 1:');
+  eq(L.rpeToRir(8), 2, 'rpe 8 -> rir 2:');
+  eq(L.rpeToRir(7), 3, 'rpe 7 -> rir 3:');
+  eq(L.rpeToRir(6), 4, 'rpe 6 -> rir 4:');
+  eq(L.rpeToRir(5), 5, 'rpe 5 -> rir 5:');
+});
+
+test('rpeToRir: clamps out-of-band typed input (0-10) before converting', () => {
+  eq(L.rpeToRir(11), 0, 'rpe 11 (over) clamps to 10 -> rir 0:');
+  eq(L.rpeToRir(4), 6, 'rpe 4 (under band) clamps to... still converts (4 in 0-10 range) -> rir 6:');
+  eq(L.rpeToRir(-5), 10, 'rpe -5 clamps to 0 -> rir 10:');
+  eq(L.rpeToRir(1000), 0, 'rpe way over clamps to 10 -> rir 0:');
+});
+
+test('rpeToRir: null/undefined/non-finite -> null (nothing typed)', () => {
+  eq(L.rpeToRir(null), null, 'null:');
+  eq(L.rpeToRir(undefined), null, 'undefined:');
+  eq(L.rpeToRir(NaN), null, 'NaN:');
+});
+
+test('rirToRpe / rpeToRir round-trip within the 0-5 band', () => {
+  for (let rir = 0; rir <= 5; rir++) {
+    const rpe = L.rirToRpe(rir);
+    eq(L.rpeToRir(rpe), rir, 'round-trip rir ' + rir + ' -> rpe ' + rpe + ' -> rir:');
+  }
+});
+
+test('formatEffort: mode "rir" — unchanged existing copy ("to failure" / "RIR N")', () => {
+  eq(L.formatEffort(0, 'rir'), 'to failure', 'rir 0:');
+  eq(L.formatEffort(2, 'rir'), 'RIR 2', 'rir 2:');
+  eq(L.formatEffort(5, 'rir'), 'RIR 5', 'rir 5:');
+  eq(L.formatEffort(8, 'rir'), 'RIR 8', 'rir 8 (no clamp in rir mode):');
+});
+
+test('formatEffort: mode "rpe" — converts, clamps to "RPE <= 5" band label', () => {
+  eq(L.formatEffort(0, 'rpe'), 'RPE 10', 'rir 0 -> RPE 10:');
+  eq(L.formatEffort(2, 'rpe'), 'RPE 8', 'rir 2 -> RPE 8:');
+  eq(L.formatEffort(5, 'rpe'), 'RPE 5', 'rir 5 -> RPE 5 (boundary, not clamped label):');
+  eq(L.formatEffort(6, 'rpe'), 'RPE ≤ 5', 'rir 6 -> clamped label:');
+  eq(L.formatEffort(10, 'rpe'), 'RPE ≤ 5', 'rir 10 -> clamped label:');
+});
+
+test('formatEffort: null/undefined/negative RIR -> null in EITHER mode (no chip to render)', () => {
+  eq(L.formatEffort(null, 'rir'), null, 'null, rir mode:');
+  eq(L.formatEffort(undefined, 'rir'), null, 'undefined, rir mode:');
+  eq(L.formatEffort(null, 'rpe'), null, 'null, rpe mode:');
+  eq(L.formatEffort(undefined, 'rpe'), null, 'undefined, rpe mode:');
+  eq(L.formatEffort(-1, 'rir'), null, 'negative, rir mode:');
+  eq(L.formatEffort(-1, 'rpe'), null, 'negative, rpe mode:');
+});
+
+test('DB-write invariant: whatever the display mode, the value handed to storage is always RIR', () => {
+  // Simulates the StepperLogger flow: user types a value while effort_display
+  // is 'rpe'; the UI must convert RPE -> RIR before calling onLogSet, so the
+  // persisted sets.rir is identical to what would have been stored in 'rir'
+  // mode for the same underlying effort level.
+  function simulateStoredRir(typedValue, mode) {
+    if (mode === 'rpe') return L.rpeToRir(typedValue);
+    return typedValue; // 'rir' mode: typed value IS the RIR, stored as-is
+  }
+  // User perceives "RPE 8" effort in both modes:
+  eq(simulateStoredRir(2, 'rir'), 2, 'rir mode: typed 2 -> stored rir 2:');
+  eq(simulateStoredRir(8, 'rpe'), 2, 'rpe mode: typed RPE 8 -> stored rir 2 (SAME as rir-mode):');
+  // "to failure":
+  eq(simulateStoredRir(0, 'rir'), 0, 'rir mode: typed 0 -> stored rir 0:');
+  eq(simulateStoredRir(10, 'rpe'), 0, 'rpe mode: typed RPE 10 -> stored rir 0 (SAME):');
+  // Round-trip through formatEffort back to the same stored rir renders consistently:
+  eq(L.formatEffort(simulateStoredRir(8, 'rpe'), 'rpe'), 'RPE 8', 'display after store still reads RPE 8:');
+  eq(L.formatEffort(simulateStoredRir(8, 'rpe'), 'rir'), 'RIR 2', 'same stored row reads RIR 2 in rir mode:');
+});
+
 console.log('\n' + (passed + failed) + ' tests: ' + passed + ' passed, ' + failed + ' failed\n');
 if (failed > 0) process.exit(1);

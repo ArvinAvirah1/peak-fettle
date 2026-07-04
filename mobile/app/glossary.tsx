@@ -21,14 +21,29 @@ import {
 import { useLocalSearchParams } from 'expo-router';
 import { useTheme } from '../src/theme/ThemeContext';
 import { GLOSSARY_TERMS, GlossaryTermEntry } from '../src/utils/glossaryTerms';
+// TICKET-128: RIR ⇄ RPE display toggle. Local-only KV read (zero network,
+// safe on mount) — the glossary badges whichever of RIR/RPE is the user's
+// CURRENT effort-display setting, so the reference always matches the app.
+import { getEffortDisplay, EffortDisplay } from '../src/data/appSettings';
 
 // ---------------------------------------------------------------------------
 // Term row
 // ---------------------------------------------------------------------------
 
-function TermRow({ item }: { item: GlossaryTermEntry }): React.ReactElement {
+function TermRow({
+  item,
+  effortDisplay,
+}: {
+  item: GlossaryTermEntry;
+  /** Current effort-display setting ('rir' | 'rpe'), or null while loading. */
+  effortDisplay: EffortDisplay | null;
+}): React.ReactElement {
   const { theme, fontSize, fontWeight, spacing, radius } = useTheme();
   const colors = theme.colors;
+  // Badge whichever of the RIR/RPE glossary rows matches the user's CURRENT
+  // setting — the glossary "respects the setting" by pointing at the active one
+  // rather than changing the (educational) definition text itself.
+  const isActiveEffortTerm = effortDisplay != null && item.slug === effortDisplay;
   return (
     <View
       style={[
@@ -40,7 +55,7 @@ function TermRow({ item }: { item: GlossaryTermEntry }): React.ReactElement {
           marginBottom: spacing.s3,
           padding: spacing.s4,
           borderWidth: 1,
-          borderColor: colors.borderDefault,
+          borderColor: isActiveEffortTerm ? colors.accentDefault : colors.borderDefault,
         },
       ]}
     >
@@ -79,6 +94,30 @@ function TermRow({ item }: { item: GlossaryTermEntry }): React.ReactElement {
             </Text>
           </View>
         ) : null}
+        {isActiveEffortTerm ? (
+          <View
+            style={[
+              styles.categoryChip,
+              {
+                backgroundColor: colors.accentDefault,
+                borderRadius: radius.sm,
+                paddingHorizontal: spacing.s2,
+                paddingVertical: 2,
+                marginLeft: spacing.s2,
+              },
+            ]}
+          >
+            <Text
+              style={{
+                fontSize: fontSize.caption,
+                color: colors.bgPrimary,
+                fontWeight: fontWeight.medium,
+              }}
+            >
+              Your setting
+            </Text>
+          </View>
+        ) : null}
       </View>
       <Text
         style={{
@@ -104,6 +143,18 @@ export default function GlossaryScreen(): React.ReactElement {
   const { theme, fontSize, spacing, radius } = useTheme();
   const colors = theme.colors;
   const listRef = useRef<FlatList<GlossaryTermEntry>>(null);
+
+  // TICKET-128: which of RIR/RPE is the user's current effort-display setting.
+  // null while loading — TermRow treats null as "no badge yet" rather than
+  // guessing, so a fresh load never flashes the wrong term as "Your setting".
+  const [effortDisplay, setEffortDisplay] = useState<EffortDisplay | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getEffortDisplay()
+      .then((mode) => { if (!cancelled) setEffortDisplay(mode); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const filtered = useMemo<GlossaryTermEntry[]>(
     () =>
@@ -183,7 +234,7 @@ export default function GlossaryScreen(): React.ReactElement {
         data={filtered}
         keyExtractor={(item) => item.slug}
         renderItem={({ item }: ListRenderItemInfo<GlossaryTermEntry>) => (
-          <TermRow item={item} />
+          <TermRow item={item} effortDisplay={effortDisplay} />
         )}
         contentContainerStyle={{ paddingBottom: spacing.s6 ?? 48 }}
         keyboardShouldPersistTaps="handled"

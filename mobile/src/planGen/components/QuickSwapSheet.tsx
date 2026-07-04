@@ -54,6 +54,8 @@ export interface QuickSwapSheetProps {
   onSelect: (candidate: SwapCandidate) => void;
   /** Called when the user taps "Never suggest <original> again". */
   onNeverSuggest?: () => void;
+  /** TICKET-134: open the exercise detail sheet (diagram + cues) for a candidate. */
+  onViewDetails?: (candidate: SwapCandidate) => void;
   /** Dismiss the sheet. */
   onClose: () => void;
 }
@@ -81,6 +83,7 @@ export function QuickSwapSheet(props: QuickSwapSheetProps): React.ReactElement {
     canMakePermanent = false,
     onSelect,
     onNeverSuggest,
+    onViewDetails,
     onClose,
   } = props;
   const { theme, fontSize: fs, fontWeight: fw, spacing: sp, radius: r } = useTheme();
@@ -165,6 +168,16 @@ export function QuickSwapSheet(props: QuickSwapSheetProps): React.ReactElement {
                     {c.why}
                   </Text>
                 </View>
+                {onViewDetails ? (
+                  <TouchableOpacity
+                    onPress={() => onViewDetails(c)}
+                    style={{ minWidth: 32, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`View details for ${c.name}`}
+                  >
+                    <Ionicons name="information-circle-outline" size={18} color={theme.colors.textTertiary} />
+                  </TouchableOpacity>
+                ) : null}
                 <Ionicons name="chevron-forward" size={16} color={theme.colors.textTertiary} />
               </TouchableOpacity>
             ))}
