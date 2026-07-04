@@ -1,0 +1,13 @@
+{
+  "because": {
+    "AR-S1": "engine rule AR-S1: it has been {{days}} days since {{last}} — restarting a notch lighter to rebuild momentum.",
+    "AR-D1": "engine rule AR-D1: last time was {{last}} — below the {{repsLow}}–{{repsHigh}} rep target, so about 2.5% comes off to win the reps back.",
+    "AR-R1": "engine rule AR-R1: {{last}} was harder than the plan calls for — same load again until it sits in the target effort band.",
+    "AR-P1": "engine rule AR-P1: you hit {{last}} — top of the rep range with room to spare, so one increment goes on.",
+    "AR-H1": "engine rule AR-H1: {{last}} sits inside the target band — same load, keep stacking quality sets.",
+    "AR-H1_bodyweight": "engine rule AR-H1: bodyweight movement — progress by adding reps past {{reps}} before adding load.",
+    "FT-D1_deload": "engine rule FT-D1: readiness has averaged {{mean}} over the last 7 days ({{days}} scored days, threshold {{threshold}}) and your last deload was {{weeks}} weeks ago — consider pulling your deload forward.",
+    "FT-D1_nodeload": "engine rule FT-D1: readiness has averaged {{mean}} over the last 7 days ({{days}} scored days, threshold {{threshold}}) and no deload is on record — consider pulling your deload forward.",
+    "FT-V1": "engine rule FT-V1: your last {{count}} readiness scores ({{scores}}) are all under {{threshold}} — consider trimming accessory volume about {{trimPct}}% next session."
+  }
+}

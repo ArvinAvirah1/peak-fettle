@@ -125,6 +125,10 @@ export interface AutoregSuggestion {
   rule_id: AutoregRuleId;
   /** Human explanation naming the observation — the copy IS the feature. */
   because: string;
+  /** TICKET-146: i18n template id (engine.json `because.<key>`) — UI renders
+   *  via src/i18n/engine.ts engineBecause(); `because` stays the EN fallback. */
+  because_key: string;
+  because_params: Record<string, string | number>;
 }
 
 // ---------------------------------------------------------------------------
@@ -225,10 +229,13 @@ export function suggestNextLoad(
   const ageDays = (nowMs - Date.parse(ref.loggedAt)) / DAY_MS;
   if (ageDays > STALE_DAYS) {
     const suggested = roundToIncrementKg(ref.weightKg * RESTART_FACTOR, unitPref, equipment, 'down');
+    const staleDays = Math.floor(ageDays);
     return {
       suggested_kg: suggested,
       rule_id: 'AR-S1',
-      because: `engine rule AR-S1: it has been ${Math.floor(ageDays)} days since ${lastLine} — restarting a notch lighter to rebuild momentum.`,
+      because: `engine rule AR-S1: it has been ${staleDays} days since ${lastLine} — restarting a notch lighter to rebuild momentum.`,
+      because_key: 'AR-S1',
+      because_params: { days: staleDays, last: lastLine },
     };
   }
 
@@ -238,6 +245,8 @@ export function suggestNextLoad(
       suggested_kg: round2(ref.weightKg),
       rule_id: 'AR-H1',
       because: `engine rule AR-H1: bodyweight movement — progress by adding reps past ${ref.reps} before adding load.`,
+      because_key: 'AR-H1_bodyweight',
+      because_params: { reps: ref.reps },
     };
   }
 
@@ -252,6 +261,8 @@ export function suggestNextLoad(
       suggested_kg: suggested,
       rule_id: 'AR-D1',
       because: `engine rule AR-D1: last time was ${lastLine} — below the ${targets.targetRepsLow}–${targets.targetRepsHigh} rep target, so about 2.5% comes off to win the reps back.`,
+      because_key: 'AR-D1',
+      because_params: { last: lastLine, repsLow: targets.targetRepsLow, repsHigh: targets.targetRepsHigh },
     };
   }
 
@@ -261,6 +272,8 @@ export function suggestNextLoad(
       suggested_kg: round2(ref.weightKg),
       rule_id: 'AR-R1',
       because: `engine rule AR-R1: ${lastLine} was harder than the plan calls for — same load again until it sits in the target effort band.`,
+      because_key: 'AR-R1',
+      because_params: { last: lastLine },
     };
   }
 
@@ -277,6 +290,8 @@ export function suggestNextLoad(
       suggested_kg: suggested,
       rule_id: 'AR-P1',
       because: `engine rule AR-P1: you hit ${lastLine} — top of the rep range with room to spare, so one increment goes on.`,
+      because_key: 'AR-P1',
+      because_params: { last: lastLine },
     };
   }
 
@@ -285,5 +300,7 @@ export function suggestNextLoad(
     suggested_kg: round2(ref.weightKg),
     rule_id: 'AR-H1',
     because: `engine rule AR-H1: ${lastLine} sits inside the target band — same load, keep stacking quality sets.`,
+    because_key: 'AR-H1',
+    because_params: { last: lastLine },
   };
 }

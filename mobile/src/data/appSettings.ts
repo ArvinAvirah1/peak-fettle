@@ -216,3 +216,27 @@ export async function getFatigueAdviceDismissal(): Promise<FatigueAdviceDismissa
 export async function setFatigueAdviceDismissal(state: FatigueAdviceDismissal): Promise<void> {
   await setSetting(FATIGUE_ADVICE_DISMISSAL_KEY, JSON.stringify(state));
 }
+
+// ---------------------------------------------------------------------------
+// Typed convenience — app language override (TICKET-146, localization)
+// ---------------------------------------------------------------------------
+
+/**
+ * Display-language override. 'system' (default) follows the device language;
+ * 'pseudo' is the dev-only truncation-testing locale (src/i18n/pseudo.ts).
+ * Units/regions are deliberately NOT tied to this (constants/units.ts and
+ * constants/locale.ts stay the only unit/region logic — do not entangle).
+ */
+export type AppLanguage = 'system' | 'en' | 'pseudo';
+
+const APP_LANGUAGE_KEY = 'app_language';
+
+export async function getAppLanguage(): Promise<AppLanguage> {
+  const raw = await getSetting(APP_LANGUAGE_KEY);
+  return raw === 'en' || raw === 'pseudo' ? raw : 'system';
+}
+
+/** Persist the language override; junk values coerce to 'system'. */
+export async function setAppLanguage(lang: AppLanguage): Promise<void> {
+  await setSetting(APP_LANGUAGE_KEY, lang === 'en' || lang === 'pseudo' ? lang : 'system');
+}

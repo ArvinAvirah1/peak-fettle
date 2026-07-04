@@ -1,0 +1,23 @@
+{
+  "save": "Save",
+  "cancel": "Cancel",
+  "delete": "Delete",
+  "done": "Done",
+  "close": "Close",
+  "ok": "OK",
+  "retry": "Retry",
+  "edit": "Edit",
+  "add": "Add",
+  "back": "Back",
+  "loading": "Loading…",
+  "error": "Something went wrong",
+  "confirm": "Confirm",
+  "share": "Share",
+  "dismiss": "Dismiss",
+  "apply": "Apply",
+  "start": "Start",
+  "stop": "Stop",
+  "skip": "Skip",
+  "yes": "Yes",
+  "no": "No"
+}

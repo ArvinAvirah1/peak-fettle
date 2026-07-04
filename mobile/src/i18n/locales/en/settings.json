@@ -1,0 +1,9 @@
+{
+  "language": {
+    "label": "Language",
+    "meta": "\"System\" follows your device language. More languages are coming; only English ships today.",
+    "system": "System",
+    "english": "English",
+    "pseudo": "Pseudo (dev)"
+  }
+}

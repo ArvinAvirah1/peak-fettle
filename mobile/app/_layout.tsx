@@ -48,6 +48,7 @@ import { startWidgetBridge } from '../src/services/widgetBridge'; // WIDGET-001
 // widget/intent bridges; inert when the native module is absent (Android,
 // simulator, Expo Go, or an iOS build without watch-connectivity compiled in).
 import { useWatchMirror } from '../src/hooks/useWatchMirror';
+import { applyStoredLanguage } from '../src/i18n'; // TICKET-146 — importing also runs the synchronous i18n init
 // TICKET-145: Siri / App Intents bridge — same deferred-boot pattern as the
 // widget bridge; inert when the native side is absent (Expo Go / Android).
 import { startIntentBridge, setIntentBridgeContext } from '../src/lib/intents/intentBridge';
@@ -170,6 +171,16 @@ function RootNavigator(): React.ReactElement {
     });
     return () => task.cancel();
   }, [isLoading]);
+
+  // TICKET-146: apply the persisted language override (if any). The sync EN
+  // init already happened at import time, so this never blocks first paint;
+  // deferred off the boot frame like everything else here (CLAUDE.md #5).
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      void applyStoredLanguage();
+    });
+    return () => task.cancel();
+  }, []);
 
   // TICKET-140 Stage A: push the today's-workout mirror to a paired Apple
   // Watch. iOS-only, deferred off the boot frame, and a no-op when the

@@ -103,6 +103,10 @@ export interface FatigueAdvice {
   trim_pct?: number;
   /** Human explanation naming the observation — the copy IS the feature. */
   because: string;
+  /** TICKET-146: i18n template id (engine.json `because.<key>`) — UI renders
+   *  via src/i18n/engine.ts engineBecause(); `because` stays the EN fallback. */
+  because_key: string;
+  because_params: Record<string, string | number>;
 }
 
 // ---------------------------------------------------------------------------
@@ -202,11 +206,13 @@ export function suggestPlanAdjustment(
     if (mean < LOW_WEEK_MEAN) {
       let deloadOk = false;
       let deloadLine = '';
+      let deloadWeeks: number | null = null;
       const deloadMs = config.lastDeloadAt ? Date.parse(config.lastDeloadAt) : NaN;
       if (!Number.isNaN(deloadMs)) {
         const weeksSince = Math.floor((nowMs - deloadMs) / (7 * DAY_MS));
         if (weeksSince >= MIN_WEEKS_SINCE_DELOAD) {
           deloadOk = true;
+          deloadWeeks = weeksSince;
           deloadLine = `your last deload was ${weeksSince} weeks ago`;
         }
       } else {
@@ -219,10 +225,13 @@ export function suggestPlanAdjustment(
       }
       if (deloadOk) {
         const meanRounded = Math.round(mean);
+        const baseParams = { mean: meanRounded, days: weekScored.length, threshold: LOW_WEEK_MEAN };
         return {
           rule_id: 'FT-D1',
           action: 'pull_deload_forward',
           because: `engine rule FT-D1: readiness has averaged ${meanRounded} over the last 7 days (${weekScored.length} scored days, threshold ${LOW_WEEK_MEAN}) and ${deloadLine} — consider pulling your deload forward.`,
+          because_key: deloadWeeks != null ? 'FT-D1_deload' : 'FT-D1_nodeload',
+          because_params: deloadWeeks != null ? { ...baseParams, weeks: deloadWeeks } : baseParams,
         };
       }
     }
@@ -239,6 +248,8 @@ export function suggestPlanAdjustment(
         action: 'trim_accessory_volume',
         trim_pct: TRIM_PCT,
         because: `engine rule FT-V1: your last ${CONSEC_LOW_SESSIONS} readiness scores (${list}) are all under ${LOW_SESSION_SCORE} — consider trimming accessory volume about ${TRIM_PCT}% next session.`,
+        because_key: 'FT-V1',
+        because_params: { count: CONSEC_LOW_SESSIONS, scores: list, threshold: LOW_SESSION_SCORE, trimPct: TRIM_PCT },
       };
     }
   }
