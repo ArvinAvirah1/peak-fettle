@@ -118,3 +118,91 @@ export function parseWeightInput(text: string): number | null {
   const n = parseFloat(normalized);
   return Number.isFinite(n) ? n : null;
 }
+
+// ---------------------------------------------------------------------------
+// Length (TICKET-130: body measurements module)
+//
+// Mirrors the weight-unit helpers above EXACTLY — the 185 lb -> 185 kg lesson
+// applies to length too: ONE conversion path, canonical storage unit, and a
+// stable prefill round-trip. Canonical storage = cm (matches the `unit: 'cm'`
+// value most measurements naturally take); `displayToCm` converts a typed
+// display value TO storage on save, `cmToInputValue` converts a stored value
+// back to a clean editable string for PREFILLING an edit field.
+// ---------------------------------------------------------------------------
+
+/** Exact conversion factor. 1 inch = 2.54 cm. */
+export const CM_TO_IN = 1 / 2.54;
+
+/** Convert centimetres to inches. */
+export function cmToIn(cm: number): number {
+  return cm * CM_TO_IN;
+}
+
+/** Convert inches to centimetres. */
+export function inToCm(inches: number): number {
+  return inches / CM_TO_IN;
+}
+
+/**
+ * Convert a display-unit length value back to canonical centimetres for
+ * storage. `unitPref` here is the LENGTH unit ('cm' | 'in'), independent of
+ * the user's weight unit_pref (a lbs-weight user can still prefer cm tape
+ * measurements, though in practice the two are usually aligned by the caller).
+ * @param displayValue - the number entered by the user
+ * @param unitPref      - 'cm' | 'in'
+ * @returns length in centimetres (FULL precision — do not pre-round before storing)
+ */
+export function displayToCm(displayValue: number, unitPref: 'cm' | 'in'): number {
+  return unitPref === 'in' ? inToCm(displayValue) : displayValue;
+}
+
+/**
+ * Convert a stored exact-cm length into a clean editable string for
+ * PREFILLING an input when revising an existing measurement. Mirrors
+ * kgToInputValue: round to `maxDecimals`, then strip trailing zeros so a
+ * clean entry round-trips exactly (81.5 cm shows as "81.5", not "81.50").
+ * @param valueCm     - stored length in centimetres (exact)
+ * @param unitPref    - 'cm' | 'in'
+ * @param maxDecimals - max decimals to show (default 1 — tape-measure precision)
+ */
+export function cmToInputValue(
+  valueCm: number,
+  unitPref: 'cm' | 'in',
+  maxDecimals = 1,
+): string {
+  const value = unitPref === 'in' ? cmToIn(valueCm) : valueCm;
+  const rounded = Number(value.toFixed(maxDecimals));
+  return String(rounded);
+}
+
+/**
+ * Format a length for display given the unit preference.
+ * @param valueCm  - length in centimetres (canonical storage value)
+ * @param unitPref - 'cm' | 'in'
+ * @param decimals - number of decimal places (default 1)
+ * @returns Formatted string e.g. "81.5 cm" or "32.1 in"
+ */
+export function formatLength(
+  valueCm: number,
+  unitPref: 'cm' | 'in',
+  decimals = 1,
+): string {
+  if (unitPref === 'in') {
+    return `${cmToIn(valueCm).toFixed(decimals)} in`;
+  }
+  return `${valueCm.toFixed(decimals)} cm`;
+}
+
+/**
+ * Parse a free-text length input (decimal string), tolerating a
+ * trailing/leading dot, commas as decimal separators, and stray whitespace.
+ * Returns null for empty/invalid/non-positive input so callers can show a
+ * validation hint rather than storing NaN or a nonsensical 0/negative length.
+ */
+export function parseLengthInput(text: string): number | null {
+  if (text == null) return null;
+  const normalized = String(text).trim().replace(',', '.');
+  if (normalized === '' || normalized === '.') return null;
+  const n = parseFloat(normalized);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}

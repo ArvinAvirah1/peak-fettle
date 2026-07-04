@@ -71,6 +71,8 @@ export const BACKUP_TABLES: string[] = [
   'user_profile',
   // v9 table (engine-v2 generated-plan persistence, Stage 2)
   'generated_plans',
+  // v12 table (TICKET-130: body measurements module — preset + custom metrics)
+  'body_measurements',
 ];
 
 export type Row = Record<string, unknown>;
@@ -104,6 +106,7 @@ const COLUMN_ALLOWLIST: Record<string, Set<string>> = {
     'weight_raw', 'rir', 'duration_sec', 'distance_m', 'avg_pace_sec_per_km', 'logged_at', 'synced',
     'weight_kg', // v3
     'metrics_json', // v6
+    'note', 'flags', // v11 (TICKET-129: per-set notes + flags)
   ]),
   schedule: new Set(['id', 'mode', 'data', 'position', 'updated_at']),
   avatar: new Set(['id', 'data', 'updated_at']),
@@ -163,6 +166,8 @@ const COLUMN_ALLOWLIST: Record<string, Set<string>> = {
     'id', 'user_id', 'kind', 'status', 'payload', 'survey', 'split',
     'active_block', 'block_start_day_key', 'adopted_split', 'created_at', 'updated_at',
   ]),
+  // v12 (TICKET-130) - body measurements: one row per logged entry.
+  body_measurements: new Set(['id', 'metric', 'value', 'unit', 'logged_at', 'synced']),
 };
 
 /**

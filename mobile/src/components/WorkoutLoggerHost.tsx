@@ -86,6 +86,11 @@ import type { FlexLiftSetInput } from '../lib/shareCard/shareCardPercentile';
 import { useLocalStreak } from '../hooks/useStreak';
 // TICKET-134: exercise detail sheet, reachable from quick-swap candidates.
 import { ExerciseDetailSheet, ExerciseDetailTarget } from './ExerciseDetailSheet';
+// TICKET-129: per-set note + flags from the live logger (long-press a set chip).
+import { SetNoteSheet } from './logger/SetNoteSheet';
+import { getLocalSetNoteFlags, saveSetNoteFlags } from '../data/setNotes';
+// TICKET-136: best-effort write of the finished workout to Apple Health / Health Connect.
+import { writeWorkoutToHealthKit, getHealthWriteEnabled } from '../services/healthKit';
 import { useRestTimer, REST_TIMER_STEP } from '../hooks/useRestTimer';
 // Founder logger fixes #1/#2: the mini-bar (minimize-to-bubble) + the pure
 // timer helper that derives the countdown from an ABSOLUTE deadline (no drift).
@@ -409,6 +414,14 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
     // TICKET-134: detail sheet for a quick-swap candidate.
     const [swapDetailTarget, setSwapDetailTarget] = useState<ExerciseDetailTarget | null>(null);
 
+    // TICKET-129: note/flags sheet for a live-session set chip (long-press).
+    const [liveNoteTarget, setLiveNoteTarget] = useState<{
+      setId: string;
+      label: string;
+      note: string | null;
+      flags: number;
+    } | null>(null);
+
     // ── S1 dropset chain state ────────────────────────────────────────────────
     // A drop CHAIN = a top set + N drops logged back-to-back with rest fully
     // suppressed. Non-null while a chain is active for the current exercise.
@@ -688,9 +701,10 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
                 durationSec: s.durationSec,
                 distanceM: s.distanceM,
                 avgPaceSecPerKm: s.avgPaceSecPerKm,
+                id: s.id, // TICKET-129: durable id → note/flag affordance
               };
             }
-            return { weight: s.weightDisplay, reps: s.reps, rir: s.rir };
+            return { weight: s.weightDisplay, reps: s.reps, rir: s.rir, id: s.id };
           });
           seededSets.set(ex.exerciseId, logged);
           return {
@@ -851,6 +865,20 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           // S1: remember this row id so a subsequent "+ Drop set" can retro-tag
           // this (top) set as drop.index 0 → excluded from PRs.
           if (logged?.id) lastLiftRowRef.current.set(targetId, logged.id);
+          // TICKET-129: attach the durable row id to the chip so the note/flag
+          // affordance (long-press) works for sets logged THIS session too.
+          if (logged?.id) {
+            const rowId = logged.id;
+            setStepperSets((prev) => {
+              const next = new Map(prev);
+              const arr = [...(next.get(exerciseId) ?? [])];
+              if (arr[setIndex]) {
+                arr[setIndex] = { ...arr[setIndex], id: rowId };
+                next.set(exerciseId, arr);
+              }
+              return next;
+            });
+          }
           haptics.success();
           // WIDGET-002: a logged set that meets BOTH targets of this exercise's
           // goal marks it achieved (fire-and-forget; StepperLogger re-reads the
@@ -1489,6 +1517,49 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
 
     const totalSets = sets.length;
 
+    // TICKET-137: keep the Live Activity / ongoing notification's display
+    // context (exercise, set progress, next up) in sync with the session.
+    // setSessionContext is cheap + idempotent; the hook pushes to native only
+    // when a rest actually starts/updates.
+    const setSessionContext = restTimer.setSessionContext;
+    useEffect(() => {
+      if (!routineSession) return;
+      const cur = routineSession.exercises[routineSession.currentIndex];
+      if (!cur) return;
+      const loggedCount = stepperSets.get(cur.exerciseId)?.length ?? 0;
+      const total =
+        (typeof cur.groupRounds === 'number' && cur.groupRounds > 0 ? cur.groupRounds : null) ??
+        (typeof cur.targetSets === 'number' && cur.targetSets > 0 ? cur.targetSets : null);
+      const nextEx = routineSession.exercises[routineSession.currentIndex + 1];
+      setSessionContext({
+        exerciseName: cur.name,
+        setProgress: total != null ? `${Math.min(loggedCount + 1, total)} / ${total}` : `${loggedCount} logged`,
+        nextTarget: nextEx ? `Next: ${nextEx.name}` : null,
+      });
+    }, [routineSession, stepperSets, setSessionContext]);
+
+    // TICKET-136: fire-and-forget write of the finished session to Apple
+    // Health / Health Connect (toggle-gated inside the service; best-effort,
+    // never blocks or fails the finish flow; zero effect when unavailable).
+    const writeFinishedWorkoutToHealth = useCallback(() => {
+      const wid = workout?.id;
+      if (!wid || sets.length === 0) return;
+      const ended = new Date();
+      const started = new Date(ended.getTime() - Math.max(elapsedSeconds, 60) * 1000);
+      void getHealthWriteEnabled()
+        .then((on) =>
+          on
+            ? writeWorkoutToHealthKit({
+                workoutId: wid,
+                startedAt: started.toISOString(),
+                endedAt: ended.toISOString(),
+                label: routineSession?.name ?? undefined,
+              })
+            : false,
+        )
+        .catch(() => {});
+    }, [workout?.id, sets.length, elapsedSeconds, routineSession?.name]);
+
     const handleFinishWorkout = useCallback(() => {
       Alert.alert(
         'Finish workout?',
@@ -1504,6 +1575,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
                 routineSession?.source === 'routine' ? routineSession.routineId : undefined;
               setStepperVisible(false);
               if (finishedRoutineId) markRoutineCompleted(finishedRoutineId).catch(() => {});
+              writeFinishedWorkoutToHealth(); // TICKET-136 (toggle-gated, best-effort)
               // TICKET-131: capture the share payload BEFORE teardown — the
               // session clear + navigation run when the share card closes
               // (ShareCardSheet onClose below). Zero network; all values local.
@@ -1530,7 +1602,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           },
         ],
       );
-    }, [totalSets, routineSession, workout, elapsedSeconds, sets, exerciseNames]);
+    }, [totalSets, routineSession, workout, elapsedSeconds, sets, exerciseNames, writeFinishedWorkoutToHealth]);
 
     // ── Fix #2: minimize / restore / terminate ────────────────────────────────
     // Shared teardown: fully end the session (used by the explicit Finish path).
@@ -1666,6 +1738,19 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           visible={swapDetailTarget !== null}
           exercise={swapDetailTarget}
           onClose={() => setSwapDetailTarget(null)}
+        />
+
+        {/* TICKET-129: per-set note + flags for the LIVE session (chip long-press). */}
+        <SetNoteSheet
+          visible={liveNoteTarget !== null}
+          onClose={() => setLiveNoteTarget(null)}
+          initialNote={liveNoteTarget?.note}
+          initialFlags={liveNoteTarget?.flags}
+          setLabel={liveNoteTarget?.label}
+          onSave={(patch) => {
+            if (!liveNoteTarget) return;
+            void saveSetNoteFlags(user, liveNoteTarget.setId, patch).catch(() => {});
+          }}
         />
 
         {/* Rest timer banner (hidden while minimized — the mini-bar shows the
@@ -1807,6 +1892,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
                       text: 'Finish',
                       onPress: () => {
                         haptics.success();
+                        writeFinishedWorkoutToHealth(); // TICKET-136
                         terminateSession(finishedRoutineId);
                       },
                     },
@@ -1919,6 +2005,23 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
               })()}
               onStartDropChain={historyMode ? undefined : startDropChain}
               onEndDropChain={historyMode ? undefined : endDropChain}
+              // TICKET-129: long-press a set chip → note/flags sheet. Prefill
+              // reads the local row (best-effort); save goes through the
+              // tier-branched setNotes module.
+              onOpenSetNote={(setId, chipIndex) => {
+                const curName =
+                  routineSession?.exercises[routineSession.currentIndex]?.name ?? '';
+                getLocalSetNoteFlags(setId)
+                  .catch(() => null)
+                  .then((nf) => {
+                    setLiveNoteTarget({
+                      setId,
+                      label: `Set ${chipIndex + 1}${curName ? ` — ${curName}` : ''}`,
+                      note: nf?.note ?? null,
+                      flags: nf?.flags ?? 0,
+                    });
+                  });
+              }}
             />
           )}
         </Modal>

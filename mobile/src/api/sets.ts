@@ -52,6 +52,20 @@ export async function deleteSet(id: string): Promise<void> {
   await apiClient.delete(`/sets/${id}`);
 }
 
+/**
+ * TICKET-129: update the note / flags on an already-logged set (Pro tier).
+ * Weight/reps corrections still go through the delete+re-log replace path in
+ * data/setEditing.ts — this ONLY ever touches note/flags server-side.
+ * `note: null` clears the note. Omit `flags` to leave the mask unchanged.
+ */
+export async function updateSetNoteFlags(
+  id: string,
+  patch: { note?: string | null; flags?: number },
+): Promise<WorkoutSet> {
+  const response = await apiClient.patch<WorkoutSet>(`/sets/${id}`, patch);
+  return response.data;
+}
+
 // ---------------------------------------------------------------------------
 // Personal Best
 // ---------------------------------------------------------------------------

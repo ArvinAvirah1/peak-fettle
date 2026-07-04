@@ -17,7 +17,8 @@
       "appleTeamId": "FA2SC9YHCJ",
       "usesAppleSignIn": true,
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSSupportsLiveActivities": true
       },
       "entitlements": {
         "com.apple.security.application-groups": [
@@ -63,6 +64,14 @@
       "expo-sqlite",
       "expo-web-browser",
       "expo-apple-authentication",
+      [
+        "@kingstinct/react-native-healthkit",
+        {
+          "NSHealthShareUsageDescription": "Peak Fettle reads your heart rate, sleep, and body weight to personalise training intensity.",
+          "NSHealthUpdateUsageDescription": "Peak Fettle writes your finished workouts to Apple Health."
+        }
+      ],
+      "react-native-health-connect",
       "@bacons/apple-targets",
       "expo-localization"
     ],
@@ -84,6 +93,15 @@
                 {
                   "targetName": "PeakFettleWidget",
                   "bundleIdentifier": "com.peakfettle.app.widget",
+                  "entitlements": {
+                    "com.apple.security.application-groups": [
+                      "group.com.peakfettle.app"
+                    ]
+                  }
+                },
+                {
+                  "targetName": "PeakFettleRestTimerActivity",
+                  "bundleIdentifier": "com.peakfettle.app.liveactivity",
                   "entitlements": {
                     "com.apple.security.application-groups": [
                       "group.com.peakfettle.app"

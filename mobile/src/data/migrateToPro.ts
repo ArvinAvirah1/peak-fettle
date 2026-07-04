@@ -46,6 +46,7 @@ import { createRoutine, getRoutines, RoutineExercise } from '../api/routines';
 import { allowlistExercise, canonicalizeExercise } from './routineExerciseFields';
 import { addConstraint } from '../api/constraints';
 import { patchProfile, PatchProfilePayload } from '../api/user';
+import { upsertMeasurement } from '../api/measurements';
 import { LogSetPayload } from '../types/api';
 import axios from 'axios';
 
@@ -119,6 +120,17 @@ interface SetRow {
   distance_m: number | null;
   avg_pace_sec_per_km: number | null;
   metrics_json: string | null;
+  /** TICKET-129: per-set note + quick-tap flag bitmask (schema v11). */
+  note: string | null;
+  flags: number | null;
+}
+
+interface MeasurementRow {
+  id: string;
+  metric: string;
+  value: number;
+  unit: string;
+  logged_at: string;
 }
 
 interface LedgerRow {
@@ -567,6 +579,14 @@ function setPayloadFor(
   const weightKg =
     row.weight_kg != null ? row.weight_kg : 0; // SELECT already COALESCE'd weight_raw/8
 
+  // TICKET-129: carry note/flags across to the Pro server (additive fields on
+  // both LogLiftSetPayload/LogCardioSetPayload and the server Zod schema).
+  // flags=0 is "no flags set" — omit it rather than sending a meaningless 0.
+  const noteFlags = {
+    ...(row.note != null && row.note !== '' ? { note: row.note } : {}),
+    ...(row.flags != null && row.flags !== 0 ? { flags: row.flags } : {}),
+  };
+
   if (row.kind === 'cardio') {
     return {
       kind: 'cardio',
@@ -578,6 +598,7 @@ function setPayloadFor(
       ...(row.avg_pace_sec_per_km != null
         ? { avgPaceSecPerKm: row.avg_pace_sec_per_km }
         : {}),
+      ...noteFlags,
     };
   }
 
@@ -591,6 +612,7 @@ function setPayloadFor(
     weightKg,
     // rir: -1 means "not recorded" locally; only send a real value.
     ...(row.rir != null && row.rir !== -1 ? { rir: row.rir } : {}),
+    ...noteFlags,
   };
 }
 
@@ -601,7 +623,8 @@ async function uploadSets(
   const rows = await localDb.getAll<SetRow>(
     `SELECT id, workout_id, exercise_id, kind, set_index, reps,
             COALESCE(weight_kg, weight_raw / 8.0) AS weight_kg,
-            rir, duration_sec, distance_m, avg_pace_sec_per_km, metrics_json
+            rir, duration_sec, distance_m, avg_pace_sec_per_km, metrics_json,
+            note, flags
        FROM sets
       ORDER BY workout_id ASC, set_index ASC`,
   );
@@ -655,6 +678,45 @@ async function uploadSets(
 }
 
 // ---------------------------------------------------------------------------
+// Phase 6 — body measurements (TICKET-130) — POST /measurements, idempotent on
+// the client-generated id (ON CONFLICT (id) DO UPDATE server-side), so a
+// re-run safely re-sends already-uploaded rows without duplicating them.
+// Uses the SAME migration_state ledger pattern as every other entity so a
+// partial failure resumes cleanly.
+// ---------------------------------------------------------------------------
+
+async function uploadMeasurements(out: MigrationOutcome): Promise<void> {
+  const rows = await localDb.getAll<MeasurementRow>(
+    'SELECT id, metric, value, unit, logged_at FROM body_measurements ORDER BY logged_at ASC',
+  );
+  for (const row of rows) {
+    const prior = await ledgerGet('measurement', row.id);
+    if (prior) continue;
+    try {
+      await upsertMeasurement({
+        id: row.id,
+        metric: row.metric,
+        value: row.value,
+        unit: row.unit as 'cm' | 'in' | 'pct',
+        loggedAt: row.logged_at,
+      });
+      await ledgerPut('measurement', row.id, row.id, 'done', null);
+      out.uploaded++;
+    } catch (err) {
+      if (isPermanentValidationError(err)) {
+        await ledgerPut('measurement', row.id, null, 'skipped', errLabel(err));
+        out.skipped++;
+        out.errors.push(`measurement ${row.id}: ${errLabel(err)}`);
+      } else {
+        out.failed++;
+        out.errors.push(`measurement ${row.id}: ${errLabel(err)}`);
+        throw err; // transient — abort; resume later via the ledger
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Orchestrator
 // ---------------------------------------------------------------------------
 
@@ -663,7 +725,7 @@ async function uploadSets(
  * Cheap COUNT(*) per table; failures degrade to 0 so progress never blocks.
  */
 async function countTotal(): Promise<number> {
-  const tables = ['routines', 'user_constraints', 'workouts', 'sets'];
+  const tables = ['routines', 'user_constraints', 'workouts', 'sets', 'body_measurements'];
   let total = 0;
   for (const t of tables) {
     try {
@@ -735,6 +797,10 @@ export async function migrateLocalDataToServer(
 
   before = handled();
   await uploadSets(out, workoutMap);
+  tick(handled() - before);
+
+  before = handled();
+  await uploadMeasurements(out);
   tick(handled() - before);
 
   // Ensure the bar reads complete even if some rows were already ledgered on a

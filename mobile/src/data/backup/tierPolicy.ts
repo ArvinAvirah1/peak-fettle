@@ -45,3 +45,26 @@ export function storageModeLabel(user: TierUser | null | undefined): string {
     ? 'Synced across your devices (Pro)'
     : 'Stored on this device, with encrypted backup';
 }
+
+/**
+ * TICKET-138 (2026-07-03) — routine share-link carve-out.
+ *
+ * Creating or fetching a routine share link (mobile/src/data/shareLinks.ts,
+ * server/routes/shareLinks.js) is an EXPLICIT, user-initiated network action
+ * — the user tapped "Share" on a routine, or opened a link someone sent them.
+ * This is the SAME carve-out class as the group weekly-signal POST
+ * (src/data/groupSignals.ts): it is allowed on the free/local-first tier even
+ * though isLocalFirst(user) is true, because the user directly triggered it
+ * (not a background/on-mount fetch) and it does not read/sync the user's
+ * personal workout history — only the ONE routine they chose to share.
+ *
+ * What stays local-first regardless of tier: the IMPORTED routine itself.
+ * importSharedRoutine() writes the result through data/routines.ts, which
+ * still branches on isLocalFirst(user) — a free user's import is an on-device
+ * INSERT, never a personal REST round-trip to persist the result. Only the
+ * fetch of the shared blob (a POST to create, or a GET to read someone else's
+ * shared blob) is exempted from the "no personal REST calls" rule, and only
+ * because it is not personal data of the CALLING user in the read case (it's
+ * whichever routine the sharer chose to expose), and is user-triggered in the
+ * create case.
+ */

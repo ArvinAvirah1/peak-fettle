@@ -688,3 +688,95 @@ CREATE INDEX IF NOT EXISTS idx_workouts_routine_name ON workouts(routine_name)`;
 export const SCHEMA_V10_STATEMENTS: MigrationStatement[] = [
   CREATE_WORKOUTS_ROUTINE_NAME_IDX,
 ];
+
+// ---------------------------------------------------------------------------
+// v11 statements — TICKET-129: per-set notes + set flags.
+//
+// Set-level annotations ("felt pinchy", "paused reps", "belt on") — the real
+// training information that free-text `workouts.notes` can't capture per set.
+//
+// (a) sets.note  TEXT (nullable): free-text note attached to one logged set.
+// (b) sets.flags INTEGER DEFAULT 0: a small bitmask of quick-tap flags —
+//       1  = paused
+//       2  = tempo
+//       4  = belt
+//       8  = pin/rack
+//       16 = discomfort
+//     Kept deliberately small (5 bits) per the ticket note — "searchable
+//     notes" is a later ticket, this is not a tagging system.
+//
+// Both are guarded ALTER ADD COLUMN (SQLite has no "ADD COLUMN IF NOT EXISTS";
+// the migration runner checks pragma_table_info first — same idempotency
+// pattern as v3/v4/v6/v8). Additive only; existing rows read back
+// note=NULL, flags=0 (falsy — no flags set). Added 2026-07-03 (TICKET-129).
+export const SCHEMA_V11_STATEMENTS: MigrationStatement[] = [
+  { type: 'alter_add_column', table: 'sets', column: 'note', definition: 'TEXT' },
+  { type: 'alter_add_column', table: 'sets', column: 'flags', definition: 'INTEGER DEFAULT 0' },
+];
+
+// Set-flag bitmask constants (TICKET-129). Exported so the UI (SetNoteSheet)
+// and any read-side rendering share ONE source of truth for bit meaning.
+export const SET_FLAG_PAUSED = 1;
+export const SET_FLAG_TEMPO = 2;
+export const SET_FLAG_BELT = 4;
+export const SET_FLAG_PIN_RACK = 8;
+export const SET_FLAG_DISCOMFORT = 16;
+
+export const SET_FLAG_DEFS: { bit: number; key: string; label: string }[] = [
+  { bit: SET_FLAG_PAUSED, key: 'paused', label: 'Paused' },
+  { bit: SET_FLAG_TEMPO, key: 'tempo', label: 'Tempo' },
+  { bit: SET_FLAG_BELT, key: 'belt', label: 'Belt' },
+  { bit: SET_FLAG_PIN_RACK, key: 'pin_rack', label: 'Pin/rack' },
+  { bit: SET_FLAG_DISCOMFORT, key: 'discomfort', label: 'Discomfort' },
+];
+
+// ---------------------------------------------------------------------------
+// v12 statements — TICKET-130: body measurements module.
+//
+// `body_measurements` holds every logged measurement entry (preset metrics —
+// waist, chest, hips, arms, thighs, calves, neck, body-fat % — plus any
+// user-defined custom metric). One row per logged entry (not one row per
+// metric), so a full history/trend chart is just a SELECT ... WHERE metric = ?
+// ORDER BY logged_at. The existing weekly `bodyweight` table stays canonical
+// for the percentile model and is NOT duplicated here — the measurements
+// module reads it directly for the "Bodyweight" row (see data/measurements.ts).
+//
+// Columns:
+//   id         TEXT PK   — genId() UUID.
+//   metric     TEXT      — preset key ('waist' | 'chest' | 'hips' | 'arms' |
+//                          'thighs' | 'calves' | 'neck' | 'body_fat_pct') or a
+//                          user-defined custom metric key.
+//   value      REAL      — the measurement value. Length metrics store CANONICAL
+//                          cm (mirrors the weight_kg convention — display↔storage
+//                          conversion happens ONLY in constants/units.ts);
+//                          body_fat_pct stores the raw percentage (no unit
+//                          conversion needed).
+//   unit       TEXT      — 'cm' | 'in' | 'pct' — the unit the VALUE conceptually
+//                          represents, so a value can always be reformatted
+//                          without re-deriving intent (kept for defensiveness/
+//                          forward compat even though length is always stored
+//                          canonical cm).
+//   logged_at  TEXT      — ISO datetime of the entry.
+//   synced     INTEGER DEFAULT 0 — Pro-tier server sync bookkeeping (mirrors the
+//                          `sets`/`workouts` synced column convention).
+//
+// CREATE TABLE IF NOT EXISTS — idempotent, no ALTER guard needed. Registered in
+// exportEngine BACKUP_TABLES + migrateToPro + migrations.test.js.
+// Added 2026-07-03 (TICKET-130).
+export const CREATE_BODY_MEASUREMENTS = `
+CREATE TABLE IF NOT EXISTS body_measurements (
+  id TEXT PRIMARY KEY,
+  metric TEXT NOT NULL,
+  value REAL NOT NULL,
+  unit TEXT NOT NULL,
+  logged_at TEXT NOT NULL,
+  synced INTEGER DEFAULT 0
+)`;
+
+export const CREATE_BODY_MEASUREMENTS_METRIC_IDX = `
+CREATE INDEX IF NOT EXISTS idx_body_measurements_metric ON body_measurements(metric, logged_at)`;
+
+export const SCHEMA_V12_STATEMENTS: MigrationStatement[] = [
+  CREATE_BODY_MEASUREMENTS,
+  CREATE_BODY_MEASUREMENTS_METRIC_IDX,
+];

@@ -4,12 +4,26 @@
 //   Encode on write: Math.round(weightKg * 8)
 //   Decode on read:  weight_raw / 8  (returned to clients as weight_kg float)
 //   API contract unchanged — clients still send/receive weight_kg.
+//
+// TICKET-129 (2026-07-03): per-set notes + flags. `note` (free text) and
+// `flags` (small bitmask — see mobile src/db/localSchema.ts SET_FLAG_* for the
+// bit meanings) are additive columns on `sets` (db/schema.sql, ADD COLUMN IF
+// NOT EXISTS — drift-tolerant per CLAUDE.md §4). A bare/older prod DB that
+// hasn't picked up the migration yet must degrade rather than 500: any query
+// touching these columns is guarded and falls back to the pre-129 shape on
+// 42703 (undefined_column) / 42P01 (undefined_table).
 
 const express = require('express');
 const { z } = require('zod');
 const { pool } = require('../db');
 
 const router = express.Router();
+
+// SERVER-1-style drift guard (see routes/percentile.js) — a prod DB that
+// hasn't run the note/flags migration yet must degrade, not 500.
+function isMissingSchema(err) {
+    return err && (err.code === '42703' || err.code === '42P01');
+}
 
 // ---------------------------------------------------------------------------
 // Encoding helpers
@@ -40,6 +54,13 @@ function normalizeSet(row) {
 // Zod schemas
 // ---------------------------------------------------------------------------
 
+// TICKET-129: note is free text (capped to keep rows small); flags is the
+// small 5-bit mask (0-31) — validated as an int in that range so a client bug
+// can't silently write out-of-band bits that would decode to junk chips.
+const MAX_FLAGS = 31; // 1+2+4+8+16 — every bit set
+const noteField = z.string().max(500).optional();
+const flagsField = z.number().int().min(0).max(MAX_FLAGS).optional();
+
 const LiftSetSchema = z.object({
     kind: z.literal('lift'),
     workoutId: z.string().uuid(),
@@ -55,6 +76,8 @@ const LiftSetSchema = z.object({
     weightKg: z.number().min(0).max(4095.875),
     // rir range matches DB CHECK: -1 (not recorded), 0 (to failure), 1–10
     rir: z.number().int().min(-1).max(10).optional(),
+    note: noteField,
+    flags: flagsField,
 });
 
 const CardioSetSchema = z.object({
@@ -65,9 +88,19 @@ const CardioSetSchema = z.object({
     durationSec: z.number().int().min(0),
     distanceM: z.number().min(0).optional(),
     avgPaceSecPerKm: z.number().min(0).optional(),
+    note: noteField,
+    flags: flagsField,
 });
 
 const SetSchema = z.discriminatedUnion('kind', [LiftSetSchema, CardioSetSchema]);
+
+// PATCH /sets/:id body — note/flags only (partial update of an existing set's
+// annotations; weight/reps corrections still go through the replace-row path
+// in mobile/src/data/setEditing.ts).
+const PatchNoteFlagsSchema = z.object({
+    note: z.string().max(500).nullable().optional(),
+    flags: z.number().int().min(0).max(MAX_FLAGS).optional(),
+});
 
 // POST /sets
 // T-03 (2026-05-02): verify workout ownership before inserting.
@@ -86,37 +119,118 @@ router.post('/', async (req, res, next) => {
             return res.status(403).json({ error: 'workout_not_found_or_forbidden' });
         }
 
-        const { rows } = await pool.query(
-            `INSERT INTO sets
-                (workout_id, user_id, exercise_id, kind, set_index,
-                 reps, weight_raw, rir,
-                 duration_sec, distance_m, avg_pace_sec_per_km)
-             VALUES ($1, $2, $3, $4, $5,
-                     $6, $7, $8,
-                     $9, $10, $11)
-             RETURNING id, workout_id, user_id, exercise_id, kind, set_index,
-                       reps, weight_raw, rir,
-                       duration_sec, distance_m, avg_pace_sec_per_km,
-                       logged_at`,
-            // NOTE (2026-06-01): removed `is_pr` from RETURNING — there is no
-            // is_pr column on `sets` in any migration, so this RETURNING 500'd
-            // every POST /sets (logging a set was completely broken). PR status
-            // is derived client-side in useWorkoutHistory.ts (prIds.has(set.id))
-            // against the exercise_prs table; it is NOT a column on sets and the
-            // client never reads it from this response. See TICKET-068 / L-017.
-            [
-                body.workoutId, req.user.id, body.exerciseId, body.kind, body.setIndex,
-                body.kind === 'lift' ? body.reps : null,
-                // Encode weight_kg → weight_raw (kg × 8) for SMALLINT storage
-                body.kind === 'lift' ? encodeWeight(body.weightKg) : null,
-                body.kind === 'lift' ? (body.rir ?? -1) : null,
-                body.kind === 'cardio' ? body.durationSec : null,
-                body.kind === 'cardio' ? (body.distanceM ?? null) : null,
-                body.kind === 'cardio' ? (body.avgPaceSecPerKm ?? null) : null,
-            ]
-        );
-        // Decode weight_raw → weight_kg before returning to client
-        res.status(201).json(normalizeSet(rows[0]));
+        const insertParams = [
+            body.workoutId, req.user.id, body.exerciseId, body.kind, body.setIndex,
+            body.kind === 'lift' ? body.reps : null,
+            // Encode weight_kg → weight_raw (kg × 8) for SMALLINT storage
+            body.kind === 'lift' ? encodeWeight(body.weightKg) : null,
+            body.kind === 'lift' ? (body.rir ?? -1) : null,
+            body.kind === 'cardio' ? body.durationSec : null,
+            body.kind === 'cardio' ? (body.distanceM ?? null) : null,
+            body.kind === 'cardio' ? (body.avgPaceSecPerKm ?? null) : null,
+            body.note ?? null,
+            body.flags ?? 0,
+        ];
+
+        try {
+            // TICKET-129: try the note/flags-aware INSERT first.
+            const { rows } = await pool.query(
+                `INSERT INTO sets
+                    (workout_id, user_id, exercise_id, kind, set_index,
+                     reps, weight_raw, rir,
+                     duration_sec, distance_m, avg_pace_sec_per_km,
+                     note, flags)
+                 VALUES ($1, $2, $3, $4, $5,
+                         $6, $7, $8,
+                         $9, $10, $11,
+                         $12, $13)
+                 RETURNING id, workout_id, user_id, exercise_id, kind, set_index,
+                           reps, weight_raw, rir,
+                           duration_sec, distance_m, avg_pace_sec_per_km,
+                           note, flags,
+                           logged_at`,
+                // NOTE (2026-06-01): removed `is_pr` from RETURNING — there is no
+                // is_pr column on `sets` in any migration, so this RETURNING 500'd
+                // every POST /sets (logging a set was completely broken). PR status
+                // is derived client-side in useWorkoutHistory.ts (prIds.has(set.id))
+                // against the exercise_prs table; it is NOT a column on sets and the
+                // client never reads it from this response. See TICKET-068 / L-017.
+                insertParams
+            );
+            // Decode weight_raw → weight_kg before returning to client
+            return res.status(201).json(normalizeSet(rows[0]));
+        } catch (err) {
+            // Drift guard (CLAUDE.md §4): a prod DB that hasn't yet run the
+            // note/flags migration 42703s on the new columns — degrade to the
+            // pre-129 INSERT rather than 500ing every set log for every user.
+            if (!isMissingSchema(err)) throw err;
+            const { rows } = await pool.query(
+                `INSERT INTO sets
+                    (workout_id, user_id, exercise_id, kind, set_index,
+                     reps, weight_raw, rir,
+                     duration_sec, distance_m, avg_pace_sec_per_km)
+                 VALUES ($1, $2, $3, $4, $5,
+                         $6, $7, $8,
+                         $9, $10, $11)
+                 RETURNING id, workout_id, user_id, exercise_id, kind, set_index,
+                           reps, weight_raw, rir,
+                           duration_sec, distance_m, avg_pace_sec_per_km,
+                           logged_at`,
+                insertParams.slice(0, 11)
+            );
+            return res.status(201).json(normalizeSet(rows[0]));
+        }
+    } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /sets/:id — TICKET-129: update note / flags on an already-logged set.
+//
+// Ownership-checked (WHERE id = $1 AND user_id = $2, same guardrail as every
+// other per-row route). Weight/reps corrections still go through the
+// delete+re-log replace path (mobile/src/data/setEditing.ts) — this endpoint
+// ONLY ever touches note/flags, so it can't be used to smuggle a weight edit
+// past that path's ownership + PR-recompute semantics.
+// ---------------------------------------------------------------------------
+router.patch('/:id', async (req, res, next) => {
+    try {
+        const patch = PatchNoteFlagsSchema.parse(req.body);
+        if (patch.note === undefined && patch.flags === undefined) {
+            return res.status(400).json({ error: 'no_fields' });
+        }
+
+        const sets = [];
+        const params = [];
+        if (patch.note !== undefined) {
+            params.push(patch.note);
+            sets.push(`note = $${params.length}`);
+        }
+        if (patch.flags !== undefined) {
+            params.push(patch.flags);
+            sets.push(`flags = $${params.length}`);
+        }
+        params.push(req.params.id, req.user.id);
+
+        try {
+            const { rows } = await pool.query(
+                `UPDATE sets SET ${sets.join(', ')}
+                 WHERE id = $${params.length - 1} AND user_id = $${params.length}
+                 RETURNING id, workout_id, user_id, exercise_id, kind, set_index,
+                           reps, weight_raw, rir,
+                           duration_sec, distance_m, avg_pace_sec_per_km,
+                           note, flags, logged_at`,
+                params
+            );
+            if (!rows[0]) return res.status(404).json({ error: 'not_found' });
+            return res.json(normalizeSet(rows[0]));
+        } catch (err) {
+            // Drift guard: prod hasn't migrated yet — there is nothing to patch,
+            // degrade to 404 rather than 500 (the columns don't exist to update).
+            if (isMissingSchema(err)) {
+                return res.status(404).json({ error: 'not_found' });
+            }
+            throw err;
+        }
     } catch (err) { next(err); }
 });
 

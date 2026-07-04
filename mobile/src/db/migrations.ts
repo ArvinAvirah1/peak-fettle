@@ -24,7 +24,7 @@
  * SPEC-094A Agent L, 2026-06-12.
  */
 
-import { SCHEMA_V2_STATEMENTS, SCHEMA_V3_STATEMENTS, SCHEMA_V4_STATEMENTS, SCHEMA_V5_STATEMENTS, SCHEMA_V6_STATEMENTS, SCHEMA_V7_STATEMENTS, SCHEMA_V8_STATEMENTS, SCHEMA_V9_STATEMENTS, SCHEMA_V10_STATEMENTS, MigrationStatement } from './localSchema';
+import { SCHEMA_V2_STATEMENTS, SCHEMA_V3_STATEMENTS, SCHEMA_V4_STATEMENTS, SCHEMA_V5_STATEMENTS, SCHEMA_V6_STATEMENTS, SCHEMA_V7_STATEMENTS, SCHEMA_V8_STATEMENTS, SCHEMA_V9_STATEMENTS, SCHEMA_V10_STATEMENTS, SCHEMA_V11_STATEMENTS, SCHEMA_V12_STATEMENTS, MigrationStatement } from './localSchema';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -171,7 +171,21 @@ const MIGRATION_V10: MigrationVersion = {
   statements: SCHEMA_V10_STATEMENTS,
 };
 
-export const MIGRATIONS: MigrationVersion[] = [MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6, MIGRATION_V7, MIGRATION_V8, MIGRATION_V9, MIGRATION_V10];
+// v11: TICKET-129 — per-set notes + flags (adds sets.note TEXT, sets.flags
+// INTEGER DEFAULT 0). Both guarded ALTER ADD COLUMN, additive-only.
+const MIGRATION_V11: MigrationVersion = {
+  v: 11,
+  statements: SCHEMA_V11_STATEMENTS,
+};
+
+// v12: TICKET-130 — body measurements module (creates `body_measurements` +
+// its metric/logged_at index). CREATE ... IF NOT EXISTS, idempotent.
+const MIGRATION_V12: MigrationVersion = {
+  v: 12,
+  statements: SCHEMA_V12_STATEMENTS,
+};
+
+export const MIGRATIONS: MigrationVersion[] = [MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6, MIGRATION_V7, MIGRATION_V8, MIGRATION_V9, MIGRATION_V10, MIGRATION_V11, MIGRATION_V12];
 
 // ---------------------------------------------------------------------------
 // Runner

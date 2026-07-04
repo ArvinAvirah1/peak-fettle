@@ -47,6 +47,10 @@ import {
   displayExerciseName,
 } from '../src/data/exerciseNames';
 import { deleteSetById } from '../src/data/setEditing';
+// TICKET-129: per-set notes + flags (tier-branched local/Pro read+write, plus
+// the shared flag-label/bitmask helpers and the note/flags bottom sheet).
+import { saveSetNoteFlags, flagLabels } from '../src/data/setNotes';
+import { SetNoteSheet } from '../src/components/logger/SetNoteSheet';
 import {
   WorkoutLoggerHost,
   WorkoutLoggerRef,
@@ -96,6 +100,9 @@ interface ApiSet {
   duration_sec?: number;
   distance_m?: number | null;
   created_at: string;
+  // TICKET-129
+  note?: string | null;
+  flags?: number | null;
 }
 
 interface ExerciseGroup {
@@ -275,6 +282,9 @@ interface LocalSetRow {
   duration_sec: number | null;
   distance_m: number | null;
   logged_at: string;
+  // TICKET-129
+  note: string | null;
+  flags: number | null;
 }
 
 /**
@@ -342,6 +352,9 @@ async function fetchLocalDayData(date: string): Promise<DayData> {
     duration_sec: r.duration_sec ?? undefined,
     distance_m: r.distance_m ?? null,
     created_at: r.logged_at,
+    // TICKET-129
+    note: r.note ?? null,
+    flags: r.flags ?? 0,
   }));
 
   const groupOrder: string[] = [];
@@ -402,25 +415,97 @@ interface SetRowProps {
   unitPref: UnitSystem;
   /** TICKET-128: RIR ⇄ RPE display toggle. Defaults to 'rir' (unchanged copy). */
   effortDisplay?: EffortDisplay;
+  /** TICKET-129: open the note/flags sheet for this set. */
+  onOpenNote?: (set: ApiSet) => void;
 }
 
-function SetRow({ set, setNumber, isBest, unitPref, effortDisplay = 'rir' }: SetRowProps): React.ReactElement {
+/** TICKET-129: truncated-with-expand note + flag chip row, shown under a SetRow when annotated. */
+function SetAnnotation({ note, flags }: { note: string | null | undefined; flags: number | null | undefined }): React.ReactElement | null {
+  const { theme: { colors }, spacing, fontSize, radius } = useTheme();
+  const [expanded, setExpanded] = useState(false);
+  const labels = flagLabels(flags);
+  const hasNote = !!note && note.trim() !== '';
+  if (!hasNote && labels.length === 0) return null;
+
+  const TRUNCATE_AT = 60;
+  const noteText = note ?? '';
+  const isLong = noteText.length > TRUNCATE_AT;
+  const displayText = expanded || !isLong ? noteText : `${noteText.slice(0, TRUNCATE_AT)}…`;
+
+  return (
+    <View style={{ paddingLeft: 44, paddingBottom: spacing.s2, gap: spacing.s1 }}>
+      {labels.length > 0 ? (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s1 }}>
+          {labels.map((label) => (
+            <View
+              key={label}
+              style={{
+                paddingHorizontal: spacing.s2,
+                paddingVertical: 2,
+                borderRadius: radius.full,
+                backgroundColor: colors.accentDefault + '1A',
+              }}
+            >
+              <Text style={{ fontSize: fontSize.micro, color: colors.accentDefault }}>{label}</Text>
+            </View>
+          ))}
+        </View>
+      ) : null}
+      {hasNote ? (
+        <TouchableOpacity
+          onPress={() => isLong && setExpanded((e) => !e)}
+          disabled={!isLong}
+          accessibilityRole={isLong ? 'button' : undefined}
+          accessibilityLabel={isLong ? (expanded ? 'Collapse note' : 'Expand note') : undefined}
+        >
+          <Text style={{ fontSize: fontSize.caption, color: colors.textTertiary, fontStyle: 'italic' }}>
+            {`"${displayText}"`}{isLong ? (expanded ? '  (less)' : '  (more)') : ''}
+          </Text>
+        </TouchableOpacity>
+      ) : null}
+    </View>
+  );
+}
+
+function SetRow({ set, setNumber, isBest, unitPref, effortDisplay = 'rir', onOpenNote }: SetRowProps): React.ReactElement {
   const { theme: { colors }, spacing, fontSize, fontWeight } = useTheme();
 
   const accentColor = isBest ? colors.accentDefault : colors.textPrimary;
   const subColor = isBest ? colors.accentDefault : colors.textSecondary;
+  const hasAnnotation = (!!set.note && set.note.trim() !== '') || !!(set.flags && set.flags !== 0);
+
+  // TICKET-129: small note-icon button — tap opens the note/flags sheet. Kept
+  // separate from the row's own tap-to-edit / long-press-to-delete gestures
+  // (workout-day already uses both) so there's no gesture conflict.
+  const noteButton = onOpenNote ? (
+    <TouchableOpacity
+      onPress={() => onOpenNote(set)}
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      accessibilityRole="button"
+      accessibilityLabel={hasAnnotation ? 'Edit set note' : 'Add set note'}
+      style={{ paddingHorizontal: spacing.s1 }}
+    >
+      <Text style={{ fontSize: fontSize.bodySm, color: hasAnnotation ? colors.accentDefault : colors.textTertiary }}>
+        {hasAnnotation ? '📝' : '🗒️'}
+      </Text>
+    </TouchableOpacity>
+  ) : null;
 
   if (set.kind === 'cardio') {
     const duration = set.duration_sec ? formatDuration(set.duration_sec) : '—';
     const distance = set.distance_m ? formatDistance(set.distance_m) : null;
     return (
-      <View style={[styles.setRow, { paddingVertical: spacing.s2 }]}>
-        <Text style={[styles.setLabel, { color: colors.textTertiary, fontSize: fontSize.bodySm }]}>
-          {`Set ${setNumber}`}
-        </Text>
-        <Text style={[styles.setDetail, { color: accentColor, fontSize: fontSize.bodySm, fontVariant: ['tabular-nums'] }]}>
-          {duration}{distance ? `  ·  ${distance}` : ''}
-        </Text>
+      <View>
+        <View style={[styles.setRow, { paddingVertical: spacing.s2 }]}>
+          <Text style={[styles.setLabel, { color: colors.textTertiary, fontSize: fontSize.bodySm }]}>
+            {`Set ${setNumber}`}
+          </Text>
+          <Text style={[styles.setDetail, { flex: 1, color: accentColor, fontSize: fontSize.bodySm, fontVariant: ['tabular-nums'] }]}>
+            {duration}{distance ? `  ·  ${distance}` : ''}
+          </Text>
+          {noteButton}
+        </View>
+        <SetAnnotation note={set.note} flags={set.flags} />
       </View>
     );
   }
@@ -437,39 +522,43 @@ function SetRow({ set, setNumber, isBest, unitPref, effortDisplay = 'rir' }: Set
   const effortLabel = formatEffort(set.rir ?? null, effortDisplay);
 
   return (
-    <View style={[styles.setRow, { paddingVertical: spacing.s2, minHeight: 48 }]}>
-      <Text
-        style={{
-          color: colors.textTertiary,
-          fontSize: fontSize.bodySm,
-          fontVariant: ['tabular-nums'],
-          minWidth: 44,
-        }}
-      >
-        {`Set ${setNumber}`}
-      </Text>
-      <Text
-        style={{
-          flex: 1,
-          color: accentColor,
-          fontSize: fontSize.bodySm,
-          fontWeight: isBest ? fontWeight.semibold : fontWeight.regular,
-          fontVariant: ['tabular-nums'],
-        }}
-      >
-        {`${weightDisplay} × ${reps} reps`}
-        {effortLabel ? ` · ${effortLabel}` : ''}
-        {isBest ? '  ★' : ''}
-      </Text>
-      <Text
-        style={{
-          color: subColor,
-          fontSize: fontSize.bodySm,
-          fontVariant: ['tabular-nums'],
-        }}
-      >
-        {`e1RM ~${e1rmDisplay}`}
-      </Text>
+    <View>
+      <View style={[styles.setRow, { paddingVertical: spacing.s2, minHeight: 48 }]}>
+        <Text
+          style={{
+            color: colors.textTertiary,
+            fontSize: fontSize.bodySm,
+            fontVariant: ['tabular-nums'],
+            minWidth: 44,
+          }}
+        >
+          {`Set ${setNumber}`}
+        </Text>
+        <Text
+          style={{
+            flex: 1,
+            color: accentColor,
+            fontSize: fontSize.bodySm,
+            fontWeight: isBest ? fontWeight.semibold : fontWeight.regular,
+            fontVariant: ['tabular-nums'],
+          }}
+        >
+          {`${weightDisplay} × ${reps} reps`}
+          {effortLabel ? ` · ${effortLabel}` : ''}
+          {isBest ? '  ★' : ''}
+        </Text>
+        <Text
+          style={{
+            color: subColor,
+            fontSize: fontSize.bodySm,
+            fontVariant: ['tabular-nums'],
+          }}
+        >
+          {`e1RM ~${e1rmDisplay}`}
+        </Text>
+        {noteButton}
+      </View>
+      <SetAnnotation note={set.note} flags={set.flags} />
     </View>
   );
 }
@@ -549,6 +638,40 @@ export default function WorkoutDayScreen(): React.ReactElement {
   // the card omits the streak line).
   const [shareVisible, setShareVisible] = useState(false);
   const { streak: shareStreakWeeks } = useLocalStreak(0, false);
+
+  // TICKET-129: per-set note/flags sheet — target set is whichever row's note
+  // icon was tapped; null = sheet closed.
+  const [noteTarget, setNoteTarget] = useState<ApiSet | null>(null);
+  const handleOpenNote = useCallback((set: ApiSet) => setNoteTarget(set), []);
+  const noteSheetLabel = useMemo(() => {
+    if (!noteTarget) return undefined;
+    for (const g of dayData?.exerciseGroups ?? []) {
+      const idx = g.sets.findIndex((s) => s.id === noteTarget.id);
+      if (idx >= 0) return `${g.exerciseName} — Set ${idx + 1}`;
+    }
+    return 'Set note';
+  }, [noteTarget, dayData]);
+  const handleSaveNote = useCallback(
+    async (patch: { note?: string | null; flags?: number }) => {
+      if (!noteTarget) return;
+      await saveSetNoteFlags(user, noteTarget.id, patch);
+      // Reflect the change immediately without a full reload flicker: patch the
+      // in-memory dayData so the chip/annotation update right away, and also
+      // patch noteTarget so the open sheet keeps showing the latest state.
+      setNoteTarget((prev) => (prev ? { ...prev, ...patch } : prev));
+      setDayData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          exerciseGroups: prev.exerciseGroups.map((g) => ({
+            ...g,
+            sets: g.sets.map((s) => (s.id === noteTarget.id ? { ...s, ...patch } : s)),
+          })),
+        };
+      });
+    },
+    [noteTarget, user],
+  );
 
   // TICKET-128: RIR ⇄ RPE display toggle — local-only KV read, zero network,
   // safe on mount. Defaults to 'rir' until loaded (unchanged existing copy).
@@ -960,6 +1083,7 @@ export default function WorkoutDayScreen(): React.ReactElement {
                 isBest={bestSetIds.has(item.id)}
                 unitPref={unitPref}
                 effortDisplay={effortDisplay}
+                onOpenNote={handleOpenNote}
               />
             </TouchableOpacity>
           )}
@@ -1008,6 +1132,16 @@ export default function WorkoutDayScreen(): React.ReactElement {
           })),
         )}
         unitPref={unitPref}
+      />
+
+      {/* TICKET-129: per-set note + quick-tap flags. */}
+      <SetNoteSheet
+        visible={!!noteTarget}
+        onClose={() => setNoteTarget(null)}
+        initialNote={noteTarget?.note}
+        initialFlags={noteTarget?.flags}
+        setLabel={noteSheetLabel}
+        onSave={handleSaveNote}
       />
     </ScreenLayout>
   );

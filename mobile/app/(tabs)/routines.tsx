@@ -31,6 +31,7 @@ import {
   Pressable,
   KeyboardAvoidingView,
   Platform,
+  Share,
   Animated as RNAnimated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -60,6 +61,7 @@ import { useTourAnchor } from '../../src/components/tour/WelcomeTour'; // TICKET
 import ScheduleEditorSheet from '../../src/components/ScheduleEditorSheet'; // TICKET-097
 import { loadSchedule, resolveNextUp, skipToNext, Schedule, NextUp, ScheduleSlot } from '../../src/data/schedule';
 import { localDb } from '../../src/db/localDb'; // TICKET-097: react to schedule changes
+import { createShareLink } from '../../src/data/shareLinks'; // TICKET-138
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -305,6 +307,35 @@ export default function RoutinesPage(): React.ReactElement {
     }
   }, [user, userId, showToast]);
 
+  // TICKET-138: share a routine via a server-hosted link + OS share sheet.
+  // Creating a share link is an explicit, user-initiated network action —
+  // allowed on BOTH tiers (see tierPolicy.ts comment next to the weekly-signal
+  // carve-out). It always requires an account (server-hosted), so it is
+  // gated on being signed in at all, never on is_paid.
+  const [sharingId, setSharingId] = useState<string | null>(null);
+  const handleShare = useCallback(async (routine: Routine) => {
+    if (!userId) {
+      Alert.alert('Sign in required', 'Sign in to create a share link for this routine.');
+      return;
+    }
+    if (routine.exercises.length === 0) {
+      Alert.alert('Add an exercise first', `"${routine.name}" has no exercises yet.`);
+      return;
+    }
+    setSharingId(routine.id);
+    try {
+      const link = await createShareLink(routine.id);
+      await Share.share({
+        message: `Check out my "${routine.name}" routine on Peak Fettle: ${link.deep_link}\n(or open on the web: ${link.preview_url})`,
+        url: link.deep_link, // iOS uses `url` when present
+      });
+    } catch (err) {
+      Alert.alert('Error', err instanceof Error ? err.message : 'Could not create a share link');
+    } finally {
+      setSharingId(null);
+    }
+  }, [userId]);
+
   // Commit the inline rename (option 6).
   const commitRename = useCallback(async () => {
     const id = renamingId;
@@ -474,6 +505,20 @@ export default function RoutinesPage(): React.ReactElement {
   const renderRightActions = useCallback((routine: Routine) => () => (
     <View style={styles.swipeActions}>
       <TouchableOpacity
+        style={[styles.swipeAction, { backgroundColor: c.bgElevated }]}
+        onPress={() => handleShare(routine)}
+        disabled={sharingId === routine.id}
+        accessibilityRole="button"
+        accessibilityLabel={`Share ${routine.name}`}
+      >
+        {sharingId === routine.id ? (
+          <ActivityIndicator size="small" color={c.accentDefault} />
+        ) : (
+          <Ionicons name="share-outline" size={18} color={c.accentDefault} />
+        )}
+        <Text style={[styles.swipeActionLabel, { color: c.accentDefault }]}>Share</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
         style={[styles.swipeAction, { backgroundColor: c.accentSecondary }]}
         onPress={() => handleDuplicateRoutine(routine)}
         accessibilityRole="button"
@@ -503,7 +548,7 @@ export default function RoutinesPage(): React.ReactElement {
         </Text>
       </TouchableOpacity>
     </View>
-  ), [c, theme, handleDuplicateRoutine, openEditor, handleDelete]);
+  ), [c, theme, handleShare, sharingId, handleDuplicateRoutine, openEditor, handleDelete]);
 
   // ── Render ─────────────────────────────────────────────────────────────────
 

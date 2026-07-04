@@ -22,9 +22,10 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '../src/components/Icon';
 import { useTheme } from '../src/theme/ThemeContext';
-import { PFButton, PFProgressBar, ScreenLayout } from '../src/components/ui';
+import { PFButton, PFProgressBar, ScreenLayout, PressableCard } from '../src/components/ui';
 import { apiClient } from '../src/api/client';
 import { useAuth } from '../src/hooks/useAuth';
 import { isLocalFirst } from '../src/data/backup/tierPolicy';
@@ -467,6 +468,7 @@ export default function ProgressScreen(): React.ReactElement {
   const { theme, fontSize, fontWeight, radius, spacing } = useTheme();
   const { user } = useAuth();
   const localFirst = isLocalFirst(user);
+  const router = useRouter();
 
   const [data, setData] = useState<ProgressData | null>(null);
   const [cardioData, setCardioData] = useState<CardioData | null>(null);
@@ -597,6 +599,36 @@ export default function ProgressScreen(): React.ReactElement {
           </>
         )}
       </View>
+
+      {/* TICKET-130: body measurements module entry point — waist/chest/hips/
+          arms/thighs/calves/neck/body-fat % + custom metrics, each with its
+          own trend chart. Free tier: fully local; Pro: additive server sync
+          (see src/data/measurements.ts — tier-branched, no raw api import here). */}
+      <PressableCard
+        onPress={() => router.push('/measurements' as any)}
+        style={{
+          marginTop: spacing.s4,
+          marginBottom: spacing.s2,
+          borderRadius: radius.md,
+          borderWidth: 1,
+          borderColor: theme.colors.borderDefault,
+          backgroundColor: theme.colors.bgSecondary,
+          paddingHorizontal: spacing.s4,
+          paddingVertical: spacing.s4,
+        }}
+      >
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold, color: theme.colors.textPrimary }}>
+              Body measurements
+            </Text>
+            <Text style={{ fontSize: fontSize.caption, color: theme.colors.textSecondary, marginTop: 2 }}>
+              Waist, chest, arms, and more — track trends over time
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={theme.colors.textTertiary} />
+        </View>
+      </PressableCard>
 
       {/* ── Error state ── */}
       {error ? (

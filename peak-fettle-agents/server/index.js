@@ -21,6 +21,7 @@ const cosmeticsRoutes   = require('./routes/cosmetics');
 const constraintsRoutes  = require('./routes/constraints');   // TICKET-012
 const healthMetricsRoutes = require('./routes/healthMetrics'); // TICKET-013
 const userRoutes         = require('./routes/user');           // TICKET-014
+const measurementsRoutes = require('./routes/measurements');   // TICKET-130
 // PL-1/PL-2/PL-3 routes
 const templateRoutes     = require('./routes/templates');      // PL-1
 const csvImportRoutes    = require('./routes/csvImport');      // PL-2
@@ -29,6 +30,7 @@ const insightsRoutes     = require('./routes/insights');       // TICKET-engine 
 const backupRoutes       = require('./routes/backup');         // TICKET-094-B §4 Agent F
 const lifeosRoutes       = require('./routes/lifeos');         // LIFEOS TICKET-111
 const partnerRoutes      = require('./routes/partner');        // LIFEOS TICKET-121 (public, code-based)
+const { routineShareRouter, shareRouter } = require('./routes/shareLinks'); // TICKET-138
 const { errorHandler } = require('./middleware/errorHandler');
 const { requireAuth }  = require('./middleware/requireAuth');
 
@@ -88,6 +90,17 @@ const partnerLimiter = rateLimit({
     message: { error: 'too_many_requests' },
 });
 
+// TICKET-138: GET /share/:linkId is PUBLIC (the recipient has no account —
+// same posture as partnerLimiter above), so rate-limit hard against link-id
+// enumeration. 30 reads/min per IP is ample for a human opening a shared link.
+const shareLinkLimiter = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'too_many_requests' },
+});
+
 // Health check (not rate-limited — load balancer / uptime monitors use this)
 // Health check also reports whether the beta tier-toggle escape hatch is
 // VISIBLE to this process (boolean only - never echoes secrets). Lets ops
@@ -125,6 +138,14 @@ app.use('/exercises', (req, res, next) => {
 // PL-1: Template library — public read, no auth required
 app.use('/templates', templateRoutes);
 app.use('/routines',  requireAuth, routinesRoutes); // TICKET-055/056
+// TICKET-138: routine share-link create/revoke — same /routines prefix, so it
+// inherits the requireAuth above. NOT behind requirePaid: creating a share
+// link is the explicit user-initiated network action carve-out (free tier may
+// use it too — see tierPolicy.ts comment).
+app.use('/routines',  requireAuth, routineShareRouter);
+// TICKET-138: GET /share/:linkId is PUBLIC (no account for the recipient) —
+// hard rate-limited like /partner above, mounted OUTSIDE requireAuth.
+app.use('/share', shareLinkLimiter, shareRouter);
 
 // Protected routes — JWT required
 app.use('/workouts',   requireAuth, workoutsRoutes);
@@ -154,6 +175,7 @@ app.use('/constraints',   requireAuth, constraintsRoutes);
 
 // Phase C — TICKET-013: wearable health metrics (HealthKit sync)
 app.use('/health-metrics', requireAuth, healthMetricsRoutes);
+app.use('/measurements', requireAuth, measurementsRoutes); // TICKET-130
 
 // Phase C — TICKET-014: GDPR data export + account deletion
 app.use('/user', requireAuth, userRoutes);

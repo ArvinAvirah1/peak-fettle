@@ -195,15 +195,15 @@ function eq(a, b, msg) {
     await runMigrations(db);
     const v2 = db._pragmas.user_version;
     eq(v1, v2, 'version changed on second run:');
-    eq(v1, 10, 'expected version 10:');
+    eq(v1, 12, 'expected version 12:');
   });
 
   // 2. Fresh install reaches the latest version
-  await test('fresh install reaches user_version 10', async () => {
+  await test('fresh install reaches user_version 12', async () => {
     const db = makeStubDb();
     eq(db._pragmas.user_version, 0, 'starts at 0:');
     await runMigrations(db);
-    eq(db._pragmas.user_version, 10, 'should be 10 after migration:');
+    eq(db._pragmas.user_version, 12, 'should be 12 after migration:');
   });
 
   // 3. v2 tables created (10 spot-checked)
@@ -270,6 +270,61 @@ function eq(a, b, msg) {
       db._executedSql.some((s) => /idx_workouts_routine_name/i.test(s)),
       'v10 routine_name index statement never executed'
     );
+  });
+
+  // 3f. TICKET-129: v11 guarded ALTERs land sets.note + sets.flags on a fresh install.
+  await test('fresh install adds sets.note and sets.flags (v11)', async () => {
+    const db = makeStubDb();
+    await runMigrations(db);
+    const cols = db._tableColumns['sets'];
+    assert(cols, 'sets has no recorded columns');
+    assert(cols.has('note'), 'sets.note column missing after v11 migration');
+    assert(cols.has('flags'), 'sets.flags column missing after v11 migration');
+  });
+
+  // 3g. TICKET-130: v12 creates the body_measurements table + its index.
+  await test('fresh install creates body_measurements table + index (v12)', async () => {
+    const db = makeStubDb();
+    await runMigrations(db);
+    assert(db._createdTables.has('body_measurements'), 'table not created: body_measurements');
+    const cols = db._tableColumns['body_measurements'];
+    assert(cols, 'body_measurements has no recorded columns');
+    for (const c of ['id', 'metric', 'value', 'unit', 'logged_at', 'synced']) {
+      assert(cols.has(c), 'body_measurements.' + c + ' column missing after v12 migration');
+    }
+    assert(
+      db._executedSql.some((s) => /idx_body_measurements_metric/i.test(s)),
+      'v12 body_measurements metric index statement never executed'
+    );
+  });
+
+  // 3h. v3(exact-kg)->v10 upgrade path: a DB already at user_version 10 (the
+  // pre-129/130 baseline) picks up ONLY v11+v12 on the next launch, and ends
+  // at 12 — proves the upgrade path (not just fresh-install) for both new
+  // migrations, per the ticket's "fresh-install AND vN->vN+1 upgrade" DoD.
+  await test('v10 -> v11 -> v12 upgrade path applies only the new migrations', async () => {
+    const db = makeStubDb();
+    // Pre-seed a DB "already at v10": create the tables/columns v1..v10 would
+    // have produced (sets base columns + weight_kg, workouts.routine_name,
+    // app_settings, etc.) and set user_version = 10 directly, bypassing the
+    // runner so this test simulates an existing installed app, not a fresh one.
+    await db.execute(
+      `CREATE TABLE IF NOT EXISTS sets (
+        id TEXT PRIMARY KEY, workout_id TEXT, weight_raw INTEGER, weight_kg REAL,
+        metrics_json TEXT
+      )`,
+    );
+    db._pragmas.user_version = 10;
+    db._executedSql.length = 0; // reset so this test's assertions only see the NEW work
+
+    await runMigrations(db);
+
+    eq(db._pragmas.user_version, 12, 'should reach 12 from a v10 baseline:');
+    assert(db._tableColumns['sets'].has('note'), 'v10->v11 upgrade missing sets.note');
+    assert(db._tableColumns['sets'].has('flags'), 'v10->v11 upgrade missing sets.flags');
+    assert(db._createdTables.has('body_measurements'), 'v11->v12 upgrade missing body_measurements');
+    // The pre-existing v3 columns must NOT have been touched/duplicated (additive-only).
+    assert(db._tableColumns['sets'].has('weight_kg'), 'pre-existing weight_kg column lost on upgrade');
   });
 
   // 4. SCHEMA_V2_STATEMENTS shape
@@ -343,14 +398,15 @@ function eq(a, b, msg) {
     eq(BACKUP_SCHEMA_VERSION, 2, 'BACKUP_SCHEMA_VERSION:');
   });
 
-  // 9. BACKUP_TABLES contains all 22 tables
-  await test('BACKUP_TABLES contains all 22 registered tables', () => {
+  // 9. BACKUP_TABLES contains all 23 tables
+  await test('BACKUP_TABLES contains all 23 registered tables', () => {
     const expected = [
       'workouts', 'sets', 'schedule', 'avatar', 'bodyweight', 'exercise_prefs', 'exercise_goals',
       'plans', 'routines', 'streaks', 'streak_overrides', 'daily_health_log', 'daily_health_metrics',
       'habits', 'user_weekly_goals', 'user_constraints', 'exercise_prs', 'user_confirmed_1rm',
       'user_cosmetics', 'user_equipped_cosmetics', 'user_profile',
       'generated_plans', // v9
+      'body_measurements', // v12 (TICKET-130)
     ];
     eq(BACKUP_TABLES.length, expected.length,
       'BACKUP_TABLES.length ' + BACKUP_TABLES.length + ' expected ' + expected.length + ':');
@@ -365,6 +421,36 @@ function eq(a, b, msg) {
     eq(doc.schemaVersion, 2, 'schemaVersion:');
     eq(doc.format, 'peak-fettle-backup', 'format:');
     assert(typeof doc.exportedAt === 'string', 'exportedAt should be string');
+  });
+
+  // 11. TICKET-129/130: export -> import round-trip survives sets.note/flags
+  // and a body_measurements row (AC5 / AC1 respectively — "confirm exportEngine
+  // picks up the new columns ... prove they survive an export->import round-trip").
+  await test('export->import round-trip preserves sets.note/flags + body_measurements', () => {
+    const tables = {
+      sets: [
+        {
+          id: 's1', workout_id: 'w1', user_id: 'u1', exercise_id: 'e1', kind: 'lift',
+          set_index: 0, reps: 5, weight_kg: 100, rir: 2, note: 'felt pinchy',
+          flags: 5, // paused (1) + belt (4)
+          logged_at: '2026-07-03T00:00:00.000Z', synced: 0,
+        },
+      ],
+      body_measurements: [
+        { id: 'm1', metric: 'waist', value: 81.5, unit: 'cm', logged_at: '2026-07-03T00:00:00.000Z', synced: 0 },
+      ],
+    };
+    const doc = makeExportDoc(tables);
+    // Round-trip through JSON, exactly as the real export/import (file) path does.
+    const roundTripped = JSON.parse(JSON.stringify(doc));
+    const result = parseImport(roundTripped, BACKUP_SCHEMA_VERSION);
+    assert(result.ok, 'round-trip parseImport failed');
+    eq(result.tables['sets'].length, 1, 'sets row survives round-trip:');
+    eq(result.tables['sets'][0].note, 'felt pinchy', 'sets.note survives round-trip:');
+    eq(result.tables['sets'][0].flags, 5, 'sets.flags survives round-trip:');
+    eq(result.tables['body_measurements'].length, 1, 'body_measurements row survives round-trip:');
+    eq(result.tables['body_measurements'][0].metric, 'waist', 'body_measurements.metric survives round-trip:');
+    eq(result.tables['body_measurements'][0].value, 81.5, 'body_measurements.value survives round-trip:');
   });
 
   // ---------------------------------------------------------------------------

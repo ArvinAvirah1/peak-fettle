@@ -29,10 +29,11 @@
  */
 
 import React, { useEffect } from 'react';
-import { Stack } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { ActivityIndicator, View, StyleSheet, Text, ScrollView, InteractionManager } from 'react-native';
+import { ActivityIndicator, View, StyleSheet, Text, ScrollView, InteractionManager, Alert } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import * as Linking from 'expo-linking';
 
 import { AuthProvider } from '../src/context/AuthContext';
 import { PowerSyncProvider } from '../src/context/PowerSyncContext';
@@ -45,6 +46,7 @@ import { TourProvider } from '../src/components/tour/WelcomeTour'; // TICKET-095
 import { startWidgetBridge } from '../src/services/widgetBridge'; // WIDGET-001
 import { localDb } from '../src/db/localDb'; // warm on-device SQLite once at root
 import { startPerfMonitor } from '../src/diagnostics/perfMonitor';
+import { parseRoutineShareUrl, importSharedRoutine } from '../src/data/shareLinks'; // TICKET-138
 
 // Perf diagnostics (2026-07-02): start at BUNDLE EVAL, before first render, so
 // the boot window - where the free-tier freeze lives - is captured. JS-only
@@ -123,8 +125,9 @@ class BootErrorBoundary extends React.Component<
 // ---------------------------------------------------------------------------
 
 function RootNavigator(): React.ReactElement {
-  const { isLoading, isAuthenticated } = useAuth();
+  const { isLoading, isAuthenticated, user } = useAuth();
   const { theme } = useTheme();
+  const router = useRouter();
 
   // Push-token registration (IOS-26-CRASH-FIX, part 3 — 2026-05-30).
   // Two changes vs the old "fire on !isLoading" effect:
@@ -158,6 +161,56 @@ function RootNavigator(): React.ReactElement {
     });
     return () => task.cancel();
   }, [isLoading]);
+
+  // TICKET-138: deep-link import — peak-fettle://routine/<linkId> (or the
+  // https://.../share/<linkId> web-preview fallback). Handles both a cold
+  // start (Linking.getInitialURL) and a link opened while the app is already
+  // running (Linking.addEventListener('url', ...)). The import itself is an
+  // explicit user-initiated network action (tierPolicy.ts carve-out) — the
+  // resulting routine is saved through the tier-branched data layer, so a
+  // free-tier importer never gets a personal REST round-trip out of this.
+  // Gated on isAuthenticated (not is_paid): both tiers can import, but there
+  // must be a signed-in account to own the new local/server routine row.
+  useEffect(() => {
+    if (isLoading) return;
+
+    let cancelled = false;
+
+    async function handleUrl(url: string | null): Promise<void> {
+      if (!url || cancelled) return;
+      const linkId = parseRoutineShareUrl(url);
+      if (!linkId) return;
+
+      if (!isAuthenticated || !user?.id) {
+        Alert.alert('Sign in required', 'Sign in to import a shared routine.');
+        return;
+      }
+
+      try {
+        const imported = await importSharedRoutine(user, linkId, user.id);
+        if (cancelled) return;
+        Alert.alert('Routine imported', `"${imported.name}" was added to your routines.`);
+        router.push('/(tabs)/routines' as any); // typed-routes lag (pre-existing pattern)
+      } catch (err) {
+        if (cancelled) return;
+        Alert.alert(
+          'Could not import routine',
+          err instanceof Error ? err.message : 'This share link may have expired or been revoked.',
+        );
+      }
+    }
+
+    // Cold start: the app was launched BY the link.
+    Linking.getInitialURL().then(handleUrl).catch(() => {});
+    // Warm start: the app was already running when the link was opened.
+    const sub = Linking.addEventListener('url', (e) => { handleUrl(e.url); });
+
+    return () => {
+      cancelled = true;
+      sub.remove();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading, isAuthenticated, user?.id]);
 
   // Warm the on-device SQLite database ONCE at the app root so no individual tab
   // pays the cold open/migrate cost on its first focus (the Routines/Home lists
@@ -221,6 +274,7 @@ function RootNavigator(): React.ReactElement {
         <Stack.Screen name="csv-import" options={{ title: 'Import Activity Data', headerShown: true, gestureEnabled: true }} />
 <Stack.Screen name="exercise-library" options={{ title: 'Exercise Library', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="progress" options={{ title: 'Progress', headerShown: true, gestureEnabled: true }} />
+        <Stack.Screen name="measurements" options={{ title: 'Body Measurements', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="workout-day" options={{ title: '', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="workout-history" options={{ title: 'Workout History', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="routine-history" options={{ title: '', headerShown: true, gestureEnabled: true }} />
@@ -281,8 +335,6 @@ export default function RootLayout(): React.ReactElement {
 
 // ---------------------------------------------------------------------------
 // Styles
-// ---------------------------------------------------------------------------
-
 const styles = StyleSheet.create({
   loadingContainer: {
     flex: 1,

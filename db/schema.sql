@@ -6947,3 +6947,60 @@ ALTER TABLE users
   ADD COLUMN IF NOT EXISTS muscle_priorities TEXT[],
   ADD COLUMN IF NOT EXISTS bodyweight_kg     NUMERIC(5,2),
   ADD COLUMN IF NOT EXISTS training_days     INTEGER[];
+
+
+-- ===========================================================================
+-- WAVE 2 FOLD (2026-07-03) — TICKET-129 / TICKET-130 / TICKET-138
+--
+-- 129: per-set notes + flags. Additive columns on `sets`; flags is a bitmask
+--      (1=paused, 2=tempo, 4=belt, 8=pin/rack, 16=discomfort — SET_FLAG_DEFS in
+--      mobile/src/db/localSchema.ts). Server routes (routes/sets.js, the GDPR
+--      export in routes/user.js) are drift-guarded and fall back to the legacy
+--      column set until this fold runs on prod.
+-- 130: body measurements (Pro sync only; free tier is 100% local). Mirrors the
+--      on-device `body_measurements` table (localSchema). unit ∈ cm|in|pct is
+--      enforced client-side; the server stays permissive (drift tolerance).
+-- 138: routine share links. Short unlisted ids, 90-day default expiry,
+--      revoke = DELETE. routes/shareLinks.js degrades 404 on 42P01/42703 until
+--      this fold runs. UNIQUE(routine_id) backs its ON CONFLICT upsert.
+-- All statements idempotent — safe to re-run (the whole-file "remake" rule).
+-- ===========================================================================
+
+ALTER TABLE sets ADD COLUMN IF NOT EXISTS note  TEXT;
+ALTER TABLE sets ADD COLUMN IF NOT EXISTS flags INTEGER DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS body_measurements (
+    id          TEXT        PRIMARY KEY,
+    user_id     UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    metric      TEXT        NOT NULL,
+    value       NUMERIC     NOT NULL,
+    unit        TEXT        NOT NULL,          -- 'cm' | 'in' | 'pct'
+    logged_at   TIMESTAMPTZ NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_body_measurements_user_metric
+    ON body_measurements(user_id, metric, logged_at);
+ALTER TABLE body_measurements ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+    CREATE POLICY "body_measurements_self_only" ON body_measurements
+        FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+CREATE TABLE IF NOT EXISTS routine_share_links (
+    id          TEXT        PRIMARY KEY,
+    routine_id  UUID        NOT NULL REFERENCES routines(id) ON DELETE CASCADE,
+    user_id     UUID        NOT NULL REFERENCES users(id)    ON DELETE CASCADE,
+    name        TEXT        NOT NULL CHECK (char_length(name) BETWEEN 1 AND 100),
+    exercises   JSONB       NOT NULL DEFAULT '[]'::jsonb,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at  TIMESTAMPTZ NOT NULL,
+    revoked_at  TIMESTAMPTZ,
+    CONSTRAINT routine_share_links_routine_unique UNIQUE (routine_id)
+);
+CREATE INDEX IF NOT EXISTS idx_routine_share_links_user   ON routine_share_links(user_id);
+CREATE INDEX IF NOT EXISTS idx_routine_share_links_expiry ON routine_share_links(expires_at);
+ALTER TABLE routine_share_links ENABLE ROW LEVEL SECURITY;
+DO $$ BEGIN
+    CREATE POLICY "routine_share_links_owner_only" ON routine_share_links
+        FOR ALL USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;

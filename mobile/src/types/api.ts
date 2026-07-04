@@ -114,6 +114,10 @@ export interface LiftSet {
   weight_kg: number;
   /** Reps-in-Reserve. -1 = not recorded, 0 = to failure. */
   rir: number | null;
+  /** TICKET-129: free-text note attached to this set. Null if none. */
+  note?: string | null;
+  /** TICKET-129: quick-tap flag bitmask (1=paused,2=tempo,4=belt,8=pin/rack,16=discomfort). */
+  flags?: number | null;
   // TYPE-001 fix (2026-05-16): `e1rm_kg: number | null` was removed because the
   // server-side column was dropped in `20260505_sets_weight_raw.sql`. The server's
   // `normalizeSet()` no longer emits the field, so any client read returned
@@ -135,6 +139,10 @@ export interface CardioSet {
   distance_m: number | null;
   avg_pace_sec_per_km: number | null;
   logged_at: string;
+  /** TICKET-129: free-text note attached to this set. Null if none. */
+  note?: string | null;
+  /** TICKET-129: quick-tap flag bitmask (1=paused,2=tempo,4=belt,8=pin/rack,16=discomfort). */
+  flags?: number | null;
 }
 
 export type WorkoutSet = LiftSet | CardioSet;
@@ -147,6 +155,10 @@ export interface LogLiftSetPayload {
   reps: number;
   weightKg: number;
   rir?: number;
+  /** TICKET-129: optional free-text note (max 500 chars server-side). */
+  note?: string;
+  /** TICKET-129: quick-tap flag bitmask (0-31). */
+  flags?: number;
 }
 
 export interface LogCardioSetPayload {
@@ -157,6 +169,10 @@ export interface LogCardioSetPayload {
   durationSec: number;
   distanceM?: number;
   avgPaceSecPerKm?: number;
+  /** TICKET-129: optional free-text note (max 500 chars server-side). */
+  note?: string;
+  /** TICKET-129: quick-tap flag bitmask (0-31). */
+  flags?: number;
 }
 
 export type LogSetPayload = LogLiftSetPayload | LogCardioSetPayload;

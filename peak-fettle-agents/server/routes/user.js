@@ -104,6 +104,22 @@ async function safeQuery(sql, params) {
     }
 }
 
+// TICKET-129 (2026-07-03): like safeQuery, but with a LEGACY fallback query —
+// used where the primary SELECT references additive columns (sets.note/flags)
+// a drifted prod DB may not have yet. 42703/42P01 → run the fallback instead
+// of degrading the whole category to empty rows.
+async function queryWithColumnFallback(primarySql, fallbackSql, params) {
+    try {
+        return await pool.query(primarySql, params);
+    } catch (e) {
+        if (e && (e.code === '42P01' || e.code === '42703')) {
+            console.warn('[data-export] column fallback (%s)', e.code);
+            return pool.query(fallbackSql, params);
+        }
+        throw e;
+    }
+}
+
 // PATCH /profile helpers (Task 3, 2026-06-19) -------------------------------
 // DRIFTABLE_PROFILE_COLUMNS: optional survey columns a drifted prod DB may not
 // have yet. If the profile UPDATE hits 42703/42P01 we drop these and retry.
@@ -208,6 +224,7 @@ router.get('/data-export', exportLimiter, async (req, res, next) => {
             streaksResult,
             lifeosActivityResult,
             lifeosPartnerResult,
+            measurementsResult,
         ] = await Promise.all([
             pool.query(
                 `SELECT id, email, experience_level, weight_class_kg,
@@ -221,13 +238,27 @@ router.get('/data-export', exportLimiter, async (req, res, next) => {
                  ORDER BY day_key DESC`,
                 [uid]
             ),
-            pool.query(
-                // TYPE-001 follow-up (2026-05-16): `s.e1rm_kg` column was dropped
-                // in 20260505_sets_weight_raw.sql; the previous SELECT would have
-                // crashed any GDPR data-export request. Compute Epley inline from
-                // weight_raw — lift sets only.
+            queryWithColumnFallback(
+                // TICKET-129: include per-set note/flags when the columns exist;
+                // fall back to the legacy column set on a drifted prod DB.
                 `SELECT s.id, s.workout_id, e.name AS exercise_name,
-                        -- Decode weight_raw (SMALLINT, kg × 8) back to kg float for export
+                        s.weight_raw / 8.0 AS weight_kg,
+                        s.reps, s.rir, s.note, s.flags,
+                        CASE
+                            WHEN s.kind = 'lift' AND s.weight_raw > 0 AND s.reps >= 1 THEN
+                                CASE
+                                    WHEN s.reps = 1 THEN s.weight_raw / 8.0
+                                    ELSE (s.weight_raw / 8.0) * (1.0 + s.reps::float / 30.0)
+                                END
+                            ELSE NULL
+                        END AS e1rm_kg,
+                        s.set_index, s.logged_at
+                 FROM sets s
+                 JOIN workouts w ON w.id = s.workout_id
+                 JOIN exercises e ON e.id = s.exercise_id
+                 WHERE w.user_id = $1
+                 ORDER BY s.logged_at DESC`,
+                `SELECT s.id, s.workout_id, e.name AS exercise_name,
                         s.weight_raw / 8.0 AS weight_kg,
                         s.reps, s.rir,
                         CASE
@@ -284,6 +315,13 @@ router.get('/data-export', exportLimiter, async (req, res, next) => {
                  FROM lifeos_partner_summaries WHERE user_id = $1`,
                 [uid]
             ),
+            // TICKET-130: body measurements (additive table; absent on drifted prod → []).
+            safeQuery(
+                `SELECT id, metric, value, unit, logged_at
+                 FROM body_measurements WHERE user_id = $1
+                 ORDER BY logged_at DESC`,
+                [uid]
+            ),
         ]);
 
         const exportPayload = {
@@ -300,6 +338,7 @@ router.get('/data-export', exportLimiter, async (req, res, next) => {
                 'streaks',
                 'lifeos_activity_days',
                 'lifeos_partner_summary',
+                'body_measurements',
             ],
             profile:              profileResult.rows[0] ?? null,
             workouts:             workoutsResult.rows,
@@ -310,6 +349,7 @@ router.get('/data-export', exportLimiter, async (req, res, next) => {
             streaks:              streaksResult.rows[0] ?? null,
             lifeos_activity_days: lifeosActivityResult.rows,
             lifeos_partner_summary: lifeosPartnerResult.rows[0] ?? null,
+            body_measurements:    measurementsResult.rows,
         };
 
         // Send as a downloadable JSON file
@@ -1019,7 +1059,21 @@ router.get('/export.csv', exportLimiter, async (req, res, next) => {
     try {
         const uid = req.user.id;
 
-        const { rows } = await pool.query(
+        const { rows } = await queryWithColumnFallback(
+            `SELECT w.day_key,
+                    e.name AS exercise,
+                    s.weight_raw / 8.0 AS weight_kg,
+                    s.reps,
+                    s.rir,
+                    s.kind,
+                    s.note,
+                    s.flags
+             FROM sets s
+             JOIN workouts w ON w.id = s.workout_id
+             JOIN exercises e ON e.id = s.exercise_id
+             WHERE w.user_id = $1
+               AND s.kind = 'lift'
+             ORDER BY w.day_key DESC, s.logged_at DESC`,
             `SELECT w.day_key,
                     e.name AS exercise,
                     s.weight_raw / 8.0 AS weight_kg,
@@ -1042,7 +1096,7 @@ router.get('/export.csv', exportLimiter, async (req, res, next) => {
         res.setHeader('Content-Type', 'text/csv');
 
         // Write header
-        res.write('day_key,exercise,weight_kg,reps,rir,kind\n');
+        res.write('day_key,exercise,weight_kg,reps,rir,kind,note,flags\n');
 
         // Write rows — stream-friendly
         for (const row of rows) {
@@ -1052,7 +1106,10 @@ router.get('/export.csv', exportLimiter, async (req, res, next) => {
             const reps   = row.reps     != null ? row.reps    : '';
             const rir    = row.rir      != null ? row.rir     : '';
             const kind   = row.kind     != null ? row.kind    : '';
-            res.write(`${row.day_key},${exercise},${weight},${reps},${rir},${kind}\n`);
+            // TICKET-129: note/flags (empty when the legacy fallback query ran).
+            const note   = `"${String(row.note ?? '').replace(/"/g, '""')}"`;
+            const flags  = row.flags    != null ? row.flags   : '';
+            res.write(`${row.day_key},${exercise},${weight},${reps},${rir},${kind},${note},${flags}\n`);
         }
 
         res.end();

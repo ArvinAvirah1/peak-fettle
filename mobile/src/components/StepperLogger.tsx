@@ -122,6 +122,18 @@ export interface LoggedSet {
   durationSec?: number;
   distanceM?: number;
   avgPaceSecPerKm?: number;
+  /**
+   * TICKET-129: durable set id, present ONLY when this chip maps to an
+   * already-persisted row (e.g. history-edit sessions seeded from a past
+   * workout). Undefined for a set logged earlier in the CURRENT live session
+   * that hasn't round-tripped an id back yet — the note/flag affordance is
+   * hidden for those (onOpenSetNote is only invoked with a defined id).
+   */
+  id?: string;
+  /** TICKET-129: existing note text, if any (drives the chip's note dot). */
+  note?: string | null;
+  /** TICKET-129: existing flag bitmask, if any (drives the chip's note dot). */
+  flags?: number;
 }
 
 // Cardio log payload shape (mirrors api.ts LogCardioSetPayload)
@@ -358,6 +370,15 @@ interface Props {
   onStartDropChain?: () => void;
   /** End the drop chain and start the normal rest timer. */
   onEndDropChain?: () => void;
+  /**
+   * TICKET-129: open the note/flags sheet for an already-persisted set (long-
+   * press on its chip). Only invoked for chips whose `LoggedSet.id` is defined
+   * — a set logged earlier in the CURRENT live session may not have round-
+   * tripped an id yet, so the affordance is hidden for those (see SetChip).
+   * The caller owns persistence (mobile/src/data/setNotes.ts) and re-supplies
+   * updated `note`/`flags` via the next currentExerciseSets render.
+   */
+  onOpenSetNote?: (setId: string, index: number) => void;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -367,6 +388,7 @@ function SetChip({
   index,
   unitPref,
   onPress,
+  onLongPress,
   editing,
   effortDisplay = 'rir',
 }: {
@@ -374,6 +396,8 @@ function SetChip({
   index: number;
   unitPref?: 'kg' | 'lbs';
   onPress?: () => void;
+  /** TICKET-129: long-press opens the note/flags sheet for this set (needs set.id). */
+  onLongPress?: () => void;
   editing?: boolean;
   /** TICKET-128: RIR ⇄ RPE display toggle. Storage is unaffected either way. */
   effortDisplay?: EffortDisplay;
@@ -402,23 +426,30 @@ function SetChip({
     const rirLabel = effort ? ` · ${effort}` : '';
     label = `Set ${index + 1} · ${set.weight}×${set.reps}${rirLabel}`;
   }
+  // TICKET-129: a small dot suffix when this set already has a note/flags, so
+  // the chip communicates "there's an annotation here" without opening the sheet.
+  const hasAnnotation = (set.note != null && set.note !== '') || (set.flags != null && set.flags !== 0);
+  const annotationSuffix = hasAnnotation ? ' 📝' : '';
   // Lift sets are tappable (to correct a mistyped value); cardio sets are not.
   const editable = !!onPress && set.durationSec == null;
+  const noteable = !!onLongPress && set.id != null;
   if (editable) {
     return (
       <TouchableOpacity
         style={[chipStyles.chip, editing && chipStyles.chipEditing]}
         onPress={onPress}
+        onLongPress={noteable ? onLongPress : undefined}
+        delayLongPress={350}
         accessibilityRole="button"
-        accessibilityLabel={`Edit set ${index + 1}`}
+        accessibilityLabel={`Edit set ${index + 1}${noteable ? '. Long-press to add a note or flag.' : ''}`}
       >
-        <Text style={[chipStyles.label, editing && chipStyles.labelEditing]}>{label}  ✎</Text>
+        <Text style={[chipStyles.label, editing && chipStyles.labelEditing]}>{label}{annotationSuffix}  ✎</Text>
       </TouchableOpacity>
     );
   }
   return (
     <View style={[chipStyles.chip, editing && chipStyles.chipEditing]}>
-      <Text style={[chipStyles.label, editing && chipStyles.labelEditing]}>{label}</Text>
+      <Text style={[chipStyles.label, editing && chipStyles.labelEditing]}>{label}{annotationSuffix}</Text>
     </View>
   );
 }
@@ -669,6 +700,7 @@ export default function StepperLogger({
   dropChain,
   onStartDropChain,
   onEndDropChain,
+  onOpenSetNote,
 }: Props): React.ReactElement {
   const { exercises, currentIndex, name: routineName } = routineSession;
   const reducedMotion = useReducedMotion(); // 2026-06-10 aesthetic pass
@@ -1725,6 +1757,9 @@ export default function StepperLogger({
                       index={i}
                       unitPref={unitPref}
                       onPress={onUpdateSet ? () => handleEditChip(i) : undefined}
+                      onLongPress={
+                        onOpenSetNote && s.id ? () => onOpenSetNote(s.id as string, i) : undefined
+                      }
                       editing={editingIndex === i}
                       effortDisplay={effortDisplay}
                     />
