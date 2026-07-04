@@ -32,6 +32,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import { Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
+import { useTranslation } from 'react-i18next';
 import {
   isLiveActivityAvailable,
   startRestActivity,
@@ -109,6 +110,7 @@ export interface RestTimerControls {
 // ---------------------------------------------------------------------------
 
 export function useRestTimer(initialDuration = REST_TIMER_DEFAULT): RestTimerControls {
+  const { t } = useTranslation();
   const [duration, setDuration] = useState(initialDuration);
   const [endTs, setEndTs] = useState<number | null>(null);   // epoch ms
   const [secondsLeft, setSecondsLeft] = useState<number | null>(null);
@@ -234,8 +236,8 @@ export function useRestTimer(initialDuration = REST_TIMER_DEFAULT): RestTimerCon
       // Schedule local notification
       Notifications.scheduleNotificationAsync({
         content: {
-          title: 'Rest complete',
-          body: 'Time for your next set.',
+          title: t('misc:notifications.restCompleteTitle'),
+          body: t('misc:notifications.restCompleteBody'),
           sound: 'default',
           data: { type: 'rest_timer' },
         },
@@ -273,7 +275,7 @@ export function useRestTimer(initialDuration = REST_TIMER_DEFAULT): RestTimerCon
         });
       }
     },
-    [duration, buildContentState],
+    [duration, buildContentState, t],
   );
 
   // ── Cancel ─────────────────────────────────────────────────

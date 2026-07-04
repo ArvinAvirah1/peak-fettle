@@ -33,7 +33,7 @@ export function pseudoizeString(value: string): string {
   return padCount > 0 ? `[${accented}${'~'.repeat(padCount)}]` : `[${accented}]`;
 }
 
-type Bundle = { [key: string]: string | Bundle };
+export type Bundle = { [key: string]: string | Bundle };
 
 /** Deep-transform a whole namespace bundle. */
 export function pseudoizeBundle(bundle: Bundle): Bundle {

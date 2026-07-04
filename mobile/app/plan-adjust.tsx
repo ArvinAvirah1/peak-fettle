@@ -80,6 +80,16 @@ export default function PlanAdjustScreen(): React.ReactElement {
   const { user } = useAuth();
   const { theme } = useTheme();
   const { t } = useTranslation();
+
+  // TICKET-146 (B6 handoff wiring): survey option labels/subtitles render
+  // through misc:surveyConfig keys; the pure-data English stays the fallback.
+  const optionLabel = (prefix: string, o: { value: string | number; label: string }): string =>
+    t(`misc:surveyConfig.${prefix}_${o.value}.label` as never, { defaultValue: o.label }) as string;
+  const optionSubtitle = (prefix: string, o: { value: string | number; subtitle?: string }): string | undefined =>
+    o.subtitle == null
+      ? undefined
+      : (t(`misc:surveyConfig.${prefix}_${o.value}.subtitle` as never, { defaultValue: o.subtitle }) as string);
+
   const c = theme.colors;
 
   // TICKET-142: optional fatigue-advice prefill (present only when navigated
@@ -281,7 +291,7 @@ export default function PlanAdjustScreen(): React.ReactElement {
         <Section title={t('screens2:planAdjust.sessionLength')}>
           <View style={styles.optionGroup}>
             {SESSION_MINUTE_OPTIONS.map((o) => (
-              <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={p.sessionMinutes === o.value} onPress={(v) => patchField({ sessionMinutes: v })} />
+              <OptionCard key={o.value} label={optionLabel('sessionMinutes', o)} subtitle={optionSubtitle('sessionMinutes', o)} value={o.value} selected={p.sessionMinutes === o.value} onPress={(v) => patchField({ sessionMinutes: v })} />
             ))}
           </View>
         </Section>
@@ -289,7 +299,7 @@ export default function PlanAdjustScreen(): React.ReactElement {
         <Section title={t('screens2:planAdjust.split')}>
           <View style={styles.optionGroup}>
             {SPLIT_OPTIONS.map((o) => (
-              <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={p.splitPreference === o.value} onPress={(v) => patchField({ splitPreference: v })} />
+              <OptionCard key={o.value} label={optionLabel('split', o)} subtitle={optionSubtitle('split', o)} value={o.value} selected={p.splitPreference === o.value} onPress={(v) => patchField({ splitPreference: v })} />
             ))}
           </View>
         </Section>
@@ -297,7 +307,7 @@ export default function PlanAdjustScreen(): React.ReactElement {
         <Section title={t('screens2:planAdjust.muscleEmphasis')} subtitle={t('screens2:planAdjust.muscleEmphasisSubtitle')}>
           <View style={styles.chipGrid}>
             {PRIORITY_OPTIONS.map((o) => (
-              <MultiChip key={o.value} label={o.label} selected={(p.musclePriorities ?? []).includes(o.value)} onPress={() => patchField({ musclePriorities: toggleSet(p.musclePriorities ?? [], o.value) })} />
+              <MultiChip key={o.value} label={optionLabel('priority', o)} selected={(p.musclePriorities ?? []).includes(o.value)} onPress={() => patchField({ musclePriorities: toggleSet(p.musclePriorities ?? [], o.value) })} />
             ))}
           </View>
         </Section>
@@ -305,7 +315,7 @@ export default function PlanAdjustScreen(): React.ReactElement {
         <Section title={t('screens2:planAdjust.progressSpeed')}>
           <View style={styles.optionGroup}>
             {PROGRESSION_OPTIONS.map((o) => (
-              <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={p.progressionSpeed === o.value} onPress={(v) => patchField({ progressionSpeed: v })} />
+              <OptionCard key={o.value} label={optionLabel('progression', o)} subtitle={optionSubtitle('progression', o)} value={o.value} selected={p.progressionSpeed === o.value} onPress={(v) => patchField({ progressionSpeed: v })} />
             ))}
           </View>
         </Section>
@@ -313,7 +323,7 @@ export default function PlanAdjustScreen(): React.ReactElement {
         <Section title={t('screens2:planAdjust.deloadFrequency')}>
           <View style={styles.optionGroup}>
             {DELOAD_OPTIONS.map((o) => (
-              <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={p.deloadFrequency === o.value} onPress={(v) => patchField({ deloadFrequency: v })} />
+              <OptionCard key={o.value} label={optionLabel('deload', o)} subtitle={optionSubtitle('deload', o)} value={o.value} selected={p.deloadFrequency === o.value} onPress={(v) => patchField({ deloadFrequency: v })} />
             ))}
           </View>
         </Section>
@@ -321,7 +331,7 @@ export default function PlanAdjustScreen(): React.ReactElement {
         <Section title={t('screens2:planAdjust.failureProximity')}>
           <View style={styles.optionGroup}>
             {FAILURE_OPTIONS.map((o) => (
-              <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={p.failureProximity === o.value} onPress={(v) => patchField({ failureProximity: v })} />
+              <OptionCard key={o.value} label={optionLabel('failure', o)} subtitle={optionSubtitle('failure', o)} value={o.value} selected={p.failureProximity === o.value} onPress={(v) => patchField({ failureProximity: v })} />
             ))}
           </View>
         </Section>

@@ -61,6 +61,8 @@ import {
   ShareCardViewRef,
 } from '../lib/shareCard/exportShareCard';
 import { UnitSystem } from '../constants/units';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 
 // ---------------------------------------------------------------------------
 // Persisted "remember the flex-line toggle" setting (generic appSettings KV —
@@ -120,6 +122,7 @@ export function ShareCardSheet(props: ShareCardSheetProps): React.ReactElement {
   } = props;
 
   const { theme, spacing: sp, radius: r, fontSize: fs, fontWeight: fw } = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
 
   const [ratio, setRatio] = useState<ShareCardRatio>('story');
@@ -206,7 +209,7 @@ export function ShareCardSheet(props: ShareCardSheetProps): React.ReactElement {
 
   const handleShare = useCallback(async () => {
     if (!viewShotOk) {
-      setExportError('Sharing needs an app update to enable image export.');
+      setExportError(t('components:shareCardSheet.sharingNeedsUpdate'));
       return;
     }
     setExporting(true);
@@ -214,7 +217,7 @@ export function ShareCardSheet(props: ShareCardSheetProps): React.ReactElement {
     try {
       const result = await exportAndShareCard(cardRef.current as ShareCardViewRef, ratio);
       if (!result.ok) {
-        setExportError(result.error ?? 'Could not share the card. Please try again.');
+        setExportError(result.error ?? t('components:shareCardSheet.couldNotShare'));
       } else {
         haptics.success();
       }
@@ -230,7 +233,7 @@ export function ShareCardSheet(props: ShareCardSheetProps): React.ReactElement {
       <Pressable
         style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.6)' }}
         onPress={onClose}
-        accessibilityLabel="Dismiss share card preview"
+        accessibilityLabel={t('components:shareCardSheet.dismissAccessibilityLabel')}
       />
       <View
         style={[
@@ -249,9 +252,9 @@ export function ShareCardSheet(props: ShareCardSheetProps): React.ReactElement {
           <View style={[styles.handle, { backgroundColor: theme.colors.borderDefault, borderRadius: r.full ?? 999 }]} />
           <View style={styles.headerTitleRow}>
             <Text style={{ color: theme.colors.textPrimary, fontSize: fs.bodyLg, fontWeight: fw.bold }}>
-              Share workout
+              {t('components:shareCardSheet.shareWorkout')}
             </Text>
-            <TouchableOpacity onPress={onClose} accessibilityRole="button" accessibilityLabel="Close">
+            <TouchableOpacity onPress={onClose} accessibilityRole="button" accessibilityLabel={t('common:close')}>
               <Ionicons name="close" size={22} color={theme.colors.textSecondary} />
             </TouchableOpacity>
           </View>
@@ -273,7 +276,7 @@ export function ShareCardSheet(props: ShareCardSheetProps): React.ReactElement {
             >
               <View style={styles.cardBody}>
                 <Text style={[styles.cardKicker, { color: theme.colors.accentDefault, fontSize: fs.caption, fontWeight: fw.semibold }]}>
-                  WORKOUT COMPLETE
+                  {t('components:shareCardSheet.workoutComplete')}
                 </Text>
                 <Text style={[styles.cardTitle, { color: theme.colors.textPrimary, fontSize: fs.heading1, fontWeight: fw.bold }]} numberOfLines={2}>
                   {display.title}
@@ -283,10 +286,10 @@ export function ShareCardSheet(props: ShareCardSheetProps): React.ReactElement {
                 </Text>
 
                 <View style={[styles.statsRow, { marginTop: sp.s5, gap: sp.s4 }]}>
-                  <StatBlock label="VOLUME" value={display.volumeLabel} theme={theme} fs={fs} fw={fw} />
-                  <StatBlock label="SETS" value={display.setCountLabel} theme={theme} fs={fs} fw={fw} />
+                  <StatBlock label={t('components:shareCardSheet.volume')} value={display.volumeLabel} theme={theme} fs={fs} fw={fw} />
+                  <StatBlock label={t('components:shareCardSheet.sets')} value={display.setCountLabel} theme={theme} fs={fs} fw={fw} />
                   {display.durationLabel ? (
-                    <StatBlock label="DURATION" value={display.durationLabel} theme={theme} fs={fs} fw={fw} />
+                    <StatBlock label={t('components:shareCardSheet.duration')} value={display.durationLabel} theme={theme} fs={fs} fw={fw} />
                   ) : null}
                 </View>
 
@@ -326,10 +329,10 @@ export function ShareCardSheet(props: ShareCardSheetProps): React.ReactElement {
               {/* Footer — wordmark + subtle app-store hint (no auto-post, no analytics). */}
               <View style={styles.cardFooter}>
                 <Text style={{ color: theme.colors.textTertiary, fontSize: fs.caption, fontWeight: fw.semibold }}>
-                  PEAK FETTLE
+                  {t('components:shareCardSheet.wordmark')}
                 </Text>
                 <Text style={{ color: theme.colors.textTertiary, fontSize: fs.micro }}>
-                  Track yours — search Peak Fettle
+                  {t('components:shareCardSheet.trackYours')}
                 </Text>
               </View>
             </View>
@@ -337,8 +340,8 @@ export function ShareCardSheet(props: ShareCardSheetProps): React.ReactElement {
 
           {/* ── Ratio toggle ─────────────────────────────────────────────── */}
           <View style={[styles.ratioRow, { marginTop: sp.s4, gap: sp.s2 }]}>
-            <RatioButton label="Story · 9:16" active={ratio === 'story'} onPress={() => setRatio('story')} theme={theme} fs={fs} fw={fw} r={r} />
-            <RatioButton label="Square · 1:1" active={ratio === 'square'} onPress={() => setRatio('square')} theme={theme} fs={fs} fw={fw} r={r} />
+            <RatioButton label={t('components:shareCardSheet.ratioStory')} active={ratio === 'story'} onPress={() => setRatio('story')} theme={theme} fs={fs} fw={fw} r={r} />
+            <RatioButton label={t('components:shareCardSheet.ratioSquare')} active={ratio === 'square'} onPress={() => setRatio('square')} theme={theme} fs={fs} fw={fw} r={r} />
           </View>
 
           {/* ── Flex-line opt-in toggle (per-share, remembered) ─────────────── */}
@@ -357,14 +360,14 @@ export function ShareCardSheet(props: ShareCardSheetProps): React.ReactElement {
               onPress={() => toggleFlexLine(!flexEnabled)}
               accessibilityRole="switch"
               accessibilityState={{ checked: flexEnabled }}
-              accessibilityLabel="Include percentile flex line"
+              accessibilityLabel={t('components:shareCardSheet.includeFlexLineAccessibilityLabel')}
             >
               <View style={{ flex: 1 }}>
                 <Text style={{ color: theme.colors.textPrimary, fontSize: fs.bodyMd, fontWeight: fw.medium }}>
-                  Show percentile flex line
+                  {t('components:shareCardSheet.showFlexLine')}
                 </Text>
                 <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodySm, marginTop: 2 }}>
-                  {flexResult?.headline ?? 'Computed on-device — never sent anywhere.'}
+                  {flexResult?.headline ?? t('components:shareCardSheet.computedOnDevice')}
                 </Text>
               </View>
               <View
@@ -391,7 +394,7 @@ export function ShareCardSheet(props: ShareCardSheetProps): React.ReactElement {
 
           {!viewShotOk ? (
             <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodySm, marginTop: sp.s3 }}>
-              Image export isn&apos;t available in this build yet — update the app to share cards.
+              {t('components:shareCardSheet.exportUnavailable')}
             </Text>
           ) : null}
 
@@ -413,7 +416,7 @@ export function ShareCardSheet(props: ShareCardSheetProps): React.ReactElement {
             onPress={handleShare}
             disabled={exporting || !viewShotOk}
             accessibilityRole="button"
-            accessibilityLabel="Share workout card"
+            accessibilityLabel={t('components:shareCardSheet.shareWorkoutCardAccessibilityLabel')}
           >
             {exporting ? (
               <ActivityIndicator color={theme.components.buttonPrimaryText} />
@@ -421,7 +424,7 @@ export function ShareCardSheet(props: ShareCardSheetProps): React.ReactElement {
               <>
                 <Ionicons name="share-outline" size={18} color={theme.components.buttonPrimaryText} />
                 <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fs.bodyLg, fontWeight: fw.bold, marginLeft: sp.s2 }}>
-                  Share
+                  {t('common:share')}
                 </Text>
               </>
             )}

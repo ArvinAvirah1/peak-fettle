@@ -33,6 +33,8 @@ import { useTheme } from '../theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
 import { MuscleRecovery } from '../api/insights';
 import { useReduceMotion } from '../hooks/useReduceMotion';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 
 // ---------------------------------------------------------------------------
 // Freshness -> color
@@ -102,12 +104,26 @@ function normalise(muscle: string): string {
 
 export interface Region {
   key: string;
+  /** Canonical English fallback label — region IDS/taxonomy stay untouched,
+   * but this display copy is user-facing; render sites translate via
+   * `regionLabel(region, t)` below rather than reading `.label` directly. */
   label: string;
   cx: number;
   cy: number;
   rx: number;
   ry: number;
   side: 'front' | 'back';
+}
+
+/**
+ * Translate a region's display name. Region `key`s are stable taxonomy IDs
+ * consumed by exerciseCatalog media + heatmap logic elsewhere (untouched);
+ * `label` is the English fallback for callers (e.g. ExerciseDetailSheet)
+ * that don't have a translation for a given key.
+ */
+export function regionLabel(region: Pick<Region, 'key' | 'label'>, t: TFunction): string {
+  const key = `components:muscleHeatmap.regionLabel.${region.key}`;
+  return t(key, { defaultValue: region.label });
 }
 
 const REGIONS: Region[] = [
@@ -180,8 +196,10 @@ interface DetailSheet {
   sets_last_session: number | undefined;
 }
 
-function formatDate(iso: string | null | undefined): string {
-  if (!iso) return 'Never';
+/** Pure helper called only from this file's own render — takes `t` per the
+ * render-site translation rule. */
+function formatDate(iso: string | null | undefined, t: TFunction): string {
+  if (!iso) return t('components:muscleHeatmap.never');
   try {
     return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   } catch {
@@ -195,6 +213,7 @@ function formatDate(iso: string | null | undefined): string {
 
 function HeatmapEmptyState(): React.ReactElement {
   const { theme, spacing: sp, radius: r, fontSize: fs } = useTheme();
+  const { t } = useTranslation();
   const { colors } = theme;
   return (
     <View
@@ -208,16 +227,16 @@ function HeatmapEmptyState(): React.ReactElement {
           padding: sp.s6,
         },
       ]}
-      accessibilityLabel="No muscle recovery data yet"
+      accessibilityLabel={t('components:muscleHeatmap.emptyStateAccessibilityLabel')}
     >
       <Text style={{ fontSize: 32, textAlign: 'center', marginBottom: sp.s3 }}>
         {'\u{1F4AA}'}
       </Text>
       <Text style={{ color: colors.textPrimary, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold, textAlign: 'center', marginBottom: sp.s2 }}>
-        No muscle data yet
+        {t('components:muscleHeatmap.emptyStateTitle')}
       </Text>
       <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, textAlign: 'center', lineHeight: 20 }}>
-        Log your first workout to see which muscles need recovery and which are fresh.
+        {t('components:muscleHeatmap.emptyStateBody')}
       </Text>
     </View>
   );
@@ -235,6 +254,7 @@ interface Props {
 
 export default function MuscleHeatmap({ muscles, loading, onSuggestSubstitutes }: Props): React.ReactElement {
   const { theme, spacing: sp, fontSize: fs, radius: r } = useTheme();
+  const { t } = useTranslation();
   const { colors } = theme;
   const [detail, setDetail] = useState<DetailSheet | null>(null);
   const reduceMotion = useReduceMotion();
@@ -264,7 +284,7 @@ export default function MuscleHeatmap({ muscles, loading, onSuggestSubstitutes }
         width={120}
         height={260}
         viewBox="0 0 120 260"
-        accessibilityLabel={`${side === 'front' ? 'Front' : 'Back'} body diagram`}
+        accessibilityLabel={side === 'front' ? t('components:muscleHeatmap.frontBodyDiagram') : t('components:muscleHeatmap.backBodyDiagram')}
       >
         <BodyOutline color={colors.borderDefault} />
         {regions.map((reg, i) => {
@@ -283,7 +303,7 @@ export default function MuscleHeatmap({ muscles, loading, onSuggestSubstitutes }
               onPress={() =>
                 setDetail({
                   key: reg.key,
-                  label: reg.label,
+                  label: regionLabel(reg, t),
                   freshness: data?.freshness,
                   last_worked: data?.last_worked,
                   sets_last_session: data?.sets_last_session,
@@ -305,9 +325,9 @@ export default function MuscleHeatmap({ muscles, loading, onSuggestSubstitutes }
       {/* Legend */}
       <View style={[styles.legend, { marginBottom: sp.s3 }]}>
         {[
-          { label: 'Fresh', color: colors.statusSuccess },
-          { label: 'Moderate', color: colors.statusWarning },
-          { label: 'Needs recovery', color: colors.statusError },
+          { label: t('components:muscleHeatmap.legend.fresh'), color: colors.statusSuccess },
+          { label: t('components:muscleHeatmap.legend.moderate'), color: colors.statusWarning },
+          { label: t('components:muscleHeatmap.legend.needsRecovery'), color: colors.statusError },
         ].map(({ label, color }) => (
           <View key={label} style={styles.legendItem}>
             <View style={[styles.legendDot, { backgroundColor: color, borderRadius: radius.full ?? 999 }]} />
@@ -320,11 +340,11 @@ export default function MuscleHeatmap({ muscles, loading, onSuggestSubstitutes }
       <View style={styles.diagrams}>
         <View style={styles.sideWrap}>
           {renderSide('front')}
-          <Text style={[styles.sideLabel, { color: colors.textTertiary, fontSize: fs.micro }]}>FRONT</Text>
+          <Text style={[styles.sideLabel, { color: colors.textTertiary, fontSize: fs.micro }]}>{t('components:muscleHeatmap.front')}</Text>
         </View>
         <View style={styles.sideWrap}>
           {renderSide('back')}
-          <Text style={[styles.sideLabel, { color: colors.textTertiary, fontSize: fs.micro }]}>BACK</Text>
+          <Text style={[styles.sideLabel, { color: colors.textTertiary, fontSize: fs.micro }]}>{t('components:muscleHeatmap.back')}</Text>
         </View>
       </View>
 
@@ -338,7 +358,7 @@ export default function MuscleHeatmap({ muscles, loading, onSuggestSubstitutes }
         <Pressable
           style={styles.modalBackdrop}
           onPress={() => setDetail(null)}
-          accessibilityLabel="Dismiss muscle detail"
+          accessibilityLabel={t('components:muscleHeatmap.dismissDetailAccessibilityLabel')}
         >
           <View
             style={[
@@ -357,22 +377,22 @@ export default function MuscleHeatmap({ muscles, loading, onSuggestSubstitutes }
                 </Text>
 
                 <View style={[styles.detailRow, { marginBottom: sp.s2 }]}>
-                  <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm }}>Freshness</Text>
+                  <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm }}>{t('components:muscleHeatmap.freshness')}</Text>
                   <Text style={{ color: freshnessColor(detail.freshness, colors), fontSize: fs.bodySm, fontWeight: fontWeight.semibold }}>
-                    {detail.freshness !== undefined ? `${detail.freshness}%` : 'Not tracked'}
+                    {detail.freshness !== undefined ? `${detail.freshness}%` : t('components:muscleHeatmap.notTracked')}
                   </Text>
                 </View>
 
                 <View style={[styles.detailRow, { marginBottom: sp.s2 }]}>
-                  <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm }}>Last worked</Text>
+                  <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm }}>{t('components:muscleHeatmap.lastWorked')}</Text>
                   <Text style={{ color: colors.textPrimary, fontSize: fs.bodySm }}>
-                    {formatDate(detail.last_worked)}
+                    {formatDate(detail.last_worked, t)}
                   </Text>
                 </View>
 
                 {detail.sets_last_session !== undefined && (
                   <View style={[styles.detailRow, { marginBottom: sp.s4 }]}>
-                    <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm }}>Sets last session</Text>
+                    <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm }}>{t('components:muscleHeatmap.setsLastSession')}</Text>
                     <Text style={{ color: colors.textPrimary, fontSize: fs.bodySm }}>{detail.sets_last_session}</Text>
                   </View>
                 )}
@@ -384,12 +404,12 @@ export default function MuscleHeatmap({ muscles, loading, onSuggestSubstitutes }
                       onSuggestSubstitutes(detail.key);
                     }}
                     accessibilityRole="button"
-                    accessibilityLabel={`Suggest substitute exercises for ${detail.label}`}
+                    accessibilityLabel={t('components:muscleHeatmap.suggestSubstitutesAccessibilityLabel', { muscle: detail.label })}
                     hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     style={{ minHeight: 44, justifyContent: 'center' }}
                   >
                     <Text style={{ color: colors.accentDefault, fontSize: fs.bodySm, fontWeight: fontWeight.medium }}>
-                      Suggest substitute exercises {'→'}
+                      {t('components:muscleHeatmap.suggestSubstitutes')} {'→'}
                     </Text>
                   </TouchableOpacity>
                 )}
@@ -398,9 +418,9 @@ export default function MuscleHeatmap({ muscles, loading, onSuggestSubstitutes }
                   onPress={() => setDetail(null)}
                   style={[styles.dismissBtn, { borderColor: colors.borderDefault, borderRadius: r.md, marginTop: sp.s4 }]}
                   accessibilityRole="button"
-                  accessibilityLabel="Close"
+                  accessibilityLabel={t('common:close')}
                 >
-                  <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm }}>Close</Text>
+                  <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm }}>{t('common:close')}</Text>
                 </TouchableOpacity>
               </>
             )}

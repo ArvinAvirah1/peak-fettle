@@ -12,7 +12,7 @@
 
 'use strict';
 
-const REPO_WIDE_STRICT = false;
+const REPO_WIDE_STRICT = false; // 11 residuals: diagnostics.tsx (dev tool, excluded by design) + unit-string exemptions — flip to true once those are resolved/allowlisted
 
 const fs = require('fs');
 const path = require('path');

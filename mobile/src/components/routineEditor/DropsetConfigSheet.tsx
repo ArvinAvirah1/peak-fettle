@@ -29,6 +29,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '../Icon';
 import { stepperPalette, fontFamily, fontSize, spacing, radius } from '../../theme/tokens';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 
 /** The persisted dropset config shape (matches RoutineExercise.dropset). */
 export interface DropsetConfig {
@@ -60,11 +62,15 @@ const PCT_DEFAULT = 20;
 
 type LastNChoice = 1 | 2 | 'all';
 
-const CHOICES: { key: LastNChoice; label: string }[] = [
-  { key: 1, label: 'Last set only' },
-  { key: 2, label: 'Last 2 sets' },
-  { key: 'all', label: 'All sets' },
-];
+/** Pure lookup called only from this file's own render — takes `t` per the
+ * render-site translation rule. */
+function choiceLabel(key: LastNChoice, t: TFunction): string {
+  if (key === 1) return t('components:dropsetConfigSheet.choice.lastSetOnly');
+  if (key === 2) return t('components:dropsetConfigSheet.choice.last2Sets');
+  return t('components:dropsetConfigSheet.choice.allSets');
+}
+
+const CHOICE_KEYS: LastNChoice[] = [1, 2, 'all'];
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -73,6 +79,7 @@ function clamp(n: number, min: number, max: number): number {
 export function DropsetConfigSheet(props: DropsetConfigSheetProps): React.ReactElement {
   const { visible, exerciseName, value, onSave, onRemove, onClose } = props;
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
 
   const [lastN, setLastN] = useState<LastNChoice>('all');
   const [drops, setDrops] = useState<number>(DROPS_DEFAULT);
@@ -109,34 +116,35 @@ export function DropsetConfigSheet(props: DropsetConfigSheetProps): React.ReactE
       <Pressable
         style={styles.backdrop}
         onPress={onClose}
-        accessibilityLabel="Dismiss dropset configuration"
+        accessibilityLabel={t('components:dropsetConfigSheet.dismissAccessibilityLabel')}
       />
       <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, spacing.s4) + spacing.s2 }]}>
         <View style={styles.handle} />
 
         <View style={styles.headerRow}>
           <Ionicons name="trending-down" size={20} color={stepperPalette.accent} />
-          <Text style={styles.title}>Make dropsets</Text>
+          <Text style={styles.title}>{t('components:dropsetConfigSheet.title')}</Text>
         </View>
         <Text style={styles.subtitle} numberOfLines={1}>
           {exerciseName}
         </Text>
 
         {/* Which sets are dropsets */}
-        <Text style={styles.sectionLabel}>WHICH SETS</Text>
+        <Text style={styles.sectionLabel}>{t('components:dropsetConfigSheet.whichSets')}</Text>
         <View style={styles.choiceRow}>
-          {CHOICES.map((c) => {
-            const on = lastN === c.key;
+          {CHOICE_KEYS.map((key) => {
+            const on = lastN === key;
+            const label = choiceLabel(key, t);
             return (
               <TouchableOpacity
-                key={String(c.key)}
+                key={String(key)}
                 style={[styles.choice, on && styles.choiceOn]}
-                onPress={() => setLastN(c.key)}
+                onPress={() => setLastN(key)}
                 accessibilityRole="radio"
                 accessibilityState={{ selected: on }}
-                accessibilityLabel={c.label}
+                accessibilityLabel={label}
               >
-                <Text style={[styles.choiceText, on && styles.choiceTextOn]}>{c.label}</Text>
+                <Text style={[styles.choiceText, on && styles.choiceTextOn]}>{label}</Text>
               </TouchableOpacity>
             );
           })}
@@ -147,20 +155,20 @@ export function DropsetConfigSheet(props: DropsetConfigSheetProps): React.ReactE
           style={styles.advancedToggle}
           onPress={() => setAdvancedOpen((v) => !v)}
           accessibilityRole="button"
-          accessibilityLabel={advancedOpen ? 'Hide advanced options' : 'Show advanced options'}
+          accessibilityLabel={advancedOpen ? t('components:dropsetConfigSheet.hideAdvanced') : t('components:dropsetConfigSheet.showAdvanced')}
         >
           <Ionicons
             name={advancedOpen ? 'chevron-down' : 'chevron-forward'}
             size={16}
             color={stepperPalette.muted}
           />
-          <Text style={styles.advancedLabel}>Advanced</Text>
+          <Text style={styles.advancedLabel}>{t('components:dropsetConfigSheet.advanced')}</Text>
         </TouchableOpacity>
 
         {advancedOpen ? (
           <View style={styles.advancedBody}>
             <StepperControl
-              label="Drops per set"
+              label={t('components:dropsetConfigSheet.dropsPerSet')}
               value={drops}
               min={DROPS_MIN}
               max={DROPS_MAX}
@@ -168,7 +176,7 @@ export function DropsetConfigSheet(props: DropsetConfigSheetProps): React.ReactE
               onChange={setDrops}
             />
             <StepperControl
-              label="Weight drop"
+              label={t('components:dropsetConfigSheet.weightDrop')}
               value={pct}
               min={PCT_MIN}
               max={PCT_MAX}
@@ -184,9 +192,9 @@ export function DropsetConfigSheet(props: DropsetConfigSheetProps): React.ReactE
           style={styles.saveBtn}
           onPress={handleSave}
           accessibilityRole="button"
-          accessibilityLabel="Save dropsets"
+          accessibilityLabel={t('components:dropsetConfigSheet.saveAccessibilityLabel')}
         >
-          <Text style={styles.saveLabel}>{value ? 'Update dropsets' : 'Add dropsets'}</Text>
+          <Text style={styles.saveLabel}>{value ? t('components:dropsetConfigSheet.updateDropsets') : t('components:dropsetConfigSheet.addDropsets')}</Text>
         </TouchableOpacity>
 
         {value ? (
@@ -194,18 +202,18 @@ export function DropsetConfigSheet(props: DropsetConfigSheetProps): React.ReactE
             style={styles.removeBtn}
             onPress={onRemove}
             accessibilityRole="button"
-            accessibilityLabel="Remove dropsets"
+            accessibilityLabel={t('components:dropsetConfigSheet.removeDropsets')}
           >
-            <Text style={styles.removeLabel}>Remove dropsets</Text>
+            <Text style={styles.removeLabel}>{t('components:dropsetConfigSheet.removeDropsets')}</Text>
           </TouchableOpacity>
         ) : (
           <TouchableOpacity
             style={styles.cancelBtn}
             onPress={onClose}
             accessibilityRole="button"
-            accessibilityLabel="Cancel"
+            accessibilityLabel={t('common:cancel')}
           >
-            <Text style={styles.cancelLabel}>Cancel</Text>
+            <Text style={styles.cancelLabel}>{t('common:cancel')}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -225,6 +233,7 @@ function StepperControl(props: {
   onChange: (n: number) => void;
 }): React.ReactElement {
   const { label, value, min, max, step = 1, suffix = '', onChange } = props;
+  const { t } = useTranslation();
   const dec = () => onChange(clamp(value - step, min, max));
   const inc = () => onChange(clamp(value + step, min, max));
   return (
@@ -236,7 +245,7 @@ function StepperControl(props: {
           onPress={dec}
           disabled={value <= min}
           accessibilityRole="button"
-          accessibilityLabel={`Decrease ${label}`}
+          accessibilityLabel={t('components:dropsetConfigSheet.decreaseAccessibilityLabel', { label })}
         >
           <Ionicons name="remove" size={18} color={stepperPalette.text} />
         </TouchableOpacity>
@@ -249,7 +258,7 @@ function StepperControl(props: {
           onPress={inc}
           disabled={value >= max}
           accessibilityRole="button"
-          accessibilityLabel={`Increase ${label}`}
+          accessibilityLabel={t('components:dropsetConfigSheet.increaseAccessibilityLabel', { label })}
         >
           <Ionicons name="add" size={18} color={stepperPalette.text} />
         </TouchableOpacity>

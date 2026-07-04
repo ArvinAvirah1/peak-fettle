@@ -37,7 +37,9 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { InteractionManager } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '../theme/ThemeContext';
+import { engineBecause } from '../i18n/engine';
 import { fontWeight } from '../theme/tokens';
 import {
   getFatigueAdviceDismissal,
@@ -81,9 +83,14 @@ async function loadLastDeloadAt(): Promise<string | null> {
 // Copy (no "AI" anywhere)
 // ---------------------------------------------------------------------------
 
-const ACTION_TITLE: Record<FatigueAdvice['action'], string> = {
-  pull_deload_forward: 'Consider an early deload',
-  trim_accessory_volume: 'Consider trimming volume',
+/**
+ * Action-title copy keys — rendered via t() in the component (this is a
+ * plain lookup map keyed by the engine's action id, not a pure module used
+ * elsewhere, so no render-site helper is needed here).
+ */
+const ACTION_TITLE_KEY: Record<FatigueAdvice['action'], string> = {
+  pull_deload_forward: 'components:fatigueAdviceCard.actionTitle.pullDeloadForward',
+  trim_accessory_volume: 'components:fatigueAdviceCard.actionTitle.trimAccessoryVolume',
 };
 
 // ---------------------------------------------------------------------------
@@ -94,6 +101,7 @@ export default function FatigueAdviceCard(): React.ReactElement | null {
   const { theme, spacing: sp, fontSize: fs, radius: r } = useTheme();
   const { colors } = theme;
   const router = useRouter();
+  const { t } = useTranslation();
 
   const [advice, setAdvice] = useState<FatigueAdvice | null>(null);
   const [hasPlan, setHasPlan] = useState(false);
@@ -192,13 +200,13 @@ export default function FatigueAdviceCard(): React.ReactElement | null {
         },
       ]}
       accessibilityRole="summary"
-      accessibilityLabel={`Plan adjustment suggestion: ${ACTION_TITLE[advice.action]}`}
+      accessibilityLabel={t('components:fatigueAdviceCard.cardAccessibilityLabel', { title: t(ACTION_TITLE_KEY[advice.action]) })}
     >
       <Text style={{ color: colors.accentHover, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold, marginBottom: sp.s1 }}>
-        {ACTION_TITLE[advice.action]}
+        {t(ACTION_TITLE_KEY[advice.action])}
       </Text>
       <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, lineHeight: 20, marginBottom: sp.s3 }}>
-        {advice.because}
+        {engineBecause(advice)}
       </Text>
 
       <View style={styles.actionRow}>
@@ -206,11 +214,11 @@ export default function FatigueAdviceCard(): React.ReactElement | null {
           onPress={handleDismiss}
           disabled={busy}
           accessibilityRole="button"
-          accessibilityLabel="Dismiss suggestion"
+          accessibilityLabel={t('components:fatigueAdviceCard.dismissAccessibilityLabel')}
           style={[styles.dismissBtn, { opacity: busy ? 0.6 : 1 }]}
         >
           <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, fontWeight: fontWeight.medium }}>
-            Dismiss
+            {t('components:fatigueAdviceCard.dismiss')}
           </Text>
         </TouchableOpacity>
 
@@ -218,7 +226,7 @@ export default function FatigueAdviceCard(): React.ReactElement | null {
           onPress={handleAccept}
           disabled={busy}
           accessibilityRole="button"
-          accessibilityLabel="Review this change"
+          accessibilityLabel={t('components:fatigueAdviceCard.reviewAccessibilityLabel')}
           style={[
             styles.acceptBtn,
             { backgroundColor: colors.accentDefault, opacity: busy ? 0.6 : 1 },
@@ -228,7 +236,7 @@ export default function FatigueAdviceCard(): React.ReactElement | null {
             <ActivityIndicator size="small" color={theme.components.buttonPrimaryText} />
           ) : (
             <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fs.bodySm, fontWeight: fontWeight.semibold }}>
-              Review change
+              {t('components:fatigueAdviceCard.reviewChange')}
             </Text>
           )}
         </TouchableOpacity>

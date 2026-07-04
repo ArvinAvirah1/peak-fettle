@@ -43,6 +43,8 @@ import { MuscleMap } from './MuscleMap';
 import { muscleGroupsForExercise } from '../data/muscleRegions';
 import { Ionicons } from './Icon';
 import { ExerciseDetailSheet, ExerciseDetailTarget } from './ExerciseDetailSheet';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -50,12 +52,17 @@ import { ExerciseDetailSheet, ExerciseDetailTarget } from './ExerciseDetailSheet
 
 const CATEGORY_ORDER: ExerciseCategory[] = ['lift', 'cardio', 'sport', 'mobility'];
 
-const CATEGORY_LABELS: Record<ExerciseCategory, string> = {
-  lift: 'Strength',
-  cardio: 'Cardio',
-  sport: 'Sport',
-  mobility: 'Mobility',
-};
+/** Pure lookup called only from this file's own render — takes `t` per the
+ * render-site translation rule. */
+function categoryLabel(category: ExerciseCategory, t: TFunction): string {
+  const CATEGORY_KEYS: Record<ExerciseCategory, string> = {
+    lift: 'components:exercisePicker.category.strength',
+    cardio: 'components:exercisePicker.category.cardio',
+    sport: 'components:exercisePicker.category.sport',
+    mobility: 'components:exercisePicker.category.mobility',
+  };
+  return t(CATEGORY_KEYS[category]);
+}
 
 const DEBOUNCE_MS = 300;
 
@@ -83,6 +90,7 @@ export function ExercisePicker({
   onClose,
 }: ExercisePickerProps): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const { user } = useAuth();
   const localFirst = isLocalFirst(user);
   const [query, setQuery] = useState('');
@@ -117,7 +125,7 @@ export function ExercisePicker({
       .then((lib) => setLibrary(lib))
       .catch((err) => {
         const message =
-          err instanceof Error ? err.message : 'Failed to load exercises';
+          err instanceof Error ? err.message : t('components:exercisePicker.failedToLoad');
         setError(message);
       })
       .finally(() => setIsLoading(false));
@@ -194,7 +202,7 @@ export function ExercisePicker({
     if (!name) return;
     if (localFirst) {
       // Personal custom-exercise creation is a server write -- gate it behind Pro.
-      setError('Creating custom exercises requires a Pro account. Upgrade to add your own exercises.');
+      setError(t('components:exercisePicker.proRequired'));
       return;
     }
     setIsCreating(true);
@@ -202,7 +210,7 @@ export function ExercisePicker({
       const exercise = await createExercise(name);
       onSelect(exercise);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Could not add exercise';
+      const msg = err instanceof Error ? err.message : t('components:exercisePicker.couldNotAddExercise');
       setError(msg);
     } finally {
       setIsCreating(false);
@@ -214,7 +222,7 @@ export function ExercisePicker({
       return (
         <View style={styles.sectionHeader}>
           <Text style={[styles.sectionHeaderText, { color: theme.colors.textTertiary }]}>
-            {CATEGORY_LABELS[item.category]}
+            {categoryLabel(item.category, t)}
           </Text>
         </View>
       );
@@ -233,7 +241,7 @@ export function ExercisePicker({
         onPress={() => handleSelect(exercise)}
         activeOpacity={0.7}
         accessibilityRole="button"
-        accessibilityLabel={`Select ${exercise.name}`}
+        accessibilityLabel={t('components:exercisePicker.selectAccessibilityLabel', { name: exercise.name })}
       >
         {/* Compact muscle map -- 44 pt tall, front view only */}
         <MuscleMap
@@ -250,7 +258,7 @@ export function ExercisePicker({
         </View>
         {exercise.is_compound && (
           <View style={[styles.compoundBadge, { backgroundColor: theme.colors.accentPressed }]}>
-            <Text style={[styles.compoundBadgeText, { color: theme.colors.accentSecondary }]}>Compound</Text>
+            <Text style={[styles.compoundBadgeText, { color: theme.colors.accentSecondary }]}>{t('components:exercisePicker.compound')}</Text>
           </View>
         )}
         {/* TICKET-134 -- open muscle diagram + form cues without selecting */}
@@ -262,7 +270,7 @@ export function ExercisePicker({
           style={styles.infoButton}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           accessibilityRole="button"
-          accessibilityLabel={`View details for ${exercise.name}`}
+          accessibilityLabel={t('components:exercisePicker.viewDetailsAccessibilityLabel', { name: exercise.name })}
         >
           <Ionicons name="information-circle-outline" size={20} color={theme.colors.textTertiary} />
         </TouchableOpacity>
@@ -280,13 +288,13 @@ export function ExercisePicker({
         onPress={handleCreateCustom}
         disabled={isCreating}
         accessibilityRole="button"
-        accessibilityLabel={`Add ${query.trim()} as a custom exercise`}
+        accessibilityLabel={t('components:exercisePicker.addCustomAccessibilityLabel', { name: query.trim() })}
       >
         {isCreating ? (
           <ActivityIndicator color={theme.colors.accentDefault} size="small" />
         ) : (
           <Text style={[styles.customFooterText, { color: theme.colors.accentDefault }]}>
-            + Add "{query.trim()}" as custom exercise
+            {t('components:exercisePicker.addCustomButton', { name: query.trim() })}
           </Text>
         )}
       </TouchableOpacity>
@@ -307,14 +315,14 @@ export function ExercisePicker({
         >
           {/* Header */}
           <View style={[styles.header, { borderBottomColor: theme.colors.borderDefault }]}>
-            <Text style={[styles.headerTitle, { color: theme.colors.textPrimary }]}>Choose Exercise</Text>
+            <Text style={[styles.headerTitle, { color: theme.colors.textPrimary }]}>{t('components:exercisePicker.chooseExercise')}</Text>
             <TouchableOpacity
               style={styles.closeButton}
               onPress={onClose}
               accessibilityRole="button"
-              accessibilityLabel="Close exercise picker"
+              accessibilityLabel={t('components:exercisePicker.closeAccessibilityLabel')}
             >
-              <Text style={[styles.closeButtonText, { color: theme.colors.accentDefault }]}>Cancel</Text>
+              <Text style={[styles.closeButtonText, { color: theme.colors.accentDefault }]}>{t('common:cancel')}</Text>
             </TouchableOpacity>
           </View>
 
@@ -326,7 +334,7 @@ export function ExercisePicker({
                 color: theme.colors.textPrimary,
                 borderColor: theme.colors.borderDefault,
               }]}
-              placeholder="Search exercises or type a custom name..."
+              placeholder={t('components:exercisePicker.searchPlaceholder')}
               placeholderTextColor={theme.colors.textTertiary}
               value={query}
               onChangeText={handleQueryChange}
@@ -334,7 +342,7 @@ export function ExercisePicker({
               autoCapitalize="words"
               returnKeyType="search"
               clearButtonMode="while-editing"
-              accessibilityLabel="Search exercises"
+              accessibilityLabel={t('components:exercisePicker.searchAccessibilityLabel')}
             />
           </View>
 
@@ -342,7 +350,7 @@ export function ExercisePicker({
           {isLoading ? (
             <View style={styles.centered}>
               <ActivityIndicator size="large" color={theme.colors.accentDefault} />
-              <Text style={[styles.loadingText, { color: theme.colors.textTertiary }]}>Loading exercises...</Text>
+              <Text style={[styles.loadingText, { color: theme.colors.textTertiary }]}>{t('components:exercisePicker.loadingExercises')}</Text>
             </View>
           ) : error ? (
             <View style={styles.centered}>
@@ -350,7 +358,7 @@ export function ExercisePicker({
               <TouchableOpacity
                 style={[styles.retryButton, { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault }]}
                 accessibilityRole="button"
-                accessibilityLabel="Retry"
+                accessibilityLabel={t('components:exercisePicker.retryAccessibilityLabel')}
                 onPress={() => {
                   setError(null);
                   setIsLoading(true);
@@ -358,13 +366,13 @@ export function ExercisePicker({
                     .then(setLibrary)
                     .catch((e) =>
                       setError(
-                        e instanceof Error ? e.message : 'Failed to load exercises'
+                        e instanceof Error ? e.message : t('components:exercisePicker.failedToLoad')
                       )
                     )
                     .finally(() => setIsLoading(false));
                 }}
               >
-                <Text style={[styles.retryButtonText, { color: theme.colors.accentDefault }]}>Try Again</Text>
+                <Text style={[styles.retryButtonText, { color: theme.colors.accentDefault }]}>{t('components:exercisePicker.tryAgain')}</Text>
               </TouchableOpacity>
             </View>
           ) : searchFailed && query.trim().length > 0 ? (
@@ -373,12 +381,12 @@ export function ExercisePicker({
             // create duplicates of exercises that actually exist).
             <View style={styles.centered}>
               <Text style={[styles.errorText, { color: theme.colors.statusError }]}>
-                Couldn't search exercises. Check your connection and try again.
+                {t('components:exercisePicker.searchFailed')}
               </Text>
               <TouchableOpacity
                 style={[styles.retryButton, { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault }]}
                 accessibilityRole="button"
-                accessibilityLabel="Retry search"
+                accessibilityLabel={t('components:exercisePicker.retrySearchAccessibilityLabel')}
                 onPress={() => {
                   // Clear the stale error/failed flags before retrying so the
                   // user sees a loading state rather than the old error message
@@ -388,14 +396,14 @@ export function ExercisePicker({
                   handleQueryChange(query);
                 }}
               >
-                <Text style={[styles.retryButtonText, { color: theme.colors.accentDefault }]}>Try Again</Text>
+                <Text style={[styles.retryButtonText, { color: theme.colors.accentDefault }]}>{t('components:exercisePicker.tryAgain')}</Text>
               </TouchableOpacity>
             </View>
           ) : listItems.length === 0 && query.trim().length > 0 ? (
             // No search results -- offer to add the typed name as a custom exercise
             <View style={styles.centered}>
               <Text style={[styles.emptyText, { color: theme.colors.textTertiary }]}>
-                No exercises found for "{query}"
+                {t('components:exercisePicker.noResultsFor', { query })}
               </Text>
               {renderCustomButton()}
             </View>

@@ -7,6 +7,7 @@
 
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '../theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
 
@@ -25,6 +26,7 @@ function toKey(d: Date): string {
 
 export function CalendarHeatmap({ dayKeys, weeks = 8 }: Props): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const have = useMemo(() => new Set(dayKeys), [dayKeys]);
 
   // Build columns: oldest week → current week; rows Mon..Sun.
@@ -61,13 +63,13 @@ export function CalendarHeatmap({ dayKeys, weeks = 8 }: Props): React.ReactEleme
     >
       <View style={styles.headerRow}>
         <Text style={[styles.kicker, { color: theme.colors.textTertiary }]}>
-          LAST {grid.length} WEEKS
+          {t('components:calendarHeatmap.kicker', { count: grid.length })}
         </Text>
         <Text style={[styles.count, { color: theme.colors.textSecondary }]}>
-          {activeDays} training day{activeDays !== 1 ? 's' : ''}
+          {t('components:calendarHeatmap.trainingDayCount', { count: activeDays })}
         </Text>
       </View>
-      <View style={styles.grid} accessibilityLabel={`Training heatmap: ${activeDays} active days in the last ${grid.length} weeks`}>
+      <View style={styles.grid} accessibilityLabel={t('components:calendarHeatmap.gridAccessibilityLabel', { activeDays, weeks: grid.length })}>
         {grid.map((col, i) => (
           <View key={i} style={styles.col}>
             {col.map((cell) => (

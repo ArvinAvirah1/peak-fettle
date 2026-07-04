@@ -5,6 +5,7 @@
 
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import Svg, { Polyline, Circle, Line } from 'react-native-svg';
 import { useTheme } from '../theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
@@ -25,6 +26,7 @@ export function BodyweightChart({
   height = 120,
 }: Props): React.ReactElement | null {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   if (history.length === 0) return null;
 
   const toDisplay = (kg: number) => (unitPref === 'lbs' ? kgToLbs(kg) : kg);
@@ -48,7 +50,7 @@ export function BodyweightChart({
       ]}
     >
       <View style={styles.headerRow}>
-        <Text style={[styles.kicker, { color: theme.colors.textTertiary }]}>BODYWEIGHT</Text>
+        <Text style={[styles.kicker, { color: theme.colors.textTertiary }]}>{t('components:bodyweightChart.kicker')}</Text>
         <Text style={[styles.latest, { color: theme.colors.textPrimary }]}>
           {last.toFixed(1)} {unitLabel}
         </Text>
@@ -81,7 +83,12 @@ export function BodyweightChart({
         ))}
       </Svg>
       <Text style={[styles.range, { color: theme.colors.textTertiary }]}>
-        {history.length} weekly median{history.length !== 1 ? 's' : ''} · low {min.toFixed(1)} · high {max.toFixed(1)} {unitLabel}
+        {t('components:bodyweightChart.rangeSummary', {
+          count: history.length,
+          low: min.toFixed(1),
+          high: max.toFixed(1),
+          unit: unitLabel,
+        })}
       </Text>
     </View>
   );

@@ -35,7 +35,7 @@ import logger from './locales/en/logger.json';
 import misc from './locales/en/misc.json';
 import engine from './locales/en/engine.json';
 
-import { pseudoizeBundle } from './pseudo';
+import { pseudoizeBundle, type Bundle } from './pseudo';
 import { getAppLanguage, setAppLanguage, type AppLanguage } from '../data/appSettings';
 
 export const EN_RESOURCES = {
@@ -85,7 +85,7 @@ function ensurePseudoBundles(): void {
     i18n.addResourceBundle(
       'pseudo',
       ns,
-      pseudoizeBundle(EN_RESOURCES[ns] as Record<string, never>),
+      pseudoizeBundle(EN_RESOURCES[ns] as Bundle),
       true,
       true,
     );

@@ -166,9 +166,22 @@ export function trialProgress(startDayKey: string, todayKey: string): TrialProgr
 
 /**
  * A short human progress line, e.g. "Block 1 of 3 · Push / Pull / Legs · day 4 of 21".
- * Pure; safe to call every render.
+ * Pure; safe to call every render. TICKET-146: takes a translate function so
+ * the module itself stays a pure, language-agnostic derivation (no baked-in
+ * t() at module scope) — the caller (ActivePlanCard) supplies its own t and
+ * the split label (already resolved via the misc:activePlanCard.split* keys).
  */
-export function trialProgressLabel(p: TrialProgress): string {
+export function trialProgressLabel(
+  p: TrialProgress,
+  t: (key: string, opts?: Record<string, unknown>) => string,
+  splitLabel: string,
+): string {
   const blockNo = p.currentBlockIndex + 1;
-  return `Block ${blockNo} of ${TRIAL_BLOCK_COUNT} · ${TRIAL_SPLIT_LABEL[p.currentSplit]} · day ${p.dayInBlock} of ${BLOCK_DAYS}`;
+  return t('misc:activePlanCard.trialProgressLabel', {
+    blockNumber: blockNo,
+    blockCount: TRIAL_BLOCK_COUNT,
+    split: splitLabel,
+    dayInBlock: p.dayInBlock,
+    blockDays: BLOCK_DAYS,
+  });
 }

@@ -20,6 +20,7 @@ import { useTheme } from '../theme/ThemeContext';
 import { useSyncStatus } from '../hooks/useSyncStatus';
 import { useAuth } from '../hooks/useAuth';
 import { isLocalFirst } from '../data/backup/tierPolicy';
+import { useTranslation } from 'react-i18next';
 
 // ---------------------------------------------------------------------------
 // Derived state
@@ -45,6 +46,7 @@ function deriveSyncState(status: StatusLike): SyncState {
 
 export function SyncStatusIndicator(): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const status = useSyncStatus();
   const { user } = useAuth();
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -106,12 +108,12 @@ export function SyncStatusIndicator(): React.ReactElement {
       : theme.colors.textSecondary;
 
   const label = localFirst
-    ? 'On device'
+    ? t('components:syncStatusIndicator.onDevice')
     : syncState === 'synced'
-      ? 'Synced'
+      ? t('components:syncStatusIndicator.synced')
       : syncState === 'syncing'
-      ? 'Syncing…'
-      : 'Offline';
+      ? t('components:syncStatusIndicator.syncing')
+      : t('components:syncStatusIndicator.offline');
 
   return (
     <View

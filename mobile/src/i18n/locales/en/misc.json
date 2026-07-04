@@ -1,1 +1,425 @@
-{}
+{
+  "planPreview": {
+    "restRecoveryDay": "Rest / recovery day",
+    "weekHeader": "WEEK {{week}} — {{phase}}",
+    "weekHeaderDeload": " (deload)",
+    "splitPpl": "Push / Pull / Legs",
+    "splitUpperLower": "Upper / Lower",
+    "splitBodyPart": "Body-part split",
+    "splitUnsure": "Auto-selected split",
+    "yourPlan": "Your plan",
+    "accumulation": "Accumulation",
+    "weeksSummary_one": "{{count}} week",
+    "weeksSummary_other": "{{count}} weeks",
+    "progressionModel": "{{model}} progression",
+    "deloadInWeek": "deload in week {{week}}",
+    "peakingForMeet": "Peaking for a meet {{weeks}} weeks out.",
+    "trialTitle": "Trial splits — 3 blocks × 3 weeks",
+    "trialBlockTitle": "Block {{blockNumber}} — {{splitLabel}}",
+    "trialBlockMeta": "{{weekCount}} weeks · {{dayCount}} days/week",
+    "trialFooter": "You'll run these back-to-back. At the end of any block you can make that split your main plan — setting up and adopting a block is coming next."
+  },
+  "surveyControls": {
+    "stepOfTotal": "Step {{current}} of {{total}}"
+  },
+  "activePlanCard": {
+    "splitPpl": "Push / Pull / Legs",
+    "splitUpperLower": "Upper / Lower",
+    "splitBodyPart": "Body-part split",
+    "splitTrialAll": "Trial three splits",
+    "yourPlanKicker": "YOUR PLAN",
+    "trialSplitsKicker": "TRIAL SPLITS",
+    "trialsCompleteKicker": "TRIALS COMPLETE",
+    "weeksScheduled_one": "{{count}} week · on your calendar",
+    "weeksScheduled_other": "{{count}} weeks · on your calendar",
+    "weeksUnscheduled_one": "{{count}} week · not yet scheduled",
+    "weeksUnscheduled_other": "{{count}} weeks · not yet scheduled",
+    "addToCalendar": "Add to calendar",
+    "adoptThisPlanA11y": "Adopt this plan to your calendar",
+    "requestChanges": "Request changes",
+    "requestChangesA11y": "Request changes to this plan",
+    "discardPlan": "Discard plan",
+    "discardPlanA11y": "Discard this plan",
+    "discardTrials": "Discard trials",
+    "discardTrialsA11y": "Discard these trials",
+    "daysLeftInBlockHint_one": "{{count}} day left in this block. We'll ask if you want to adopt it when it finishes.",
+    "daysLeftInBlockHint_other": "{{count}} days left in this block. We'll ask if you want to adopt it when it finishes.",
+    "makeMainSplitTitle": "Make this your main split?",
+    "makeMainSplitBodyLastBlock": "You've finished the {{split}} block. Adopt it as your plan, or compare all three.",
+    "makeMainSplitBodyNextBlock": "You've finished the {{split}} block. Adopt it as your plan, or continue to the next split.",
+    "adoptSplit": "Adopt {{split}}",
+    "adoptSplitA11y": "Adopt {{split}} as your main split",
+    "compareAllThree": "Compare all three",
+    "compareAllThreeA11y": "Compare all three splits",
+    "continueToNextSplit": "Continue to next split",
+    "continueToNextSplitA11y": "Continue to the next split",
+    "pickYourSplit": "Pick your split",
+    "pickComparisonBody": "You've run all three. Choose the one that felt best — we'll build your full plan on it.",
+    "pick": "Pick",
+    "pickA11y": "Pick {{splitLabel}}",
+    "trialProgressLabel": "Block {{blockNumber}} of {{blockCount}} · {{split}} · day {{dayInBlock}} of {{blockDays}}"
+  },
+  "quickSwapSheet": {
+    "dismissA11y": "Dismiss swap sheet",
+    "title": "Machine busy? Swap",
+    "subtitle": "Same target, different setup — for today only.",
+    "emptyUnresolvedExercise": "We don't have alternatives catalogued for this exercise yet.",
+    "emptyNoMatchAfterFilters": "No alternatives match your equipment and injury settings right now.",
+    "emptyNoMatch": "No suitable alternatives found for this exercise.",
+    "swapToA11y": "Swap to {{name}}. {{why}}",
+    "viewDetailsA11y": "View details for {{name}}",
+    "neverSuggestAgain": "Never suggest {{name}} again",
+    "neverSuggestAgainA11y": "Never suggest {{name}} again",
+    "done": "Done",
+    "cancel": "Cancel",
+    "close": "Close"
+  },
+  "notifications": {
+    "restCompleteTitle": "Rest complete",
+    "restCompleteBody": "Time for your next set."
+  },
+  "badges": {
+    "workouts_1": {
+      "name": "First Rep",
+      "description": "Log your first workout."
+    },
+    "workouts_10": {
+      "name": "Getting Started",
+      "description": "Log 10 workouts."
+    },
+    "workouts_50": {
+      "name": "Regular",
+      "description": "Log 50 workouts."
+    },
+    "workouts_100": {
+      "name": "Committed",
+      "description": "Log 100 workouts."
+    },
+    "workouts_250": {
+      "name": "Iron Habit",
+      "description": "Log 250 workouts."
+    },
+    "workouts_500": {
+      "name": "Lifer",
+      "description": "Log 500 workouts."
+    },
+    "streak_1_week": {
+      "name": "One Week In",
+      "description": "Reach a 7-day streak."
+    },
+    "streak_4_weeks": {
+      "name": "Monthly Momentum",
+      "description": "Reach a 28-day streak."
+    },
+    "streak_12_weeks": {
+      "name": "Quarter Strong",
+      "description": "Reach an 84-day streak."
+    },
+    "streak_26_weeks": {
+      "name": "Half-Year Habit",
+      "description": "Reach a 182-day streak."
+    },
+    "streak_52_weeks": {
+      "name": "Full Year",
+      "description": "Reach a 364-day streak."
+    },
+    "prs_5": {
+      "name": "Record Setter",
+      "description": "Set 5 personal records."
+    },
+    "prs_20": {
+      "name": "Record Breaker",
+      "description": "Set 20 personal records."
+    },
+    "prs_50": {
+      "name": "Record Collector",
+      "description": "Set 50 personal records."
+    },
+    "prs_100": {
+      "name": "PR Machine",
+      "description": "Set 100 personal records."
+    },
+    "volume_10000": {
+      "name": "Ten Tonnes",
+      "description": "Lift 10,000 kg total volume."
+    },
+    "volume_100000": {
+      "name": "Hundred Tonnes",
+      "description": "Lift 100,000 kg total volume."
+    },
+    "volume_1000000": {
+      "name": "Million Kilo Club",
+      "description": "Lift 1,000,000 kg total volume."
+    },
+    "group_joined_1": {
+      "name": "Joined the Group",
+      "description": "Join a group."
+    },
+    "group_joined_3": {
+      "name": "Community Builder",
+      "description": "Join 3 groups."
+    },
+    "program_completed_1": {
+      "name": "Program Finisher",
+      "description": "Complete a full training program."
+    },
+    "program_completed_3": {
+      "name": "Serial Finisher",
+      "description": "Complete 3 full training programs."
+    }
+  },
+  "surveyConfig": {
+    "goal_hypertrophy": {
+      "label": "Hypertrophy",
+      "subtitle": "Build muscle size — full MEV→MRV volume ramp"
+    },
+    "goal_strength_powerlifting": {
+      "label": "Max strength & powerlifting",
+      "subtitle": "Heavy, low-rep; optional meet peaking"
+    },
+    "goal_general_fitness": {
+      "label": "General fitness / fat loss",
+      "subtitle": "Health, recomp & consistency"
+    },
+    "goal_athletic_power": {
+      "label": "Athletic power",
+      "subtitle": "Explosive strength + plyometrics"
+    },
+    "goal_team_sport": {
+      "label": "Team sport",
+      "subtitle": "Season-phased strength around your games"
+    },
+    "experience_beginner": {
+      "label": "Beginner",
+      "subtitle": "New, or < 6 months consistent"
+    },
+    "experience_novice": {
+      "label": "Novice",
+      "subtitle": "6 months – 2 years"
+    },
+    "experience_intermediate": {
+      "label": "Intermediate",
+      "subtitle": "2 – 4 years; linear gains slowing"
+    },
+    "experience_advanced": {
+      "label": "Advanced",
+      "subtitle": "4 – 8 years; needs periodisation"
+    },
+    "experience_elite": {
+      "label": "Elite",
+      "subtitle": "8+ years, competitive"
+    },
+    "split_ppl": {
+      "label": "Push / Pull / Legs",
+      "subtitle": "Rotate push, pull and leg days"
+    },
+    "split_upper_lower": {
+      "label": "Upper / Lower",
+      "subtitle": "Alternate upper- and lower-body days"
+    },
+    "split_body_part": {
+      "label": "Body-part split",
+      "subtitle": "Chest day, back day, arms day… (\"bro split\")"
+    },
+    "split_unsure": {
+      "label": "I don't know",
+      "subtitle": "Trial all three, 3 weeks each, and pick what suits you"
+    },
+    "splitExplainer": "Split choice is individual — push days front-load compounds and suit some lifters, while others accumulate too much fatigue to perform later in the session. Not sure? We build three sequential 3-week trial blocks (Push/Pull/Legs → Upper/Lower → Body-part) so you can feel the difference and adopt whichever fits best.",
+    "sessionMinutes_30": {
+      "label": "30 min",
+      "subtitle": "Short"
+    },
+    "sessionMinutes_45": {
+      "label": "45 min",
+      "subtitle": "Standard"
+    },
+    "sessionMinutes_60": {
+      "label": "60 min",
+      "subtitle": "Full session"
+    },
+    "sessionMinutes_75": {
+      "label": "75 min",
+      "subtitle": "Extended"
+    },
+    "sessionMinutes_90": {
+      "label": "90 min",
+      "subtitle": "Long"
+    },
+    "day_mon": {
+      "label": "Mon"
+    },
+    "day_tue": {
+      "label": "Tue"
+    },
+    "day_wed": {
+      "label": "Wed"
+    },
+    "day_thu": {
+      "label": "Thu"
+    },
+    "day_fri": {
+      "label": "Fri"
+    },
+    "day_sat": {
+      "label": "Sat"
+    },
+    "day_sun": {
+      "label": "Sun"
+    },
+    "equipment_barbell": {
+      "label": "Barbell"
+    },
+    "equipment_dumbbell": {
+      "label": "Dumbbell"
+    },
+    "equipment_kettlebell": {
+      "label": "Kettlebell"
+    },
+    "equipment_machine": {
+      "label": "Machine"
+    },
+    "equipment_cable": {
+      "label": "Cable"
+    },
+    "equipment_bodyweight": {
+      "label": "Bodyweight"
+    },
+    "equipment_bands": {
+      "label": "Bands"
+    },
+    "equipment_bench": {
+      "label": "Bench"
+    },
+    "equipment_rack": {
+      "label": "Rack"
+    },
+    "equipment_pullup_bar": {
+      "label": "Pull-up bar"
+    },
+    "priority_chest": {
+      "label": "Chest"
+    },
+    "priority_back": {
+      "label": "Back"
+    },
+    "priority_shoulders": {
+      "label": "Shoulders"
+    },
+    "priority_biceps": {
+      "label": "Arms"
+    },
+    "priority_quads": {
+      "label": "Legs"
+    },
+    "priority_glutes": {
+      "label": "Glutes"
+    },
+    "priority_abs": {
+      "label": "Core"
+    },
+    "priority_calves": {
+      "label": "Calves"
+    },
+    "injury_lower_back": {
+      "label": "Lower back"
+    },
+    "injury_knees": {
+      "label": "Knees"
+    },
+    "injury_shoulders": {
+      "label": "Shoulders"
+    },
+    "injury_wrists": {
+      "label": "Wrists"
+    },
+    "injury_elbows": {
+      "label": "Elbows"
+    },
+    "injury_ankles": {
+      "label": "Ankles"
+    },
+    "injury_neck": {
+      "label": "Neck"
+    },
+    "injury_hip": {
+      "label": "Hip"
+    },
+    "injury_upper_back": {
+      "label": "Upper back"
+    },
+    "sport_soccer": {
+      "label": "Soccer"
+    },
+    "sport_basketball": {
+      "label": "Basketball"
+    },
+    "sport_football": {
+      "label": "Football"
+    },
+    "sport_rugby": {
+      "label": "Rugby"
+    },
+    "sport_volleyball": {
+      "label": "Volleyball"
+    },
+    "sport_handball": {
+      "label": "Handball"
+    },
+    "sport_hockey": {
+      "label": "Hockey"
+    },
+    "sport_other": {
+      "label": "Other"
+    },
+    "season_off_season": {
+      "label": "Off-season",
+      "subtitle": "Build strength & size base"
+    },
+    "season_pre_season": {
+      "label": "Pre-season",
+      "subtitle": "Convert to power & speed"
+    },
+    "season_in_season": {
+      "label": "In-season",
+      "subtitle": "Maintain — low volume, high intensity"
+    },
+    "failure_cautious": {
+      "label": "Cautious",
+      "subtitle": "Leave more reps in reserve"
+    },
+    "failure_balanced": {
+      "label": "Balanced",
+      "subtitle": "Recommended default"
+    },
+    "failure_aggressive": {
+      "label": "Aggressive",
+      "subtitle": "Closer to failure (still safe-capped)"
+    },
+    "progression_conservative": {
+      "label": "Conservative",
+      "subtitle": "Slower, steadier load increases"
+    },
+    "progression_balanced": {
+      "label": "Balanced",
+      "subtitle": "Recommended default"
+    },
+    "progression_aggressive": {
+      "label": "Aggressive",
+      "subtitle": "Faster increases (capped ≤5%/session)"
+    },
+    "deload_infrequent": {
+      "label": "Less often",
+      "subtitle": "Every 6–8 weeks"
+    },
+    "deload_standard": {
+      "label": "Standard",
+      "subtitle": "Every 5–6 weeks"
+    },
+    "deload_frequent": {
+      "label": "More often",
+      "subtitle": "Every 3–4 weeks"
+    },
+    "knobSafetyNote": "Whatever you choose, we never push a beginner past 2 reps-in-reserve on the big lifts — the safe floor always wins."
+  }
+}

@@ -58,6 +58,8 @@ import {
   loadSchedule,
   saveSchedule,
 } from '../data/schedule';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 
 interface RoutineLite { id: string; name: string; }
 
@@ -69,10 +71,22 @@ interface Props {
 }
 
 // Full names for the weekly rows / picker context; chip labels are separate so
-// Thursday reads "Th" (distinct from Tuesday "T").
+// Thursday reads "Th" (distinct from Tuesday "T"). English fallback arrays —
+// render sites translate via weekdayName()/weekdayChip() below.
 const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const WEEKDAY_CHIPS = ['S', 'M', 'T', 'W', 'Th', 'F', 'S']; // option 4 — exact labels
 const FIRST_OPEN_KEY = '@peak_fettle/schedule_editor_seen';
+
+const WEEKDAY_KEYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+
+/** Pure lookups called only from this file's own render — take `t` per the
+ * render-site translation rule. */
+function weekdayName(i: number, t: TFunction): string {
+  return t(`components:scheduleEditorSheet.weekdayName.${WEEKDAY_KEYS[i]}`, { defaultValue: WEEKDAYS[i] });
+}
+function weekdayChip(i: number, t: TFunction): string {
+  return t(`components:scheduleEditorSheet.weekdayChip.${WEEKDAY_KEYS[i]}`, { defaultValue: WEEKDAY_CHIPS[i] });
+}
 
 type PickerTarget =
   | { kind: 'cycle'; index: number }
@@ -84,6 +98,7 @@ interface PreviewCell { label: string; routineName: string | null; isRest: boole
 
 export default function ScheduleEditorSheet({ visible, routines, onClose, onSaved }: Props): React.ReactElement {
   const { theme, fontWeight } = useTheme();
+  const { t } = useTranslation();
   const c = theme.colors;
   const reduceMotion = useReduceMotion();
   const insets = useSafeAreaInsets();
@@ -266,15 +281,15 @@ export default function ScheduleEditorSheet({ visible, routines, onClose, onSave
     if (draft.mode === 'weekly') {
       const hasTrainingDay = draft.weekly.some((s) => s && s.routineId);
       const hasSelected = draft.weekly.some((s) => s != null);
-      if (!hasSelected) return { valid: false, reason: 'Pick at least one day' };
-      if (!hasTrainingDay) return { valid: false, reason: 'Assign a routine to at least one day' };
+      if (!hasSelected) return { valid: false, reason: t('components:scheduleEditorSheet.pickAtLeastOneDay') };
+      if (!hasTrainingDay) return { valid: false, reason: t('components:scheduleEditorSheet.assignRoutineToAtLeastOneDay') };
       return { valid: true, reason: null };
     }
     // cycle
     const assigned = cycleRoutines.slice(0, trainDays).filter((s) => s && s.routineId).length;
-    if (assigned === 0) return { valid: false, reason: 'Assign a routine to at least one training day' };
+    if (assigned === 0) return { valid: false, reason: t('components:scheduleEditorSheet.assignRoutineToAtLeastOneTrainingDay') };
     return { valid: true, reason: null };
-  }, [draft.mode, draft.weekly, cycleRoutines, trainDays]);
+  }, [draft.mode, draft.weekly, cycleRoutines, trainDays, t]);
 
   // ── 2-week preview grid (option 7) ──────────────────────────────────────────
   const preview = useMemo<PreviewCell[]>(() => {
@@ -286,8 +301,8 @@ export default function ScheduleEditorSheet({ visible, routines, onClose, onSave
         const dow = (todayIdx + day) % 7;
         const slot = draft.weekly[dow] ?? null;
         cells.push({
-          label: WEEKDAY_CHIPS[dow] ?? '',
-          routineName: slot?.routineId ? (slot.routineName ?? 'Routine') : null,
+          label: weekdayChip(dow, t) ?? '',
+          routineName: slot?.routineId ? (slot.routineName ?? t('components:scheduleEditorSheet.routineFallback')) : null,
           isRest: !slot || !slot.routineId,
           isToday: day === 0,
         });
@@ -298,14 +313,14 @@ export default function ScheduleEditorSheet({ visible, routines, onClose, onSave
         const slot = loop.length > 0 ? loop[day % loop.length] : null;
         cells.push({
           label: `D${day + 1}`,
-          routineName: slot?.routineId ? (slot.routineName ?? 'Routine') : null,
+          routineName: slot?.routineId ? (slot.routineName ?? t('components:scheduleEditorSheet.routineFallback')) : null,
           isRest: !slot || !slot.routineId,
           isToday: day === 0,
         });
       }
     }
     return cells;
-  }, [draft.mode, draft.weekly, buildCycleSlots]);
+  }, [draft.mode, draft.weekly, buildCycleSlots, t]);
 
   // ── Save (option 14 — local-first store via saveSchedule) ───────────────────
   const handleSave = useCallback(async () => {
@@ -329,15 +344,15 @@ export default function ScheduleEditorSheet({ visible, routines, onClose, onSave
   const requestClose = useCallback(() => {
     if (!dirty) { onClose(); return; }
     Alert.alert(
-      'Discard changes?',
-      'Your schedule edits haven’t been saved.',
+      t('components:scheduleEditorSheet.discardChangesTitle'),
+      t('components:scheduleEditorSheet.discardChangesBody'),
       [
-        { text: 'Keep editing', style: 'cancel' },
-        { text: 'Discard', style: 'destructive', onPress: () => { setDirty(false); onClose(); } },
+        { text: t('components:scheduleEditorSheet.keepEditing'), style: 'cancel' },
+        { text: t('components:scheduleEditorSheet.discard'), style: 'destructive', onPress: () => { setDirty(false); onClose(); } },
       ],
       { cancelable: true },
     );
-  }, [dirty, onClose]);
+  }, [dirty, onClose, t]);
 
   const dismissExplainer = useCallback(() => {
     setShowExplainer(false);
@@ -346,8 +361,8 @@ export default function ScheduleEditorSheet({ visible, routines, onClose, onSave
 
   // ── Segmented thumb animation (option 3) ────────────────────────────────────
   const SEG_OPTIONS: { mode: ScheduleMode; label: string }[] = [
-    { mode: 'weekly', label: 'Day of week' },
-    { mode: 'cycle', label: 'Repeating cycle' },
+    { mode: 'weekly', label: t('components:scheduleEditorSheet.dayOfWeek') },
+    { mode: 'cycle', label: t('components:scheduleEditorSheet.repeatingCycle') },
   ];
   const activeSegIndex = draft.mode === 'weekly' ? 0 : 1;
   const thumbAnim = useRef(new Animated.Value(activeSegIndex)).current;
@@ -369,10 +384,10 @@ export default function ScheduleEditorSheet({ visible, routines, onClose, onSave
     const parts = (draft.timeOfDay ?? '07:00').split(':');
     const h = parseInt(parts[0] ?? '7', 10) || 0;
     const m = parseInt(parts[1] ?? '0', 10) || 0;
-    const ampm = h >= 12 ? 'PM' : 'AM';
+    const ampm = h >= 12 ? t('components:scheduleEditorSheet.pm') : t('components:scheduleEditorSheet.am');
     const h12 = h % 12 === 0 ? 12 : h % 12;
     return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
-  }, [draft.timeOfDay]);
+  }, [draft.timeOfDay, t]);
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={requestClose} presentationStyle="fullScreen">
@@ -383,14 +398,14 @@ export default function ScheduleEditorSheet({ visible, routines, onClose, onSave
           <TouchableOpacity
             onPress={requestClose}
             accessibilityRole="button"
-            accessibilityLabel="Close schedule editor"
+            accessibilityLabel={t('components:scheduleEditorSheet.closeAccessibilityLabel')}
             style={styles.headerIconBtn}
             hitSlop={8}
           >
             <Ionicons name="close" size={24} color={c.textSecondary} />
           </TouchableOpacity>
           <Text style={[styles.title, { color: c.textPrimary, fontWeight: fontWeight.bold }]} numberOfLines={1}>
-            Training schedule
+            {t('components:scheduleEditorSheet.trainingSchedule')}
           </Text>
           {/* Header Save is a quiet mirror of the sticky bar; primary CTA is the sticky bar */}
           <View style={styles.headerIconBtn} />
@@ -406,12 +421,12 @@ export default function ScheduleEditorSheet({ visible, routines, onClose, onSave
             <Pressable
               onPress={dismissExplainer}
               accessibilityRole="button"
-              accessibilityLabel="Dismiss tip"
+              accessibilityLabel={t('components:scheduleEditorSheet.dismissTipAccessibilityLabel')}
               style={[styles.explainer, { backgroundColor: c.bgSecondary, borderColor: c.borderDefault }]}
             >
               <Ionicons name="information-circle-outline" size={16} color={c.textTertiary} />
               <Text style={{ color: c.textTertiary, fontSize: fontSize.caption, flex: 1 }}>
-                Plan your week or set a repeating rhythm. You can tweak it anytime — tap to dismiss.
+                {t('components:scheduleEditorSheet.explainerBody')}
               </Text>
             </Pressable>
           ) : null}
@@ -469,18 +484,19 @@ export default function ScheduleEditorSheet({ visible, routines, onClose, onSave
             <>
               {/* Option 4 — day-of-week chips */}
               <Text style={[styles.sectionLabel, { color: c.textSecondary, fontWeight: fontWeight.semibold }]}>
-                Training days
+                {t('components:scheduleEditorSheet.trainingDays')}
               </Text>
               <View style={styles.chipRow}>
-                {WEEKDAY_CHIPS.map((label, i) => {
+                {WEEKDAY_CHIPS.map((_, i) => {
                   const selected = draft.weekly[i] != null;
+                  const chipLabel = weekdayChip(i, t);
                   return (
                     <TouchableOpacity
-                      key={`${label}-${i}`}
+                      key={`${chipLabel}-${i}`}
                       onPress={() => toggleWeekday(i)}
                       accessibilityRole="button"
                       accessibilityState={{ selected }}
-                      accessibilityLabel={`${WEEKDAYS[i]}${selected ? ', selected' : ''}`}
+                      accessibilityLabel={selected ? t('components:scheduleEditorSheet.weekdaySelectedAccessibilityLabel', { name: weekdayName(i, t) }) : weekdayName(i, t)}
                       style={[
                         styles.chip,
                         {
@@ -496,7 +512,7 @@ export default function ScheduleEditorSheet({ visible, routines, onClose, onSave
                           fontSize: fontSize.bodySm,
                         }}
                       >
-                        {label}
+                        {chipLabel}
                       </Text>
                     </TouchableOpacity>
                   );
@@ -511,11 +527,12 @@ export default function ScheduleEditorSheet({ visible, routines, onClose, onSave
               {draft.weekly.some((s) => s != null) ? (
                 <>
                   <Text style={[styles.sectionLabel, { color: c.textSecondary, fontWeight: fontWeight.semibold, marginTop: spacing.s4 }]}>
-                    Assign routines
+                    {t('components:scheduleEditorSheet.assignRoutines')}
                   </Text>
-                  {WEEKDAYS.map((wd, i) => {
+                  {WEEKDAYS.map((_, i) => {
                     const slot = draft.weekly[i] ?? null;
                     if (slot == null) return null;
+                    const wd = weekdayName(i, t);
                     return (
                       <View key={wd} style={[styles.slotRow, { backgroundColor: c.bgSecondary, borderColor: c.borderDefault }]}>
                         <Text style={{ color: c.textSecondary, fontSize: fontSize.bodySm, width: 92 }}>{wd}</Text>
@@ -523,10 +540,10 @@ export default function ScheduleEditorSheet({ visible, routines, onClose, onSave
                           onPress={() => setPicker({ kind: 'weekly', weekday: i })}
                           style={styles.slotPick}
                           accessibilityRole="button"
-                          accessibilityLabel={`Assign ${wd}`}
+                          accessibilityLabel={t('components:scheduleEditorSheet.assignDayAccessibilityLabel', { day: wd })}
                         >
                           <Text style={{ color: slot.routineId ? c.textPrimary : c.textTertiary, fontSize: fontSize.bodySm }} numberOfLines={1}>
-                            {slot.routineId ? (slot.routineName ?? 'Routine') : 'Tap to choose a routine'}
+                            {slot.routineId ? (slot.routineName ?? t('components:scheduleEditorSheet.routineFallback')) : t('components:scheduleEditorSheet.tapToChooseRoutine')}
                           </Text>
                         </Pressable>
                         <Ionicons name="chevron-forward" size={16} color={c.textTertiary} />
@@ -540,12 +557,12 @@ export default function ScheduleEditorSheet({ visible, routines, onClose, onSave
             <>
               {/* Option 5 — repeating-cycle stepper */}
               <Text style={[styles.sectionLabel, { color: c.textSecondary, fontWeight: fontWeight.semibold }]}>
-                Rhythm
+                {t('components:scheduleEditorSheet.rhythm')}
               </Text>
               <View style={[styles.stepperCard, { backgroundColor: c.bgSecondary, borderColor: c.borderDefault }]}>
                 <Stepper
-                  label="Train"
-                  unit={trainDays === 1 ? 'day' : 'days'}
+                  label={t('components:scheduleEditorSheet.train')}
+                  unit={t('components:scheduleEditorSheet.dayUnit', { count: trainDays })}
                   value={trainDays}
                   onDec={() => adjustTrain(-1)}
                   onInc={() => adjustTrain(1)}
@@ -554,8 +571,8 @@ export default function ScheduleEditorSheet({ visible, routines, onClose, onSave
                 />
                 <View style={[styles.stepperDivider, { backgroundColor: c.borderDefault }]} />
                 <Stepper
-                  label="Rest"
-                  unit={restDays === 1 ? 'day' : 'days'}
+                  label={t('components:scheduleEditorSheet.rest')}
+                  unit={t('components:scheduleEditorSheet.dayUnit', { count: restDays })}
                   value={restDays}
                   onDec={() => adjustRest(-1)}
                   onInc={() => adjustRest(1)}
@@ -564,26 +581,26 @@ export default function ScheduleEditorSheet({ visible, routines, onClose, onSave
                 />
               </View>
               <Text style={{ color: c.textTertiary, fontSize: fontSize.caption, marginTop: spacing.s2 }}>
-                {`Repeats every ${trainDays + restDays} day${trainDays + restDays === 1 ? '' : 's'}.`}
+                {t('components:scheduleEditorSheet.repeatsEvery', { count: trainDays + restDays })}
               </Text>
 
               {/* Option 6 — routine per training slot */}
               <Text style={[styles.sectionLabel, { color: c.textSecondary, fontWeight: fontWeight.semibold, marginTop: spacing.s4 }]}>
-                Routine per training day
+                {t('components:scheduleEditorSheet.routinePerTrainingDay')}
               </Text>
               {Array.from({ length: trainDays }).map((_, i) => {
                 const slot = cycleRoutines[i] ?? null;
                 return (
                   <View key={i} style={[styles.slotRow, { backgroundColor: c.bgSecondary, borderColor: c.borderDefault }]}>
-                    <Text style={{ color: c.textSecondary, fontSize: fontSize.bodySm, width: 92 }}>{`Train ${i + 1}`}</Text>
+                    <Text style={{ color: c.textSecondary, fontSize: fontSize.bodySm, width: 92 }}>{t('components:scheduleEditorSheet.trainSlotLabel', { index: i + 1 })}</Text>
                     <Pressable
                       onPress={() => setPicker({ kind: 'cycle', index: i })}
                       style={styles.slotPick}
                       accessibilityRole="button"
-                      accessibilityLabel={`Assign training day ${i + 1}`}
+                      accessibilityLabel={t('components:scheduleEditorSheet.assignTrainingDayAccessibilityLabel', { index: i + 1 })}
                     >
                       <Text style={{ color: slot?.routineId ? c.textPrimary : c.textTertiary, fontSize: fontSize.bodySm }} numberOfLines={1}>
-                        {slot?.routineId ? (slot.routineName ?? 'Routine') : 'Tap to choose a routine'}
+                        {slot?.routineId ? (slot.routineName ?? t('components:scheduleEditorSheet.routineFallback')) : t('components:scheduleEditorSheet.tapToChooseRoutine')}
                       </Text>
                     </Pressable>
                     <Ionicons name="chevron-forward" size={16} color={c.textTertiary} />
@@ -600,45 +617,45 @@ export default function ScheduleEditorSheet({ visible, routines, onClose, onSave
           {!skeleton ? (
             <>
               <Text style={[styles.sectionLabel, { color: c.textSecondary, fontWeight: fontWeight.semibold, marginTop: spacing.s5 }]}>
-                Time of day
+                {t('components:scheduleEditorSheet.timeOfDay')}
               </Text>
               <View style={[styles.timeRow, { backgroundColor: c.bgSecondary, borderColor: c.borderDefault }]}>
                 <Ionicons name="time-outline" size={18} color={c.textSecondary} />
                 <View style={styles.timeStepGroup}>
-                  <TouchableOpacity onPress={() => adjustTime('h', -1)} style={styles.timeStepBtn} accessibilityLabel="Earlier hour">
+                  <TouchableOpacity onPress={() => adjustTime('h', -1)} style={styles.timeStepBtn} accessibilityLabel={t('components:scheduleEditorSheet.earlierHour')}>
                     <Ionicons name="remove" size={18} color={c.accentDefault} />
                   </TouchableOpacity>
                   <Text style={{ color: c.textPrimary, fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold, minWidth: 92, textAlign: 'center' }}>
                     {timeLabel}
                   </Text>
-                  <TouchableOpacity onPress={() => adjustTime('h', 1)} style={styles.timeStepBtn} accessibilityLabel="Later hour">
+                  <TouchableOpacity onPress={() => adjustTime('h', 1)} style={styles.timeStepBtn} accessibilityLabel={t('components:scheduleEditorSheet.laterHour')}>
                     <Ionicons name="add" size={18} color={c.accentDefault} />
                   </TouchableOpacity>
                 </View>
                 <View style={styles.timeStepGroup}>
-                  <TouchableOpacity onPress={() => adjustTime('m', -5)} style={styles.timeStepBtn} accessibilityLabel="Five minutes earlier">
-                    <Text style={{ color: c.accentDefault, fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold }}>−5m</Text>
+                  <TouchableOpacity onPress={() => adjustTime('m', -5)} style={styles.timeStepBtn} accessibilityLabel={t('components:scheduleEditorSheet.fiveMinEarlier')}>
+                    <Text style={{ color: c.accentDefault, fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold }}>{t('components:scheduleEditorSheet.minus5m')}</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={() => adjustTime('m', 5)} style={styles.timeStepBtn} accessibilityLabel="Five minutes later">
-                    <Text style={{ color: c.accentDefault, fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold }}>+5m</Text>
+                  <TouchableOpacity onPress={() => adjustTime('m', 5)} style={styles.timeStepBtn} accessibilityLabel={t('components:scheduleEditorSheet.fiveMinLater')}>
+                    <Text style={{ color: c.accentDefault, fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold }}>{t('components:scheduleEditorSheet.plus5m')}</Text>
                   </TouchableOpacity>
                 </View>
               </View>
               <View style={[styles.reminderRow, { backgroundColor: c.bgSecondary, borderColor: c.borderDefault }]}>
                 <Ionicons name="notifications-outline" size={18} color={c.textSecondary} />
-                <Text style={{ color: c.textPrimary, fontSize: fontSize.bodySm, flex: 1 }}>Remind me on training days</Text>
+                <Text style={{ color: c.textPrimary, fontSize: fontSize.bodySm, flex: 1 }}>{t('components:scheduleEditorSheet.remindMe')}</Text>
                 <Switch
                   value={draft.reminderEnabled}
                   onValueChange={setReminder}
                   trackColor={{ false: c.bgTertiary, true: c.accentSecondary }}
                   thumbColor={draft.reminderEnabled ? c.accentDefault : c.textTertiary}
-                  accessibilityLabel="Toggle training reminder"
+                  accessibilityLabel={t('components:scheduleEditorSheet.toggleReminderAccessibilityLabel')}
                 />
               </View>
 
               {/* Option 7 — live 2-week preview grid */}
               <Text style={[styles.sectionLabel, { color: c.textSecondary, fontWeight: fontWeight.semibold, marginTop: spacing.s5 }]}>
-                Next 2 weeks
+                {t('components:scheduleEditorSheet.next2Weeks')}
               </Text>
               <View style={styles.previewGrid}>
                 {preview.map((cell, idx) => (
@@ -652,7 +669,10 @@ export default function ScheduleEditorSheet({ visible, routines, onClose, onSave
                         borderWidth: cell.isToday ? 2 : 1,
                       },
                     ]}
-                    accessibilityLabel={`${cell.label}: ${cell.isRest ? 'rest' : (cell.routineName ?? 'training')}`}
+                    accessibilityLabel={t('components:scheduleEditorSheet.previewCellAccessibilityLabel', {
+                      label: cell.label,
+                      status: cell.isRest ? t('components:scheduleEditorSheet.rest') : (cell.routineName ?? t('components:scheduleEditorSheet.training')),
+                    })}
                   >
                     <Text style={{ color: c.textTertiary, fontSize: fontSize.micro }}>{cell.label}</Text>
                     <Text
@@ -663,7 +683,7 @@ export default function ScheduleEditorSheet({ visible, routines, onClose, onSave
                       }}
                       numberOfLines={1}
                     >
-                      {cell.isRest ? 'Rest' : (cell.routineName ?? '•')}
+                      {cell.isRest ? t('components:scheduleEditorSheet.rest') : (cell.routineName ?? '•')}
                     </Text>
                   </View>
                 ))}
@@ -684,7 +704,7 @@ export default function ScheduleEditorSheet({ visible, routines, onClose, onSave
             disabled={saving || !validation.valid}
             accessibilityRole="button"
             accessibilityState={{ disabled: saving || !validation.valid }}
-            accessibilityLabel="Save schedule"
+            accessibilityLabel={t('components:scheduleEditorSheet.saveScheduleAccessibilityLabel')}
             style={[
               styles.saveBtn,
               {
@@ -703,7 +723,7 @@ export default function ScheduleEditorSheet({ visible, routines, onClose, onSave
                   fontSize: fontSize.bodyMd,
                 }}
               >
-                Save schedule
+                {t('components:scheduleEditorSheet.saveSchedule')}
               </Text>
             )}
           </TouchableOpacity>
@@ -714,16 +734,16 @@ export default function ScheduleEditorSheet({ visible, routines, onClose, onSave
           <Pressable style={styles.pickerBackdrop} onPress={() => setPicker(null)} />
           <View style={[styles.pickerSheet, { backgroundColor: c.bgSecondary, borderColor: c.borderDefault }]}>
             <Text style={{ color: c.textPrimary, fontWeight: fontWeight.bold, fontSize: fontSize.bodyMd, marginBottom: spacing.s3 }}>
-              Assign a routine
+              {t('components:scheduleEditorSheet.assignARoutine')}
             </Text>
             <ScrollView style={{ maxHeight: 320 }}>
               <TouchableOpacity onPress={() => applyPick({ routineId: null })} style={[styles.pickerItem, { borderBottomColor: c.borderDefault }]}>
                 <Ionicons name="moon-outline" size={18} color={c.textSecondary} />
-                <Text style={{ color: c.textSecondary, fontSize: fontSize.bodyMd, marginLeft: spacing.s2 }}>Rest day</Text>
+                <Text style={{ color: c.textSecondary, fontSize: fontSize.bodyMd, marginLeft: spacing.s2 }}>{t('components:scheduleEditorSheet.restDay')}</Text>
               </TouchableOpacity>
               {routines.length === 0 ? (
                 <Text style={{ color: c.textTertiary, fontSize: fontSize.bodySm, paddingVertical: spacing.s3 }}>
-                  No routines yet — create one first, then assign it here.
+                  {t('components:scheduleEditorSheet.noRoutinesYet')}
                 </Text>
               ) : (
                 routines.map((r) => (
@@ -738,8 +758,8 @@ export default function ScheduleEditorSheet({ visible, routines, onClose, onSave
                 ))
               )}
             </ScrollView>
-            <TouchableOpacity onPress={() => setPicker(null)} style={styles.pickerCancel} accessibilityRole="button" accessibilityLabel="Cancel">
-              <Text style={{ color: c.textTertiary, fontSize: fontSize.bodySm }}>Cancel</Text>
+            <TouchableOpacity onPress={() => setPicker(null)} style={styles.pickerCancel} accessibilityRole="button" accessibilityLabel={t('common:cancel')}>
+              <Text style={{ color: c.textTertiary, fontSize: fontSize.bodySm }}>{t('common:cancel')}</Text>
             </TouchableOpacity>
           </View>
         </Modal>
@@ -760,17 +780,18 @@ function Stepper({
   c: ReturnType<typeof useTheme>['theme']['colors'];
   fontWeight: ReturnType<typeof useTheme>['fontWeight'];
 }): React.ReactElement {
+  const { t } = useTranslation();
   return (
     <View style={styles.stepper}>
       <Text style={{ color: c.textSecondary, fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold }}>{label}</Text>
       <View style={styles.stepperControls}>
-        <TouchableOpacity onPress={onDec} style={[styles.stepperBtn, { borderColor: c.borderDefault }]} accessibilityRole="button" accessibilityLabel={`Decrease ${label}`}>
+        <TouchableOpacity onPress={onDec} style={[styles.stepperBtn, { borderColor: c.borderDefault }]} accessibilityRole="button" accessibilityLabel={t('components:scheduleEditorSheet.decreaseAccessibilityLabel', { label })}>
           <Ionicons name="remove" size={18} color={c.accentDefault} />
         </TouchableOpacity>
         <Text style={{ color: c.textPrimary, fontSize: fontSize.bodyLg, fontWeight: fontWeight.bold, minWidth: 28, textAlign: 'center' }}>
           {value}
         </Text>
-        <TouchableOpacity onPress={onInc} style={[styles.stepperBtn, { borderColor: c.borderDefault }]} accessibilityRole="button" accessibilityLabel={`Increase ${label}`}>
+        <TouchableOpacity onPress={onInc} style={[styles.stepperBtn, { borderColor: c.borderDefault }]} accessibilityRole="button" accessibilityLabel={t('components:scheduleEditorSheet.increaseAccessibilityLabel', { label })}>
           <Ionicons name="add" size={18} color={c.accentDefault} />
         </TouchableOpacity>
       </View>

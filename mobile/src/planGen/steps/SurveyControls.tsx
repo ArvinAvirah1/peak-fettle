@@ -18,6 +18,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../../theme/tokens';
 
@@ -262,8 +263,9 @@ export function Hint({ children }: { children: React.ReactNode }): React.ReactEl
 
 export function ProgressDots({ total, current }: { total: number; current: number }): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   return (
-    <View style={styles.dotsRow} accessibilityLabel={`Step ${current + 1} of ${total}`}>
+    <View style={styles.dotsRow} accessibilityLabel={t('misc:surveyControls.stepOfTotal', { current: current + 1, total })}>
       {Array.from({ length: total }, (_, i) => (
         <View
           key={i}

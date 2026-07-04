@@ -516,7 +516,7 @@ function RankingCard({
                 if (discipline && NON_STRENGTH.includes(discipline)) {
                   return t('tabs:rankings.scoreBasedOnPeopleLikeYou', { count: ranking.cohort_size_internal });
                 }
-                return confidenceRingTooltip(ranking.cohort_size_internal);
+                return confidenceRingTooltip(ranking.cohort_size_internal, t);
               })()}
             </Text>
           </View>

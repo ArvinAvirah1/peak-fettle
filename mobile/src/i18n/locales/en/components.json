@@ -1,1 +1,464 @@
-{}
+{
+  "bodyweightChart": {
+    "kicker": "BODYWEIGHT",
+    "rangeSummary_one": "{{count}} weekly median · low {{low}} · high {{high}} {{unit}}",
+    "rangeSummary_other": "{{count}} weekly medians · low {{low}} · high {{high}} {{unit}}"
+  },
+  "bodyweightPromptCard": {
+    "kicker": "WEEKLY CHECK-IN",
+    "title": "What was your median weight this week?",
+    "subtitle": "Your typical weigh-in for the week, not a single reading — it keeps your percentiles and tier accurate.",
+    "lastLogged": "Last logged: {{value}}.",
+    "inputAccessibilityLabel": "Median weight this week in {{unit}}",
+    "saveAccessibilityLabel": "Save weekly weight"
+  },
+  "calendarHeatmap": {
+    "kicker_one": "LAST {{count}} WEEK",
+    "kicker_other": "LAST {{count}} WEEKS",
+    "trainingDayCount_one": "{{count}} training day",
+    "trainingDayCount_other": "{{count}} training days",
+    "gridAccessibilityLabel": "Training heatmap: {{activeDays}} active days in the last {{weeks}} weeks"
+  },
+  "confidenceRing": {
+    "loading": "Cohort size loading…",
+    "cohortEmpty": "You're the first in your cohort! Rankings use reference data until more athletes join.",
+    "cohortOne": "Your cohort has 1 Peak Fettle athlete. Rankings become more precise as more join.",
+    "cohortMany": "Your cohort has {{count}} Peak Fettle athletes. Rankings become more precise as more join."
+  },
+  "fatigueAdviceCard": {
+    "actionTitle": {
+      "pullDeloadForward": "Consider an early deload",
+      "trimAccessoryVolume": "Consider trimming volume"
+    },
+    "cardAccessibilityLabel": "Plan adjustment suggestion: {{title}}",
+    "dismissAccessibilityLabel": "Dismiss suggestion",
+    "dismiss": "Dismiss",
+    "reviewAccessibilityLabel": "Review this change",
+    "reviewChange": "Review change"
+  },
+  "liftProgressChart": {
+    "metric": {
+      "e1rm": "e1RM",
+      "topWeight": "Top set",
+      "volume": "Vol ({{unit}})",
+      "bestReps": "Reps"
+    },
+    "emptyState": "No history yet — log this lift to see your progress."
+  },
+  "muscleHeatmap": {
+    "emptyStateAccessibilityLabel": "No muscle recovery data yet",
+    "emptyStateTitle": "No muscle data yet",
+    "emptyStateBody": "Log your first workout to see which muscles need recovery and which are fresh.",
+    "frontBodyDiagram": "Front body diagram",
+    "backBodyDiagram": "Back body diagram",
+    "legend": {
+      "fresh": "Fresh",
+      "moderate": "Moderate",
+      "needsRecovery": "Needs recovery"
+    },
+    "front": "FRONT",
+    "back": "BACK",
+    "dismissDetailAccessibilityLabel": "Dismiss muscle detail",
+    "freshness": "Freshness",
+    "notTracked": "Not tracked",
+    "lastWorked": "Last worked",
+    "setsLastSession": "Sets last session",
+    "suggestSubstitutesAccessibilityLabel": "Suggest substitute exercises for {{muscle}}",
+    "suggestSubstitutes": "Suggest substitute exercises",
+    "never": "Never",
+    "regionLabel": {
+      "chest": "Chest",
+      "front_delts": "Front delts",
+      "side_delts": "Side delts",
+      "biceps": "Biceps",
+      "forearms": "Forearms",
+      "abs": "Abs",
+      "obliques": "Obliques",
+      "quads": "Quads",
+      "calves": "Calves",
+      "upper_back": "Upper back",
+      "rear_delts": "Rear delts",
+      "lats": "Lats",
+      "lower_back": "Lower back",
+      "triceps": "Triceps",
+      "glutes": "Glutes",
+      "hamstrings": "Hamstrings"
+    }
+  },
+  "muscleMap": {
+    "accessibilityLabel": "Muscle map highlighting {{groups}}",
+    "noMuscles": "no muscles"
+  },
+  "exerciseDetailSheet": {
+    "frontMuscleDiagram": "Front muscle diagram",
+    "backMuscleDiagram": "Back muscle diagram",
+    "primary": "Primary",
+    "secondary": "Secondary",
+    "goalLine": "Goal: {{weight}} x {{reps}}",
+    "goalAchievedSuffix": "-- achieved",
+    "closeAccessibilityLabel": "Close exercise details",
+    "targetMuscles": "Target muscles",
+    "formCues": "Form cues",
+    "noMediaYet": "No muscle diagram or form cues yet for this exercise.",
+    "progress": "Progress"
+  },
+  "exercisePicker": {
+    "category": {
+      "strength": "Strength",
+      "cardio": "Cardio",
+      "sport": "Sport",
+      "mobility": "Mobility"
+    },
+    "failedToLoad": "Failed to load exercises",
+    "proRequired": "Creating custom exercises requires a Pro account. Upgrade to add your own exercises.",
+    "couldNotAddExercise": "Could not add exercise",
+    "selectAccessibilityLabel": "Select {{name}}",
+    "compound": "Compound",
+    "viewDetailsAccessibilityLabel": "View details for {{name}}",
+    "addCustomAccessibilityLabel": "Add {{name}} as a custom exercise",
+    "addCustomButton": "+ Add \"{{name}}\" as custom exercise",
+    "chooseExercise": "Choose Exercise",
+    "closeAccessibilityLabel": "Close exercise picker",
+    "searchPlaceholder": "Search exercises or type a custom name...",
+    "searchAccessibilityLabel": "Search exercises",
+    "loadingExercises": "Loading exercises...",
+    "retryAccessibilityLabel": "Retry",
+    "tryAgain": "Try Again",
+    "searchFailed": "Couldn't search exercises. Check your connection and try again.",
+    "retrySearchAccessibilityLabel": "Retry search",
+    "noResultsFor": "No exercises found for \"{{query}}\""
+  },
+  "readinessCard": {
+    "bandLabel": {
+      "push": "Ready to push",
+      "maintain": "Maintain intensity",
+      "rest": "Prioritise recovery",
+      "unknown": "Not enough data yet"
+    },
+    "bandDetail": {
+      "push": "Your metrics look strong — a hard session today will drive adaptation.",
+      "maintain": "Hold your training load steady and monitor how you feel mid-session.",
+      "rest": "Your body is asking for recovery. A light movement session or rest day is evidence-based here.",
+      "unknown": "Log health metrics (HRV, sleep, resting HR) for at least 7 days to unlock your personalised score."
+    },
+    "loadingAccessibilityLabel": "Loading readiness score",
+    "scoreAccessibilityLabel": "Readiness score: {{score}}. Band: {{band}}",
+    "unknownScore": "unknown",
+    "hideRuleTrace": "Hide rule trace",
+    "showRuleTrace": "Show rule trace",
+    "hideRuleTraceLabel": "▲ Hide rule trace",
+    "showRuleTraceLabel": "▼ How this score is calculated"
+  },
+  "routineStrip": {
+    "collapse": "Collapse {{label}}",
+    "expand": "Expand {{label}}",
+    "cardAccessibilityLabel_one": "{{name}}, {{count}} exercise",
+    "cardAccessibilityLabel_other": "{{name}}, {{count}} exercises",
+    "builtIn": "★ Built-in",
+    "exerciseCount_one": "{{count}} exercise",
+    "exerciseCount_other": "{{count}} exercises",
+    "myRoutines": "MY ROUTINES",
+    "manageRoutinesAccessibilityLabel": "Manage routines",
+    "manage": "Manage →",
+    "noRoutinesYet": "No routines yet. Save a workout as a routine to see it here.",
+    "starterSplits": "STARTER SPLITS",
+    "noTemplatesAvailable": "No templates available.",
+    "startWorkout": "Start Workout"
+  },
+  "templateDetailSheet": {
+    "startWorkout": "Start Workout",
+    "closeSheetAccessibilityLabel": "Close sheet",
+    "noExercises": "No exercises in this session.",
+    "setsAbbrev": "{{count}} sets",
+    "repsAbbrev": "{{reps}} reps",
+    "restAbbrev": "{{seconds}}s rest"
+  },
+  "syncStatusBar": {
+    "syncing": "Syncing…",
+    "offline": "⚠ Offline — changes saved locally"
+  },
+  "syncStatusIndicator": {
+    "onDevice": "On device",
+    "synced": "Synced",
+    "syncing": "Syncing…",
+    "offline": "Offline"
+  },
+  "tabErrorBoundary": {
+    "title": "Something went wrong",
+    "tryAgain": "Try again"
+  },
+  "themeSelector": {
+    "displayName": {
+      "deepOcean": "Deep Ocean",
+      "ember": "Ember",
+      "forest": "Forest",
+      "midnight": "Midnight",
+      "monochrome": "Mono"
+    },
+    "themeSelectedAccessibilityLabel": "{{name}} theme, selected",
+    "themeAccessibilityLabel": "{{name}} theme",
+    "chooseYourTheme": "Choose your theme",
+    "appearance": "Appearance",
+    "closeAccessibilityLabel": "Close theme picker",
+    "tapToPreview": "Tap a theme to preview it live. Your choice is saved automatically.",
+    "themeActive": "{{name}} theme active"
+  },
+  "tierLadderCard": {
+    "kicker": "STRENGTH TIER",
+    "freshnessHint": "Log this week's median bodyweight to unlock your tier — weight changes shift what your lifts mean, so a fresh weigh-in keeps the tier honest.",
+    "setBodyweightHint": "Set your bodyweight in your profile to unlock your tier.",
+    "logLiftsHint": "Log squat, bench, or deadlift sets to unlock your tier.",
+    "provisional": "PROVISIONAL",
+    "trajectory": {
+      "early": "Everyone starts here. Most lifters climb out within months.",
+      "mid": "Log consistently and watch this move.",
+      "climbing": "Climbing fast — newbie gains are real."
+    },
+    "strongerThan": "Stronger than {{pct}}% of same-sex trainees",
+    "nextTierAt": "{{name}} at the {{min}}th percentile",
+    "basedOnLifts": "Based on {{liftCount}} of 3 competition lifts — log {{remaining}} for your full tier.",
+    "theLastOne": "the last one",
+    "theOthers": "the others"
+  },
+  "tooltip": {
+    "dismissAccessibilityLabel": "Dismiss {{term}} explanation",
+    "gotIt": "Got it",
+    "openGlossaryAccessibilityLabel": "Open the glossary at {{term}}",
+    "learnMoreInGlossary": "Learn more in the glossary →",
+    "termAccessibilityLabel": "{{term}}. Tap for definition.",
+    "opensGlossaryHint": "Opens the glossary"
+  },
+  "dropsetConfigSheet": {
+    "choice": {
+      "lastSetOnly": "Last set only",
+      "last2Sets": "Last 2 sets",
+      "allSets": "All sets"
+    },
+    "dismissAccessibilityLabel": "Dismiss dropset configuration",
+    "title": "Make dropsets",
+    "whichSets": "WHICH SETS",
+    "hideAdvanced": "Hide advanced options",
+    "showAdvanced": "Show advanced options",
+    "advanced": "Advanced",
+    "dropsPerSet": "Drops per set",
+    "weightDrop": "Weight drop",
+    "saveAccessibilityLabel": "Save dropsets",
+    "updateDropsets": "Update dropsets",
+    "addDropsets": "Add dropsets",
+    "removeDropsets": "Remove dropsets",
+    "decreaseAccessibilityLabel": "Decrease {{label}}",
+    "increaseAccessibilityLabel": "Increase {{label}}"
+  },
+  "supersetLinkSheet": {
+    "linkCount_one": "Link {{count}} exercise",
+    "linkCount_other": "Link {{count}} exercises",
+    "dismissAccessibilityLabel": "Dismiss superset sheet",
+    "title": "Superset with…",
+    "subtitle": "Link {{name}} with 1–4 more — done back-to-back, rest after each round.",
+    "removeFromSuperset": "Remove {{name}} to the superset",
+    "addToSuperset": "Add {{name}} to the superset",
+    "searchLibraryAccessibilityLabel": "Search library to add a new exercise to the superset",
+    "searchLibrary": "Search library…",
+    "pickOneOrSearch": "Pick one or search the library"
+  },
+  "oAuthButtons": {
+    "googleSignInFailed": "Google sign-in failed. Please try again.",
+    "continueWithGoogle": "Continue with Google",
+    "appleNoToken": "Apple did not return a token. Please try again.",
+    "appleSignInFailed": "Apple sign-in failed. Please try again.",
+    "or": "or"
+  },
+  "welcomeTour": {
+    "step": {
+      "home-hub": {
+        "title": "This is your logging hub",
+        "body": "Home is where you train. Tap “Start workout” to begin a session and log your sets right here."
+      },
+      "create-schedule": {
+        "title": "Build your training split",
+        "body": "From Routines, tap “Create schedule” to set up a weekly plan or a repeating cycle (e.g. Push → Pull → Legs)."
+      },
+      "stepper": {
+        "title": "Log with the stepper",
+        "body": "Starting a workout opens the stepper — log each set’s weight and reps one tap at a time, with rest timers built in."
+      },
+      "rankings": {
+        "title": "See where you rank",
+        "body": "Your lifts are scored into percentiles and tiers against lifters like you. This is your Rankings tab."
+      },
+      "trends": {
+        "title": "Track your progress",
+        "body": "Tap any lift to open its progress graph and watch your trends climb over time."
+      },
+      "create-routine": {
+        "title": "Create a routine",
+        "body": "Tap “＋ New” to build your own routine, then start it any time from here."
+      }
+    },
+    "skipTourAccessibilityLabel": "Skip tour",
+    "previousStepAccessibilityLabel": "Previous step",
+    "finishTourAccessibilityLabel": "Finish tour",
+    "nextStepAccessibilityLabel": "Next step",
+    "next": "Next"
+  },
+  "avatarCustomizer": {
+    "categoryLabel": {
+      "background": "Background",
+      "accentTheme": "Accent",
+      "face": "Face shape",
+      "skin": "Skin",
+      "hair": "Hair",
+      "hairColor": "Hair color",
+      "facialHair": "Facial hair",
+      "eyes": "Eyes",
+      "brows": "Brows",
+      "mouth": "Mouth",
+      "glasses": "Glasses",
+      "headwear": "Headwear",
+      "outfit": "Outfit",
+      "wristbands": "Wristbands"
+    },
+    "unlockWithPro": "Unlock it with Peak Fettle Pro.",
+    "unlockByReaching": "Unlock it by reaching a {{label}}.",
+    "isLockedTitle": "{{name}} is locked",
+    "closeAccessibilityLabel": "Close avatar editor",
+    "editAvatar": "Edit avatar",
+    "saveAccessibilityLabel": "Save avatar",
+    "randomizeAccessibilityLabel": "Randomize avatar",
+    "randomize": "Randomize",
+    "optionAccessibilityLabel": "{{category}}: {{name}}",
+    "optionLockedAccessibilityLabel": "{{category}}: {{name}}, locked, {{requirement}}"
+  },
+  "shareCardSheet": {
+    "sharingNeedsUpdate": "Sharing needs an app update to enable image export.",
+    "couldNotShare": "Could not share the card. Please try again.",
+    "dismissAccessibilityLabel": "Dismiss share card preview",
+    "shareWorkout": "Share workout",
+    "workoutComplete": "WORKOUT COMPLETE",
+    "volume": "VOLUME",
+    "sets": "SETS",
+    "duration": "DURATION",
+    "wordmark": "PEAK FETTLE",
+    "trackYours": "Track yours — search Peak Fettle",
+    "ratioStory": "Story · 9:16",
+    "ratioSquare": "Square · 1:1",
+    "includeFlexLineAccessibilityLabel": "Include percentile flex line",
+    "showFlexLine": "Show percentile flex line",
+    "computedOnDevice": "Computed on-device — never sent anywhere.",
+    "exportUnavailable": "Image export isn't available in this build yet — update the app to share cards.",
+    "shareWorkoutCardAccessibilityLabel": "Share workout card"
+  },
+  "routineEditorSheet": {
+    "allSets": "all sets",
+    "lastNSets": "last {{n}}",
+    "dropsetBadge_one": "Dropsets: {{which}} · {{count}} drop @ -{{pct}}%",
+    "dropsetBadge_other": "Dropsets: {{which}} · {{count}} drops @ -{{pct}}%",
+    "errorTitle": "Error",
+    "couldNotSaveRoutine": "Could not save routine",
+    "closeEditorAccessibilityLabel": "Close editor",
+    "editRoutine": "Edit routine",
+    "saved": "Saved",
+    "nameLabel": "NAME",
+    "namePlaceholder": "e.g. Push A",
+    "exercisesLabel": "EXERCISES",
+    "noExercisesYet": "No exercises yet — tap ＋ Add exercise.",
+    "addExercise": "Add exercise",
+    "addExerciseButton": "＋ Add exercise",
+    "saveRoutineAccessibilityLabel": "Save routine",
+    "saveRoutine": "Save routine",
+    "closeMenuAccessibilityLabel": "Close menu",
+    "editDropsets": "Edit dropsets",
+    "makeDropsets": "Make dropsets",
+    "unlinkSuperset": "Unlink superset",
+    "supersetWithOthersAccessibilityLabel": "Superset with other exercises",
+    "optionsForAccessibilityLabel": "Options for {{name}}",
+    "setsLabel": "SETS",
+    "targetSetsAccessibilityLabel": "Target sets for {{name}}",
+    "repsLabel": "REPS",
+    "targetRepsAccessibilityLabel": "Target reps for {{name}}",
+    "moveUpAccessibilityLabel": "Move {{name}} up",
+    "moveDownAccessibilityLabel": "Move {{name}} down",
+    "removeAccessibilityLabel": "Remove {{name}}",
+    "supersetHeader_one": "SUPERSET {{letter}} · {{count}} ROUND",
+    "supersetHeader_other": "SUPERSET {{letter}} · {{count}} ROUNDS",
+    "moveSupersetUpAccessibilityLabel": "Move superset {{letter}} up",
+    "moveSupersetDownAccessibilityLabel": "Move superset {{letter}} down",
+    "unlinkSupersetLetterAccessibilityLabel": "Unlink superset {{letter}}",
+    "roundsLabel": "ROUNDS",
+    "decreaseRounds": "Decrease rounds",
+    "increaseRounds": "Increase rounds",
+    "moveUpWithinSupersetAccessibilityLabel": "Move {{name}} up within superset",
+    "moveDownWithinSupersetAccessibilityLabel": "Move {{name}} down within superset",
+    "removeFromSupersetAccessibilityLabel": "Remove {{name}} from superset"
+  },
+  "scheduleEditorSheet": {
+    "weekdayName": {
+      "sunday": "Sunday",
+      "monday": "Monday",
+      "tuesday": "Tuesday",
+      "wednesday": "Wednesday",
+      "thursday": "Thursday",
+      "friday": "Friday",
+      "saturday": "Saturday"
+    },
+    "weekdayChip": {
+      "sunday": "S",
+      "monday": "M",
+      "tuesday": "T",
+      "wednesday": "W",
+      "thursday": "Th",
+      "friday": "F",
+      "saturday": "S"
+    },
+    "pickAtLeastOneDay": "Pick at least one day",
+    "assignRoutineToAtLeastOneDay": "Assign a routine to at least one day",
+    "assignRoutineToAtLeastOneTrainingDay": "Assign a routine to at least one training day",
+    "routineFallback": "Routine",
+    "discardChangesTitle": "Discard changes?",
+    "discardChangesBody": "Your schedule edits haven't been saved.",
+    "keepEditing": "Keep editing",
+    "discard": "Discard",
+    "dayOfWeek": "Day of week",
+    "repeatingCycle": "Repeating cycle",
+    "pm": "PM",
+    "am": "AM",
+    "closeAccessibilityLabel": "Close schedule editor",
+    "trainingSchedule": "Training schedule",
+    "dismissTipAccessibilityLabel": "Dismiss tip",
+    "explainerBody": "Plan your week or set a repeating rhythm. You can tweak it anytime — tap to dismiss.",
+    "trainingDays": "Training days",
+    "weekdaySelectedAccessibilityLabel": "{{name}}, selected",
+    "assignRoutines": "Assign routines",
+    "assignDayAccessibilityLabel": "Assign {{day}}",
+    "tapToChooseRoutine": "Tap to choose a routine",
+    "rhythm": "Rhythm",
+    "train": "Train",
+    "dayUnit_one": "day",
+    "dayUnit_other": "days",
+    "rest": "Rest",
+    "repeatsEvery_one": "Repeats every {{count}} day.",
+    "repeatsEvery_other": "Repeats every {{count}} days.",
+    "routinePerTrainingDay": "Routine per training day",
+    "trainSlotLabel": "Train {{index}}",
+    "assignTrainingDayAccessibilityLabel": "Assign training day {{index}}",
+    "timeOfDay": "Time of day",
+    "earlierHour": "Earlier hour",
+    "laterHour": "Later hour",
+    "fiveMinEarlier": "Five minutes earlier",
+    "minus5m": "−5m",
+    "fiveMinLater": "Five minutes later",
+    "plus5m": "+5m",
+    "remindMe": "Remind me on training days",
+    "toggleReminderAccessibilityLabel": "Toggle training reminder",
+    "next2Weeks": "Next 2 weeks",
+    "previewCellAccessibilityLabel": "{{label}}: {{status}}",
+    "training": "training",
+    "saveScheduleAccessibilityLabel": "Save schedule",
+    "saveSchedule": "Save schedule",
+    "assignARoutine": "Assign a routine",
+    "restDay": "Rest day",
+    "noRoutinesYet": "No routines yet — create one first, then assign it here.",
+    "decreaseAccessibilityLabel": "Decrease {{label}}",
+    "increaseAccessibilityLabel": "Increase {{label}}"
+  }
+}

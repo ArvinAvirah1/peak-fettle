@@ -28,24 +28,34 @@ import { useTheme } from '../theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
 import { ReadinessResponse, ReadinessBand } from '../api/insights';
 import { useReduceMotion } from '../hooks/useReduceMotion';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 
 // ---------------------------------------------------------------------------
 // Band copy
 // ---------------------------------------------------------------------------
 
-const BAND_LABEL: Record<ReadinessBand, string> = {
-  push: 'Ready to push',
-  maintain: 'Maintain intensity',
-  rest: 'Prioritise recovery',
-  unknown: 'Not enough data yet',
-};
+/** Pure lookups called only from this file's own render — take `t` per the
+ * render-site translation rule. */
+function bandLabel(band: ReadinessBand, t: TFunction): string {
+  const KEYS: Record<ReadinessBand, string> = {
+    push: 'components:readinessCard.bandLabel.push',
+    maintain: 'components:readinessCard.bandLabel.maintain',
+    rest: 'components:readinessCard.bandLabel.rest',
+    unknown: 'components:readinessCard.bandLabel.unknown',
+  };
+  return t(KEYS[band]);
+}
 
-const BAND_DETAIL: Record<ReadinessBand, string> = {
-  push:     'Your metrics look strong — a hard session today will drive adaptation.',
-  maintain: 'Hold your training load steady and monitor how you feel mid-session.',
-  rest:     'Your body is asking for recovery. A light movement session or rest day is evidence-based here.',
-  unknown:  'Log health metrics (HRV, sleep, resting HR) for at least 7 days to unlock your personalised score.',
-};
+function bandDetail(band: ReadinessBand, t: TFunction): string {
+  const KEYS: Record<ReadinessBand, string> = {
+    push: 'components:readinessCard.bandDetail.push',
+    maintain: 'components:readinessCard.bandDetail.maintain',
+    rest: 'components:readinessCard.bandDetail.rest',
+    unknown: 'components:readinessCard.bandDetail.unknown',
+  };
+  return t(KEYS[band]);
+}
 
 // ---------------------------------------------------------------------------
 // Skeleton — pulsing placeholder while loading
@@ -84,6 +94,7 @@ function SkeletonLine({ width, height = 12, style }: { width: number | string; h
 
 function ReadinessCardSkeleton(): React.ReactElement {
   const { theme, spacing: sp, radius: r } = useTheme();
+  const { t } = useTranslation();
   return (
     <View
       style={[
@@ -96,7 +107,7 @@ function ReadinessCardSkeleton(): React.ReactElement {
           padding: sp.s5,
         },
       ]}
-      accessibilityLabel="Loading readiness score"
+      accessibilityLabel={t('components:readinessCard.loadingAccessibilityLabel')}
     >
       {/* Top row skeleton: circle + lines */}
       <View style={styles.topRow}>
@@ -231,6 +242,7 @@ interface Props {
 
 export default function ReadinessCard({ data, loading }: Props): React.ReactElement {
   const { theme, spacing: sp, fontSize: fs, radius: r } = useTheme();
+  const { t } = useTranslation();
   const { colors } = theme;
   const [traceOpen, setTraceOpen] = useState(false);
   const reduceMotion = useReduceMotion();
@@ -267,7 +279,10 @@ export default function ReadinessCard({ data, loading }: Props): React.ReactElem
     <Animated.View
       accessible
       accessibilityRole="summary"
-      accessibilityLabel={`Readiness score: ${score !== null ? score : 'unknown'}. Band: ${BAND_LABEL[band]}`}
+      accessibilityLabel={t('components:readinessCard.scoreAccessibilityLabel', {
+        score: score !== null ? score : t('components:readinessCard.unknownScore'),
+        band: bandLabel(band, t),
+      })}
       style={[
         styles.card,
         {
@@ -299,10 +314,10 @@ export default function ReadinessCard({ data, loading }: Props): React.ReactElem
 
         <View style={styles.bandBlock}>
           <Text style={{ color: dialColor, fontSize: fs.bodyLg, fontWeight: fontWeight.bold }}>
-            {BAND_LABEL[band]}
+            {bandLabel(band, t)}
           </Text>
           <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, marginTop: sp.s1, lineHeight: 18 }}>
-            {BAND_DETAIL[band]}
+            {bandDetail(band, t)}
           </Text>
         </View>
       </View>
@@ -332,12 +347,12 @@ export default function ReadinessCard({ data, loading }: Props): React.ReactElem
           <TouchableOpacity
             onPress={() => setTraceOpen((v) => !v)}
             accessibilityRole="button"
-            accessibilityLabel={traceOpen ? 'Hide rule trace' : 'Show rule trace'}
+            accessibilityLabel={traceOpen ? t('components:readinessCard.hideRuleTrace') : t('components:readinessCard.showRuleTrace')}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             style={styles.traceToggle}
           >
             <Text style={{ color: colors.accentDefault, fontSize: fs.caption, fontWeight: fontWeight.medium }}>
-              {traceOpen ? '▲ Hide rule trace' : '▼ How this score is calculated'}
+              {traceOpen ? t('components:readinessCard.hideRuleTraceLabel') : t('components:readinessCard.showRuleTraceLabel')}
             </Text>
           </TouchableOpacity>
 

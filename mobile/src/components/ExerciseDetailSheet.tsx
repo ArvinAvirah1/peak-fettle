@@ -56,6 +56,8 @@ import { ALL_REGIONS, BodyOutline } from './MuscleHeatmap';
 import { getExerciseGoal, ExerciseGoal } from '../data/exerciseGoals';
 import { formatWeight } from '../constants/units';
 import LiftProgressChart from './LiftProgressChart';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -99,7 +101,8 @@ function MuscleDiagramSide({
   accentColor,
   dimColor,
   outlineColor,
-}: MuscleDiagramProps & { side: 'front' | 'back' }): React.ReactElement {
+  t,
+}: MuscleDiagramProps & { side: 'front' | 'back'; t: TFunction }): React.ReactElement {
   const regions = ALL_REGIONS.filter((r) => r.side === side);
   const primarySet = new Set(primary);
   const secondarySet = new Set(secondary);
@@ -108,7 +111,7 @@ function MuscleDiagramSide({
       width={100}
       height={220}
       viewBox="0 0 120 260"
-      accessibilityLabel={`${side === 'front' ? 'Front' : 'Back'} muscle diagram`}
+      accessibilityLabel={side === 'front' ? t('components:exerciseDetailSheet.frontMuscleDiagram') : t('components:exerciseDetailSheet.backMuscleDiagram')}
     >
       <BodyOutline color={outlineColor} />
       {regions.map((reg, i) => {
@@ -135,6 +138,7 @@ function MuscleDiagramSide({
 
 function MuscleDiagram(props: MuscleDiagramProps): React.ReactElement {
   const { theme, spacing: sp, fontSize: fs } = useTheme();
+  const { t } = useTranslation();
   const allKeys = [...props.primary, ...props.secondary];
   const hasFront = ALL_REGIONS.some((r) => r.side === 'front' && allKeys.includes(r.key));
   const hasBack = ALL_REGIONS.some((r) => r.side === 'back' && allKeys.includes(r.key));
@@ -142,17 +146,17 @@ function MuscleDiagram(props: MuscleDiagramProps): React.ReactElement {
     <View style={diagramStyles.row}>
       {(hasFront || !hasBack) && (
         <View style={diagramStyles.sideWrap}>
-          <MuscleDiagramSide side="front" {...props} />
+          <MuscleDiagramSide side="front" {...props} t={t} />
           <Text style={[diagramStyles.sideLabel, { color: theme.colors.textTertiary, fontSize: fs.micro, marginTop: sp.s1 }]}>
-            FRONT
+            {t('components:muscleHeatmap.front')}
           </Text>
         </View>
       )}
       {(hasBack || !hasFront) && (
         <View style={diagramStyles.sideWrap}>
-          <MuscleDiagramSide side="back" {...props} />
+          <MuscleDiagramSide side="back" {...props} t={t} />
           <Text style={[diagramStyles.sideLabel, { color: theme.colors.textTertiary, fontSize: fs.micro, marginTop: sp.s1 }]}>
-            BACK
+            {t('components:muscleHeatmap.back')}
           </Text>
         </View>
       )}
@@ -172,15 +176,16 @@ const diagramStyles = StyleSheet.create({
 
 function MuscleLegend({ accentColor, dimColor }: { accentColor: string; dimColor: string }): React.ReactElement {
   const { theme, spacing: sp, fontSize: fs, radius: r } = useTheme();
+  const { t } = useTranslation();
   return (
     <View style={[legendStyles.row, { marginTop: sp.s2, gap: sp.s4 }]}>
       <View style={legendStyles.item}>
         <View style={[legendStyles.dot, { backgroundColor: accentColor, borderRadius: r.full ?? 999 }]} />
-        <Text style={{ color: theme.colors.textSecondary, fontSize: fs.micro }}>Primary</Text>
+        <Text style={{ color: theme.colors.textSecondary, fontSize: fs.micro }}>{t('components:exerciseDetailSheet.primary')}</Text>
       </View>
       <View style={legendStyles.item}>
         <View style={[legendStyles.dot, { backgroundColor: dimColor, borderRadius: r.full ?? 999 }]} />
-        <Text style={{ color: theme.colors.textSecondary, fontSize: fs.micro }}>Secondary</Text>
+        <Text style={{ color: theme.colors.textSecondary, fontSize: fs.micro }}>{t('components:exerciseDetailSheet.secondary')}</Text>
       </View>
     </View>
   );
@@ -198,6 +203,7 @@ const legendStyles = StyleSheet.create({
 
 function GoalRow({ goal, unitPref }: { goal: ExerciseGoal; unitPref: 'kg' | 'lbs' }): React.ReactElement {
   const { theme, spacing: sp, fontSize: fs, radius: r } = useTheme();
+  const { t } = useTranslation();
   const achieved = !!goal.achieved_at;
   return (
     <View
@@ -217,8 +223,11 @@ function GoalRow({ goal, unitPref }: { goal: ExerciseGoal; unitPref: 'kg' | 'lbs
         color={achieved ? theme.colors.statusSuccess : theme.colors.accentDefault}
       />
       <Text style={{ color: theme.colors.textPrimary, fontSize: fs.bodySm, marginLeft: sp.s2 }}>
-        Goal: {formatWeight(goal.target_weight_kg, unitPref, 1)} x {goal.target_reps}
-        {achieved ? ' -- achieved' : ''}
+        {t('components:exerciseDetailSheet.goalLine', {
+          weight: formatWeight(goal.target_weight_kg, unitPref, 1),
+          reps: goal.target_reps,
+        })}
+        {achieved ? ` ${t('components:exerciseDetailSheet.goalAchievedSuffix')}` : ''}
       </Text>
     </View>
   );
@@ -238,6 +247,7 @@ export function ExerciseDetailSheet({
   onClose,
 }: ExerciseDetailSheetProps): React.ReactElement | null {
   const { theme, spacing: sp, fontSize: fs, radius: r } = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const unitPref = user?.unit_pref ?? 'kg';
@@ -291,7 +301,7 @@ export function ExerciseDetailSheet({
             onPress={onClose}
             style={styles.closeButton}
             accessibilityRole="button"
-            accessibilityLabel="Close exercise details"
+            accessibilityLabel={t('components:exerciseDetailSheet.closeAccessibilityLabel')}
           >
             <Ionicons name="close" size={22} color={theme.colors.textSecondary} />
           </TouchableOpacity>
@@ -320,7 +330,7 @@ export function ExerciseDetailSheet({
           {media ? (
             <>
               <Text style={[styles.sectionTitle, { color: theme.colors.textPrimary, fontSize: fs.bodyMd, marginBottom: sp.s2 }]}>
-                Target muscles
+                {t('components:exerciseDetailSheet.targetMuscles')}
               </Text>
               <MuscleDiagram
                 primary={media.primary_muscles}
@@ -332,7 +342,7 @@ export function ExerciseDetailSheet({
               <MuscleLegend accentColor={theme.colors.accentDefault} dimColor={theme.colors.borderDefault} />
 
               <Text style={[styles.sectionTitle, { color: theme.colors.textPrimary, fontSize: fs.bodyMd, marginTop: sp.s5, marginBottom: sp.s2 }]}>
-                Form cues
+                {t('components:exerciseDetailSheet.formCues')}
               </Text>
               {media.cues.map((cue, i) => (
                 <View key={i} style={[styles.cueRow, { marginBottom: sp.s2 }]}>
@@ -349,7 +359,7 @@ export function ExerciseDetailSheet({
             </>
           ) : (
             <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodySm, marginBottom: sp.s4 }}>
-              No muscle diagram or form cues yet for this exercise.
+              {t('components:exerciseDetailSheet.noMediaYet')}
             </Text>
           )}
 
@@ -360,7 +370,7 @@ export function ExerciseDetailSheet({
           {exercise.id && (
             <View style={{ marginTop: sp.s6 }}>
               <Text style={[styles.sectionTitle, { color: theme.colors.textPrimary, fontSize: fs.bodyMd, marginBottom: sp.s2 }]}>
-                Progress
+                {t('components:exerciseDetailSheet.progress')}
               </Text>
               <LiftProgressChart exerciseId={exercise.id} exerciseName={exercise.name} unitPref={unitPref} />
             </View>

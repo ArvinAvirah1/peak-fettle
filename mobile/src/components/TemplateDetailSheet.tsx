@@ -28,6 +28,7 @@ import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius, fontSize, fontWeight } from '../theme/tokens';
 import { MuscleMap } from './MuscleMap';
 import { muscleGroupsForRoutine } from '../data/muscleRegions';
+import { useTranslation } from 'react-i18next';
 
 export interface SheetExercise {
   /** Display name — may be a template exercise_name or a resolved exercise name */
@@ -57,9 +58,11 @@ export function TemplateDetailSheet({
   description,
   exercises,
   onStart,
-  startLabel = 'Start Workout',
+  startLabel,
 }: TemplateDetailSheetProps): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
+  const resolvedStartLabel = startLabel ?? t('components:templateDetailSheet.startWorkout');
   // Compute aggregated muscle groups for the whole routine
   const routineMuscleGroups = muscleGroupsForRoutine(exercises);
 
@@ -75,7 +78,7 @@ export function TemplateDetailSheet({
       <Pressable
         style={styles.backdrop}
         onPress={onClose}
-        accessibilityLabel="Close sheet"
+        accessibilityLabel={t('components:templateDetailSheet.closeSheetAccessibilityLabel')}
       />
 
       {/* Sheet */}
@@ -104,7 +107,7 @@ export function TemplateDetailSheet({
             onPress={onClose}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             accessibilityRole="button"
-            accessibilityLabel="Close"
+            accessibilityLabel={t('common:close')}
           >
             <Text style={{ fontSize: fontSize.bodyLg, color: theme.colors.textTertiary }}>✕</Text>
           </TouchableOpacity>
@@ -145,7 +148,7 @@ export function TemplateDetailSheet({
         >
           {exercises.length === 0 ? (
             <Text style={[styles.emptyText, { color: theme.colors.textTertiary }]}>
-              No exercises in this session.
+              {t('components:templateDetailSheet.noExercises')}
             </Text>
           ) : (
             exercises.map((ex, i) => (
@@ -186,9 +189,9 @@ export function TemplateDetailSheet({
                   {(ex.sets || ex.reps) ? (
                     <Text style={[styles.exTarget, { color: theme.colors.textTertiary }]}>
                       {[
-                        ex.sets ? `${ex.sets} sets` : null,
-                        ex.reps ? `${ex.reps} reps` : null,
-                        ex.rest_s ? `${ex.rest_s}s rest` : null,
+                        ex.sets ? t('components:templateDetailSheet.setsAbbrev', { count: ex.sets }) : null,
+                        ex.reps ? t('components:templateDetailSheet.repsAbbrev', { reps: ex.reps }) : null,
+                        ex.rest_s ? t('components:templateDetailSheet.restAbbrev', { seconds: ex.rest_s }) : null,
                       ]
                         .filter(Boolean)
                         .join(' · ')}
@@ -224,7 +227,7 @@ export function TemplateDetailSheet({
               },
             ]}
             accessibilityRole="button"
-            accessibilityLabel={startLabel}
+            accessibilityLabel={resolvedStartLabel}
           >
             <Text
               style={[
@@ -237,7 +240,7 @@ export function TemplateDetailSheet({
                 },
               ]}
             >
-              {startLabel}
+              {resolvedStartLabel}
             </Text>
           </TouchableOpacity>
         </View>

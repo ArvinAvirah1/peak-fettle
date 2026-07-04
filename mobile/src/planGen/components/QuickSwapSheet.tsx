@@ -32,6 +32,8 @@ import {
   StyleSheet,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { Ionicons } from '../../components/Icon';
 import { useTheme } from '../../theme/ThemeContext';
 import type { SwapCandidate } from '../quickSwap';
@@ -60,15 +62,15 @@ export interface QuickSwapSheetProps {
   onClose: () => void;
 }
 
-function emptyCopy(reason: string | null | undefined): string {
+function emptyCopy(t: TFunction, reason: string | null | undefined): string {
   switch (reason) {
     case 'unresolved-exercise':
-      return "We don't have alternatives catalogued for this exercise yet.";
+      return t('misc:quickSwapSheet.emptyUnresolvedExercise');
     case 'no-match-after-filters':
-      return 'No alternatives match your equipment and injury settings right now.';
+      return t('misc:quickSwapSheet.emptyNoMatchAfterFilters');
     case 'no-match':
     default:
-      return 'No suitable alternatives found for this exercise.';
+      return t('misc:quickSwapSheet.emptyNoMatch');
   }
 }
 
@@ -87,6 +89,7 @@ export function QuickSwapSheet(props: QuickSwapSheetProps): React.ReactElement {
     onClose,
   } = props;
   const { theme, fontSize: fs, fontWeight: fw, spacing: sp, radius: r } = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
 
   return (
@@ -100,7 +103,7 @@ export function QuickSwapSheet(props: QuickSwapSheetProps): React.ReactElement {
       <Pressable
         style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)' }}
         onPress={onClose}
-        accessibilityLabel="Dismiss swap sheet"
+        accessibilityLabel={t('misc:quickSwapSheet.dismissA11y')}
       />
       <View
         style={[
@@ -122,11 +125,11 @@ export function QuickSwapSheet(props: QuickSwapSheetProps): React.ReactElement {
           <View style={styles.headerRow}>
             <Ionicons name="swap-horizontal" size={20} color={theme.colors.accentDefault} />
             <Text style={[styles.title, { color: theme.colors.textPrimary, fontSize: fs.bodyLg, fontWeight: fw.bold, marginLeft: sp.s2 }]}>
-              Machine busy? Swap
+              {t('misc:quickSwapSheet.title')}
             </Text>
           </View>
           <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodySm, marginBottom: sp.s3 }}>
-            Same target, different setup — for today only.
+            {t('misc:quickSwapSheet.subtitle')}
           </Text>
         </View>
 
@@ -148,7 +151,7 @@ export function QuickSwapSheet(props: QuickSwapSheetProps): React.ReactElement {
           <ActivityIndicator color={theme.colors.accentDefault} style={{ marginTop: sp.s4, marginBottom: sp.s4 }} />
         ) : candidates.length === 0 ? (
           <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodySm, marginTop: sp.s3, marginBottom: sp.s3 }}>
-            {emptyCopy(emptyReason)}
+            {emptyCopy(t, emptyReason)}
           </Text>
         ) : (
           <ScrollView style={{ maxHeight: 340 }} keyboardShouldPersistTaps="handled">
@@ -158,7 +161,7 @@ export function QuickSwapSheet(props: QuickSwapSheetProps): React.ReactElement {
                 style={[styles.row, { borderBottomColor: theme.colors.borderDefault }]}
                 onPress={() => onSelect(c)}
                 accessibilityRole="button"
-                accessibilityLabel={`Swap to ${c.name}. ${c.why}`}
+                accessibilityLabel={t('misc:quickSwapSheet.swapToA11y', { name: c.name, why: c.why })}
               >
                 <View style={{ flex: 1 }}>
                   <Text style={{ color: theme.colors.textPrimary, fontSize: fs.bodyMd, fontWeight: fw.medium }}>
@@ -173,7 +176,7 @@ export function QuickSwapSheet(props: QuickSwapSheetProps): React.ReactElement {
                     onPress={() => onViewDetails(c)}
                     style={{ minWidth: 32, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
                     accessibilityRole="button"
-                    accessibilityLabel={`View details for ${c.name}`}
+                    accessibilityLabel={t('misc:quickSwapSheet.viewDetailsA11y', { name: c.name })}
                   >
                     <Ionicons name="information-circle-outline" size={18} color={theme.colors.textTertiary} />
                   </TouchableOpacity>
@@ -189,11 +192,11 @@ export function QuickSwapSheet(props: QuickSwapSheetProps): React.ReactElement {
             style={[styles.secondaryBtn, { marginTop: sp.s3 }]}
             onPress={onNeverSuggest}
             accessibilityRole="button"
-            accessibilityLabel={`Never suggest ${originalName} again`}
+            accessibilityLabel={t('misc:quickSwapSheet.neverSuggestAgainA11y', { name: originalName })}
           >
             <Ionicons name="close-circle-outline" size={16} color={theme.colors.textTertiary} />
             <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodySm, marginLeft: sp.s2 }} numberOfLines={1}>
-              Never suggest {originalName} again
+              {t('misc:quickSwapSheet.neverSuggestAgain', { name: originalName })}
             </Text>
           </TouchableOpacity>
         ) : null}
@@ -202,10 +205,10 @@ export function QuickSwapSheet(props: QuickSwapSheetProps): React.ReactElement {
           style={[styles.cancelBtn, { borderColor: theme.colors.borderDefault, borderRadius: r.md, marginTop: sp.s3 }]}
           onPress={onClose}
           accessibilityRole="button"
-          accessibilityLabel="Close"
+          accessibilityLabel={t('misc:quickSwapSheet.close')}
         >
           <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodyMd }}>
-            {confirmation ? 'Done' : 'Cancel'}
+            {confirmation ? t('misc:quickSwapSheet.done') : t('misc:quickSwapSheet.cancel')}
           </Text>
         </TouchableOpacity>
       </View>

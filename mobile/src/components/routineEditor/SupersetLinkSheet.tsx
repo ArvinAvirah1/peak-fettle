@@ -29,6 +29,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '../Icon';
 import { stepperPalette, fontFamily, fontSize, spacing, radius } from '../../theme/tokens';
+import { useTranslation } from 'react-i18next';
 
 /** A candidate exercise the anchor can be linked with (routine-ungrouped). */
 export interface SupersetLinkCandidate {
@@ -64,6 +65,7 @@ const MAX_EXTRA = 4;
 export function SupersetLinkSheet(props: SupersetLinkSheetProps): React.ReactElement {
   const { visible, currentName, candidates, onConfirm, onSearchLibrary, onClose } = props;
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
 
   const [selected, setSelected] = useState<number[]>([]);
 
@@ -84,25 +86,25 @@ export function SupersetLinkSheet(props: SupersetLinkSheetProps): React.ReactEle
   const canConfirm = selected.length >= 1;
   const confirmLabel = useMemo(() => {
     const n = selected.length + 1; // + the anchor exercise
-    return `Link ${n} exercise${n !== 1 ? 's' : ''}`;
-  }, [selected.length]);
+    return t('components:supersetLinkSheet.linkCount', { count: n });
+  }, [selected.length, t]);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
       <Pressable
         style={styles.backdrop}
         onPress={onClose}
-        accessibilityLabel="Dismiss superset sheet"
+        accessibilityLabel={t('components:supersetLinkSheet.dismissAccessibilityLabel')}
       />
       <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, spacing.s4) + spacing.s2 }]}>
         <View style={styles.handle} />
 
         <View style={styles.headerRow}>
           <Ionicons name="git-merge" size={20} color={stepperPalette.accent} />
-          <Text style={styles.title}>Superset with…</Text>
+          <Text style={styles.title}>{t('components:supersetLinkSheet.title')}</Text>
         </View>
         <Text style={styles.subtitle}>
-          Link {currentName} with 1–4 more — done back-to-back, rest after each round.
+          {t('components:supersetLinkSheet.subtitle', { name: currentName })}
         </Text>
 
         <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">
@@ -117,7 +119,7 @@ export function SupersetLinkSheet(props: SupersetLinkSheetProps): React.ReactEle
                 disabled={disabled}
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked: on, disabled }}
-                accessibilityLabel={`${on ? 'Remove' : 'Add'} ${c.name} to the superset`}
+                accessibilityLabel={on ? t('components:supersetLinkSheet.removeFromSuperset', { name: c.name }) : t('components:supersetLinkSheet.addToSuperset', { name: c.name })}
               >
                 <View style={[styles.check, on && styles.checkOn]}>
                   {on ? <Ionicons name="checkmark" size={14} color={stepperPalette.accentInk} /> : null}
@@ -134,12 +136,12 @@ export function SupersetLinkSheet(props: SupersetLinkSheetProps): React.ReactEle
             style={styles.libraryRow}
             onPress={() => onSearchLibrary(selected)}
             accessibilityRole="button"
-            accessibilityLabel="Search library to add a new exercise to the superset"
+            accessibilityLabel={t('components:supersetLinkSheet.searchLibraryAccessibilityLabel')}
           >
             <View style={styles.libraryIcon}>
               <Ionicons name="search" size={16} color={stepperPalette.accent} />
             </View>
-            <Text style={styles.libraryText}>Search library…</Text>
+            <Text style={styles.libraryText}>{t('components:supersetLinkSheet.searchLibrary')}</Text>
             <Ionicons name="chevron-forward" size={16} color={stepperPalette.muted} />
           </TouchableOpacity>
         </ScrollView>
@@ -152,7 +154,7 @@ export function SupersetLinkSheet(props: SupersetLinkSheetProps): React.ReactEle
           accessibilityLabel={confirmLabel}
         >
           <Text style={[styles.confirmLabel, !canConfirm && styles.confirmLabelDisabled]}>
-            {canConfirm ? confirmLabel : 'Pick one or search the library'}
+            {canConfirm ? confirmLabel : t('components:supersetLinkSheet.pickOneOrSearch')}
           </Text>
         </TouchableOpacity>
 
@@ -160,9 +162,9 @@ export function SupersetLinkSheet(props: SupersetLinkSheetProps): React.ReactEle
           style={styles.cancelBtn}
           onPress={onClose}
           accessibilityRole="button"
-          accessibilityLabel="Cancel"
+          accessibilityLabel={t('common:cancel')}
         >
-          <Text style={styles.cancelLabel}>Cancel</Text>
+          <Text style={styles.cancelLabel}>{t('common:cancel')}</Text>
         </TouchableOpacity>
       </View>
     </Modal>

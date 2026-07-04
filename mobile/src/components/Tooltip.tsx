@@ -27,6 +27,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getGlossaryTerm } from '../utils/glossaryTerms';
 import { useTheme } from '../theme/ThemeContext';
 import { fontSize, fontWeight, radius } from '../theme/tokens';
+import { useTranslation } from 'react-i18next';
 
 // ---------------------------------------------------------------------------
 // First-encounter persistence
@@ -136,6 +137,7 @@ export function InlineTooltipBubble({
 }: InlineTooltipBubbleProps): React.ReactElement | null {
   const router = useRouter();
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const entry = getGlossaryTerm(slug);
   if (!entry) return null;
 
@@ -152,10 +154,10 @@ export function InlineTooltipBubble({
         <TouchableOpacity
           onPress={onDismiss}
           accessibilityRole="button"
-          accessibilityLabel={`Dismiss ${entry.term} explanation`}
+          accessibilityLabel={t('components:tooltip.dismissAccessibilityLabel', { term: entry.term })}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
-          <Text style={[styles.bubbleDismiss, { color: theme.colors.accentDefault }]}>Got it</Text>
+          <Text style={[styles.bubbleDismiss, { color: theme.colors.accentDefault }]}>{t('components:tooltip.gotIt')}</Text>
         </TouchableOpacity>
       </View>
       <Text style={[styles.bubbleDefinition, { color: theme.colors.textSecondary }]}>{entry.definition}</Text>
@@ -165,9 +167,9 @@ export function InlineTooltipBubble({
           router.push(`/glossary?term=${entry.slug}`);
         }}
         accessibilityRole="link"
-        accessibilityLabel={`Open the glossary at ${entry.term}`}
+        accessibilityLabel={t('components:tooltip.openGlossaryAccessibilityLabel', { term: entry.term })}
       >
-        <Text style={[styles.bubbleLearnMore, { color: theme.colors.accentDefault }]}>Learn more in the glossary →</Text>
+        <Text style={[styles.bubbleLearnMore, { color: theme.colors.accentDefault }]}>{t('components:tooltip.learnMoreInGlossary')}</Text>
       </TouchableOpacity>
     </View>
   );
@@ -205,6 +207,7 @@ export function GlossaryTerm({
 }: GlossaryTermProps): React.ReactElement {
   const router = useRouter();
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const entry = getGlossaryTerm(slug);
   const { seen, markSeen } = useFirstEncounter(slug);
 
@@ -233,8 +236,8 @@ export function GlossaryTerm({
       style={[styles.term, { color: theme.colors.accentSecondary, textDecorationColor: theme.colors.accentDefault }]}
       onPress={openGlossary}
       accessibilityRole="link"
-      accessibilityLabel={`${entry.term}. Tap for definition.`}
-      accessibilityHint="Opens the glossary"
+      accessibilityLabel={t('components:tooltip.termAccessibilityLabel', { term: entry.term })}
+      accessibilityHint={t('components:tooltip.opensGlossaryHint')}
     >
       {label}
     </Text>

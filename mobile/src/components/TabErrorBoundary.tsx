@@ -13,6 +13,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { THEMES, DEFAULT_THEME } from '../theme/tokens';
+import i18n from 'i18next';
 
 // Use the DEFAULT_THEME semantic colors so the boundary matches the dark-navy
 // design system. Falls back correctly even if a user has not loaded their
@@ -55,10 +56,10 @@ export class TabErrorBoundary extends React.Component<Props, State> {
     if (this.state.hasError) {
       return (
         <View style={styles.container}>
-          <Text style={styles.title}>Something went wrong</Text>
+          <Text style={styles.title}>{i18n.t('components:tabErrorBoundary.title')}</Text>
           <Text style={styles.message}>{this.state.errorMessage}</Text>
           <TouchableOpacity style={styles.button} onPress={this.handleReset}>
-            <Text style={styles.buttonText}>Try again</Text>
+            <Text style={styles.buttonText}>{i18n.t('components:tabErrorBoundary.tryAgain')}</Text>
           </TouchableOpacity>
         </View>
       );

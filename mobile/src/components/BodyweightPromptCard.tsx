@@ -8,6 +8,7 @@
 
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '../theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
 import { useBodyweight } from '../hooks/useBodyweight';
@@ -19,6 +20,7 @@ interface Props {
 
 export function BodyweightPromptCard({ unitPref }: Props): React.ReactElement | null {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const { latest, hasThisWeek, isLoading, log } = useBodyweight();
   const [value, setValue] = useState('');
   const [saving, setSaving] = useState(false);
@@ -50,13 +52,13 @@ export function BodyweightPromptCard({ unitPref }: Props): React.ReactElement | 
         { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault },
       ]}
     >
-      <Text style={[styles.kicker, { color: theme.colors.textTertiary }]}>WEEKLY CHECK-IN</Text>
+      <Text style={[styles.kicker, { color: theme.colors.textTertiary }]}>{t('components:bodyweightPromptCard.kicker')}</Text>
       <Text style={[styles.title, { color: theme.colors.textPrimary }]}>
-        What was your median weight this week?
+        {t('components:bodyweightPromptCard.title')}
       </Text>
       <Text style={[styles.sub, { color: theme.colors.textSecondary }]}>
-        Your typical weigh-in for the week, not a single reading — it keeps your
-        percentiles and tier accurate.{lastDisplay ? ` Last logged: ${lastDisplay}.` : ''}
+        {t('components:bodyweightPromptCard.subtitle')}
+        {lastDisplay ? ` ${t('components:bodyweightPromptCard.lastLogged', { value: lastDisplay })}` : ''}
       </Text>
       <View style={styles.row}>
         <TextInput
@@ -73,16 +75,16 @@ export function BodyweightPromptCard({ unitPref }: Props): React.ReactElement | 
           keyboardType="decimal-pad"
           placeholder={unitLabel}
           placeholderTextColor={theme.colors.textTertiary}
-          accessibilityLabel={`Median weight this week in ${unitLabel}`}
+          accessibilityLabel={t('components:bodyweightPromptCard.inputAccessibilityLabel', { unit: unitLabel })}
         />
         <TouchableOpacity
           style={[styles.saveBtn, { backgroundColor: theme.colors.accentDefault }]}
           onPress={handleSave}
           disabled={saving}
           accessibilityRole="button"
-          accessibilityLabel="Save weekly weight"
+          accessibilityLabel={t('components:bodyweightPromptCard.saveAccessibilityLabel')}
         >
-          <Text style={[styles.saveLabel, { color: theme.components.buttonPrimaryText }]}>Save</Text>
+          <Text style={[styles.saveLabel, { color: theme.components.buttonPrimaryText }]}>{t('common:save')}</Text>
         </TouchableOpacity>
       </View>
     </View>

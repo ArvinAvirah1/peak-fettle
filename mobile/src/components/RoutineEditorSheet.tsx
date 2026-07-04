@@ -41,6 +41,8 @@ import { ExercisePicker } from './ExercisePicker';
 import { Exercise } from '../types/api';
 import { DropsetConfigSheet, DropsetConfig } from './routineEditor/DropsetConfigSheet';
 import { SupersetLinkSheet, SupersetLinkCandidate } from './routineEditor/SupersetLinkSheet';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -106,13 +108,15 @@ function toBlocks(items: RoutineExercise[]): Block[] {
   return blocks;
 }
 
-/** A short display badge for a configured dropset, e.g. "Dropsets: last 2 · 2 drops @ -20%". */
-function dropsetBadgeLabel(d: DropsetConfig | RoutineExercise['dropset']): string {
+/** A short display badge for a configured dropset, e.g. "Dropsets: last 2 · 2 drops @ -20%".
+ * Pure helper called only from this file's own render — takes `t` per the
+ * render-site translation rule. */
+function dropsetBadgeLabel(d: DropsetConfig | RoutineExercise['dropset'], t: TFunction): string {
   if (!d) return '';
-  const which = d.last_n === 'all' ? 'all sets' : `last ${d.last_n}`;
+  const which = d.last_n === 'all' ? t('components:routineEditorSheet.allSets') : t('components:routineEditorSheet.lastNSets', { n: d.last_n });
   const drops = typeof d.drops === 'number' ? d.drops : 2;
   const pct = typeof d.drop_pct === 'number' ? d.drop_pct : 20;
-  return `Dropsets: ${which} · ${drops} drop${drops !== 1 ? 's' : ''} @ -${pct}%`;
+  return t('components:routineEditorSheet.dropsetBadge', { which, count: drops, pct });
 }
 
 /** Generate a short unique group id (letters won't collide across sessions). */
@@ -133,6 +137,7 @@ export default function RoutineEditorSheet({
   onSaved,
 }: Props): React.ReactElement {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const [name, setName] = useState<string>(routine?.name ?? '');
   const [items, setItems] = useState<RoutineExercise[]>(routine?.exercises ?? []);
@@ -426,7 +431,7 @@ export default function RoutineEditorSheet({
         onClose();
       }, 450);
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Could not save routine');
+      Alert.alert(t('components:routineEditorSheet.errorTitle'), err instanceof Error ? err.message : t('components:routineEditorSheet.couldNotSaveRoutine'));
     } finally {
       setSaving(false);
     }
@@ -461,15 +466,15 @@ export default function RoutineEditorSheet({
               onPress={onClose}
               style={styles.headerBtn}
               accessibilityRole="button"
-              accessibilityLabel="Close editor"
+              accessibilityLabel={t('components:routineEditorSheet.closeEditorAccessibilityLabel')}
             >
               <Ionicons name="chevron-down" size={22} color={stepperPalette.muted} />
             </TouchableOpacity>
-            <Text style={styles.headerTitle} numberOfLines={1}>Edit routine</Text>
+            <Text style={styles.headerTitle} numberOfLines={1}>{t('components:routineEditorSheet.editRoutine')}</Text>
             {savedFlash ? (
               <View style={styles.savedBadge}>
                 <Ionicons name="checkmark-circle" size={16} color={stepperPalette.accent} />
-                <Text style={styles.savedBadgeText}>Saved</Text>
+                <Text style={styles.savedBadgeText}>{t('components:routineEditorSheet.saved')}</Text>
               </View>
             ) : (
               <View style={styles.headerBtn} />
@@ -482,23 +487,23 @@ export default function RoutineEditorSheet({
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}
           >
-            <Text style={styles.fieldLabel}>NAME</Text>
+            <Text style={styles.fieldLabel}>{t('components:routineEditorSheet.nameLabel')}</Text>
             <TextInput
               style={styles.nameInput}
               value={name}
               onChangeText={setName}
-              placeholder="e.g. Push A"
+              placeholder={t('components:routineEditorSheet.namePlaceholder')}
               placeholderTextColor={stepperPalette.muted}
               maxLength={100}
               returnKeyType="done"
             />
 
-            <Text style={[styles.fieldLabel, styles.exercisesLabel]}>EXERCISES</Text>
+            <Text style={[styles.fieldLabel, styles.exercisesLabel]}>{t('components:routineEditorSheet.exercisesLabel')}</Text>
 
             {items.length === 0 ? (
               <View style={styles.emptyCard}>
                 <Text style={styles.emptyText}>
-                  No exercises yet — tap ＋ Add exercise.
+                  {t('components:routineEditorSheet.noExercisesYet')}
                 </Text>
               </View>
             ) : (
@@ -558,9 +563,9 @@ export default function RoutineEditorSheet({
                 setPickerVisible(true);
               }}
               accessibilityRole="button"
-              accessibilityLabel="Add exercise"
+              accessibilityLabel={t('components:routineEditorSheet.addExercise')}
             >
-              <Text style={styles.addLabel}>＋ Add exercise</Text>
+              <Text style={styles.addLabel}>{t('components:routineEditorSheet.addExerciseButton')}</Text>
             </TouchableOpacity>
           </ScrollView>
 
@@ -570,12 +575,12 @@ export default function RoutineEditorSheet({
               disabled={saveDisabled}
               style={[styles.saveBtn, saveDisabled && styles.saveBtnDisabled]}
               accessibilityRole="button"
-              accessibilityLabel="Save routine"
+              accessibilityLabel={t('components:routineEditorSheet.saveRoutineAccessibilityLabel')}
             >
               {saving ? (
                 <ActivityIndicator size="small" color={stepperPalette.accentInk} />
               ) : (
-                <Text style={styles.saveLabel}>Save routine</Text>
+                <Text style={styles.saveLabel}>{t('components:routineEditorSheet.saveRoutine')}</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -627,29 +632,30 @@ function KebabMenu(props: {
   onClose: () => void;
 }): React.ReactElement {
   const { hasDropset, grouped, onMakeDropsets, onRemoveDropsets, onSupersetWith, onUnlink, onClose } = props;
+  const { t } = useTranslation();
   return (
     <>
       {/* Full-screen catcher so a tap anywhere dismisses the menu. */}
-      <Pressable style={styles.menuCatcher} onPress={onClose} accessibilityLabel="Close menu" />
+      <Pressable style={styles.menuCatcher} onPress={onClose} accessibilityLabel={t('components:routineEditorSheet.closeMenuAccessibilityLabel')} />
       <View style={styles.menu}>
         <TouchableOpacity
           style={styles.menuItem}
           onPress={onMakeDropsets}
           accessibilityRole="button"
-          accessibilityLabel={hasDropset ? 'Edit dropsets' : 'Make dropsets'}
+          accessibilityLabel={hasDropset ? t('components:routineEditorSheet.editDropsets') : t('components:routineEditorSheet.makeDropsets')}
         >
           <Ionicons name="trending-down" size={16} color={stepperPalette.text} />
-          <Text style={styles.menuItemText}>{hasDropset ? 'Edit dropsets' : 'Make dropsets'}</Text>
+          <Text style={styles.menuItemText}>{hasDropset ? t('components:routineEditorSheet.editDropsets') : t('components:routineEditorSheet.makeDropsets')}</Text>
         </TouchableOpacity>
         {hasDropset ? (
           <TouchableOpacity
             style={styles.menuItem}
             onPress={onRemoveDropsets}
             accessibilityRole="button"
-            accessibilityLabel="Remove dropsets"
+            accessibilityLabel={t('components:dropsetConfigSheet.removeDropsets')}
           >
             <Ionicons name="close-circle-outline" size={16} color={stepperPalette.muted} />
-            <Text style={styles.menuItemTextMuted}>Remove dropsets</Text>
+            <Text style={styles.menuItemTextMuted}>{t('components:dropsetConfigSheet.removeDropsets')}</Text>
           </TouchableOpacity>
         ) : null}
         {grouped ? (
@@ -657,20 +663,20 @@ function KebabMenu(props: {
             style={styles.menuItem}
             onPress={onUnlink}
             accessibilityRole="button"
-            accessibilityLabel="Unlink superset"
+            accessibilityLabel={t('components:routineEditorSheet.unlinkSuperset')}
           >
             <Ionicons name="git-merge" size={16} color={stepperPalette.muted} />
-            <Text style={styles.menuItemTextMuted}>Unlink superset</Text>
+            <Text style={styles.menuItemTextMuted}>{t('components:routineEditorSheet.unlinkSuperset')}</Text>
           </TouchableOpacity>
         ) : onSupersetWith ? (
           <TouchableOpacity
             style={styles.menuItem}
             onPress={onSupersetWith}
             accessibilityRole="button"
-            accessibilityLabel="Superset with other exercises"
+            accessibilityLabel={t('components:routineEditorSheet.supersetWithOthersAccessibilityLabel')}
           >
             <Ionicons name="git-merge" size={16} color={stepperPalette.text} />
-            <Text style={styles.menuItemText}>Superset with…</Text>
+            <Text style={styles.menuItemText}>{t('components:supersetLinkSheet.title')}</Text>
           </TouchableOpacity>
         ) : null}
       </View>
@@ -713,24 +719,25 @@ function ExerciseRow(props: {
     item, isFirst, isLast, menuOpen, onToggleMenu, onRemove, onUpdateSets, onUpdateReps,
     onMoveUp, onMoveDown, onMakeDropsets, onRemoveDropsets, onSupersetWith,
   } = props;
+  const { t } = useTranslation();
   const hasDropset = !!item.dropset;
   return (
     <View style={styles.exRow}>
       <View style={styles.exRowTop}>
         <Text style={styles.exName} numberOfLines={1}>{item.name}</Text>
-        <KebabButton onPress={onToggleMenu} label={`Options for ${item.name}`} />
+        <KebabButton onPress={onToggleMenu} label={t('components:routineEditorSheet.optionsForAccessibilityLabel', { name: item.name })} />
       </View>
 
       {hasDropset ? (
         <View style={styles.dropsetBadge}>
           <Ionicons name="trending-down" size={12} color={stepperPalette.accent} />
-          <Text style={styles.dropsetBadgeText}>{dropsetBadgeLabel(item.dropset)}</Text>
+          <Text style={styles.dropsetBadgeText}>{dropsetBadgeLabel(item.dropset, t)}</Text>
         </View>
       ) : null}
 
       <View style={styles.exRowBottom}>
         <View style={styles.targetGroup}>
-          <Text style={styles.targetLabel}>SETS</Text>
+          <Text style={styles.targetLabel}>{t('components:routineEditorSheet.setsLabel')}</Text>
           <TextInput
             style={styles.targetInput}
             value={item.target_sets != null ? String(item.target_sets) : ''}
@@ -740,11 +747,11 @@ function ExerciseRow(props: {
             placeholderTextColor={stepperPalette.muted}
             selectTextOnFocus
             maxLength={2}
-            accessibilityLabel={`Target sets for ${item.name}`}
+            accessibilityLabel={t('components:routineEditorSheet.targetSetsAccessibilityLabel', { name: item.name })}
           />
         </View>
         <View style={styles.targetGroup}>
-          <Text style={styles.targetLabel}>REPS</Text>
+          <Text style={styles.targetLabel}>{t('components:routineEditorSheet.repsLabel')}</Text>
           <TextInput
             style={styles.targetInput}
             value={item.target_reps ?? ''}
@@ -753,7 +760,7 @@ function ExerciseRow(props: {
             placeholderTextColor={stepperPalette.muted}
             selectTextOnFocus
             maxLength={12}
-            accessibilityLabel={`Target reps for ${item.name}`}
+            accessibilityLabel={t('components:routineEditorSheet.targetRepsAccessibilityLabel', { name: item.name })}
           />
         </View>
 
@@ -763,7 +770,7 @@ function ExerciseRow(props: {
             disabled={isFirst}
             style={[styles.reorderBtn, isFirst && styles.reorderBtnDisabled]}
             accessibilityRole="button"
-            accessibilityLabel={`Move ${item.name} up`}
+            accessibilityLabel={t('components:routineEditorSheet.moveUpAccessibilityLabel', { name: item.name })}
           >
             <Ionicons name="chevron-up" size={18} color={stepperPalette.text} />
           </TouchableOpacity>
@@ -772,7 +779,7 @@ function ExerciseRow(props: {
             disabled={isLast}
             style={[styles.reorderBtn, isLast && styles.reorderBtnDisabled]}
             accessibilityRole="button"
-            accessibilityLabel={`Move ${item.name} down`}
+            accessibilityLabel={t('components:routineEditorSheet.moveDownAccessibilityLabel', { name: item.name })}
           >
             <Ionicons name="chevron-down" size={18} color={stepperPalette.text} />
           </TouchableOpacity>
@@ -782,7 +789,7 @@ function ExerciseRow(props: {
           onPress={onRemove}
           style={styles.iconBtn}
           accessibilityRole="button"
-          accessibilityLabel={`Remove ${item.name}`}
+          accessibilityLabel={t('components:routineEditorSheet.removeAccessibilityLabel', { name: item.name })}
         >
           <Ionicons name="trash-outline" size={18} color={stepperPalette.muted} />
         </TouchableOpacity>
@@ -830,13 +837,14 @@ function GroupCard(props: {
     onMemberRemove, onMemberUpdateReps, onMemberMakeDropsets, onMemberRemoveDropsets,
   } = props;
   const rounds = members[0]?.superset_rounds ?? 3;
+  const { t } = useTranslation();
   return (
     <View style={styles.groupCard}>
       {/* Group header: label + rounds stepper + group reorder + unlink. */}
       <View style={styles.groupHeader}>
         <View style={styles.groupTitleWrap}>
           <Ionicons name="git-merge" size={14} color={stepperPalette.accent} />
-          <Text style={styles.groupTitle}>SUPERSET {letter} · {rounds} ROUND{rounds !== 1 ? 'S' : ''}</Text>
+          <Text style={styles.groupTitle}>{t('components:routineEditorSheet.supersetHeader', { letter, count: rounds })}</Text>
         </View>
         <View style={styles.groupHeaderActions}>
           <TouchableOpacity
@@ -844,7 +852,7 @@ function GroupCard(props: {
             disabled={isFirstBlock}
             style={[styles.smallBtn, isFirstBlock && styles.reorderBtnDisabled]}
             accessibilityRole="button"
-            accessibilityLabel={`Move superset ${letter} up`}
+            accessibilityLabel={t('components:routineEditorSheet.moveSupersetUpAccessibilityLabel', { letter })}
           >
             <Ionicons name="chevron-up" size={16} color={stepperPalette.text} />
           </TouchableOpacity>
@@ -853,7 +861,7 @@ function GroupCard(props: {
             disabled={isLastBlock}
             style={[styles.smallBtn, isLastBlock && styles.reorderBtnDisabled]}
             accessibilityRole="button"
-            accessibilityLabel={`Move superset ${letter} down`}
+            accessibilityLabel={t('components:routineEditorSheet.moveSupersetDownAccessibilityLabel', { letter })}
           >
             <Ionicons name="chevron-down" size={16} color={stepperPalette.text} />
           </TouchableOpacity>
@@ -861,7 +869,7 @@ function GroupCard(props: {
             onPress={onUnlink}
             style={styles.smallBtn}
             accessibilityRole="button"
-            accessibilityLabel={`Unlink superset ${letter}`}
+            accessibilityLabel={t('components:routineEditorSheet.unlinkSupersetLetterAccessibilityLabel', { letter })}
           >
             <Ionicons name="close" size={16} color={stepperPalette.muted} />
           </TouchableOpacity>
@@ -870,14 +878,14 @@ function GroupCard(props: {
 
       {/* Shared rounds stepper. */}
       <View style={styles.roundsRow}>
-        <Text style={styles.roundsLabel}>ROUNDS</Text>
+        <Text style={styles.roundsLabel}>{t('components:routineEditorSheet.roundsLabel')}</Text>
         <View style={styles.roundsControls}>
           <TouchableOpacity
             style={[styles.smallBtn, rounds <= 1 && styles.reorderBtnDisabled]}
             onPress={() => onSetRounds(rounds - 1)}
             disabled={rounds <= 1}
             accessibilityRole="button"
-            accessibilityLabel="Decrease rounds"
+            accessibilityLabel={t('components:routineEditorSheet.decreaseRounds')}
           >
             <Ionicons name="remove" size={16} color={stepperPalette.text} />
           </TouchableOpacity>
@@ -887,7 +895,7 @@ function GroupCard(props: {
             onPress={() => onSetRounds(rounds + 1)}
             disabled={rounds >= 10}
             accessibilityRole="button"
-            accessibilityLabel="Increase rounds"
+            accessibilityLabel={t('components:routineEditorSheet.increaseRounds')}
           >
             <Ionicons name="add" size={16} color={stepperPalette.text} />
           </TouchableOpacity>
@@ -906,28 +914,28 @@ function GroupCard(props: {
                 <Text style={styles.memberLetter}>{letter}{mi + 1}</Text>
               </View>
               <Text style={styles.memberName} numberOfLines={1}>{m.name}</Text>
-              <KebabButton onPress={() => onToggleMemberMenu(absIndex)} label={`Options for ${m.name}`} />
+              <KebabButton onPress={() => onToggleMemberMenu(absIndex)} label={t('components:routineEditorSheet.optionsForAccessibilityLabel', { name: m.name })} />
             </View>
 
             {hasDropset ? (
               <View style={styles.dropsetBadge}>
                 <Ionicons name="trending-down" size={12} color={stepperPalette.accent} />
-                <Text style={styles.dropsetBadgeText}>{dropsetBadgeLabel(m.dropset)}</Text>
+                <Text style={styles.dropsetBadgeText}>{dropsetBadgeLabel(m.dropset, t)}</Text>
               </View>
             ) : null}
 
             <View style={styles.memberBottom}>
               <View style={styles.memberRepsWrap}>
-                <Text style={styles.targetLabel}>REPS</Text>
+                <Text style={styles.targetLabel}>{t('components:routineEditorSheet.repsLabel')}</Text>
                 <TextInput
                   style={styles.targetInput}
                   value={m.target_reps ?? ''}
-                  onChangeText={(t) => onMemberUpdateReps(absIndex, t)}
+                  onChangeText={(txt) => onMemberUpdateReps(absIndex, txt)}
                   placeholder="8-12"
                   placeholderTextColor={stepperPalette.muted}
                   selectTextOnFocus
                   maxLength={12}
-                  accessibilityLabel={`Target reps for ${m.name}`}
+                  accessibilityLabel={t('components:routineEditorSheet.targetRepsAccessibilityLabel', { name: m.name })}
                 />
               </View>
               <View style={styles.reorderGroup}>
@@ -936,7 +944,7 @@ function GroupCard(props: {
                   disabled={mi === 0}
                   style={[styles.reorderBtn, mi === 0 && styles.reorderBtnDisabled]}
                   accessibilityRole="button"
-                  accessibilityLabel={`Move ${m.name} up within superset`}
+                  accessibilityLabel={t('components:routineEditorSheet.moveUpWithinSupersetAccessibilityLabel', { name: m.name })}
                 >
                   <Ionicons name="chevron-up" size={18} color={stepperPalette.text} />
                 </TouchableOpacity>
@@ -945,7 +953,7 @@ function GroupCard(props: {
                   disabled={mi === members.length - 1}
                   style={[styles.reorderBtn, mi === members.length - 1 && styles.reorderBtnDisabled]}
                   accessibilityRole="button"
-                  accessibilityLabel={`Move ${m.name} down within superset`}
+                  accessibilityLabel={t('components:routineEditorSheet.moveDownWithinSupersetAccessibilityLabel', { name: m.name })}
                 >
                   <Ionicons name="chevron-down" size={18} color={stepperPalette.text} />
                 </TouchableOpacity>
@@ -954,7 +962,7 @@ function GroupCard(props: {
                 onPress={() => onMemberRemove(absIndex)}
                 style={styles.iconBtn}
                 accessibilityRole="button"
-                accessibilityLabel={`Remove ${m.name} from superset`}
+                accessibilityLabel={t('components:routineEditorSheet.removeFromSupersetAccessibilityLabel', { name: m.name })}
               >
                 <Ionicons name="trash-outline" size={18} color={stepperPalette.muted} />
               </TouchableOpacity>

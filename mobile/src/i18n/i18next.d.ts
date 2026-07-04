@@ -1,35 +1,27 @@
 /**
- * i18next.d.ts — TICKET-146 typed keys.
- * The EN bundles are the type source of truth: a t('ns:missing.key') with a
- * literal key is a compile-time error. Dynamic keys live only in dedicated
- * helpers (./engine.ts) behind explicit casts.
+ * i18next.d.ts — TICKET-146 type augmentation.
+ *
+ * DELIBERATELY MINIMAL. The codebase uses the runtime `t('ns:dot.path')`
+ * call style everywhere; i18next v26's typed-resources mode does not type
+ * that form (it only types bare defaultNS keys / useTranslation('ns')),
+ * so a full `resources` augmentation turns every prefixed call into a
+ * TS2345 (~2k errors — violates the tsc-delta rule, roadmap criterion 4,
+ * which explicitly outranks: "typed keys must not add errors").
+ *
+ * Key integrity is instead enforced STATICALLY by scripts/pf_i18n_check.js
+ * (runs in the verification gate + CI-able): every literal `t('ns:key')`
+ * under mobile/app + mobile/src must exist in the EN bundles (plural-aware),
+ * and raw JSX string literals are linted. If a future i18next release types
+ * ns-prefixed keys, restore the full augmentation:
+ *   resources: { common: typeof common; settings: ...; tabs: ...; screens: ...;
+ *                screens2: ...; components: ...; logger: ...; misc: ...; engine: ... }
  */
 
 import 'i18next';
 
-import type common from './locales/en/common.json';
-import type settings from './locales/en/settings.json';
-import type tabs from './locales/en/tabs.json';
-import type screens from './locales/en/screens.json';
-import type screens2 from './locales/en/screens2.json';
-import type components from './locales/en/components.json';
-import type logger from './locales/en/logger.json';
-import type misc from './locales/en/misc.json';
-import type engine from './locales/en/engine.json';
-
 declare module 'i18next' {
   interface CustomTypeOptions {
     defaultNS: 'common';
-    resources: {
-      common: typeof common;
-      settings: typeof settings;
-      tabs: typeof tabs;
-      screens: typeof screens;
-      screens2: typeof screens2;
-      components: typeof components;
-      logger: typeof logger;
-      misc: typeof misc;
-      engine: typeof engine;
-    };
+    returnNull: false;
   }
 }

@@ -163,6 +163,16 @@ function PlanSurveyWizard(): React.ReactElement {
   const { theme } = useTheme();
   const { t } = useTranslation();
 
+  // TICKET-146 (B6 handoff wiring): survey option labels/subtitles render
+  // through misc:surveyConfig keys; the pure-data English stays the fallback.
+  const optionLabel = (prefix: string, o: { value: string | number; label: string }): string =>
+    t(`misc:surveyConfig.${prefix}_${o.value}.label` as never, { defaultValue: o.label }) as string;
+  const optionSubtitle = (prefix: string, o: { value: string | number; subtitle?: string }): string | undefined =>
+    o.subtitle == null
+      ? undefined
+      : (t(`misc:surveyConfig.${prefix}_${o.value}.subtitle` as never, { defaultValue: o.subtitle }) as string);
+
+
   const unitPref: UnitSystem = (user?.unit_pref as UnitSystem) ?? 'kg';
 
   // Seed answers from the in-memory user, then hydrate empty fields from the
@@ -388,7 +398,7 @@ function PlanSurveyWizard(): React.ReactElement {
           <Section title={t('screens2:planSurvey.goalTitle')} subtitle={t('screens2:planSurvey.goalSubtitle')}>
             <View style={styles.optionGroup}>
               {GOAL_OPTIONS.map((o) => (
-                <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={answers.goal === o.value} onPress={(v) => patch({ goal: v })} />
+                <OptionCard key={o.value} label={optionLabel('goal', o)} subtitle={optionSubtitle('goal', o)} value={o.value} selected={answers.goal === o.value} onPress={(v) => patch({ goal: v })} />
               ))}
             </View>
             {answers.goal === 'general_fitness' && (
@@ -402,21 +412,21 @@ function PlanSurveyWizard(): React.ReactElement {
             <Section title={t('screens2:planSurvey.sportTitle')} subtitle={t('screens2:planSurvey.sportSubtitle')}>
               <View style={styles.chipGrid}>
                 {SPORT_OPTIONS.map((o) => (
-                  <Chip key={o.value} label={o.label} selected={answers.sport === o.value} onPress={() => patch({ sport: o.value })} />
+                  <Chip key={o.value} label={optionLabel('sport', o)} selected={answers.sport === o.value} onPress={() => patch({ sport: o.value })} />
                 ))}
               </View>
             </Section>
             <Section title={t('screens2:planSurvey.seasonPhaseTitle')}>
               <View style={styles.optionGroup}>
                 {SEASON_OPTIONS.map((o) => (
-                  <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={answers.seasonPhase === o.value} onPress={(v) => patch({ seasonPhase: v })} />
+                  <OptionCard key={o.value} label={optionLabel('season', o)} subtitle={optionSubtitle('season', o)} value={o.value} selected={answers.seasonPhase === o.value} onPress={(v) => patch({ seasonPhase: v })} />
                 ))}
               </View>
             </Section>
             <Section title={t('screens2:planSurvey.gameDayTitle')} subtitle={t('screens2:planSurvey.gameDaySubtitle')}>
               <View style={styles.chipGrid}>
                 {DAY_OPTIONS.map((o) => (
-                  <Chip key={o.value} label={o.label} selected={answers.gameDay === o.value} onPress={() => patch({ gameDay: answers.gameDay === o.value ? null : o.value })} />
+                  <Chip key={o.value} label={optionLabel('day', o)} selected={answers.gameDay === o.value} onPress={() => patch({ gameDay: answers.gameDay === o.value ? null : o.value })} />
                 ))}
               </View>
             </Section>
@@ -427,7 +437,7 @@ function PlanSurveyWizard(): React.ReactElement {
           <Section title={t('screens2:planSurvey.experienceTitle')} subtitle={t('screens2:planSurvey.experienceSubtitle')}>
             <View style={styles.optionGroup}>
               {EXPERIENCE_OPTIONS.map((o) => (
-                <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={answers.experienceLevel === o.value} onPress={(v) => patch({ experienceLevel: v })} />
+                <OptionCard key={o.value} label={optionLabel('experience', o)} subtitle={optionSubtitle('experience', o)} value={o.value} selected={answers.experienceLevel === o.value} onPress={(v) => patch({ experienceLevel: v })} />
               ))}
             </View>
           </Section>
@@ -445,14 +455,14 @@ function PlanSurveyWizard(): React.ReactElement {
             <Section title={t('screens2:planAdjust.sessionLength')}>
               <View style={styles.optionGroup}>
                 {SESSION_MINUTE_OPTIONS.map((o) => (
-                  <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={answers.sessionMinutes === o.value} onPress={(v) => patch({ sessionMinutes: v })} />
+                  <OptionCard key={o.value} label={optionLabel('sessionMinutes', o)} subtitle={optionSubtitle('sessionMinutes', o)} value={o.value} selected={answers.sessionMinutes === o.value} onPress={(v) => patch({ sessionMinutes: v })} />
                 ))}
               </View>
             </Section>
             <Section title={t('screens2:planSurvey.weekdaysTitle')} subtitle={t('screens2:planSurvey.weekdaysSubtitle')}>
               <View style={styles.chipGrid}>
                 {DAY_OPTIONS.map((o) => (
-                  <MultiChip key={o.value} label={o.label} selected={answers.trainingDays.includes(o.value)} onPress={() => patch({ trainingDays: toggleSet(answers.trainingDays, o.value) })} />
+                  <MultiChip key={o.value} label={optionLabel('day', o)} selected={answers.trainingDays.includes(o.value)} onPress={() => patch({ trainingDays: toggleSet(answers.trainingDays, o.value) })} />
                 ))}
               </View>
             </Section>
@@ -463,7 +473,7 @@ function PlanSurveyWizard(): React.ReactElement {
           <Section title={t('screens2:planSurvey.splitTitle')} subtitle={t('screens2:planSurvey.splitSubtitle')}>
             <View style={styles.optionGroup}>
               {SPLIT_OPTIONS.map((o) => (
-                <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={answers.splitPreference === o.value} onPress={(v) => patch({ splitPreference: v })} />
+                <OptionCard key={o.value} label={optionLabel('split', o)} subtitle={optionSubtitle('split', o)} value={o.value} selected={answers.splitPreference === o.value} onPress={(v) => patch({ splitPreference: v })} />
               ))}
             </View>
             <Hint>{answers.splitPreference === 'unsure' ? SPLIT_EXPLAINER : t('screens2:planSurvey.tipPrefix') + SPLIT_EXPLAINER}</Hint>
@@ -474,7 +484,7 @@ function PlanSurveyWizard(): React.ReactElement {
           <Section title={t('screens2:planSurvey.equipmentTitle')} subtitle={t('screens2:planSurvey.equipmentSubtitle')}>
             <View style={styles.chipGrid}>
               {EQUIPMENT_OPTIONS.map((o) => (
-                <MultiChip key={o.value} label={o.label} selected={answers.equipment.includes(o.value)} onPress={() => patch({ equipment: toggleSet(answers.equipment, o.value) })} />
+                <MultiChip key={o.value} label={optionLabel('equipment', o)} selected={answers.equipment.includes(o.value)} onPress={() => patch({ equipment: toggleSet(answers.equipment, o.value) })} />
               ))}
             </View>
             {answers.equipment.length === 0 && <Hint>{t('screens2:planSurvey.equipmentEmptyHint')}</Hint>}
@@ -486,14 +496,14 @@ function PlanSurveyWizard(): React.ReactElement {
             <Section title={t('screens2:planSurvey.prioritiesTitle')} subtitle={t('screens2:planSurvey.prioritiesSubtitle')}>
               <View style={styles.chipGrid}>
                 {PRIORITY_OPTIONS.map((o) => (
-                  <MultiChip key={o.value} label={o.label} selected={answers.musclePriorities.includes(o.value)} onPress={() => patch({ musclePriorities: toggleSet(answers.musclePriorities, o.value) })} />
+                  <MultiChip key={o.value} label={optionLabel('priority', o)} selected={answers.musclePriorities.includes(o.value)} onPress={() => patch({ musclePriorities: toggleSet(answers.musclePriorities, o.value) })} />
                 ))}
               </View>
             </Section>
             <Section title={t('screens2:planSurvey.injuriesTitle')} subtitle={t('screens2:planSurvey.injuriesSubtitle')}>
               <View style={styles.chipGrid}>
                 {INJURY_OPTIONS.map((o) => (
-                  <MultiChip key={o.value} label={o.label} selected={answers.injuries.includes(o.value)} onPress={() => patch({ injuries: toggleSet(answers.injuries, o.value) })} />
+                  <MultiChip key={o.value} label={optionLabel('injury', o)} selected={answers.injuries.includes(o.value)} onPress={() => patch({ injuries: toggleSet(answers.injuries, o.value) })} />
                 ))}
               </View>
             </Section>
@@ -529,21 +539,21 @@ function PlanSurveyWizard(): React.ReactElement {
             <Section title={t('screens2:planAdjust.failureProximity')} subtitle={t('screens2:planSurvey.failureProximitySubtitle')}>
               <View style={styles.optionGroup}>
                 {FAILURE_OPTIONS.map((o) => (
-                  <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={answers.knobs.failureProximity === o.value} onPress={(v) => patch({ knobs: { ...answers.knobs, failureProximity: v } })} />
+                  <OptionCard key={o.value} label={optionLabel('failure', o)} subtitle={optionSubtitle('failure', o)} value={o.value} selected={answers.knobs.failureProximity === o.value} onPress={(v) => patch({ knobs: { ...answers.knobs, failureProximity: v } })} />
                 ))}
               </View>
             </Section>
             <Section title={t('screens2:planAdjust.progressSpeed')}>
               <View style={styles.optionGroup}>
                 {PROGRESSION_OPTIONS.map((o) => (
-                  <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={answers.knobs.progressionSpeed === o.value} onPress={(v) => patch({ knobs: { ...answers.knobs, progressionSpeed: v } })} />
+                  <OptionCard key={o.value} label={optionLabel('progression', o)} subtitle={optionSubtitle('progression', o)} value={o.value} selected={answers.knobs.progressionSpeed === o.value} onPress={(v) => patch({ knobs: { ...answers.knobs, progressionSpeed: v } })} />
                 ))}
               </View>
             </Section>
             <Section title={t('screens2:planAdjust.deloadFrequency')}>
               <View style={styles.optionGroup}>
                 {DELOAD_OPTIONS.map((o) => (
-                  <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={answers.knobs.deloadFrequency === o.value} onPress={(v) => patch({ knobs: { ...answers.knobs, deloadFrequency: v } })} />
+                  <OptionCard key={o.value} label={optionLabel('deload', o)} subtitle={optionSubtitle('deload', o)} value={o.value} selected={answers.knobs.deloadFrequency === o.value} onPress={(v) => patch({ knobs: { ...answers.knobs, deloadFrequency: v } })} />
                 ))}
               </View>
             </Section>

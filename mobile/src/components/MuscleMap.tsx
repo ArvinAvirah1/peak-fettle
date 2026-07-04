@@ -22,6 +22,7 @@
 import React, { memo, useMemo } from 'react';
 import { StyleProp, View, ViewStyle } from 'react-native';
 import Body, { type Slug, type ExtendedBodyPart } from 'react-native-body-highlighter';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '../theme/ThemeContext';
 
 // ---------------------------------------------------------------------------
@@ -79,6 +80,7 @@ function MuscleMapInner({
   style,
 }: MuscleMapProps): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const c = theme.colors;
 
   // Resolve the highlighted slugs from the canonical labels (de-duplicated).
@@ -108,7 +110,9 @@ function MuscleMapInner({
     border: c.borderDefault,
   };
 
-  const a11y = `Muscle map highlighting ${groups.join(', ') || 'no muscles'}`;
+  const a11y = t('components:muscleMap.accessibilityLabel', {
+    groups: groups.join(', ') || t('components:muscleMap.noMuscles'),
+  });
 
   if (view === 'both') {
     return (

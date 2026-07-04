@@ -39,6 +39,8 @@ import { isLocalFirst } from '../data/backup/tierPolicy';
 import { useAuth } from '../hooks/useAuth';
 import { formatWeight } from '../constants/units';
 import { useTheme } from '../theme/ThemeContext';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -84,16 +86,18 @@ function formatAxisValue(
   return formatWeight(value, unitPref, 0);
 }
 
-function metricLabel(metric: Metric, unitPref: 'kg' | 'lbs'): string {
+/** Pure helper called only from this file's own render — takes `t` per the
+ * render-site translation rule (it lives outside component/hook scope). */
+function metricLabel(metric: Metric, unitPref: 'kg' | 'lbs', t: TFunction): string {
   switch (metric) {
     case 'e1rm':
-      return 'e1RM';
+      return t('components:liftProgressChart.metric.e1rm');
     case 'topWeight':
-      return 'Top set';
+      return t('components:liftProgressChart.metric.topWeight');
     case 'volume':
-      return `Vol (${unitPref})`;
+      return t('components:liftProgressChart.metric.volume', { unit: unitPref });
     case 'bestReps':
-      return 'Reps';
+      return t('components:liftProgressChart.metric.bestReps');
   }
 }
 
@@ -108,6 +112,7 @@ export default function LiftProgressChart({
   initialMetric = 'e1rm',
 }: LiftProgressChartProps): React.ReactElement {
   const { theme, spacing, fontSize, radius } = useTheme();
+  const { t } = useTranslation();
   const { user } = useAuth();
   const colors = theme.colors;
   const activeChipInk = theme.components.buttonPrimaryText;
@@ -176,7 +181,7 @@ export default function LiftProgressChart({
             { color: colors.textSecondary, fontSize: fontSize.bodySm },
           ]}
         >
-          No history yet — log this lift to see your progress.
+          {t('components:liftProgressChart.emptyState')}
         </Text>
       </View>
     );
@@ -214,7 +219,7 @@ export default function LiftProgressChart({
                 { color: active ? activeChipInk : colors.textSecondary, fontSize: fontSize.caption },
               ]}
             >
-              {metricLabel(m, unitPref)}
+              {metricLabel(m, unitPref, t)}
             </Text>
           </TouchableOpacity>
         );

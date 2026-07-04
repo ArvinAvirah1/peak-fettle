@@ -40,6 +40,17 @@ import {
   normalizeAvatar,
   randomizeAvatar,
 } from './peakAvatarOptions';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
+
+/**
+ * peakAvatarOptions.ts is a pure module (AvatarCategory.label is plain English) —
+ * per the render-site rule this component (the render site) translates the
+ * category label rather than the pure module. Keyed by `category.key`.
+ */
+function categoryLabel(category: AvatarCategory, t: TFunction): string {
+  return t(`components:avatarCustomizer.categoryLabel.${category.key}`, { defaultValue: category.label });
+}
 
 interface Props {
   visible: boolean;
@@ -55,6 +66,7 @@ function prettify(id: string): string {
 export default function AvatarCustomizer({ visible, initial, onClose, onSaved }: Props): React.ReactElement {
   const { theme, fontWeight } = useTheme();
   const c = theme.colors;
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
 
@@ -92,9 +104,9 @@ export default function AvatarCustomizer({ visible, initial, onClose, onSaved }:
       return;
     }
     const how = label === 'Pro'
-      ? 'Unlock it with Peak Fettle Pro.'
-      : `Unlock it by reaching a ${label}.`;
-    Alert.alert(`${prettify(id)} is locked`, how);
+      ? t('components:avatarCustomizer.unlockWithPro')
+      : t('components:avatarCustomizer.unlockByReaching', { label });
+    Alert.alert(t('components:avatarCustomizer.isLockedTitle', { name: prettify(id) }), how);
   }, [setField]);
 
   const onSave = useCallback(() => {
@@ -121,17 +133,17 @@ export default function AvatarCustomizer({ visible, initial, onClose, onSaved }:
              Island / notch inside a RN Modal where SafeAreaView may not
              propagate the inset reliably. */}
         <View style={[styles.header, { borderBottomColor: c.borderDefault, paddingTop: Math.max(insets.top, 12) }]}>
-          <TouchableOpacity onPress={onClose} accessibilityRole="button" accessibilityLabel="Close avatar editor">
+          <TouchableOpacity onPress={onClose} accessibilityRole="button" accessibilityLabel={t('components:avatarCustomizer.closeAccessibilityLabel')}>
             <Ionicons name="close" size={24} color={c.textSecondary} />
           </TouchableOpacity>
-          <Text style={[styles.title, { color: c.textPrimary, fontWeight: fontWeight.bold }]}>Edit avatar</Text>
+          <Text style={[styles.title, { color: c.textPrimary, fontWeight: fontWeight.bold }]}>{t('components:avatarCustomizer.editAvatar')}</Text>
           <TouchableOpacity
             onPress={onSave}
             accessibilityRole="button"
-            accessibilityLabel="Save avatar"
+            accessibilityLabel={t('components:avatarCustomizer.saveAccessibilityLabel')}
             style={[styles.saveBtn, { backgroundColor: c.accentDefault }]}
           >
-            <Text style={{ color: theme.components.buttonPrimaryText, fontWeight: fontWeight.bold, fontSize: fontSize.bodySm }}>Save</Text>
+            <Text style={{ color: theme.components.buttonPrimaryText, fontWeight: fontWeight.bold, fontSize: fontSize.bodySm }}>{t('common:save')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -142,10 +154,10 @@ export default function AvatarCustomizer({ visible, initial, onClose, onSaved }:
             onPress={() => setDraft(randomizeAvatar())}
             style={[styles.randomBtn, { borderColor: c.accentDefault }]}
             accessibilityRole="button"
-            accessibilityLabel="Randomize avatar"
+            accessibilityLabel={t('components:avatarCustomizer.randomizeAccessibilityLabel')}
           >
             <Ionicons name="shuffle" size={15} color={c.accentDefault} />
-            <Text style={{ color: c.accentDefault, fontWeight: fontWeight.semibold, fontSize: fontSize.bodySm }}>  Randomize</Text>
+            <Text style={{ color: c.accentDefault, fontWeight: fontWeight.semibold, fontSize: fontSize.bodySm }}>  {t('components:avatarCustomizer.randomize')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -167,7 +179,7 @@ export default function AvatarCustomizer({ visible, initial, onClose, onSaved }:
                 accessibilityState={{ selected: active }}
               >
                 <Text style={{ color: active ? theme.components.buttonPrimaryText : c.textSecondary, fontSize: fontSize.caption, fontWeight: fontWeight.semibold }}>
-                  {x.label}
+                  {categoryLabel(x, t)}
                 </Text>
               </TouchableOpacity>
             );
@@ -182,6 +194,7 @@ export default function AvatarCustomizer({ visible, initial, onClose, onSaved }:
             const unlocked = isUnlocked(tierKey, unlockCtx);
             const label = unlockLabel(tierKey);
             const isProLock = label === 'Pro';
+            const catLabel = categoryLabel(cat, t);
 
             // Lock badge — Pro uses the warning/gold token, streak uses accent;
             // both theme-adaptive. Sits over the swatch/mini-avatar.
@@ -214,8 +227,8 @@ export default function AvatarCustomizer({ visible, initial, onClose, onSaved }:
                   accessibilityRole="button"
                   accessibilityLabel={
                     unlocked
-                      ? `${cat.label}: ${prettify(id)}`
-                      : `${cat.label}: ${prettify(id)}, locked, ${label}`
+                      ? t('components:avatarCustomizer.optionAccessibilityLabel', { category: catLabel, name: prettify(id) })
+                      : t('components:avatarCustomizer.optionLockedAccessibilityLabel', { category: catLabel, name: prettify(id), requirement: label })
                   }
                   accessibilityState={{ selected, disabled: !unlocked }}
                 >
@@ -241,8 +254,8 @@ export default function AvatarCustomizer({ visible, initial, onClose, onSaved }:
                 accessibilityRole="button"
                 accessibilityLabel={
                   unlocked
-                    ? `${cat.label}: ${prettify(id)}`
-                    : `${cat.label}: ${prettify(id)}, locked, ${label}`
+                    ? t('components:avatarCustomizer.optionAccessibilityLabel', { category: catLabel, name: prettify(id) })
+                    : t('components:avatarCustomizer.optionLockedAccessibilityLabel', { category: catLabel, name: prettify(id), requirement: label })
                 }
                 accessibilityState={{ selected, disabled: !unlocked }}
               >

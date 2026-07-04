@@ -29,6 +29,7 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, ViewStyle } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
+import type { TFunction } from 'i18next';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -60,12 +61,17 @@ function ringColor(fraction: number, theme: ReturnType<typeof useTheme>['theme']
   return theme.colors.statusError;                        // red
 }
 
-/** Tooltip text per exec spec. */
-function tooltipText(cohortSize: number | null): string {
-  if (cohortSize === null) return 'Cohort size loading…';
-  if (cohortSize === 0)    return 'You\'re the first in your cohort! Rankings use reference data until more athletes join.';
-  if (cohortSize === 1)    return 'Your cohort has 1 Peak Fettle athlete. Rankings become more precise as more join.';
-  return `Your cohort has ${cohortSize} Peak Fettle athletes. Rankings become more precise as more join.`;
+/**
+ * Tooltip text per exec spec. Pure module-level helper called from render
+ * sites outside this file (e.g. the rankings screen) — takes `t` as a
+ * parameter per the render-site translation rule rather than importing
+ * i18n directly into a non-component function.
+ */
+function tooltipText(cohortSize: number | null, t: TFunction): string {
+  if (cohortSize === null) return t('components:confidenceRing.loading');
+  if (cohortSize === 0) return t('components:confidenceRing.cohortEmpty');
+  if (cohortSize === 1) return t('components:confidenceRing.cohortOne');
+  return t('components:confidenceRing.cohortMany', { count: cohortSize });
 }
 
 // ---------------------------------------------------------------------------

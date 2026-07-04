@@ -12,6 +12,7 @@
 
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { useTheme } from '../../theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../../theme/tokens';
 import type {
@@ -69,6 +70,7 @@ function SlotRow({ slot }: { slot: PlanSlotV2 }): React.ReactElement {
 
 function SessionBlock({ session }: { session: PlanSessionV2 }): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   return (
     <View style={styles.session}>
       <Text style={[styles.sessionLabel, { color: theme.colors.accentHover }]}>
@@ -78,7 +80,7 @@ function SessionBlock({ session }: { session: PlanSessionV2 }): React.ReactEleme
       {session.slots.length > 0 ? (
         session.slots.map((slot, i) => <SlotRow key={`${slot.exercise_id}-${i}`} slot={slot} />)
       ) : (
-        <Text style={[styles.emptyDay, { color: theme.colors.textTertiary }]}>Rest / recovery day</Text>
+        <Text style={[styles.emptyDay, { color: theme.colors.textTertiary }]}>{t('misc:planPreview.restRecoveryDay')}</Text>
       )}
       {session.cardio && session.cardio.length > 0 ? (
         <Text style={[styles.cardioNote, { color: theme.colors.textTertiary }]}>
@@ -94,16 +96,16 @@ function SessionBlock({ session }: { session: PlanSessionV2 }): React.ReactEleme
 
 // ── Plan summary line ─────────────────────────────────────────────────────
 
-function summaryLine(plan: PlanV2): string {
+function summaryLine(plan: PlanV2, t: (key: string, opts?: Record<string, unknown>) => string): string {
   const meso = plan.mesocycle;
   const weeks = plan.weeks.length;
   const model = meso?.model ?? 'linear';
   const deloadWk = meso?.deloadWeek;
   const bits = [
-    `${weeks} week${weeks === 1 ? '' : 's'}`,
-    `${model} progression`,
+    t('misc:planPreview.weeksSummary', { count: weeks }),
+    t('misc:planPreview.progressionModel', { model }),
   ];
-  if (deloadWk) bits.push(`deload in week ${deloadWk}`);
+  if (deloadWk) bits.push(t('misc:planPreview.deloadInWeek', { week: deloadWk }));
   return bits.join(' · ');
 }
 
@@ -111,12 +113,13 @@ function summaryLine(plan: PlanV2): string {
 
 export function SinglePlanPreview({ plan }: { plan: PlanV2 }): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const week1: PlanWeekV2 | undefined = plan.weeks[0];
   const splitLabelMap: Record<string, string> = {
-    ppl: 'Push / Pull / Legs',
-    upper_lower: 'Upper / Lower',
-    body_part: 'Body-part split',
-    unsure: 'Auto-selected split',
+    ppl: t('misc:planPreview.splitPpl'),
+    upper_lower: t('misc:planPreview.splitUpperLower'),
+    body_part: t('misc:planPreview.splitBodyPart'),
+    unsure: t('misc:planPreview.splitUnsure'),
   };
 
   return (
@@ -128,22 +131,22 @@ export function SinglePlanPreview({ plan }: { plan: PlanV2 }): React.ReactElemen
         ]}
       >
         <Text style={[styles.summaryTitle, { color: theme.colors.accentHover }]}>
-          {splitLabelMap[plan.splitPreference] ?? 'Your plan'}
+          {splitLabelMap[plan.splitPreference] ?? t('misc:planPreview.yourPlan')}
         </Text>
-        <Text style={[styles.summaryMeta, { color: theme.colors.textSecondary }]}>{summaryLine(plan)}</Text>
+        <Text style={[styles.summaryMeta, { color: theme.colors.textSecondary }]}>{summaryLine(plan, t)}</Text>
         {plan.reasoning ? (
           <Text style={[styles.summaryReasoning, { color: theme.colors.textTertiary }]}>{plan.reasoning}</Text>
         ) : null}
         {plan.peaking ? (
           <Text style={[styles.summaryReasoning, { color: theme.colors.textTertiary }]}>
-            {`Peaking for a meet ${plan.peaking.weeksToMeet} weeks out.`}
+            {t('misc:planPreview.peakingForMeet', { weeks: plan.peaking.weeksToMeet })}
           </Text>
         ) : null}
       </View>
 
       <Text style={[styles.weekHeader, { color: theme.colors.textTertiary }]}>
-        WEEK 1 — {week1?.phase ?? 'Accumulation'}
-        {week1?.isDeload ? ' (deload)' : ''}
+        {t('misc:planPreview.weekHeader', { week: 1, phase: week1?.phase ?? t('misc:planPreview.accumulation') })}
+        {week1?.isDeload ? t('misc:planPreview.weekHeaderDeload') : ''}
       </Text>
 
       {(week1?.sessions ?? []).map((session, i) => (
@@ -157,6 +160,7 @@ export function SinglePlanPreview({ plan }: { plan: PlanV2 }): React.ReactElemen
 
 export function TrialSequencePreview({ sequence }: { sequence: TrialSequenceV2 }): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   return (
     <View style={styles.previewRoot}>
       <View
@@ -166,7 +170,7 @@ export function TrialSequencePreview({ sequence }: { sequence: TrialSequenceV2 }
         ]}
       >
         <Text style={[styles.summaryTitle, { color: theme.colors.accentHover }]}>
-          Trial splits — 3 blocks × 3 weeks
+          {t('misc:planPreview.trialTitle')}
         </Text>
         <Text style={[styles.summaryReasoning, { color: theme.colors.textSecondary }]}>{sequence.reasoning}</Text>
       </View>
@@ -183,10 +187,10 @@ export function TrialSequencePreview({ sequence }: { sequence: TrialSequenceV2 }
             ]}
           >
             <Text style={[styles.trialTitle, { color: theme.colors.textPrimary }]}>
-              {`Block ${block.blockIndex + 1} — ${block.splitLabel}`}
+              {t('misc:planPreview.trialBlockTitle', { blockNumber: block.blockIndex + 1, splitLabel: block.splitLabel })}
             </Text>
             <Text style={[styles.trialMeta, { color: theme.colors.textTertiary }]}>
-              {`${block.weeks.length} weeks · ${week1?.sessions.length ?? 0} days/week`}
+              {t('misc:planPreview.trialBlockMeta', { weekCount: block.weeks.length, dayCount: week1?.sessions.length ?? 0 })}
             </Text>
             {days ? (
               <Text style={[styles.trialDays, { color: theme.colors.textSecondary }]}>{days}</Text>
@@ -196,8 +200,7 @@ export function TrialSequencePreview({ sequence }: { sequence: TrialSequenceV2 }
       })}
 
       <Text style={[styles.trialFooter, { color: theme.colors.textTertiary }]}>
-        You'll run these back-to-back. At the end of any block you can make that split your main plan —
-        setting up and adopting a block is coming next.
+        {t('misc:planPreview.trialFooter')}
       </Text>
     </View>
   );

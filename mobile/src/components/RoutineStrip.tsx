@@ -30,6 +30,7 @@ import { useAuth } from '../hooks/useAuth';
 import type { WorkoutTemplate } from '../api/templates';
 import { getStarterSplits } from '../data/starterSplits';
 import { TemplateDetailSheet, SheetExercise } from './TemplateDetailSheet';
+import { useTranslation } from 'react-i18next';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -174,12 +175,13 @@ function StripHeader({
 }) {
   const { theme } = useTheme();
   const router = useRouter();
+  const { t } = useTranslation();
   return (
     <TouchableOpacity
       onPress={onToggle}
       style={styles.stripHeader}
       accessibilityRole="button"
-      accessibilityLabel={expanded ? `Collapse ${label}` : `Expand ${label}`}
+      accessibilityLabel={expanded ? t('components:routineStrip.collapse', { label }) : t('components:routineStrip.expand', { label })}
     >
       <Text style={[styles.stripLabel, { color: theme.colors.textTertiary }]}>{label}</Text>
       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -208,6 +210,7 @@ function RoutineCard({
   onPress: () => void;
 }) {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   return (
     <TouchableOpacity
       onPress={onPress}
@@ -220,7 +223,7 @@ function RoutineCard({
         },
       ]}
       accessibilityRole="button"
-      accessibilityLabel={`${name}, ${exerciseCount} exercises`}
+      accessibilityLabel={t('components:routineStrip.cardAccessibilityLabel', { name, count: exerciseCount })}
     >
       {isBuiltIn && (
         <View
@@ -230,7 +233,7 @@ function RoutineCard({
           ]}
         >
           <Text style={[styles.builtInText, { color: theme.colors.accentDefault }]}>
-            ★ Built-in
+            {t('components:routineStrip.builtIn')}
           </Text>
         </View>
       )}
@@ -238,7 +241,7 @@ function RoutineCard({
         {name}
       </Text>
       <Text style={[styles.cardMeta, { color: theme.colors.textTertiary }]}>
-        {exerciseCount} exercise{exerciseCount !== 1 ? 's' : ''}
+        {t('components:routineStrip.exerciseCount', { count: exerciseCount })}
       </Text>
     </TouchableOpacity>
   );
@@ -254,6 +257,7 @@ export function RoutineStrip({
   onStartTemplate,
 }: RoutineStripProps): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   // 'Manage →' / routines-tab navigation. (Previously referenced an undefined
   // `router` in this scope — useRouter() only existed inside StripHeader.)
   const router = useRouter();
@@ -350,7 +354,7 @@ export function RoutineStrip({
     <View style={styles.container}>
       {/* ── My Routines ── */}
       <StripHeader
-        label="MY ROUTINES"
+        label={t('components:routineStrip.myRoutines')}
         expanded={routinesExpanded}
         onToggle={() => setRoutinesExpanded((v) => !v)}
         rightNode={
@@ -358,10 +362,10 @@ export function RoutineStrip({
             onPress={() => router.push('/routines')}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             accessibilityRole="button"
-            accessibilityLabel="Manage routines"
+            accessibilityLabel={t('components:routineStrip.manageRoutinesAccessibilityLabel')}
           >
             <Text style={{ color: theme.colors.accentDefault, fontSize: fontSize.bodySm }}>
-              Manage →
+              {t('components:routineStrip.manage')}
             </Text>
           </TouchableOpacity>
         }
@@ -373,7 +377,7 @@ export function RoutineStrip({
             <ActivityIndicator size="small" color={theme.colors.accentDefault} style={styles.loader} />
           ) : routines.length === 0 ? (
             <Text style={[styles.emptyState, { color: theme.colors.textTertiary }]}>
-              No routines yet. Save a workout as a routine to see it here.
+              {t('components:routineStrip.noRoutinesYet')}
             </Text>
           ) : (
             <ScrollView
@@ -396,7 +400,7 @@ export function RoutineStrip({
 
       {/* ── Starter Splits ── */}
       <StripHeader
-        label="STARTER SPLITS"
+        label={t('components:routineStrip.starterSplits')}
         expanded={splitsExpanded}
         onToggle={() => setSplitsExpanded((v) => !v)}
       />
@@ -407,7 +411,7 @@ export function RoutineStrip({
             <ActivityIndicator size="small" color={theme.colors.accentDefault} style={styles.loader} />
           ) : templates.length === 0 ? (
             <Text style={[styles.emptyState, { color: theme.colors.textTertiary }]}>
-              No templates available.
+              {t('components:routineStrip.noTemplatesAvailable')}
             </Text>
           ) : (
             <ScrollView
@@ -437,7 +441,7 @@ export function RoutineStrip({
         description={sheetDescription}
         exercises={sheetExercises}
         onStart={sheetOnStart}
-        startLabel="Start Workout"
+        startLabel={t('components:routineStrip.startWorkout')}
       />
     </View>
   );

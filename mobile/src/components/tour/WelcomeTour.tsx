@@ -40,6 +40,8 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import { useTheme } from '../../theme/ThemeContext';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 
 // ---------------------------------------------------------------------------
 // Persistence
@@ -57,6 +59,7 @@ export interface TourStep {
   key: string;
   route: string;
   anchorId?: string;
+  /** English fallback — render sites translate via `tourStepCopy(step, t)`. */
   title: string;
   body: string;
 }
@@ -103,6 +106,16 @@ export const TOUR_STEPS: TourStep[] = [
     body: 'Tap “＋ New” to build your own routine, then start it any time from here.',
   },
 ];
+
+/** Pure lookup called only from this file's own render — takes `t` per the
+ * render-site translation rule. Keys off `step.key`; the module-level English
+ * copy above is the fallback for any step not yet in the translation bundle. */
+function tourStepCopy(step: TourStep, t: TFunction): { title: string; body: string } {
+  return {
+    title: t(`components:welcomeTour.step.${step.key}.title`, { defaultValue: step.title }),
+    body: t(`components:welcomeTour.step.${step.key}.body`, { defaultValue: step.body }),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Context
@@ -167,6 +180,7 @@ interface Rect { x: number; y: number; width: number; height: number; }
 
 export function TourProvider({ children }: { children: React.ReactNode }): React.ReactElement {
   const { theme, fontSize, fontWeight, spacing, radius } = useTheme();
+  const { t } = useTranslation();
   const c = theme.colors;
 
   const anchors = useRef<Map<string, MeasureFn>>(new Map());
@@ -323,10 +337,10 @@ export function TourProvider({ children }: { children: React.ReactNode }): React
               ]}
             >
               <Text style={{ fontSize: fontSize.bodyLg, fontWeight: fontWeight.bold, color: c.textPrimary, marginBottom: spacing.s2 }}>
-                {step.title}
+                {tourStepCopy(step, t).title}
               </Text>
               <Text style={{ fontSize: fontSize.bodySm, color: c.textSecondary, lineHeight: 20, marginBottom: spacing.s3 }}>
-                {step.body}
+                {tourStepCopy(step, t).body}
               </Text>
 
               {/* Step dots */}
@@ -347,8 +361,8 @@ export function TourProvider({ children }: { children: React.ReactNode }): React
 
               {/* Controls */}
               <View style={styles.controlsRow}>
-                <TouchableOpacity onPress={finish} accessibilityRole="button" accessibilityLabel="Skip tour" hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                  <Text style={{ fontSize: fontSize.bodySm, color: c.textTertiary }}>Skip</Text>
+                <TouchableOpacity onPress={finish} accessibilityRole="button" accessibilityLabel={t('components:welcomeTour.skipTourAccessibilityLabel')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Text style={{ fontSize: fontSize.bodySm, color: c.textTertiary }}>{t('common:skip')}</Text>
                 </TouchableOpacity>
                 <View style={styles.controlsRight}>
                   {stepIndex > 0 ? (
@@ -356,19 +370,19 @@ export function TourProvider({ children }: { children: React.ReactNode }): React
                       onPress={goBack}
                       style={[styles.btnGhost, { borderColor: c.borderDefault, borderRadius: radius.md }]}
                       accessibilityRole="button"
-                      accessibilityLabel="Previous step"
+                      accessibilityLabel={t('components:welcomeTour.previousStepAccessibilityLabel')}
                     >
-                      <Text style={{ fontSize: fontSize.bodySm, color: c.textSecondary, fontWeight: fontWeight.medium }}>Back</Text>
+                      <Text style={{ fontSize: fontSize.bodySm, color: c.textSecondary, fontWeight: fontWeight.medium }}>{t('common:back')}</Text>
                     </TouchableOpacity>
                   ) : null}
                   <TouchableOpacity
                     onPress={goNext}
                     style={[styles.btnPrimary, { backgroundColor: c.accentDefault, borderRadius: radius.md }]}
                     accessibilityRole="button"
-                    accessibilityLabel={stepIndex === TOUR_STEPS.length - 1 ? 'Finish tour' : 'Next step'}
+                    accessibilityLabel={stepIndex === TOUR_STEPS.length - 1 ? t('components:welcomeTour.finishTourAccessibilityLabel') : t('components:welcomeTour.nextStepAccessibilityLabel')}
                   >
                     <Text style={{ fontSize: fontSize.bodySm, color: theme.components.buttonPrimaryText, fontWeight: fontWeight.bold }}>
-                      {stepIndex === TOUR_STEPS.length - 1 ? 'Done' : 'Next'}
+                      {stepIndex === TOUR_STEPS.length - 1 ? t('common:done') : t('components:welcomeTour.next')}
                     </Text>
                   </TouchableOpacity>
                 </View>

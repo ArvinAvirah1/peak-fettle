@@ -28,6 +28,7 @@ import {
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../theme/ThemeContext';
 import { fontSize, spacing, radius } from '../../theme/tokens';
+import { useTranslation } from 'react-i18next';
 
 // ---------------------------------------------------------------------------
 // Guarded dynamic requires — never import these at the top level.
@@ -160,6 +161,7 @@ function GoogleButton({
   fontWeightSemibold,
 }: GoogleButtonProps): React.ReactElement | null {
   const { loginWithOAuth } = useAuth();
+  const { t } = useTranslation();
 
   // Always call the same hook (either the real one or the stable stub) on every
   // render. The hook reference is resolved once at module-eval time and never
@@ -190,13 +192,13 @@ function GoogleButton({
         setBusy('google');
         setError(null);
         loginWithOAuth('google', idToken)
-          .catch(() => setError('Google sign-in failed. Please try again.'))
+          .catch(() => setError(t('components:oAuthButtons.googleSignInFailed')))
           .finally(() => setBusy(null));
       }
     } else if (response.type === 'error') {
-      setError('Google sign-in failed. Please try again.');
+      setError(t('components:oAuthButtons.googleSignInFailed'));
     }
-  }, [response, loginWithOAuth, setBusy, setError]);
+  }, [response, loginWithOAuth, setBusy, setError, t]);
 
   if (!GOOGLE_AVAILABLE) return null;
 
@@ -213,7 +215,7 @@ function GoogleButton({
         },
       ]}
       accessibilityRole="button"
-      accessibilityLabel="Continue with Google"
+      accessibilityLabel={t('components:oAuthButtons.continueWithGoogle')}
     >
       {busy === 'google' ? (
         <ActivityIndicator color={textColor} />
@@ -225,7 +227,7 @@ function GoogleButton({
             fontWeight: fontWeightSemibold as '600',
           }}
         >
-          Continue with Google
+          {t('components:oAuthButtons.continueWithGoogle')}
         </Text>
       )}
     </TouchableOpacity>
@@ -239,6 +241,7 @@ function GoogleButton({
 export function OAuthButtons(): React.ReactElement | null {
   const { loginWithOAuth } = useAuth();
   const { theme, fontWeight } = useTheme();
+  const { t } = useTranslation();
   const c = theme.colors;
 
   const [busy, setBusy] = useState<null | 'apple' | 'google'>(null);
@@ -275,12 +278,12 @@ export function OAuthButtons(): React.ReactElement | null {
       if (credential.identityToken) {
         await loginWithOAuth('apple', credential.identityToken);
       } else {
-        setError('Apple did not return a token. Please try again.');
+        setError(t('components:oAuthButtons.appleNoToken'));
       }
     } catch (e: unknown) {
       const code = (e as { code?: string })?.code;
       if (code !== 'ERR_REQUEST_CANCELED') {
-        setError('Apple sign-in failed. Please try again.');
+        setError(t('components:oAuthButtons.appleSignInFailed'));
       }
     } finally {
       setBusy(null);
@@ -299,7 +302,7 @@ export function OAuthButtons(): React.ReactElement | null {
             marginHorizontal: spacing.s3,
           }}
         >
-          or
+          {t('components:oAuthButtons.or')}
         </Text>
         <View style={[styles.line, { backgroundColor: c.borderDefault }]} />
       </View>

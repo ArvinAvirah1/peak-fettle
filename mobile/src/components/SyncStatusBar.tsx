@@ -17,6 +17,7 @@ import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
 import { useSyncStatus } from '../hooks/useSyncStatus';
 import { useTheme } from '../theme/ThemeContext';
 import { fontSize, fontWeight, spacing } from '../theme/tokens';
+import { useTranslation } from 'react-i18next';
 
 // ---------------------------------------------------------------------------
 // Component
@@ -25,12 +26,13 @@ import { fontSize, fontWeight, spacing } from '../theme/tokens';
 export function SyncStatusBar(): React.ReactElement | null {
   const { connected, syncing } = useSyncStatus();
   const { theme } = useTheme();
+  const { t } = useTranslation();
 
   if (syncing) {
     return (
       <View style={[styles.syncing, { backgroundColor: theme.colors.accentSecondary }]}>
         <ActivityIndicator size="small" color={theme.colors.textPrimary} style={styles.spinner} />
-        <Text style={[styles.syncingText, { color: theme.colors.textPrimary }]}>Syncing…</Text>
+        <Text style={[styles.syncingText, { color: theme.colors.textPrimary }]}>{t('components:syncStatusBar.syncing')}</Text>
       </View>
     );
   }
@@ -38,7 +40,7 @@ export function SyncStatusBar(): React.ReactElement | null {
   if (!connected) {
     return (
       <View style={[styles.offline, { backgroundColor: theme.colors.statusWarning, borderBottomColor: theme.colors.borderDefault }]}>
-        <Text style={[styles.offlineText, { color: theme.colors.textPrimary }]}>⚠ Offline — changes saved locally</Text>
+        <Text style={[styles.offlineText, { color: theme.colors.textPrimary }]}>{t('components:syncStatusBar.offline')}</Text>
       </View>
     );
   }

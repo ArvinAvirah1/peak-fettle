@@ -19,6 +19,8 @@
 
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { useTheme } from '../../theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../../theme/tokens';
 import type { StoredGeneratedPlan } from '../planStore';
@@ -37,6 +39,29 @@ const SPLIT_LABEL: Record<SplitPreference, string> = {
   body_part: 'Body-part split',
   unsure: 'Trial three splits',
 };
+
+// TICKET-146: SPLIT_LABEL / TRIAL_SPLIT_LABEL stay pure English data (module
+// scope) so this file never bakes a frozen-at-import t() call into a
+// constant. Render sites resolve the translated label via t() with the
+// English string as defaultValue, per the documented misc:surveyConfig
+// pattern used across this batch.
+const SPLIT_LABEL_KEY: Record<SplitPreference, string> = {
+  ppl: 'misc:activePlanCard.splitPpl',
+  upper_lower: 'misc:activePlanCard.splitUpperLower',
+  body_part: 'misc:activePlanCard.splitBodyPart',
+  unsure: 'misc:activePlanCard.splitTrialAll',
+};
+const TRIAL_SPLIT_LABEL_KEY: Record<Exclude<SplitPreference, 'unsure'>, string> = {
+  ppl: 'misc:activePlanCard.splitPpl',
+  upper_lower: 'misc:activePlanCard.splitUpperLower',
+  body_part: 'misc:activePlanCard.splitBodyPart',
+};
+function splitLabel(t: TFunction, split: SplitPreference): string {
+  return t(SPLIT_LABEL_KEY[split], { defaultValue: SPLIT_LABEL[split] });
+}
+function trialSplitLabel(t: TFunction, split: Exclude<SplitPreference, 'unsure'>): string {
+  return t(TRIAL_SPLIT_LABEL_KEY[split], { defaultValue: TRIAL_SPLIT_LABEL[split] });
+}
 
 export interface ActivePlanCardProps {
   stored: StoredGeneratedPlan;
@@ -73,6 +98,7 @@ function SinglePlanCard({
   onDiscard,
 }: ActivePlanCardProps): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const c = theme.colors;
   const plan = stored.plan;
   const split = plan?.splitPreference ?? stored.split ?? 'unsure';
@@ -81,10 +107,10 @@ function SinglePlanCard({
 
   return (
     <View style={[styles.card, { backgroundColor: c.bgSecondary, borderColor: c.accentDefault }]}>
-      <Text style={[styles.kicker, { color: c.accentHover }]}>YOUR PLAN</Text>
-      <Text style={[styles.title, { color: c.textPrimary }]}>{SPLIT_LABEL[split]}</Text>
+      <Text style={[styles.kicker, { color: c.accentHover }]}>{t('misc:activePlanCard.yourPlanKicker')}</Text>
+      <Text style={[styles.title, { color: c.textPrimary }]}>{splitLabel(t, split)}</Text>
       <Text style={[styles.meta, { color: c.textSecondary }]}>
-        {`${weeks} week${weeks === 1 ? '' : 's'}${adopted ? ' · on your calendar' : ' · not yet scheduled'}`}
+        {t(adopted ? 'misc:activePlanCard.weeksScheduled' : 'misc:activePlanCard.weeksUnscheduled', { count: weeks })}
       </Text>
 
       <View style={styles.actionRow}>
@@ -93,10 +119,10 @@ function SinglePlanCard({
             style={[styles.primaryBtn, { backgroundColor: c.accentDefault }]}
             onPress={onAdoptPlan}
             accessibilityRole="button"
-            accessibilityLabel="Adopt this plan to your calendar"
+            accessibilityLabel={t('misc:activePlanCard.adoptThisPlanA11y')}
           >
             <Text style={[styles.primaryBtnText, { color: theme.components.buttonPrimaryText }]}>
-              Add to calendar
+              {t('misc:activePlanCard.addToCalendar')}
             </Text>
           </TouchableOpacity>
         ) : null}
@@ -104,18 +130,18 @@ function SinglePlanCard({
           style={[styles.ghostBtn, { borderColor: c.accentDefault }]}
           onPress={onRequestChanges}
           accessibilityRole="button"
-          accessibilityLabel="Request changes to this plan"
+          accessibilityLabel={t('misc:activePlanCard.requestChangesA11y')}
         >
-          <Text style={[styles.ghostBtnText, { color: c.accentDefault }]}>Request changes</Text>
+          <Text style={[styles.ghostBtnText, { color: c.accentDefault }]}>{t('misc:activePlanCard.requestChanges')}</Text>
         </TouchableOpacity>
       </View>
       <TouchableOpacity
         onPress={onDiscard}
         accessibilityRole="button"
-        accessibilityLabel="Discard this plan"
+        accessibilityLabel={t('misc:activePlanCard.discardPlanA11y')}
         style={styles.discardRow}
       >
-        <Text style={[styles.discardText, { color: c.textTertiary }]}>Discard plan</Text>
+        <Text style={[styles.discardText, { color: c.textTertiary }]}>{t('misc:activePlanCard.discardPlan')}</Text>
       </TouchableOpacity>
     </View>
   );
@@ -128,6 +154,7 @@ function SinglePlanCard({
 function TrialCard(props: ActivePlanCardProps): React.ReactElement {
   const { stored, todayKey } = props;
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const c = theme.colors;
 
   const startKey = stored.blockStartDayKey;
@@ -146,11 +173,11 @@ function TrialCard(props: ActivePlanCardProps): React.ReactElement {
 
   return (
     <View style={[styles.card, { backgroundColor: c.bgSecondary, borderColor: c.accentDefault }]}>
-      <Text style={[styles.kicker, { color: c.accentHover }]}>TRIAL SPLITS</Text>
+      <Text style={[styles.kicker, { color: c.accentHover }]}>{t('misc:activePlanCard.trialSplitsKicker')}</Text>
       <Text style={[styles.title, { color: c.textPrimary }]}>
-        {TRIAL_SPLIT_LABEL[progress.currentSplit]}
+        {trialSplitLabel(t, progress.currentSplit)}
       </Text>
-      <Text style={[styles.meta, { color: c.textSecondary }]}>{trialProgressLabel(progress)}</Text>
+      <Text style={[styles.meta, { color: c.textSecondary }]}>{trialProgressLabel(progress, t, trialSplitLabel(t, progress.currentSplit))}</Text>
 
       {/* Progress bar for the current block */}
       <View style={[styles.progressTrack, { backgroundColor: c.bgTertiary }]}>
@@ -169,16 +196,16 @@ function TrialCard(props: ActivePlanCardProps): React.ReactElement {
         <BlockCompletePrompt {...props} split={progress.currentSplit} isLastBlock={progress.currentBlockIndex >= TRIAL_ORDER.length - 1} />
       ) : (
         <Text style={[styles.hint, { color: c.textTertiary }]}>
-          {`${progress.daysRemainingInBlock} day${progress.daysRemainingInBlock === 1 ? '' : 's'} left in this block. We'll ask if you want to adopt it when it finishes.`}
+          {t('misc:activePlanCard.daysLeftInBlockHint', { count: progress.daysRemainingInBlock })}
         </Text>
       )}
       <TouchableOpacity
         onPress={props.onDiscard}
         accessibilityRole="button"
-        accessibilityLabel="Discard these trials"
+        accessibilityLabel={t('misc:activePlanCard.discardTrialsA11y')}
         style={styles.discardRow}
       >
-        <Text style={[styles.discardText, { color: c.textTertiary }]}>Discard trials</Text>
+        <Text style={[styles.discardText, { color: c.textTertiary }]}>{t('misc:activePlanCard.discardTrials')}</Text>
       </TouchableOpacity>
     </View>
   );
@@ -195,31 +222,33 @@ function BlockCompletePrompt({
   isLastBlock: boolean;
 }): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const c = theme.colors;
+  const resolvedSplit = trialSplitLabel(t, split);
   return (
     <View style={[styles.promptBox, { backgroundColor: c.bgElevated, borderColor: c.borderDefault }]}>
-      <Text style={[styles.promptTitle, { color: c.textPrimary }]}>Make this your main split?</Text>
+      <Text style={[styles.promptTitle, { color: c.textPrimary }]}>{t('misc:activePlanCard.makeMainSplitTitle')}</Text>
       <Text style={[styles.promptBody, { color: c.textSecondary }]}>
-        {`You've finished the ${TRIAL_SPLIT_LABEL[split]} block. Adopt it as your plan, or ${isLastBlock ? 'compare all three' : 'continue to the next split'}.`}
+        {t(isLastBlock ? 'misc:activePlanCard.makeMainSplitBodyLastBlock' : 'misc:activePlanCard.makeMainSplitBodyNextBlock', { split: resolvedSplit })}
       </Text>
       <TouchableOpacity
         style={[styles.primaryBtn, { backgroundColor: c.accentDefault, alignSelf: 'stretch' }]}
         onPress={() => onAdoptSplit(split)}
         accessibilityRole="button"
-        accessibilityLabel={`Adopt ${TRIAL_SPLIT_LABEL[split]} as your main split`}
+        accessibilityLabel={t('misc:activePlanCard.adoptSplitA11y', { split: resolvedSplit })}
       >
         <Text style={[styles.primaryBtnText, { color: theme.components.buttonPrimaryText }]}>
-          {`Adopt ${TRIAL_SPLIT_LABEL[split]}`}
+          {t('misc:activePlanCard.adoptSplit', { split: resolvedSplit })}
         </Text>
       </TouchableOpacity>
       <TouchableOpacity
         style={[styles.ghostBtn, { borderColor: c.accentDefault, alignSelf: 'stretch' }]}
         onPress={onContinueToNextBlock}
         accessibilityRole="button"
-        accessibilityLabel={isLastBlock ? 'Compare all three splits' : 'Continue to the next split'}
+        accessibilityLabel={t(isLastBlock ? 'misc:activePlanCard.compareAllThreeA11y' : 'misc:activePlanCard.continueToNextSplitA11y')}
       >
         <Text style={[styles.ghostBtnText, { color: c.accentDefault }]}>
-          {isLastBlock ? 'Compare all three' : 'Continue to next split'}
+          {t(isLastBlock ? 'misc:activePlanCard.compareAllThree' : 'misc:activePlanCard.continueToNextSplit')}
         </Text>
       </TouchableOpacity>
     </View>
@@ -229,15 +258,16 @@ function BlockCompletePrompt({
 // After all three blocks: pick from a comparison summary.
 function TrialComparison({ stored, onAdoptSplit, onDiscard }: ActivePlanCardProps): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const c = theme.colors;
   const blocks = stored.sequence?.blocks ?? [];
 
   return (
     <View style={[styles.card, { backgroundColor: c.bgSecondary, borderColor: c.accentDefault }]}>
-      <Text style={[styles.kicker, { color: c.accentHover }]}>TRIALS COMPLETE</Text>
-      <Text style={[styles.title, { color: c.textPrimary }]}>Pick your split</Text>
+      <Text style={[styles.kicker, { color: c.accentHover }]}>{t('misc:activePlanCard.trialsCompleteKicker')}</Text>
+      <Text style={[styles.title, { color: c.textPrimary }]}>{t('misc:activePlanCard.pickYourSplit')}</Text>
       <Text style={[styles.meta, { color: c.textSecondary }]}>
-        You've run all three. Choose the one that felt best — we'll build your full plan on it.
+        {t('misc:activePlanCard.pickComparisonBody')}
       </Text>
 
       {blocks.map((block) => {
@@ -259,9 +289,9 @@ function TrialComparison({ stored, onAdoptSplit, onDiscard }: ActivePlanCardProp
               style={[styles.pickBtn, { backgroundColor: c.accentDefault }]}
               onPress={() => onAdoptSplit(block.splitPreference)}
               accessibilityRole="button"
-              accessibilityLabel={`Pick ${block.splitLabel}`}
+              accessibilityLabel={t('misc:activePlanCard.pickA11y', { splitLabel: block.splitLabel })}
             >
-              <Text style={[styles.pickBtnText, { color: theme.components.buttonPrimaryText }]}>Pick</Text>
+              <Text style={[styles.pickBtnText, { color: theme.components.buttonPrimaryText }]}>{t('misc:activePlanCard.pick')}</Text>
             </TouchableOpacity>
           </View>
         );
@@ -269,10 +299,10 @@ function TrialComparison({ stored, onAdoptSplit, onDiscard }: ActivePlanCardProp
       <TouchableOpacity
         onPress={onDiscard}
         accessibilityRole="button"
-        accessibilityLabel="Discard these trials"
+        accessibilityLabel={t('misc:activePlanCard.discardTrialsA11y')}
         style={styles.discardRow}
       >
-        <Text style={[styles.discardText, { color: c.textTertiary }]}>Discard trials</Text>
+        <Text style={[styles.discardText, { color: c.textTertiary }]}>{t('misc:activePlanCard.discardTrials')}</Text>
       </TouchableOpacity>
     </View>
   );

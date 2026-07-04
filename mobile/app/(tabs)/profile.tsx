@@ -268,6 +268,10 @@ function SectionHeader({ label }: { label: string }): React.ReactElement {
 function BadgeCard({ def, earned }: { def: BadgeDef; earned: boolean }): React.ReactElement {
   const { theme } = useTheme();
   const { t } = useTranslation();
+  // TICKET-146 (B6 handoff wiring): badge names/rules translate through
+  // misc:badges.<id> keys; badgeDefs.ts stays pure English data (fallback).
+  const badgeName = t(`misc:badges.${def.id}.name` as never, { defaultValue: def.name }) as string;
+  const badgeRule = t(`misc:badges.${def.id}.description` as never, { defaultValue: def.rule }) as string;
   return (
     <View
       style={[
@@ -279,7 +283,7 @@ function BadgeCard({ def, earned }: { def: BadgeDef; earned: boolean }): React.R
       ]}
       accessible
       accessibilityLabel={
-        earned ? t('settings:profile.badgeEarnedLabel', { name: def.name }) : t('settings:profile.badgeLockedLabel', { name: def.name, rule: def.rule })
+        earned ? t('settings:profile.badgeEarnedLabel', { name: badgeName }) : t('settings:profile.badgeLockedLabel', { name: badgeName, rule: badgeRule })
       }
     >
       <Ionicons
@@ -294,10 +298,10 @@ function BadgeCard({ def, earned }: { def: BadgeDef; earned: boolean }): React.R
         ]}
         numberOfLines={1}
       >
-        {def.name}
+        {badgeName}
       </Text>
       <Text style={[badgeCaseStyles.rule, { color: theme.colors.textTertiary }]} numberOfLines={2}>
-        {def.rule}
+        {badgeRule}
       </Text>
     </View>
   );

@@ -26,6 +26,8 @@ import {
   OverallResult,
   Sex,
 } from '../lib/strengthModelV3';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 
 // Server lift_id → v3 model lift. Strict mapping: variants (front squat,
 // sumo) deliberately do NOT feed the competition-lift composite.
@@ -52,10 +54,12 @@ const TIER_COLORS: Record<string, string> = {
 };
 
 // D8-UI copy bank -- warm, never condescending. Rotated by pct bucket for context.
-function tierCopyForPct(pct: number): string {
-  if (pct < 8)  return 'Everyone starts here. Most lifters climb out within months.';
-  if (pct < 16) return 'Log consistently and watch this move.';
-  return 'Climbing fast — newbie gains are real.';
+// Pure helper called only from this file's own render — takes `t` per the
+// render-site translation rule.
+function tierCopyForPct(pct: number, t: TFunction): string {
+  if (pct < 8) return t('components:tierLadderCard.trajectory.early');
+  if (pct < 16) return t('components:tierLadderCard.trajectory.mid');
+  return t('components:tierLadderCard.trajectory.climbing');
 }
 
 function normalizeSex(raw: string | null | undefined): Sex | null {
@@ -85,6 +89,7 @@ export function TierLadderCard({
   bodyweightFresh = true,
 }: TierLadderCardProps): React.ReactElement | null {
   const { theme } = useTheme();
+  const { t } = useTranslation();
 
   // Tier gate: stale/missing weekly median → locked card, never a tier.
   if (!bodyweightFresh) {
@@ -99,12 +104,10 @@ export function TierLadderCard({
         ]}
       >
         <Text style={[styles.kicker, { color: theme.colors.textTertiary }]}>
-          STRENGTH TIER
+          {t('components:tierLadderCard.kicker')}
         </Text>
         <Text style={[styles.hint, { color: theme.colors.textSecondary }]}>
-          Log this week&apos;s median bodyweight to unlock your tier — weight
-          changes shift what your lifts mean, so a fresh weigh-in keeps the
-          tier honest.
+          {t('components:tierLadderCard.freshnessHint')}
         </Text>
       </View>
     );
@@ -136,12 +139,12 @@ export function TierLadderCard({
         ]}
       >
         <Text style={[styles.kicker, { color: theme.colors.textTertiary }]}>
-          STRENGTH TIER
+          {t('components:tierLadderCard.kicker')}
         </Text>
         <Text style={[styles.hint, { color: theme.colors.textSecondary }]}>
           {bw == null
-            ? 'Set your bodyweight in your profile to unlock your tier.'
-            : 'Log squat, bench, or deadlift sets to unlock your tier.'}
+            ? t('components:tierLadderCard.setBodyweightHint')
+            : t('components:tierLadderCard.logLiftsHint')}
         </Text>
       </View>
     );
@@ -183,7 +186,7 @@ export function TierLadderCard({
       ]}
     >
       <Text style={[styles.kicker, { color: theme.colors.textTertiary }]}>
-        STRENGTH TIER
+        {t('components:tierLadderCard.kicker')}
       </Text>
 
       <View style={styles.tierRow}>
@@ -196,7 +199,7 @@ export function TierLadderCard({
             ]}
           >
             <Text style={[styles.badgeText, { color: theme.colors.textTertiary }]}>
-              PROVISIONAL
+              {t('components:tierLadderCard.provisional')}
             </Text>
           </View>
         ) : null}
@@ -209,25 +212,29 @@ export function TierLadderCard({
         <View style={styles.trajectoryRow}>
           <Text style={[styles.trajectoryIcon, { color: theme.colors.statusSuccess }]}>↑</Text>
           <Text style={[styles.trajectoryText, { color: theme.colors.textSecondary }]}>
-            {tierCopyForPct(result.pct)}
+            {tierCopyForPct(result.pct, t)}
           </Text>
         </View>
       ) : (
         <Text style={[styles.pct, { color: theme.colors.textSecondary }]}>
-          Stronger than {result.pct.toFixed(result.pct >= 99 ? 1 : 0)}% of same-sex trainees
+          {t('components:tierLadderCard.strongerThan', { pct: result.pct.toFixed(result.pct >= 99 ? 1 : 0) })}
         </Text>
       )}
 
       {nextTier ? (
         <Text style={[styles.next, { color: theme.colors.textTertiary }]}>
-          {nextTier.name} at the {nextTier.min}th percentile
+          {t('components:tierLadderCard.nextTierAt', { name: nextTier.name, min: nextTier.min })}
         </Text>
       ) : null}
 
       {provisional ? (
         <Text style={[styles.note, { color: theme.colors.textTertiary }]}>
-          Based on {liftCount} of 3 competition lifts — log{' '}
-          {3 - liftCount === 1 ? 'the last one' : 'the others'} for your full tier.
+          {t('components:tierLadderCard.basedOnLifts', {
+            liftCount,
+            remaining: 3 - liftCount === 1
+              ? t('components:tierLadderCard.theLastOne')
+              : t('components:tierLadderCard.theOthers'),
+          })}
         </Text>
       ) : null}
     </View>
