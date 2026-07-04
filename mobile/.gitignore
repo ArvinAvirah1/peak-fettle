@@ -6,3 +6,7 @@ node_modules/
 __pf_sweep.js
 
 # @generated expo-cli sync-2b81b286409207a5da26e14c788
+# CNG (Continuous Native Generation) -- ios/ and android/ are generated fresh
+# by `expo prebuild` on every EAS build. Never commit or upload them.
+/ios
+/android
