@@ -23,6 +23,7 @@
  */
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import { useTranslation, type TFunction } from 'react-i18next';
 import {
   View,
   Text,
@@ -78,176 +79,169 @@ interface OptionDef<T> {
   subtitle?: string;
 }
 
-const SURVEY_CONFIG = {
-  screen: {
-    title: 'Training Profile',
-    subtitle:
-      'These answers shape every plan the Training Engine builds for you. ' +
-      'Update them any time — your next plan reflects the change.',
-    saveLabel: 'Save Training Profile',
-  },
+function buildSurveyConfig(t: TFunction) {
+  return {
+    screen: {
+      title: t('screens2:trainingSurvey.screenTitle'),
+      subtitle: t('screens2:trainingSurvey.screenSubtitle'),
+      saveLabel: t('screens2:trainingSurvey.saveLabel'),
+    },
 
-  goal: {
-    title: 'Training goal',
-    subtitle: 'What are you optimising for right now?',
-    options: [
-      { label: 'Strength',          value: 'strength',          subtitle: 'Maximise lifts — 1–5 rep focus' },
-      { label: 'Muscle Building',   value: 'hypertrophy',       subtitle: 'Size & definition — 6–15 rep range' },
-      { label: 'Endurance',         value: 'endurance',         subtitle: 'Aerobic capacity & stamina' },
-      { label: 'Sport Performance', value: 'sport_performance', subtitle: 'Power, speed & sport-specific fitness' },
-      { label: 'General Fitness',   value: 'general_fitness',   subtitle: 'Health, movement quality & consistency' },
-    ] as OptionDef<TrainingGoal>[],
-  },
+    goal: {
+      title: t('screens2:trainingSurvey.goalTitle'),
+      subtitle: t('screens2:trainingSurvey.goalSubtitle'),
+      options: [
+        { label: t('screens2:trainingSurvey.goalStrength'),          value: 'strength',          subtitle: t('screens2:trainingSurvey.goalStrengthSubtitle') },
+        { label: t('screens2:trainingSurvey.goalHypertrophy'),   value: 'hypertrophy',       subtitle: t('screens2:trainingSurvey.goalHypertrophySubtitle') },
+        { label: t('screens2:trainingSurvey.goalEndurance'),         value: 'endurance',         subtitle: t('screens2:trainingSurvey.goalEnduranceSubtitle') },
+        { label: t('screens2:trainingSurvey.goalSportPerformance'), value: 'sport_performance', subtitle: t('screens2:trainingSurvey.goalSportPerformanceSubtitle') },
+        { label: t('screens2:trainingSurvey.goalGeneralFitness'),   value: 'general_fitness',   subtitle: t('screens2:trainingSurvey.goalGeneralFitnessSubtitle') },
+      ] as OptionDef<TrainingGoal>[],
+    },
 
-  experience: {
-    title: 'Experience level',
-    subtitle: 'How long have you been training consistently?',
-    options: [
-      { label: 'Beginner',     value: 'beginner',     subtitle: 'New, or returning after a long break (< 1 yr)' },
-      { label: 'Intermediate', value: 'intermediate', subtitle: 'Consistent for 1–3 years; linear gains slowing' },
-      { label: 'Advanced',     value: 'advanced',     subtitle: '3+ years; needs periodised programming' },
-    ] as OptionDef<ExperienceLevel>[],
-  },
+    experience: {
+      title: t('screens2:trainingSurvey.experienceTitle'),
+      subtitle: t('screens2:trainingSurvey.experienceSubtitle'),
+      options: [
+        { label: t('screens2:trainingSurvey.expBeginner'),     value: 'beginner',     subtitle: t('screens2:trainingSurvey.expBeginnerSubtitle') },
+        { label: t('screens2:trainingSurvey.expIntermediate'), value: 'intermediate', subtitle: t('screens2:trainingSurvey.expIntermediateSubtitle') },
+        { label: t('screens2:trainingSurvey.expAdvanced'),     value: 'advanced',     subtitle: t('screens2:trainingSurvey.expAdvancedSubtitle') },
+      ] as OptionDef<ExperienceLevel>[],
+    },
 
-  focus: {
-    title: 'Primary focus',
-    subtitle: 'Which discipline should the plan be built around?',
-    options: [
-      { label: 'General Strength', value: 'general_strength', subtitle: 'Balanced full-body barbell training' },
-      { label: 'Powerlifting',     value: 'powerlifting',     subtitle: 'Squat, bench & deadlift specialisation' },
-      { label: 'Weightlifting',    value: 'weightlifting',    subtitle: 'Snatch & clean-and-jerk focus' },
-      { label: 'Running',          value: 'running',          subtitle: 'Run-led conditioning + supporting strength' },
-      { label: 'Cycling',          value: 'cycling',          subtitle: 'Bike-led conditioning + supporting strength' },
-      { label: 'Swimming',         value: 'swimming',         subtitle: 'Swim-led conditioning + supporting strength' },
-      { label: 'Mixed / Other',    value: 'other_mixed',      subtitle: 'Team sport or hybrid training' },
-    ] as OptionDef<Discipline>[],
-  },
+    focus: {
+      title: t('screens2:trainingSurvey.focusTitle'),
+      subtitle: t('screens2:trainingSurvey.focusSubtitle'),
+      options: [
+        { label: t('screens2:trainingSurvey.focusGeneralStrength'), value: 'general_strength', subtitle: t('screens2:trainingSurvey.focusGeneralStrengthSubtitle') },
+        { label: t('screens2:trainingSurvey.focusPowerlifting'),     value: 'powerlifting',     subtitle: t('screens2:trainingSurvey.focusPowerliftingSubtitle') },
+        { label: t('screens2:trainingSurvey.focusWeightlifting'),    value: 'weightlifting',    subtitle: t('screens2:trainingSurvey.focusWeightliftingSubtitle') },
+        { label: t('screens2:trainingSurvey.focusRunning'),          value: 'running',          subtitle: t('screens2:trainingSurvey.focusRunningSubtitle') },
+        { label: t('screens2:trainingSurvey.focusCycling'),          value: 'cycling',          subtitle: t('screens2:trainingSurvey.focusCyclingSubtitle') },
+        { label: t('screens2:trainingSurvey.focusSwimming'),         value: 'swimming',         subtitle: t('screens2:trainingSurvey.focusSwimmingSubtitle') },
+        { label: t('screens2:trainingSurvey.focusMixed'),    value: 'other_mixed',      subtitle: t('screens2:trainingSurvey.focusMixedSubtitle') },
+      ] as OptionDef<Discipline>[],
+    },
 
-  sessions: {
-    title: 'Sessions per week',
-    subtitle: 'How many training sessions can you commit to?',
-    options: [1, 2, 3, 4, 5, 6, 7],
-    hint: 'Engine defaults to 3 sessions if not set.',
-  },
+    sessions: {
+      title: t('screens2:trainingSurvey.sessionsTitle'),
+      subtitle: t('screens2:trainingSurvey.sessionsSubtitle'),
+      options: [1, 2, 3, 4, 5, 6, 7],
+      hint: t('screens2:trainingSurvey.sessionsHint'),
+    },
 
-  length: {
-    title: 'Session length',
-    subtitle: 'How long is each training session?',
-    options: [
-      { label: '15 min', value: 15, subtitle: 'Express' },
-      { label: '30 min', value: 30, subtitle: 'Short' },
-      { label: '45 min', value: 45, subtitle: 'Standard' },
-      { label: '60 min', value: 60, subtitle: 'Full session' },
-      { label: '90 min', value: 90, subtitle: 'Extended' },
-    ] as OptionDef<SessionMinutes>[],
-  },
+    length: {
+      title: t('screens2:trainingSurvey.lengthTitle'),
+      subtitle: t('screens2:trainingSurvey.lengthSubtitle'),
+      options: [
+        { label: t('screens2:trainingSurvey.length15'), value: 15, subtitle: t('screens2:trainingSurvey.length15Subtitle') },
+        { label: t('screens2:trainingSurvey.length30'), value: 30, subtitle: t('screens2:trainingSurvey.length30Subtitle') },
+        { label: t('screens2:trainingSurvey.length45'), value: 45, subtitle: t('screens2:trainingSurvey.length45Subtitle') },
+        { label: t('screens2:trainingSurvey.length60'), value: 60, subtitle: t('screens2:trainingSurvey.length60Subtitle') },
+        { label: t('screens2:trainingSurvey.length90'), value: 90, subtitle: t('screens2:trainingSurvey.length90Subtitle') },
+      ] as OptionDef<SessionMinutes>[],
+    },
 
-  equipment: {
-    title: 'Available equipment',
-    subtitle: 'The engine only prescribes exercises you can actually perform.',
-    emptyHint: 'None selected — engine uses full gym default.',
-    options: [
-      { label: 'Barbell',     value: 'barbell'    },
-      { label: 'Dumbbell',    value: 'dumbbell'   },
-      { label: 'Kettlebell',  value: 'kettlebell' },
-      { label: 'Machine',     value: 'machine'    },
-      { label: 'Cable',       value: 'cable'      },
-      { label: 'Bodyweight',  value: 'bodyweight' },
-      { label: 'Bands',       value: 'bands'      },
-      { label: 'Bench',       value: 'bench'      },
-      { label: 'Rack',        value: 'rack'       },
-      { label: 'Pull-up bar', value: 'pullup_bar' },
-      { label: 'Bike',        value: 'bike'       },
-      { label: 'Treadmill',   value: 'treadmill'  },
-      { label: 'Pool',        value: 'pool'       },
-      { label: 'Track',       value: 'track'      },
-    ] as OptionDef<EquipmentItem>[],
-  },
+    equipment: {
+      title: t('screens2:trainingSurvey.equipmentTitle'),
+      subtitle: t('screens2:trainingSurvey.equipmentSubtitle'),
+      emptyHint: t('screens2:trainingSurvey.equipmentEmptyHint'),
+      options: [
+        { label: t('screens2:onboarding.equipBarbell'),     value: 'barbell'    },
+        { label: t('screens2:onboarding.equipDumbbell'),    value: 'dumbbell'   },
+        { label: t('screens2:onboarding.equipKettlebell'),  value: 'kettlebell' },
+        { label: t('screens2:onboarding.equipMachine'),     value: 'machine'    },
+        { label: t('screens2:onboarding.equipCable'),       value: 'cable'      },
+        { label: t('screens2:onboarding.equipBodyweight'),  value: 'bodyweight' },
+        { label: t('screens2:onboarding.equipBands'),       value: 'bands'      },
+        { label: t('screens2:onboarding.equipBench'),       value: 'bench'      },
+        { label: t('screens2:onboarding.equipRack'),        value: 'rack'       },
+        { label: t('screens2:onboarding.equipPullupBar'), value: 'pullup_bar' },
+        { label: t('screens2:onboarding.equipBike'),        value: 'bike'       },
+        { label: t('screens2:onboarding.equipTreadmill'),   value: 'treadmill'  },
+        { label: t('screens2:onboarding.equipPool'),        value: 'pool'       },
+        { label: t('screens2:onboarding.equipTrack'),       value: 'track'      },
+      ] as OptionDef<EquipmentItem>[],
+    },
 
-  goalWeight: {
-    title: 'Goal weight (optional)',
-    subtitle: 'Target body weight, if applicable. Leave blank to skip.',
-  },
+    goalWeight: {
+      title: t('screens2:trainingSurvey.goalWeightTitle'),
+      subtitle: t('screens2:trainingSurvey.goalWeightSubtitle'),
+    },
 
-  season: {
-    title: 'Season phase',
-    subtitle:
-      'Your competitive phase affects how the engine balances load and recovery.',
-    options: [
-      { label: 'Off season', value: 'off_season', subtitle: 'Build base fitness and strength' },
-      { label: 'In season',  value: 'in_season',  subtitle: 'Maintain fitness without overloading' },
-    ] as OptionDef<SeasonPhase>[],
-  },
+    season: {
+      title: t('screens2:trainingSurvey.seasonTitle'),
+      subtitle: t('screens2:trainingSurvey.seasonSubtitle'),
+      options: [
+        { label: t('screens2:onboarding.offSeason'), value: 'off_season', subtitle: t('screens2:onboarding.offSeasonSubtitle') },
+        { label: t('screens2:onboarding.inSeason'),  value: 'in_season',  subtitle: t('screens2:onboarding.inSeasonSubtitle') },
+      ] as OptionDef<SeasonPhase>[],
+    },
 
-  trainingDays: {
-    title: 'Which days do you train?',
-    subtitle:
-      'Pick the weekdays that suit you and your plan maps onto real days ' +
-      '("Mon – Push") instead of generic "Day 1". Optional — skip to keep it generic.',
-    // value = JS getDay() index (0=Sun … 6=Sat).
-    options: [
-      { label: 'Mon', value: 1 },
-      { label: 'Tue', value: 2 },
-      { label: 'Wed', value: 3 },
-      { label: 'Thu', value: 4 },
-      { label: 'Fri', value: 5 },
-      { label: 'Sat', value: 6 },
-      { label: 'Sun', value: 0 },
-    ] as OptionDef<number>[],
-    emptyHint: 'None selected — sessions are labelled Day 1, Day 2, …',
-  },
+    trainingDays: {
+      title: t('screens2:trainingSurvey.trainingDaysTitle'),
+      subtitle: t('screens2:trainingSurvey.trainingDaysSubtitle'),
+      // value = JS getDay() index (0=Sun … 6=Sat).
+      options: [
+        { label: t('screens2:trainingSurvey.dayMon'), value: 1 },
+        { label: t('screens2:trainingSurvey.dayTue'), value: 2 },
+        { label: t('screens2:trainingSurvey.dayWed'), value: 3 },
+        { label: t('screens2:trainingSurvey.dayThu'), value: 4 },
+        { label: t('screens2:trainingSurvey.dayFri'), value: 5 },
+        { label: t('screens2:trainingSurvey.daySat'), value: 6 },
+        { label: t('screens2:trainingSurvey.daySun'), value: 0 },
+      ] as OptionDef<number>[],
+      emptyHint: t('screens2:trainingSurvey.trainingDaysEmptyHint'),
+    },
 
-  injuries: {
-    title: 'Injuries or limitations',
-    subtitle:
-      'We leave out movements that could aggravate these and pick safer ' +
-      'alternatives. Select any that apply — skip if none.',
-    emptyHint: 'None selected — no movements excluded.',
-    // value tokens MUST match the engine contraindication vocabulary
-    // (exerciseCatalog contraindications + constraints.ts built-ins).
-    options: [
-      { label: 'Lower back', value: 'lower_back' },
-      { label: 'Knees',      value: 'knees'      },
-      { label: 'Shoulders',  value: 'shoulders'  },
-      { label: 'Wrists',     value: 'wrists'     },
-      { label: 'Elbows',     value: 'elbows'     },
-      { label: 'Ankles',     value: 'ankles'     },
-      { label: 'Neck',       value: 'neck'       },
-      { label: 'Hip',        value: 'hip'        },
-      { label: 'Upper back', value: 'upper_back' },
-    ] as OptionDef<string>[],
-  },
+    injuries: {
+      title: t('screens2:trainingSurvey.injuriesTitle'),
+      subtitle: t('screens2:trainingSurvey.injuriesSubtitle'),
+      emptyHint: t('screens2:trainingSurvey.injuriesEmptyHint'),
+      // value tokens MUST match the engine contraindication vocabulary
+      // (exerciseCatalog contraindications + constraints.ts built-ins).
+      options: [
+        { label: t('screens2:trainingSurvey.injuryLowerBack'), value: 'lower_back' },
+        { label: t('screens2:trainingSurvey.injuryKnees'),      value: 'knees'      },
+        { label: t('screens2:trainingSurvey.injuryShoulders'),  value: 'shoulders'  },
+        { label: t('screens2:trainingSurvey.injuryWrists'),     value: 'wrists'     },
+        { label: t('screens2:trainingSurvey.injuryElbows'),     value: 'elbows'     },
+        { label: t('screens2:trainingSurvey.injuryAnkles'),     value: 'ankles'     },
+        { label: t('screens2:trainingSurvey.injuryNeck'),       value: 'neck'       },
+        { label: t('screens2:trainingSurvey.injuryHip'),        value: 'hip'        },
+        { label: t('screens2:trainingSurvey.injuryUpperBack'), value: 'upper_back' },
+      ] as OptionDef<string>[],
+    },
 
-  priorities: {
-    title: 'Muscle-group priorities',
-    subtitle:
-      'Want to bring up specific areas? The plan leans extra volume and ' +
-      'exercise choice toward what you pick. Optional.',
-    emptyHint: 'None selected — balanced across the whole body.',
-    // value tokens are canonical MuscleMap labels (see muscleRegions.ts) so the
-    // engine's muscle-priority bias matches the catalogue's muscle_groups.
-    options: [
-      { label: 'Chest',      value: 'chest'      },
-      { label: 'Back',       value: 'back'       },
-      { label: 'Shoulders',  value: 'shoulders'  },
-      { label: 'Arms',       value: 'biceps'     },
-      { label: 'Legs',       value: 'legs'       },
-      { label: 'Glutes',     value: 'glutes'     },
-      { label: 'Core',       value: 'core'       },
-      { label: 'Calves',     value: 'calves'     },
-    ] as OptionDef<string>[],
-  },
+    priorities: {
+      title: t('screens2:trainingSurvey.prioritiesTitle'),
+      subtitle: t('screens2:trainingSurvey.prioritiesSubtitle'),
+      emptyHint: t('screens2:trainingSurvey.prioritiesEmptyHint'),
+      // value tokens are canonical MuscleMap labels (see muscleRegions.ts) so the
+      // engine's muscle-priority bias matches the catalogue's muscle_groups.
+      options: [
+        { label: t('screens2:trainingSurvey.priorityChest'),      value: 'chest'      },
+        { label: t('screens2:trainingSurvey.priorityBack'),       value: 'back'       },
+        { label: t('screens2:trainingSurvey.priorityShoulders'),  value: 'shoulders'  },
+        { label: t('screens2:trainingSurvey.priorityArms'),       value: 'biceps'     },
+        { label: t('screens2:trainingSurvey.priorityLegs'),       value: 'legs'       },
+        { label: t('screens2:trainingSurvey.priorityGlutes'),     value: 'glutes'     },
+        { label: t('screens2:trainingSurvey.priorityCore'),       value: 'core'       },
+        { label: t('screens2:trainingSurvey.priorityCalves'),     value: 'calves'     },
+      ] as OptionDef<string>[],
+    },
 
-  bodyweight: {
-    title: 'Current body weight (optional)',
-    subtitle: 'Helps set sensible starting loads and recovery. Leave blank to skip.',
-  },
+    bodyweight: {
+      title: t('screens2:trainingSurvey.bodyweightTitle'),
+      subtitle: t('screens2:trainingSurvey.bodyweightSubtitle'),
+    },
 
-  age: {
-    title: 'Date of birth (optional)',
-    subtitle: 'Used only to tune recovery defaults. Leave blank to skip.',
-  },
-};
+    age: {
+      title: t('screens2:trainingSurvey.ageTitle'),
+      subtitle: t('screens2:trainingSurvey.ageSubtitle'),
+    },
+  };
+}
 
 /** Disciplines for which the optional season-phase step is shown. */
 const SEASON_RELEVANT_DISCIPLINES = new Set<Discipline | string>([
@@ -412,6 +406,7 @@ function MultiChipButton({
   onPress: () => void;
 }): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   return (
     <TouchableOpacity
       style={[
@@ -442,7 +437,7 @@ function MultiChipButton({
           },
         ]}
       >
-        {selected ? `✓ ${label}` : label}
+        {selected ? t('screens2:onboarding.checkedLabel', { label }) : label}
       </Text>
     </TouchableOpacity>
   );
@@ -481,6 +476,8 @@ export default function TrainingSurveyScreen(): React.ReactElement {
   const router = useRouter();
   const { user, updateUser } = useAuth();
   const { theme } = useTheme();
+  const { t } = useTranslation();
+  const SURVEY_CONFIG = buildSurveyConfig(t);
   const reduceMotion = useReduceMotion();
 
   // Stagger slots: header(0), goal(1), experience(2), focus(3), sessions(4),
@@ -702,8 +699,8 @@ export default function TrainingSurveyScreen(): React.ReactElement {
       router.back();
     } catch (err) {
       Alert.alert(
-        'Could not save',
-        err instanceof Error ? err.message : 'Please try again.'
+        t('screens2:trainingSurvey.couldNotSave'),
+        err instanceof Error ? err.message : t('screens2:trainingSurvey.pleaseTryAgain')
       );
     } finally {
       setIsSaving(false);
@@ -731,11 +728,11 @@ export default function TrainingSurveyScreen(): React.ReactElement {
           <TouchableOpacity
             onPress={() => router.back()}
             accessibilityRole="button"
-            accessibilityLabel="Go back"
+            accessibilityLabel={t('common:back')}
             style={styles.backButton}
           >
             <Text style={[styles.backButtonText, { color: theme.colors.accentDefault }]}>
-              ‹ Back
+              {t('screens2:trainingSurvey.backChevron')}
             </Text>
           </TouchableOpacity>
         </View>
@@ -899,7 +896,7 @@ export default function TrainingSurveyScreen(): React.ReactElement {
                   keyboardType="decimal-pad"
                   value={goalWeightInput}
                   onChangeText={setGoalWeightInput}
-                  accessibilityLabel={`Goal weight in ${goalWeightUnit === 'lbs' ? 'pounds' : 'kilograms'}`}
+accessibilityLabel={t('screens2:onboarding.goalWeightA11y', { unit: goalWeightUnit === 'lbs' ? t('screens2:onboarding.pounds') : t('screens2:onboarding.kilograms') })}
                   maxLength={6}
                 />
                 <View style={[
@@ -918,7 +915,7 @@ export default function TrainingSurveyScreen(): React.ReactElement {
                         onPress={() => handleGoalWeightUnitChange(u)}
                         accessibilityRole="button"
                         accessibilityState={{ selected: active }}
-                        accessibilityLabel={`Use ${u === 'lbs' ? 'pounds' : 'kilograms'}`}
+accessibilityLabel={t('screens2:onboarding.useUnitA11y', { unit: u === 'lbs' ? t('screens2:onboarding.pounds') : t('screens2:onboarding.kilograms') })}
                       >
                         <Text style={[
                           styles.unitToggleText,
@@ -1045,7 +1042,7 @@ export default function TrainingSurveyScreen(): React.ReactElement {
                   keyboardType="decimal-pad"
                   value={bodyweightInput}
                   onChangeText={setBodyweightInput}
-                  accessibilityLabel={`Current body weight in ${bodyweightUnit === 'lbs' ? 'pounds' : 'kilograms'}`}
+accessibilityLabel={t('screens2:trainingSurvey.currentBodyWeightA11y', { unit: bodyweightUnit === 'lbs' ? t('screens2:onboarding.pounds') : t('screens2:onboarding.kilograms') })}
                   maxLength={6}
                 />
                 <View style={[
@@ -1064,7 +1061,7 @@ export default function TrainingSurveyScreen(): React.ReactElement {
                         onPress={() => handleBodyweightUnitChange(u)}
                         accessibilityRole="button"
                         accessibilityState={{ selected: active }}
-                        accessibilityLabel={`Use ${u === 'lbs' ? 'pounds' : 'kilograms'}`}
+accessibilityLabel={t('screens2:onboarding.useUnitA11y', { unit: u === 'lbs' ? t('screens2:onboarding.pounds') : t('screens2:onboarding.kilograms') })}
                       >
                         <Text style={[
                           styles.unitToggleText,
@@ -1100,7 +1097,7 @@ export default function TrainingSurveyScreen(): React.ReactElement {
                   autoCorrect={false}
                   value={birthDateInput}
                   onChangeText={setBirthDateInput}
-                  accessibilityLabel="Date of birth, year month day"
+                  accessibilityLabel={t('screens2:trainingSurvey.dobFullA11y')}
                   maxLength={10}
                 />
               </View>
@@ -1132,7 +1129,7 @@ export default function TrainingSurveyScreen(): React.ReactElement {
             }}
             disabled={isSaving}
             accessibilityRole="button"
-            accessibilityLabel="Save training profile"
+            accessibilityLabel={t('screens2:trainingSurvey.saveA11y')}
           >
             {isSaving ? (
               <ActivityIndicator color={theme.components.buttonPrimaryText} />

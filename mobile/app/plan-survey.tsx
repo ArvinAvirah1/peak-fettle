@@ -18,6 +18,7 @@
  */
 
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../src/hooks/useAuth';
@@ -121,6 +122,7 @@ export default function PlanSurveyScreen(): React.ReactElement {
 
 function ProUpsell({ onBack }: { onBack: () => void }): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const router = useRouter();
   return (
     <ScreenLayout>
@@ -133,22 +135,19 @@ function ProUpsell({ onBack }: { onBack: () => void }): React.ReactElement {
         >
           <Text style={styles.upsellIcon}>⚡</Text>
           <Text style={[styles.upsellTitle, { color: theme.colors.textPrimary }]}>
-            Plan generation is a Pro feature
+            {t('screens2:planSurvey.upsellTitle')}
           </Text>
           <Text style={[styles.upsellBody, { color: theme.colors.textSecondary }]}>
-            The deep plan builder asks about your goal, experience, schedule, split preference,
-            injuries and equipment, then builds a fully periodised training plan on-device —
-            tuned to how close to failure you want to train, how fast to progress, and how often
-            to deload.
+            {t('screens2:planSurvey.upsellBody')}
           </Text>
           <View style={styles.upsellFeatures}>
-            <Text style={[styles.upsellFeature, { color: theme.colors.accentHover }]}>✓  Split preference, or trial three splits</Text>
-            <Text style={[styles.upsellFeature, { color: theme.colors.accentHover }]}>✓  Experience-calibrated intensity (RIR/RPE)</Text>
-            <Text style={[styles.upsellFeature, { color: theme.colors.accentHover }]}>✓  Powerlifting meet peaking & sport phasing</Text>
-            <Text style={[styles.upsellFeature, { color: theme.colors.accentHover }]}>✓  Respects your injuries & equipment</Text>
+            <Text style={[styles.upsellFeature, { color: theme.colors.accentHover }]}>{t('screens2:planSurvey.upsellFeature1')}</Text>
+            <Text style={[styles.upsellFeature, { color: theme.colors.accentHover }]}>{t('screens2:planSurvey.upsellFeature2')}</Text>
+            <Text style={[styles.upsellFeature, { color: theme.colors.accentHover }]}>{t('screens2:planSurvey.upsellFeature3')}</Text>
+            <Text style={[styles.upsellFeature, { color: theme.colors.accentHover }]}>{t('screens2:planSurvey.upsellFeature4')}</Text>
           </View>
         </View>
-        <PFButton variant="ghost" label="Maybe later" onPress={onBack} fullWidth />
+        <PFButton variant="ghost" label={t('screens2:planSurvey.maybeLater')} onPress={onBack} fullWidth />
       </ScrollView>
     </ScreenLayout>
   );
@@ -162,6 +161,7 @@ function PlanSurveyWizard(): React.ReactElement {
   const router = useRouter();
   const { user } = useAuth();
   const { theme } = useTheme();
+  const { t } = useTranslation();
 
   const unitPref: UnitSystem = (user?.unit_pref as UnitSystem) ?? 'kg';
 
@@ -296,7 +296,7 @@ function PlanSurveyWizard(): React.ReactElement {
       setFinalAnswers(finalAnswers);
       goNext();
     } catch {
-      setGenError('Could not build a plan from these answers. Please review and try again.');
+      setGenError(t('screens2:planSurvey.genError'));
     }
   }, [answers, bwInput, squatInput, benchInput, deadliftInput, ohpInput, weeksToMeetInput, unitPref, user?.id, goNext]);
 
@@ -314,12 +314,12 @@ function PlanSurveyWizard(): React.ReactElement {
       );
       // Offer to add it to the calendar now (adoption + redirect per addendum §2).
       Alert.alert(
-        'Plan saved',
-        'Add it to your calendar now so we can schedule your training days?',
+        t('screens2:planSurvey.planSavedTitle'),
+        t('screens2:planSurvey.planSavedBody'),
         [
-          { text: 'Later', style: 'cancel', onPress: () => router.replace('/plans') },
+          { text: t('screens2:planSurvey.later'), style: 'cancel', onPress: () => router.replace('/plans') },
           {
-            text: 'Add to calendar',
+            text: t('screens2:planSurvey.addToCalendar'),
             onPress: async () => {
               const proceed = async () => {
                 try {
@@ -336,11 +336,11 @@ function PlanSurveyWizard(): React.ReactElement {
               // Never clobber an existing schedule silently.
               if (await hasExistingSchedule()) {
                 Alert.alert(
-                  'Replace your schedule?',
-                  'You already have a training schedule. Replace it with this plan, or keep your current one?',
+                  t('screens2:planSurvey.replaceScheduleTitle'),
+                  t('screens2:planSurvey.replaceScheduleBody'),
                   [
-                    { text: 'Keep', style: 'cancel', onPress: () => router.replace('/plans') },
-                    { text: 'Replace', style: 'destructive', onPress: proceed },
+                    { text: t('screens2:planSurvey.keep'), style: 'cancel', onPress: () => router.replace('/plans') },
+                    { text: t('screens2:planAdjust.replace'), style: 'destructive', onPress: proceed },
                   ],
                   { cancelable: true },
                 );
@@ -385,35 +385,35 @@ function PlanSurveyWizard(): React.ReactElement {
 
         {/* ── STEP CONTENT ── */}
         {currentStep === 'goal' && (
-          <Section title="What's your main goal?" subtitle="This shapes volume, intensity and how the plan periodises.">
+          <Section title={t('screens2:planSurvey.goalTitle')} subtitle={t('screens2:planSurvey.goalSubtitle')}>
             <View style={styles.optionGroup}>
               {GOAL_OPTIONS.map((o) => (
                 <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={answers.goal === o.value} onPress={(v) => patch({ goal: v })} />
               ))}
             </View>
             {answers.goal === 'general_fitness' && (
-              <MultiChip label="Emphasise fat loss / conditioning" selected={answers.fatLossEmphasis} onPress={() => patch({ fatLossEmphasis: !answers.fatLossEmphasis })} />
+              <MultiChip label={t('screens2:planSurvey.fatLossEmphasis')} selected={answers.fatLossEmphasis} onPress={() => patch({ fatLossEmphasis: !answers.fatLossEmphasis })} />
             )}
           </Section>
         )}
 
         {currentStep === 'sport' && (
           <View style={styles.stepGap}>
-            <Section title="Which sport?" subtitle="Season phase drives your in/off-season loading.">
+            <Section title={t('screens2:planSurvey.sportTitle')} subtitle={t('screens2:planSurvey.sportSubtitle')}>
               <View style={styles.chipGrid}>
                 {SPORT_OPTIONS.map((o) => (
                   <Chip key={o.value} label={o.label} selected={answers.sport === o.value} onPress={() => patch({ sport: o.value })} />
                 ))}
               </View>
             </Section>
-            <Section title="Season phase">
+            <Section title={t('screens2:planSurvey.seasonPhaseTitle')}>
               <View style={styles.optionGroup}>
                 {SEASON_OPTIONS.map((o) => (
                   <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={answers.seasonPhase === o.value} onPress={(v) => patch({ seasonPhase: v })} />
                 ))}
               </View>
             </Section>
-            <Section title="Game day (optional)" subtitle="Anchors your heavy/light sessions around match day.">
+            <Section title={t('screens2:planSurvey.gameDayTitle')} subtitle={t('screens2:planSurvey.gameDaySubtitle')}>
               <View style={styles.chipGrid}>
                 {DAY_OPTIONS.map((o) => (
                   <Chip key={o.value} label={o.label} selected={answers.gameDay === o.value} onPress={() => patch({ gameDay: answers.gameDay === o.value ? null : o.value })} />
@@ -424,7 +424,7 @@ function PlanSurveyWizard(): React.ReactElement {
         )}
 
         {currentStep === 'experience' && (
-          <Section title="How experienced are you?" subtitle="Calibrates how close to failure the plan pushes you.">
+          <Section title={t('screens2:planSurvey.experienceTitle')} subtitle={t('screens2:planSurvey.experienceSubtitle')}>
             <View style={styles.optionGroup}>
               {EXPERIENCE_OPTIONS.map((o) => (
                 <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={answers.experienceLevel === o.value} onPress={(v) => patch({ experienceLevel: v })} />
@@ -435,21 +435,21 @@ function PlanSurveyWizard(): React.ReactElement {
 
         {currentStep === 'schedule' && (
           <View style={styles.stepGap}>
-            <Section title="Days per week" subtitle="How many sessions can you commit to?">
+            <Section title={t('screens2:planAdjust.daysPerWeek')} subtitle={t('screens2:planSurvey.daysPerWeekSubtitle')}>
               <View style={styles.chipGrid}>
                 {[1, 2, 3, 4, 5, 6, 7].map((n) => (
                   <Chip key={n} label={String(n)} selected={answers.daysPerWeek === n} onPress={() => patch({ daysPerWeek: n })} />
                 ))}
               </View>
             </Section>
-            <Section title="Session length">
+            <Section title={t('screens2:planAdjust.sessionLength')}>
               <View style={styles.optionGroup}>
                 {SESSION_MINUTE_OPTIONS.map((o) => (
                   <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={answers.sessionMinutes === o.value} onPress={(v) => patch({ sessionMinutes: v })} />
                 ))}
               </View>
             </Section>
-            <Section title="Which weekdays? (optional)" subtitle="Maps sessions onto real days instead of Day 1, Day 2…">
+            <Section title={t('screens2:planSurvey.weekdaysTitle')} subtitle={t('screens2:planSurvey.weekdaysSubtitle')}>
               <View style={styles.chipGrid}>
                 {DAY_OPTIONS.map((o) => (
                   <MultiChip key={o.value} label={o.label} selected={answers.trainingDays.includes(o.value)} onPress={() => patch({ trainingDays: toggleSet(answers.trainingDays, o.value) })} />
@@ -460,37 +460,37 @@ function PlanSurveyWizard(): React.ReactElement {
         )}
 
         {currentStep === 'split' && (
-          <Section title="Preferred split?" subtitle="Not sure? Pick “I don't know” and we'll trial all three.">
+          <Section title={t('screens2:planSurvey.splitTitle')} subtitle={t('screens2:planSurvey.splitSubtitle')}>
             <View style={styles.optionGroup}>
               {SPLIT_OPTIONS.map((o) => (
                 <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={answers.splitPreference === o.value} onPress={(v) => patch({ splitPreference: v })} />
               ))}
             </View>
-            <Hint>{answers.splitPreference === 'unsure' ? SPLIT_EXPLAINER : 'Tip: ' + SPLIT_EXPLAINER}</Hint>
+            <Hint>{answers.splitPreference === 'unsure' ? SPLIT_EXPLAINER : t('screens2:planSurvey.tipPrefix') + SPLIT_EXPLAINER}</Hint>
           </Section>
         )}
 
         {currentStep === 'equipment' && (
-          <Section title="What equipment do you have?" subtitle="We only prescribe what you can actually use. Skip for a full gym.">
+          <Section title={t('screens2:planSurvey.equipmentTitle')} subtitle={t('screens2:planSurvey.equipmentSubtitle')}>
             <View style={styles.chipGrid}>
               {EQUIPMENT_OPTIONS.map((o) => (
                 <MultiChip key={o.value} label={o.label} selected={answers.equipment.includes(o.value)} onPress={() => patch({ equipment: toggleSet(answers.equipment, o.value) })} />
               ))}
             </View>
-            {answers.equipment.length === 0 && <Hint>None selected — the engine assumes a full gym.</Hint>}
+            {answers.equipment.length === 0 && <Hint>{t('screens2:planSurvey.equipmentEmptyHint')}</Hint>}
           </Section>
         )}
 
         {currentStep === 'focus' && (
           <View style={styles.stepGap}>
-            <Section title="Muscle priorities (optional)" subtitle="Extra volume and exercise bias toward what you pick.">
+            <Section title={t('screens2:planSurvey.prioritiesTitle')} subtitle={t('screens2:planSurvey.prioritiesSubtitle')}>
               <View style={styles.chipGrid}>
                 {PRIORITY_OPTIONS.map((o) => (
                   <MultiChip key={o.value} label={o.label} selected={answers.musclePriorities.includes(o.value)} onPress={() => patch({ musclePriorities: toggleSet(answers.musclePriorities, o.value) })} />
                 ))}
               </View>
             </Section>
-            <Section title="Injuries / limitations (optional)" subtitle="We leave out risky movements and prefer safer swaps.">
+            <Section title={t('screens2:planSurvey.injuriesTitle')} subtitle={t('screens2:planSurvey.injuriesSubtitle')}>
               <View style={styles.chipGrid}>
                 {INJURY_OPTIONS.map((o) => (
                   <MultiChip key={o.value} label={o.label} selected={answers.injuries.includes(o.value)} onPress={() => patch({ injuries: toggleSet(answers.injuries, o.value) })} />
@@ -502,45 +502,45 @@ function PlanSurveyWizard(): React.ReactElement {
 
         {currentStep === 'lifts' && (
           <View style={styles.stepGap}>
-            <Section title="Your best lifts (optional)" subtitle={`Estimated 1RMs let us prescribe exact loads (${unitSuffix}).`}>
-              <NumberField value={squatInput} onChangeText={setSquatInput} placeholder="Squat 1RM" accessibilityLabel={`Squat 1RM in ${unitSuffix}`} suffix={unitSuffix} />
-              <NumberField value={benchInput} onChangeText={setBenchInput} placeholder="Bench 1RM" accessibilityLabel={`Bench 1RM in ${unitSuffix}`} suffix={unitSuffix} />
-              <NumberField value={deadliftInput} onChangeText={setDeadliftInput} placeholder="Deadlift 1RM" accessibilityLabel={`Deadlift 1RM in ${unitSuffix}`} suffix={unitSuffix} />
-              <NumberField value={ohpInput} onChangeText={setOhpInput} placeholder="Overhead press 1RM" accessibilityLabel={`Overhead press 1RM in ${unitSuffix}`} suffix={unitSuffix} />
+            <Section title={t('screens2:planSurvey.bestLiftsTitle')} subtitle={t('screens2:planSurvey.bestLiftsSubtitle', { unit: unitSuffix })}>
+              <NumberField value={squatInput} onChangeText={setSquatInput} placeholder={t('screens2:planSurvey.squat1rm')} accessibilityLabel={t('screens2:planSurvey.squat1rmA11y', { unit: unitSuffix })} suffix={unitSuffix} />
+              <NumberField value={benchInput} onChangeText={setBenchInput} placeholder={t('screens2:planSurvey.bench1rm')} accessibilityLabel={t('screens2:planSurvey.bench1rmA11y', { unit: unitSuffix })} suffix={unitSuffix} />
+              <NumberField value={deadliftInput} onChangeText={setDeadliftInput} placeholder={t('screens2:planSurvey.deadlift1rm')} accessibilityLabel={t('screens2:planSurvey.deadlift1rmA11y', { unit: unitSuffix })} suffix={unitSuffix} />
+              <NumberField value={ohpInput} onChangeText={setOhpInput} placeholder={t('screens2:planSurvey.ohp1rm')} accessibilityLabel={t('screens2:planSurvey.ohp1rmA11y', { unit: unitSuffix })} suffix={unitSuffix} />
             </Section>
-            <Section title="Body weight (optional)" subtitle="Helps set sensible starting loads.">
-              <NumberField value={bwInput} onChangeText={setBwInput} placeholder={unitPref === 'lbs' ? 'e.g. 165' : 'e.g. 75'} accessibilityLabel={`Body weight in ${unitSuffix}`} suffix={unitSuffix} />
+            <Section title={t('screens2:planSurvey.bodyWeightTitle')} subtitle={t('screens2:planSurvey.bodyWeightSubtitle')}>
+              <NumberField value={bwInput} onChangeText={setBwInput} placeholder={unitPref === 'lbs' ? 'e.g. 165' : 'e.g. 75'} accessibilityLabel={t('screens2:planSurvey.bodyWeightA11y', { unit: unitSuffix })} suffix={unitSuffix} />
             </Section>
-            <Section title="Date of birth (optional)" subtitle="Used only to tune recovery defaults.">
-              <TextField value={answers.birthDate ?? ''} onChangeText={(t) => patch({ birthDate: t })} placeholder="YYYY-MM-DD" accessibilityLabel="Date of birth" maxLength={10} />
+            <Section title={t('screens2:planSurvey.dobTitle')} subtitle={t('screens2:planSurvey.dobSubtitle')}>
+              <TextField value={answers.birthDate ?? ''} onChangeText={(t2) => patch({ birthDate: t2 })} placeholder="YYYY-MM-DD" accessibilityLabel={t('screens2:planSurvey.dobA11y')} maxLength={10} />
             </Section>
           </View>
         )}
 
         {currentStep === 'meet' && (
-          <Section title="Meet peaking (optional)" subtitle="Have a meet coming up? Enter weeks out and target lifts.">
-            <NumberField value={weeksToMeetInput} onChangeText={setWeeksToMeetInput} placeholder="Weeks to meet" accessibilityLabel="Weeks to meet" suffix="wks" />
-            <Hint>Your best-lift 1RMs (previous step) become opener / 2nd / 3rd attempt suggestions.</Hint>
+          <Section title={t('screens2:planSurvey.meetTitle')} subtitle={t('screens2:planSurvey.meetSubtitle')}>
+            <NumberField value={weeksToMeetInput} onChangeText={setWeeksToMeetInput} placeholder={t('screens2:planSurvey.weeksToMeet')} accessibilityLabel={t('screens2:planSurvey.weeksToMeet')} suffix="wks" />
+            <Hint>{t('screens2:planSurvey.meetHint')}</Hint>
           </Section>
         )}
 
         {currentStep === 'knobs' && (
           <View style={styles.stepGap}>
-            <Section title="How close to failure?" subtitle="Higher reps-in-reserve = further from failure.">
+            <Section title={t('screens2:planAdjust.failureProximity')} subtitle={t('screens2:planSurvey.failureProximitySubtitle')}>
               <View style={styles.optionGroup}>
                 {FAILURE_OPTIONS.map((o) => (
                   <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={answers.knobs.failureProximity === o.value} onPress={(v) => patch({ knobs: { ...answers.knobs, failureProximity: v } })} />
                 ))}
               </View>
             </Section>
-            <Section title="How fast to progress?">
+            <Section title={t('screens2:planAdjust.progressSpeed')}>
               <View style={styles.optionGroup}>
                 {PROGRESSION_OPTIONS.map((o) => (
                   <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={answers.knobs.progressionSpeed === o.value} onPress={(v) => patch({ knobs: { ...answers.knobs, progressionSpeed: v } })} />
                 ))}
               </View>
             </Section>
-            <Section title="How often to deload?">
+            <Section title={t('screens2:planAdjust.deloadFrequency')}>
               <View style={styles.optionGroup}>
                 {DELOAD_OPTIONS.map((o) => (
                   <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={answers.knobs.deloadFrequency === o.value} onPress={(v) => patch({ knobs: { ...answers.knobs, deloadFrequency: v } })} />
@@ -553,7 +553,7 @@ function PlanSurveyWizard(): React.ReactElement {
 
         {currentStep === 'preview' && (
           <View style={styles.stepGap}>
-            <Text style={[styles.previewHeader, { color: theme.colors.textPrimary }]}>Your plan preview</Text>
+            <Text style={[styles.previewHeader, { color: theme.colors.textPrimary }]}>{t('screens2:planSurvey.planPreviewTitle')}</Text>
             {genError ? (
               <Text style={[styles.errorText, { color: theme.colors.statusError }]}>{genError}</Text>
             ) : result?.kind === 'plan' ? (
@@ -561,20 +561,20 @@ function PlanSurveyWizard(): React.ReactElement {
             ) : result?.kind === 'trial' ? (
               <TrialSequencePreview sequence={result.sequence} />
             ) : (
-              <Text style={[styles.errorText, { color: theme.colors.textTertiary }]}>Generating…</Text>
+              <Text style={[styles.errorText, { color: theme.colors.textTertiary }]}>{t('screens2:planSurvey.generating')}</Text>
             )}
             {/* STAGE-2: persist the plan / trial sequence, then route on. */}
             {result?.kind === 'plan' ? (
               <PFButton
                 variant="primary"
-                label={saving ? 'Saving…' : 'Save plan'}
+                label={saving ? t('screens2:planSurvey.savingPlan') : t('screens2:planSurvey.savePlan')}
                 onPress={handleSavePlan}
                 fullWidth
               />
             ) : result?.kind === 'trial' ? (
               <PFButton
                 variant="primary"
-                label={saving ? 'Starting…' : 'Start trials'}
+                label={saving ? t('screens2:planSurvey.startingTrials') : t('screens2:planSurvey.startTrials')}
                 onPress={handleStartTrials}
                 fullWidth
               />
@@ -582,8 +582,8 @@ function PlanSurveyWizard(): React.ReactElement {
             <View style={styles.previewNote}>
               <Text style={[styles.previewNoteText, { color: theme.colors.textTertiary }]}>
                 {result?.kind === 'trial'
-                  ? 'We\'ll track your three trial blocks. Adopt any split when its block ends.'
-                  : 'Saving adds this plan to your library; you can add it to your calendar next.'}
+                  ? t('screens2:planSurvey.trialNote')
+                  : t('screens2:planSurvey.savePlanNote')}
               </Text>
             </View>
           </View>
@@ -591,13 +591,13 @@ function PlanSurveyWizard(): React.ReactElement {
 
         {/* ── NAV BAR ── */}
         <View style={styles.navRow}>
-          <PFButton variant="ghost" label={clampedIdx === 0 ? 'Cancel' : 'Back'} onPress={goBack} />
+          <PFButton variant="ghost" label={clampedIdx === 0 ? t('common:cancel') : t('common:back')} onPress={goBack} />
           {currentStep === 'preview' ? (
-            <PFButton variant="ghost" label="Close" onPress={() => router.back()} />
+            <PFButton variant="ghost" label={t('common:close')} onPress={() => router.back()} />
           ) : steps[clampedIdx + 1] === 'preview' ? (
-            <PFButton variant="primary" label="Generate plan" onPress={handleGenerate} />
+            <PFButton variant="primary" label={t('screens2:planSurvey.generatePlan')} onPress={handleGenerate} />
           ) : (
-            <PFButton variant="primary" label="Next" onPress={goNext} />
+            <PFButton variant="primary" label={t('screens2:planSurvey.next')} onPress={goNext} />
           )}
         </View>
 

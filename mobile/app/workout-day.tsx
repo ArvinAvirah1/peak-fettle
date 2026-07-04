@@ -25,6 +25,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation, type TFunction } from 'react-i18next';
 import {
   Alert,
   SectionList,
@@ -422,6 +423,7 @@ interface SetRowProps {
 /** TICKET-129: truncated-with-expand note + flag chip row, shown under a SetRow when annotated. */
 function SetAnnotation({ note, flags }: { note: string | null | undefined; flags: number | null | undefined }): React.ReactElement | null {
   const { theme: { colors }, spacing, fontSize, radius } = useTheme();
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const labels = flagLabels(flags);
   const hasNote = !!note && note.trim() !== '';
@@ -456,10 +458,10 @@ function SetAnnotation({ note, flags }: { note: string | null | undefined; flags
           onPress={() => isLong && setExpanded((e) => !e)}
           disabled={!isLong}
           accessibilityRole={isLong ? 'button' : undefined}
-          accessibilityLabel={isLong ? (expanded ? 'Collapse note' : 'Expand note') : undefined}
+accessibilityLabel={isLong ? (expanded ? t('screens2:workoutDay.collapseNote') : t('screens2:workoutDay.expandNote')) : undefined}
         >
           <Text style={{ fontSize: fontSize.caption, color: colors.textTertiary, fontStyle: 'italic' }}>
-            {`"${displayText}"`}{isLong ? (expanded ? '  (less)' : '  (more)') : ''}
+{t('screens2:workoutDay.quotedNote', { text: displayText })}{isLong ? (expanded ? t('screens2:workoutDay.lessSuffix') : t('screens2:workoutDay.moreSuffix')) : ''}
           </Text>
         </TouchableOpacity>
       ) : null}
@@ -469,6 +471,7 @@ function SetAnnotation({ note, flags }: { note: string | null | undefined; flags
 
 function SetRow({ set, setNumber, isBest, unitPref, effortDisplay = 'rir', onOpenNote }: SetRowProps): React.ReactElement {
   const { theme: { colors }, spacing, fontSize, fontWeight } = useTheme();
+  const { t } = useTranslation();
 
   const accentColor = isBest ? colors.accentDefault : colors.textPrimary;
   const subColor = isBest ? colors.accentDefault : colors.textSecondary;
@@ -482,7 +485,7 @@ function SetRow({ set, setNumber, isBest, unitPref, effortDisplay = 'rir', onOpe
       onPress={() => onOpenNote(set)}
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       accessibilityRole="button"
-      accessibilityLabel={hasAnnotation ? 'Edit set note' : 'Add set note'}
+accessibilityLabel={hasAnnotation ? t('screens2:workoutDay.editSetNoteA11y') : t('screens2:workoutDay.addSetNoteA11y')}
       style={{ paddingHorizontal: spacing.s1 }}
     >
       <Text style={{ fontSize: fontSize.bodySm, color: hasAnnotation ? colors.accentDefault : colors.textTertiary }}>
@@ -498,10 +501,10 @@ function SetRow({ set, setNumber, isBest, unitPref, effortDisplay = 'rir', onOpe
       <View>
         <View style={[styles.setRow, { paddingVertical: spacing.s2 }]}>
           <Text style={[styles.setLabel, { color: colors.textTertiary, fontSize: fontSize.bodySm }]}>
-            {`Set ${setNumber}`}
+            {t('screens2:workoutDay.setNumber', { number: setNumber })}
           </Text>
           <Text style={[styles.setDetail, { flex: 1, color: accentColor, fontSize: fontSize.bodySm, fontVariant: ['tabular-nums'] }]}>
-            {duration}{distance ? `  ·  ${distance}` : ''}
+            {distance ? t('screens2:workoutDay.durationAndDistance', { duration, distance }) : duration}
           </Text>
           {noteButton}
         </View>
@@ -532,7 +535,7 @@ function SetRow({ set, setNumber, isBest, unitPref, effortDisplay = 'rir', onOpe
             minWidth: 44,
           }}
         >
-          {`Set ${setNumber}`}
+          {t('screens2:workoutDay.setNumber', { number: setNumber })}
         </Text>
         <Text
           style={{
@@ -543,7 +546,7 @@ function SetRow({ set, setNumber, isBest, unitPref, effortDisplay = 'rir', onOpe
             fontVariant: ['tabular-nums'],
           }}
         >
-          {`${weightDisplay} × ${reps} reps`}
+          {t('screens2:workoutDay.weightAndReps', { weight: weightDisplay, reps })}
           {effortLabel ? ` · ${effortLabel}` : ''}
           {isBest ? '  ★' : ''}
         </Text>
@@ -554,7 +557,7 @@ function SetRow({ set, setNumber, isBest, unitPref, effortDisplay = 'rir', onOpe
             fontVariant: ['tabular-nums'],
           }}
         >
-          {`e1RM ~${e1rmDisplay}`}
+          {t('screens2:workoutDay.e1rmApprox', { value: e1rmDisplay })}
         </Text>
         {noteButton}
       </View>
@@ -573,12 +576,13 @@ interface ExerciseHeaderProps {
 
 function ExerciseHeader({ name, exerciseId, volumeKg, unitPref, onPress }: ExerciseHeaderProps): React.ReactElement {
   const { theme: { colors }, spacing, fontSize, fontWeight } = useTheme();
+  const { t } = useTranslation();
   const volDisplay = formatWeight(volumeKg, unitPref, 0);
   return (
     <TouchableOpacity
       onPress={() => onPress(exerciseId, name)}
       accessibilityRole="button"
-      accessibilityLabel={`View progress for ${name}`}
+      accessibilityLabel={t('screens2:workoutDay.viewProgressA11y', { name })}
       style={[
         styles.exerciseHeader,
         {
@@ -601,7 +605,7 @@ function ExerciseHeader({ name, exerciseId, volumeKg, unitPref, onPress }: Exerc
           {name}
         </Text>
         <Text style={{ fontSize: fontSize.caption, color: colors.accentDefault, marginLeft: 8 }}>
-          Trends ›
+          {t('screens2:workoutDay.trendsArrow')}
         </Text>
       </View>
       <Text
@@ -612,7 +616,7 @@ function ExerciseHeader({ name, exerciseId, volumeKg, unitPref, onPress }: Exerc
           fontVariant: ['tabular-nums'],
         }}
       >
-        {`Total: ${volDisplay} volume`}
+        {t('screens2:workoutDay.totalVolume', { value: volDisplay })}
       </Text>
     </TouchableOpacity>
   );
@@ -626,6 +630,7 @@ export default function WorkoutDayScreen(): React.ReactElement {
   const { date } = useLocalSearchParams<{ date: string }>();
   const router = useRouter();
   const { theme: { colors }, spacing, fontSize, fontWeight, radius } = useTheme();
+  const { t } = useTranslation();
   const { user } = useAuth();
   const unitPref: UnitSystem = (user?.unit_pref as UnitSystem) ?? 'kg';
 
@@ -647,9 +652,9 @@ export default function WorkoutDayScreen(): React.ReactElement {
     if (!noteTarget) return undefined;
     for (const g of dayData?.exerciseGroups ?? []) {
       const idx = g.sets.findIndex((s) => s.id === noteTarget.id);
-      if (idx >= 0) return `${g.exerciseName} — Set ${idx + 1}`;
+      if (idx >= 0) return t('screens2:workoutDay.exerciseSetLabel', { exerciseName: g.exerciseName, number: idx + 1 });
     }
-    return 'Set note';
+    return t('screens2:workoutDay.setNoteFallback');
   }, [noteTarget, dayData]);
   const handleSaveNote = useCallback(
     async (patch: { note?: string | null; flags?: number }) => {
@@ -701,7 +706,7 @@ export default function WorkoutDayScreen(): React.ReactElement {
       const data = localFirst ? await fetchLocalDayData(date) : await fetchDayData(date);
       setDayData(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load workout');
+      setError(err instanceof Error ? err.message : t('screens2:workoutDay.loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -766,17 +771,17 @@ export default function WorkoutDayScreen(): React.ReactElement {
   }, [buildHistoryExercises, date, load]);
 
   const handleDeleteSet = useCallback((set: ApiSet) => {
-    Alert.alert('Delete set', 'Remove this set? This cannot be undone.', [
-      { text: 'Cancel', style: 'cancel' },
+    Alert.alert(t('screens2:workoutDay.deleteSetTitle'), t('screens2:workoutDay.deleteSetBody'), [
+      { text: t('common:cancel'), style: 'cancel' },
       {
-        text: 'Delete',
+        text: t('common:delete'),
         style: 'destructive',
         onPress: async () => {
           try {
             await deleteSetById(user, set.id);
             await load();
           } catch {
-            Alert.alert('Could not delete', 'Please try again.');
+            Alert.alert(t('screens2:workoutDay.couldNotDeleteTitle'), t('screens2:workoutDay.couldNotDeleteBody'));
           }
         },
       },
@@ -793,9 +798,9 @@ export default function WorkoutDayScreen(): React.ReactElement {
     if (totalSets === 0) return '';
     const exCount = exerciseGroups.length;
     const volDisplay = formatWeight(totalVolumeKg, unitPref, 0);
-    const exLabel = exCount === 1 ? '1 exercise' : `${exCount} exercises`;
-    const setLabel = totalSets === 1 ? '1 set' : `${totalSets} sets`;
-    return `${exLabel} · ${setLabel} · ${volDisplay} total`;
+    const exLabel = t('screens2:workoutDay.exerciseCount', { count: exCount });
+    const setLabel = t('screens2:workoutDay.setCount', { count: totalSets });
+    return t('screens2:workoutDay.summaryLine', { exLabel, setLabel, volume: volDisplay });
   }, [dayData, unitPref]);
 
   // ── P2: muscles worked this session → drives the header MuscleMap ───────────
@@ -872,11 +877,11 @@ export default function WorkoutDayScreen(): React.ReactElement {
       <ScreenLayout>
         <View style={styles.centered}>
           <Text style={{ color: colors.textSecondary, fontSize: fontSize.bodyMd }}>
-            No date specified.
+            {t('screens2:workoutDay.noDateSpecified')}
           </Text>
           <PFButton
             variant="ghost"
-            label="Go back"
+            label={t('common:back')}
             onPress={() => router.back()}
             style={{ marginTop: spacing.s4 }}
           />
@@ -933,7 +938,7 @@ export default function WorkoutDayScreen(): React.ReactElement {
                 marginTop: spacing.s1,
               }}
             >
-              Tap a set to edit · long-press to delete.
+              {t('screens2:workoutDay.tapEditHint')}
             </Text>
           ) : null}
         </View>
@@ -953,7 +958,7 @@ export default function WorkoutDayScreen(): React.ReactElement {
         <View style={{ paddingHorizontal: spacing.s5, paddingTop: spacing.s2 }}>
           <PFButton
             variant="ghost"
-            label="Share workout card"
+            label={t('screens2:workoutDay.shareWorkoutCard')}
             onPress={() => setShareVisible(true)}
           />
         </View>
@@ -974,7 +979,7 @@ export default function WorkoutDayScreen(): React.ReactElement {
           </Text>
           <PFButton
             variant="ghost"
-            label="Try again"
+            label={t('screens2:workoutDay.tryAgain')}
             onPress={load}
             style={{ marginTop: spacing.s4 }}
           />
@@ -1004,7 +1009,7 @@ export default function WorkoutDayScreen(): React.ReactElement {
                 marginTop: spacing.s3,
               }}
             >
-              Rest day
+              {t('screens2:workoutDay.restDayTitle')}
             </Text>
             <Text
               style={{
@@ -1014,12 +1019,12 @@ export default function WorkoutDayScreen(): React.ReactElement {
                 marginTop: spacing.s2,
               }}
             >
-              Recovery is part of the programme. Your streak is protected.
+              {t('screens2:workoutDay.restDayBody')}
             </Text>
           </View>
           <PFButton
             variant="ghost"
-            label="Back"
+            label={t('common:back')}
             onPress={() => router.back()}
             style={{ marginTop: spacing.s5 }}
           />
@@ -1034,11 +1039,11 @@ export default function WorkoutDayScreen(): React.ReactElement {
               textAlign: 'center',
             }}
           >
-            No workout logged for this day.
+            {t('screens2:workoutDay.emptyState')}
           </Text>
           <PFButton
             variant="ghost"
-            label="Go back"
+            label={t('common:back')}
             onPress={() => router.back()}
             style={{ marginTop: spacing.s4 }}
           />
@@ -1066,7 +1071,7 @@ export default function WorkoutDayScreen(): React.ReactElement {
               onLongPress={() => handleDeleteSet(item)}
               delayLongPress={350}
               accessibilityRole="button"
-              accessibilityLabel={`Set ${index + 1}. Tap to edit, long-press to delete.`}
+accessibilityLabel={t('screens2:workoutDay.setEditA11y', { number: index + 1 })}
               style={[
                 styles.setRowContainer,
                 {

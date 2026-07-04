@@ -19,6 +19,7 @@
  */
 
 import { useState, useCallback } from 'react';
+import { useTranslation, type TFunction } from 'react-i18next';
 import {
   View,
   Text,
@@ -73,29 +74,35 @@ type Discipline =
 // Data
 // ---------------------------------------------------------------------------
 
-const SEX_OPTIONS: { label: string; value: SexOption }[] = [
-  { label: 'Male',               value: 'MALE'        },
-  { label: 'Female',             value: 'FEMALE'      },
-  { label: "I'd rather not say", value: 'UNDISCLOSED' },
-];
+function sexOptions(t: TFunction): { label: string; value: SexOption }[] {
+  return [
+    { label: t('screens2:onboarding.sexMale'),               value: 'MALE'        },
+    { label: t('screens2:onboarding.sexFemale'),             value: 'FEMALE'      },
+    { label: t('screens2:onboarding.sexUndisclosed'), value: 'UNDISCLOSED' },
+  ];
+}
 
-const DISCIPLINE_OPTIONS: { label: string; value: Discipline; subtitle?: string }[] = [
-  { label: 'Powerlifting',          value: 'powerlifting'    },
-  { label: 'Weightlifting',         value: 'weightlifting',  subtitle: 'Olympic lifting — snatch, clean & jerk' },
-  { label: 'Gym / General Fitness', value: 'general_strength' },
-  { label: 'Running',               value: 'running'         },
-  { label: 'Cycling',               value: 'cycling'         },
-  { label: 'Swimming',              value: 'swimming'        },
-  { label: 'Other / Mixed',         value: 'other'           },
-];
+function disciplineOptions(t: TFunction): { label: string; value: Discipline; subtitle?: string }[] {
+  return [
+    { label: t('screens2:onboarding.disciplinePowerlifting'),          value: 'powerlifting'    },
+    { label: t('screens2:onboarding.disciplineWeightlifting'),         value: 'weightlifting',  subtitle: t('screens2:onboarding.disciplineWeightliftingSubtitle') },
+    { label: t('screens2:onboarding.disciplineGeneral'), value: 'general_strength' },
+    { label: t('screens2:onboarding.disciplineRunning'),               value: 'running'         },
+    { label: t('screens2:onboarding.disciplineCycling'),               value: 'cycling'         },
+    { label: t('screens2:onboarding.disciplineSwimming'),              value: 'swimming'        },
+    { label: t('screens2:onboarding.disciplineOther'),         value: 'other'           },
+  ];
+}
 
-const TRAINING_GOAL_OPTIONS: { label: string; value: TrainingGoal; subtitle?: string }[] = [
-  { label: 'Strength',          value: 'strength',          subtitle: 'Maximise lifts — 1–5 rep focus' },
-  { label: 'Muscle Building',   value: 'hypertrophy',       subtitle: 'Size & definition — 6–15 rep range' },
-  { label: 'Endurance',         value: 'endurance',         subtitle: 'Aerobic capacity & stamina' },
-  { label: 'Sport Performance', value: 'sport_performance', subtitle: 'Power, speed & sport-specific fitness' },
-  { label: 'General Fitness',   value: 'general_fitness',   subtitle: 'Health, movement quality & consistency' },
-];
+function trainingGoalOptions(t: TFunction): { label: string; value: TrainingGoal; subtitle?: string }[] {
+  return [
+    { label: t('screens2:onboarding.goalStrength'),          value: 'strength',          subtitle: t('screens2:onboarding.goalStrengthSubtitle') },
+    { label: t('screens2:onboarding.goalHypertrophy'),   value: 'hypertrophy',       subtitle: t('screens2:onboarding.goalHypertrophySubtitle') },
+    { label: t('screens2:onboarding.goalEndurance'),         value: 'endurance',         subtitle: t('screens2:onboarding.goalEnduranceSubtitle') },
+    { label: t('screens2:onboarding.goalSportPerformance'), value: 'sport_performance', subtitle: t('screens2:onboarding.goalSportPerformanceSubtitle') },
+    { label: t('screens2:onboarding.goalGeneralFitness'),   value: 'general_fitness',   subtitle: t('screens2:onboarding.goalGeneralFitnessSubtitle') },
+  ];
+}
 
 const SESSIONS_PER_WEEK_OPTIONS: { label: string; value: number }[] = [
   { label: '1', value: 1 },
@@ -107,30 +114,34 @@ const SESSIONS_PER_WEEK_OPTIONS: { label: string; value: number }[] = [
   { label: '7', value: 7 },
 ];
 
-const SESSION_MINUTES_OPTIONS: { label: string; value: SessionMinutes; subtitle?: string }[] = [
-  { label: '15 min',  value: 15,  subtitle: 'Express — one quality set' },
-  { label: '30 min',  value: 30,  subtitle: 'Short — quality + warm-up' },
-  { label: '45 min',  value: 45,  subtitle: 'Standard — quality + secondary' },
-  { label: '60 min',  value: 60,  subtitle: 'Full session' },
-  { label: '90 min',  value: 90,  subtitle: 'Extended — full + accessories' },
-];
+function sessionMinutesOptions(t: TFunction): { label: string; value: SessionMinutes; subtitle?: string }[] {
+  return [
+    { label: t('screens2:onboarding.minutes15'),  value: 15,  subtitle: t('screens2:onboarding.minutes15Subtitle') },
+    { label: t('screens2:onboarding.minutes30'),  value: 30,  subtitle: t('screens2:onboarding.minutes30Subtitle') },
+    { label: t('screens2:onboarding.minutes45'),  value: 45,  subtitle: t('screens2:onboarding.minutes45Subtitle') },
+    { label: t('screens2:onboarding.minutes60'),  value: 60,  subtitle: t('screens2:onboarding.minutes60Subtitle') },
+    { label: t('screens2:onboarding.minutes90'),  value: 90,  subtitle: t('screens2:onboarding.minutes90Subtitle') },
+  ];
+}
 
-const EQUIPMENT_OPTIONS: { label: string; value: EquipmentItem }[] = [
-  { label: 'Barbell',      value: 'barbell'     },
-  { label: 'Dumbbell',     value: 'dumbbell'    },
-  { label: 'Kettlebell',   value: 'kettlebell'  },
-  { label: 'Machine',      value: 'machine'     },
-  { label: 'Cable',        value: 'cable'       },
-  { label: 'Bodyweight',   value: 'bodyweight'  },
-  { label: 'Bands',        value: 'bands'       },
-  { label: 'Bench',        value: 'bench'       },
-  { label: 'Rack',         value: 'rack'        },
-  { label: 'Pull-up bar',  value: 'pullup_bar'  },
-  { label: 'Bike',         value: 'bike'        },
-  { label: 'Treadmill',    value: 'treadmill'   },
-  { label: 'Pool',         value: 'pool'        },
-  { label: 'Track',        value: 'track'       },
-];
+function equipmentOptions(t: TFunction): { label: string; value: EquipmentItem }[] {
+  return [
+    { label: t('screens2:onboarding.equipBarbell'),      value: 'barbell'     },
+    { label: t('screens2:onboarding.equipDumbbell'),     value: 'dumbbell'    },
+    { label: t('screens2:onboarding.equipKettlebell'),   value: 'kettlebell'  },
+    { label: t('screens2:onboarding.equipMachine'),      value: 'machine'     },
+    { label: t('screens2:onboarding.equipCable'),        value: 'cable'       },
+    { label: t('screens2:onboarding.equipBodyweight'),   value: 'bodyweight'  },
+    { label: t('screens2:onboarding.equipBands'),        value: 'bands'       },
+    { label: t('screens2:onboarding.equipBench'),        value: 'bench'       },
+    { label: t('screens2:onboarding.equipRack'),         value: 'rack'        },
+    { label: t('screens2:onboarding.equipPullupBar'),  value: 'pullup_bar'  },
+    { label: t('screens2:onboarding.equipBike'),         value: 'bike'        },
+    { label: t('screens2:onboarding.equipTreadmill'),    value: 'treadmill'   },
+    { label: t('screens2:onboarding.equipPool'),         value: 'pool'       },
+    { label: t('screens2:onboarding.equipTrack'),        value: 'track'      },
+  ];
+}
 
 // Disciplines that have a meaningful season concept
 const TEAM_SPORT_DISCIPLINES: Set<Discipline> = new Set([
@@ -271,6 +282,7 @@ function MultiChipButton({
   onPress: () => void;
 }): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   return (
     <TouchableOpacity
       style={[
@@ -300,7 +312,7 @@ function MultiChipButton({
           },
         ]}
       >
-        {selected ? `✓ ${label}` : label}
+        {selected ? t('screens2:onboarding.checkedLabel', { label }) : label}
       </Text>
     </TouchableOpacity>
   );
@@ -313,6 +325,7 @@ function MultiChipButton({
 export default function OnboardingScreen(): React.ReactElement {
   const router = useRouter();
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const { user, updateUser } = useAuth();
 
   // Step state — 1..11 (season_phase step is skipped for non-team disciplines)
@@ -492,16 +505,15 @@ export default function OnboardingScreen(): React.ReactElement {
           style={{ flex: 1 }}
         >
           <Text style={[styles.heading, { color: theme.colors.textPrimary }]}>
-            What should we call you?
+            {t('screens2:onboarding.step1Heading')}
           </Text>
           <Text style={[styles.explanation, { color: theme.colors.textSecondary }]}>
-            This is the name shown on your home screen and profile. You can change
-            it any time in Settings.
+            {t('screens2:onboarding.step1Explanation')}
           </Text>
           <View style={[styles.inputRow, { borderColor: theme.colors.borderDefault, backgroundColor: theme.colors.bgElevated }]}>
             <TextInput
               style={[styles.weightInput, { color: theme.colors.textPrimary }]}
-              placeholder="Your name"
+              placeholder={t('screens2:onboarding.namePlaceholder')}
               placeholderTextColor={theme.colors.textTertiary}
               value={displayName}
               onChangeText={setDisplayName}
@@ -510,13 +522,13 @@ export default function OnboardingScreen(): React.ReactElement {
               returnKeyType="next"
               maxLength={50}
               onSubmitEditing={() => advanceStep(1)}
-              accessibilityLabel="Display name"
+              accessibilityLabel={t('screens2:onboarding.displayNameA11y')}
             />
           </View>
           <Text style={[styles.hintText, { color: theme.colors.textTertiary }]}>
             {emailLocalPart
-              ? `Leave it as “${emailLocalPart}” or pick something else.`
-              : 'Pick any name you like.'}
+              ? t('screens2:onboarding.leaveAsHint', { name: emailLocalPart })
+              : t('screens2:onboarding.pickAnyNameHint')}
           </Text>
         </KeyboardAvoidingView>
       );
@@ -526,14 +538,13 @@ export default function OnboardingScreen(): React.ReactElement {
       return (
         <>
           <Text style={[styles.heading, { color: theme.colors.textPrimary }]}>
-            What is your biological sex?
+            {t('screens2:onboarding.step2Heading')}
           </Text>
           <Text style={[styles.explanation, { color: theme.colors.textSecondary }]}>
-            We use this to compare you fairly against athletes with similar
-            physiology. It affects your percentile ranking only.
+            {t('screens2:onboarding.step2Explanation')}
           </Text>
           <View style={styles.optionGroup}>
-            {SEX_OPTIONS.map((opt) => (
+            {sexOptions(t).map((opt) => (
               <OptionButton<SexOption>
                 key={opt.value}
                 label={opt.label}
@@ -545,7 +556,7 @@ export default function OnboardingScreen(): React.ReactElement {
           </View>
           <View style={[styles.streakNote, { backgroundColor: theme.colors.bgElevated }]}>
             <Text style={[styles.streakNoteText, { color: theme.colors.textSecondary }]}>
-              Even a 5-minute session counts. Rest days don't break your streak — only missing sessions in a row does.
+{t('screens2:onboarding.streakNote')}
             </Text>
           </View>
         </>
@@ -556,13 +567,13 @@ export default function OnboardingScreen(): React.ReactElement {
       return (
         <>
           <Text style={[styles.heading, { color: theme.colors.textPrimary }]}>
-            {"What's your primary sport?"}
+            {t('screens2:onboarding.step3Heading')}
           </Text>
           <Text style={[styles.explanation, { color: theme.colors.textSecondary }]}>
-            We use this to rank you against athletes in the same discipline.
+            {t('screens2:onboarding.step3Explanation')}
           </Text>
           <View style={styles.optionGroup}>
-            {DISCIPLINE_OPTIONS.map((opt) => (
+            {disciplineOptions(t).map((opt) => (
               <OptionButton<Discipline>
                 key={opt.value}
                 label={opt.label}
@@ -581,13 +592,13 @@ export default function OnboardingScreen(): React.ReactElement {
       return (
         <>
           <Text style={[styles.heading, { color: theme.colors.textPrimary }]}>
-            What is your main training goal?
+            {t('screens2:onboarding.step4Heading')}
           </Text>
           <Text style={[styles.explanation, { color: theme.colors.textSecondary }]}>
-            The Training Engine uses this to prioritise your programme structure.
+            {t('screens2:onboarding.step4Explanation')}
           </Text>
           <View style={styles.optionGroup}>
-            {TRAINING_GOAL_OPTIONS.map((opt) => (
+            {trainingGoalOptions(t).map((opt) => (
               <OptionButton<TrainingGoal>
                 key={opt.value}
                 label={opt.label}
@@ -606,10 +617,10 @@ export default function OnboardingScreen(): React.ReactElement {
       return (
         <>
           <Text style={[styles.heading, { color: theme.colors.textPrimary }]}>
-            How many sessions per week?
+            {t('screens2:onboarding.step5Heading')}
           </Text>
           <Text style={[styles.explanation, { color: theme.colors.textSecondary }]}>
-            How many training sessions can you commit to each week?
+            {t('screens2:onboarding.step5Explanation')}
           </Text>
           <View style={styles.chipRow}>
             {SESSIONS_PER_WEEK_OPTIONS.map((opt) => (
@@ -622,7 +633,7 @@ export default function OnboardingScreen(): React.ReactElement {
             ))}
           </View>
           <Text style={[styles.hintText, { color: theme.colors.textTertiary }]}>
-            The engine defaults to 3 sessions if you skip this.
+            {t('screens2:onboarding.step5Hint')}
           </Text>
         </>
       );
@@ -632,13 +643,13 @@ export default function OnboardingScreen(): React.ReactElement {
       return (
         <>
           <Text style={[styles.heading, { color: theme.colors.textPrimary }]}>
-            How long is each session?
+            {t('screens2:onboarding.step6Heading')}
           </Text>
           <Text style={[styles.explanation, { color: theme.colors.textSecondary }]}>
-            Your plan will be scaled to fit your available time.
+            {t('screens2:onboarding.step6Explanation')}
           </Text>
           <View style={styles.optionGroup}>
-            {SESSION_MINUTES_OPTIONS.map((opt) => (
+            {sessionMinutesOptions(t).map((opt) => (
               <OptionButton<SessionMinutes>
                 key={opt.value}
                 label={opt.label}
@@ -657,14 +668,13 @@ export default function OnboardingScreen(): React.ReactElement {
       return (
         <>
           <Text style={[styles.heading, { color: theme.colors.textPrimary }]}>
-            What equipment do you have?
+            {t('screens2:onboarding.step7Heading')}
           </Text>
           <Text style={[styles.explanation, { color: theme.colors.textSecondary }]}>
-            Select everything available to you. The engine only prescribes exercises
-            you can actually do.
+            {t('screens2:onboarding.step7Explanation')}
           </Text>
           <View style={styles.chipGrid}>
-            {EQUIPMENT_OPTIONS.map((opt) => (
+            {equipmentOptions(t).map((opt) => (
               <MultiChipButton
                 key={opt.value}
                 label={opt.label}
@@ -675,7 +685,7 @@ export default function OnboardingScreen(): React.ReactElement {
           </View>
           {equipmentProfile.size === 0 && (
             <Text style={[styles.hintText, { color: theme.colors.textTertiary }]}>
-              Select at least one, or skip to use the full gym default.
+              {t('screens2:onboarding.step7Hint')}
             </Text>
           )}
         </>
@@ -689,11 +699,10 @@ export default function OnboardingScreen(): React.ReactElement {
           style={{ flex: 1 }}
         >
           <Text style={[styles.heading, { color: theme.colors.textPrimary }]}>
-            Do you have a goal weight? (optional)
+            {t('screens2:onboarding.step8Heading')}
           </Text>
           <Text style={[styles.explanation, { color: theme.colors.textSecondary }]}>
-            If you have a target body weight in mind, we factor this into your
-            programme. Skip if you prefer not to set one.
+            {t('screens2:onboarding.step8Explanation')}
           </Text>
           <View style={[styles.inputRow, { borderColor: theme.colors.borderDefault, backgroundColor: theme.colors.bgElevated }]}>
             <TextInput
@@ -703,7 +712,7 @@ export default function OnboardingScreen(): React.ReactElement {
               keyboardType="decimal-pad"
               value={goalWeightInput}
               onChangeText={setGoalWeightInput}
-              accessibilityLabel={`Goal weight in ${goalWeightUnit === 'lbs' ? 'pounds' : 'kilograms'}`}
+              accessibilityLabel={t('screens2:onboarding.goalWeightA11y', { unit: goalWeightUnit === 'lbs' ? t('screens2:onboarding.pounds') : t('screens2:onboarding.kilograms') })}
               maxLength={6}
             />
             <View style={[
@@ -722,7 +731,7 @@ export default function OnboardingScreen(): React.ReactElement {
                     onPress={() => handleGoalWeightUnitChange(u)}
                     accessibilityRole="button"
                     accessibilityState={{ selected: active }}
-                    accessibilityLabel={`Use ${u === 'lbs' ? 'pounds' : 'kilograms'}`}
+                    accessibilityLabel={t('screens2:onboarding.useUnitA11y', { unit: u === 'lbs' ? t('screens2:onboarding.pounds') : t('screens2:onboarding.kilograms') })}
                   >
                     <Text style={[
                       styles.unitToggleText,
@@ -744,22 +753,22 @@ export default function OnboardingScreen(): React.ReactElement {
       return (
         <>
           <Text style={[styles.heading, { color: theme.colors.textPrimary }]}>
-            Are you in or out of season?
+            {t('screens2:onboarding.step9Heading')}
           </Text>
           <Text style={[styles.explanation, { color: theme.colors.textSecondary }]}>
-            Your phase affects how the engine balances training load and recovery.
+            {t('screens2:onboarding.step9Explanation')}
           </Text>
           <View style={styles.optionGroup}>
             <OptionButton<SeasonPhase>
-              label="Off season"
-              subtitle="Build base fitness and strength"
+              label={t('screens2:onboarding.offSeason')}
+              subtitle={t('screens2:onboarding.offSeasonSubtitle')}
               value="off_season"
               selected={seasonPhase === 'off_season'}
               onPress={setSeasonPhase}
             />
             <OptionButton<SeasonPhase>
-              label="In season"
-              subtitle="Maintain fitness without overloading"
+              label={t('screens2:onboarding.inSeason')}
+              subtitle={t('screens2:onboarding.inSeasonSubtitle')}
               value="in_season"
               selected={seasonPhase === 'in_season'}
               onPress={setSeasonPhase}
@@ -773,11 +782,10 @@ export default function OnboardingScreen(): React.ReactElement {
       return (
         <>
           <Text style={[styles.heading, { color: theme.colors.textPrimary }]}>
-            Choose your theme
+            {t('screens2:onboarding.themeHeading')}
           </Text>
           <Text style={[styles.explanation, { color: theme.colors.textSecondary }]}>
-            Pick the look that feels right. You can change it any time in
-            Settings → Appearance.
+            {t('screens2:onboarding.themeExplanation')}
           </Text>
           <View style={styles.themeStep}>
             <ThemeSelectorInline />
@@ -790,11 +798,10 @@ export default function OnboardingScreen(): React.ReactElement {
     return (
       <>
         <Text style={[styles.heading, { color: theme.colors.textPrimary }]}>
-          Connect Apple Health
+          {t('screens2:onboarding.healthKitHeading')}
         </Text>
         <Text style={[styles.explanation, { color: theme.colors.textSecondary }]}>
-          Allow Peak Fettle to read your activity and health data for smarter
-          plan recommendations and automatic workout import.
+          {t('screens2:onboarding.healthKitExplanation')}
         </Text>
       </>
     );
@@ -850,7 +857,7 @@ export default function OnboardingScreen(): React.ReactElement {
                 <ActivityIndicator color={theme.components.buttonPrimaryText} />
               ) : (
                 <Text style={[styles.buttonText, { color: theme.components.buttonPrimaryText }]}>
-                  Next
+                  {t('screens2:planSurvey.next')}
                 </Text>
               )}
             </TouchableOpacity>
@@ -858,7 +865,7 @@ export default function OnboardingScreen(): React.ReactElement {
             <TouchableOpacity
               style={styles.skipButton}
               accessibilityRole="button"
-              accessibilityLabel="Skip this step"
+              accessibilityLabel={t('screens2:onboarding.skipThisStepA11y')}
               onPress={() => {
                 if (step === 1) {
                   submit(true);  // skip entire onboarding
@@ -869,14 +876,13 @@ export default function OnboardingScreen(): React.ReactElement {
               disabled={isSubmitting}
             >
               <Text style={[styles.skipText, { color: theme.colors.textTertiary }]}>
-                {step === 1 ? 'Skip for now' : 'Skip this step'}
+                {step === 1 ? t('screens2:onboarding.skipForNow') : t('screens2:onboarding.skipThisStep')}
               </Text>
             </TouchableOpacity>
 
             {step > 1 && step < 4 ? (
               <Text style={[styles.privacyNote, { color: theme.colors.borderDefault }]}>
-                Your selections are used only to calculate your percentile rank.
-                You can update these any time in Settings.
+                {t('screens2:onboarding.privacyNote')}
               </Text>
             ) : null}
           </>
@@ -897,7 +903,7 @@ export default function OnboardingScreen(): React.ReactElement {
                 <ActivityIndicator color={theme.components.buttonPrimaryText} />
               ) : (
                 <Text style={[styles.buttonText, { color: theme.components.buttonPrimaryText }]}>
-                  Connect Apple Health
+                  {t('screens2:onboarding.connectAppleHealth')}
                 </Text>
               )}
             </TouchableOpacity>
@@ -907,10 +913,10 @@ export default function OnboardingScreen(): React.ReactElement {
               onPress={() => submit()}
               disabled={isSubmitting}
               accessibilityRole="button"
-              accessibilityLabel="Skip for now"
+              accessibilityLabel={t('screens2:onboarding.skipForNow')}
             >
               <Text style={[styles.skipText, { color: theme.colors.textTertiary }]}>
-                Skip for now
+                {t('screens2:onboarding.skipForNow')}
               </Text>
             </TouchableOpacity>
           </>

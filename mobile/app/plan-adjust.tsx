@@ -17,6 +17,7 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { View, Text, StyleSheet, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '../src/hooks/useAuth';
@@ -78,6 +79,7 @@ export default function PlanAdjustScreen(): React.ReactElement {
   const router = useRouter();
   const { user } = useAuth();
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const c = theme.colors;
 
   // TICKET-142: optional fatigue-advice prefill (present only when navigated
@@ -170,12 +172,12 @@ export default function PlanAdjustScreen(): React.ReactElement {
         // If the plan was already on the calendar, offer to re-map it.
         if (wasAdopted) {
           Alert.alert(
-            'Update your calendar?',
-            'This plan is on your calendar. Replace the scheduled days with the new plan, or keep your current schedule?',
+            t('screens2:planAdjust.updateCalendarTitle'),
+            t('screens2:planAdjust.updateCalendarBody'),
             [
-              { text: 'Keep schedule', style: 'cancel', onPress: () => router.back() },
+              { text: t('screens2:planAdjust.keepSchedule'), style: 'cancel', onPress: () => router.back() },
               {
-                text: 'Replace',
+                text: t('screens2:planAdjust.replace'),
                 style: 'destructive',
                 onPress: async () => {
                   try {
@@ -233,9 +235,9 @@ export default function PlanAdjustScreen(): React.ReactElement {
       <ScreenLayout>
         <View style={styles.centered}>
           <Text style={[styles.emptyText, { color: c.textSecondary }]}>
-            No active plan to adjust. Generate a plan first, then request changes.
+            {t('screens2:planAdjust.noActivePlan')}
           </Text>
-          <PFButton variant="ghost" label="Back" onPress={() => router.back()} />
+          <PFButton variant="ghost" label={t('common:back')} onPress={() => router.back()} />
         </View>
       </ScreenLayout>
     );
@@ -246,9 +248,9 @@ export default function PlanAdjustScreen(): React.ReactElement {
   return (
     <ScreenLayout horizontalPadding={false}>
       <ScrollView style={styles.screen} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <Text style={[styles.header, { color: c.textPrimary }]}>Request changes</Text>
+        <Text style={[styles.header, { color: c.textPrimary }]}>{t('screens2:planAdjust.title')}</Text>
         <Text style={[styles.sub, { color: c.textSecondary }]}>
-          Adjust a few things — we rebuild your plan instantly. No need to redo the survey.
+          {t('screens2:planAdjust.subtitle')}
         </Text>
 
         {/* TICKET-142: fatigue-advice banner. Always shown when the screen was
@@ -262,13 +264,13 @@ export default function PlanAdjustScreen(): React.ReactElement {
         {fatigueBecause ? (
           <View style={[styles.fatigueBanner, { backgroundColor: c.bgSecondary, borderLeftColor: c.accentDefault }]}>
             <Text style={[styles.fatigueBannerTitle, { color: c.accentHover }]}>
-              {fatigueRuleId === 'FT-D1' ? 'Why we suggested this' : 'Fatigue advice'}
+              {fatigueRuleId === 'FT-D1' ? t('screens2:planAdjust.whySuggested') : t('screens2:planAdjust.fatigueAdvice')}
             </Text>
             <Text style={[styles.fatigueBannerText, { color: c.textSecondary }]}>{fatigueBecause}</Text>
           </View>
         ) : null}
 
-        <Section title="Days per week">
+        <Section title={t('screens2:planAdjust.daysPerWeek')}>
           <View style={styles.chipGrid}>
             {[1, 2, 3, 4, 5, 6, 7].map((n) => (
               <Chip key={n} label={String(n)} selected={p.daysPerWeek === n} onPress={() => patchField({ daysPerWeek: n })} />
@@ -276,7 +278,7 @@ export default function PlanAdjustScreen(): React.ReactElement {
           </View>
         </Section>
 
-        <Section title="Session length">
+        <Section title={t('screens2:planAdjust.sessionLength')}>
           <View style={styles.optionGroup}>
             {SESSION_MINUTE_OPTIONS.map((o) => (
               <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={p.sessionMinutes === o.value} onPress={(v) => patchField({ sessionMinutes: v })} />
@@ -284,7 +286,7 @@ export default function PlanAdjustScreen(): React.ReactElement {
           </View>
         </Section>
 
-        <Section title="Split">
+        <Section title={t('screens2:planAdjust.split')}>
           <View style={styles.optionGroup}>
             {SPLIT_OPTIONS.map((o) => (
               <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={p.splitPreference === o.value} onPress={(v) => patchField({ splitPreference: v })} />
@@ -292,7 +294,7 @@ export default function PlanAdjustScreen(): React.ReactElement {
           </View>
         </Section>
 
-        <Section title="Muscle emphasis" subtitle="Bias extra volume toward these.">
+        <Section title={t('screens2:planAdjust.muscleEmphasis')} subtitle={t('screens2:planAdjust.muscleEmphasisSubtitle')}>
           <View style={styles.chipGrid}>
             {PRIORITY_OPTIONS.map((o) => (
               <MultiChip key={o.value} label={o.label} selected={(p.musclePriorities ?? []).includes(o.value)} onPress={() => patchField({ musclePriorities: toggleSet(p.musclePriorities ?? [], o.value) })} />
@@ -300,7 +302,7 @@ export default function PlanAdjustScreen(): React.ReactElement {
           </View>
         </Section>
 
-        <Section title="How fast to progress?">
+        <Section title={t('screens2:planAdjust.progressSpeed')}>
           <View style={styles.optionGroup}>
             {PROGRESSION_OPTIONS.map((o) => (
               <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={p.progressionSpeed === o.value} onPress={(v) => patchField({ progressionSpeed: v })} />
@@ -308,7 +310,7 @@ export default function PlanAdjustScreen(): React.ReactElement {
           </View>
         </Section>
 
-        <Section title="How often to deload?">
+        <Section title={t('screens2:planAdjust.deloadFrequency')}>
           <View style={styles.optionGroup}>
             {DELOAD_OPTIONS.map((o) => (
               <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={p.deloadFrequency === o.value} onPress={(v) => patchField({ deloadFrequency: v })} />
@@ -316,7 +318,7 @@ export default function PlanAdjustScreen(): React.ReactElement {
           </View>
         </Section>
 
-        <Section title="How close to failure?">
+        <Section title={t('screens2:planAdjust.failureProximity')}>
           <View style={styles.optionGroup}>
             {FAILURE_OPTIONS.map((o) => (
               <OptionCard key={o.value} label={o.label} subtitle={o.subtitle} value={o.value} selected={p.failureProximity === o.value} onPress={(v) => patchField({ failureProximity: v })} />
@@ -327,7 +329,7 @@ export default function PlanAdjustScreen(): React.ReactElement {
         {/* Diff summary */}
         {diff.length > 0 ? (
           <View style={[styles.diffCard, { backgroundColor: c.bgSecondary, borderLeftColor: c.accentDefault }]}>
-            <Text style={[styles.diffTitle, { color: c.accentHover }]}>What changes</Text>
+            <Text style={[styles.diffTitle, { color: c.accentHover }]}>{t('screens2:planAdjust.whatChanges')}</Text>
             {diff.map((line) => (
               <Text key={line.field} style={[styles.diffLine, { color: c.textSecondary }]}>
                 {line.text}
@@ -335,13 +337,13 @@ export default function PlanAdjustScreen(): React.ReactElement {
             ))}
           </View>
         ) : (
-          <Text style={[styles.noChange, { color: c.textTertiary }]}>No changes yet — adjust an option above.</Text>
+          <Text style={[styles.noChange, { color: c.textTertiary }]}>{t('screens2:planAdjust.noChangesYet')}</Text>
         )}
 
         {/* New week-1 preview */}
         {changed && preview ? (
           <View style={styles.previewWrap}>
-            <Text style={[styles.previewHeader, { color: c.textTertiary }]}>NEW PREVIEW</Text>
+            <Text style={[styles.previewHeader, { color: c.textTertiary }]}>{t('screens2:planAdjust.newPreview')}</Text>
             {preview.kind === 'plan' ? (
               <SinglePlanPreview plan={preview.plan} />
             ) : (
@@ -351,10 +353,10 @@ export default function PlanAdjustScreen(): React.ReactElement {
         ) : null}
 
         <View style={styles.navRow}>
-          <PFButton variant="ghost" label="Cancel" onPress={() => router.back()} />
+          <PFButton variant="ghost" label={t('common:cancel')} onPress={() => router.back()} />
           <PFButton
             variant="primary"
-            label={saving ? 'Applying...' : 'Apply changes'}
+            label={saving ? t('screens2:planAdjust.applying') : t('screens2:planAdjust.applyChanges')}
             onPress={handleApply}
             disabled={!changed || saving || !preview}
           />

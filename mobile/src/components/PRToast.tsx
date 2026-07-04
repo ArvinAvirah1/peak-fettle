@@ -21,6 +21,7 @@ import { Animated, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
 import { useReduceMotion } from '../hooks/useReduceMotion';
+import { useTranslation } from 'react-i18next';
 
 export interface PRToastData {
   exerciseName: string;
@@ -40,6 +41,7 @@ const SLIDE_PX = -80;
 export default function PRToast({ data, onDismiss, autoDismissMs = 3000 }: Props): React.ReactElement | null {
   const { theme } = useTheme();
   const { colors } = theme;
+  const { t } = useTranslation();
   const reduceMotion = useReduceMotion();
   const slideAnim = useRef(new Animated.Value(SLIDE_PX)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
@@ -116,7 +118,7 @@ export default function PRToast({ data, onDismiss, autoDismissMs = 3000 }: Props
   return (
     <Animated.View
       accessibilityLiveRegion="polite"
-      accessibilityLabel={`New personal record: ${exerciseName} ${e1rmStr} ${unitLabel} estimated 1RM, up ${deltaStr}`}
+      accessibilityLabel={t('logger:prToast.a11yLabel', { exercise: exerciseName, value: e1rmStr, unit: unitLabel, delta: deltaStr })}
       style={[
         styles.container,
         {
@@ -133,7 +135,7 @@ export default function PRToast({ data, onDismiss, autoDismissMs = 3000 }: Props
         activeOpacity={0.85}
         onPress={dismiss}
         accessibilityRole="button"
-        accessibilityLabel="Dismiss record toast"
+        accessibilityLabel={t('logger:prToast.dismissLabel')}
         style={styles.inner}
       >
         <Text style={styles.emoji}>🏆</Text>
@@ -148,8 +150,9 @@ export default function PRToast({ data, onDismiss, autoDismissMs = 3000 }: Props
           ]}
           numberOfLines={1}
         >
-          New best: {exerciseName} {e1rmStr}{unitLabel} e1RM
-          {delta > 0 ? ` (+${deltaStr})` : ''}
+          {delta > 0
+            ? t('logger:prToast.newBestDelta', { exercise: exerciseName, value: e1rmStr, unit: unitLabel, delta: deltaStr })
+            : t('logger:prToast.newBest', { exercise: exerciseName, value: e1rmStr, unit: unitLabel })}
         </Text>
       </TouchableOpacity>
     </Animated.View>

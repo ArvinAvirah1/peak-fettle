@@ -30,6 +30,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '../Icon';
 import { useTheme } from '../../theme/ThemeContext';
+import { useTranslation } from 'react-i18next';
 
 /** A candidate exercise the current one can be paired with (session-pending). */
 export interface SupersetPairCandidate {
@@ -62,6 +63,7 @@ const MAX_EXTRA = 4;
 export function SupersetPairSheet(props: SupersetPairSheetProps): React.ReactElement {
   const { visible, currentName, candidates, onConfirm, onClose } = props;
   const { theme, fontSize: fs, fontWeight: fw, spacing: sp, radius: r } = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
 
   // Selected candidate indices (into the SESSION exercises[], via candidate.index).
@@ -85,8 +87,8 @@ export function SupersetPairSheet(props: SupersetPairSheetProps): React.ReactEle
   const canConfirm = selected.length >= 1;
   const confirmLabel = useMemo(() => {
     const n = selected.length + 1; // + the current exercise
-    return `Superset ${n} exercise${n !== 1 ? 's' : ''}`;
-  }, [selected.length]);
+    return t('logger:supersetPairSheet.confirmLabel', { count: n });
+  }, [selected.length, t]);
 
   return (
     <Modal
@@ -99,7 +101,7 @@ export function SupersetPairSheet(props: SupersetPairSheetProps): React.ReactEle
       <Pressable
         style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)' }}
         onPress={onClose}
-        accessibilityLabel="Dismiss superset sheet"
+        accessibilityLabel={t('logger:supersetPairSheet.dismissA11y')}
       />
       <View
         style={[
@@ -120,17 +122,17 @@ export function SupersetPairSheet(props: SupersetPairSheetProps): React.ReactEle
           <View style={styles.headerRow}>
             <Ionicons name="git-merge" size={20} color={theme.colors.accentDefault} />
             <Text style={[styles.title, { color: theme.colors.textPrimary, fontSize: fs.bodyLg, fontWeight: fw.bold, marginLeft: sp.s2 }]}>
-              Superset with…
+              {t('logger:supersetPairSheet.title')}
             </Text>
           </View>
           <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodySm, marginBottom: sp.s3 }}>
-            Pair {currentName} with 1–4 more — done back-to-back, rest after each round. For today only.
+            {t('logger:supersetPairSheet.subtitle', { name: currentName })}
           </Text>
         </View>
 
         {candidates.length === 0 ? (
           <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodySm, marginTop: sp.s3, marginBottom: sp.s3 }}>
-            No other pending exercises in this session to superset with. Add one first, or link exercises when editing the routine.
+            {t('logger:supersetPairSheet.noCandidates')}
           </Text>
         ) : (
           <ScrollView style={{ maxHeight: 320 }} keyboardShouldPersistTaps="handled">
@@ -149,7 +151,11 @@ export function SupersetPairSheet(props: SupersetPairSheetProps): React.ReactEle
                   disabled={disabled}
                   accessibilityRole="checkbox"
                   accessibilityState={{ checked: on, disabled }}
-                  accessibilityLabel={`${on ? 'Remove' : 'Add'} ${c.name} to the superset`}
+                  accessibilityLabel={
+                    on
+                      ? t('logger:supersetPairSheet.toggleRemoveA11y', { name: c.name })
+                      : t('logger:supersetPairSheet.toggleAddA11y', { name: c.name })
+                  }
                 >
                   <View
                     style={[
@@ -169,7 +175,7 @@ export function SupersetPairSheet(props: SupersetPairSheetProps): React.ReactEle
                     </Text>
                     {c.targetSets ? (
                       <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodySm, marginTop: 2 }}>
-                        {c.targetSets} sets
+                        {t('logger:supersetPairSheet.targetSetsLabel', { count: c.targetSets })}
                       </Text>
                     ) : null}
                   </View>
@@ -181,7 +187,7 @@ export function SupersetPairSheet(props: SupersetPairSheetProps): React.ReactEle
 
         {/* Note about the S2 library search. */}
         <Text style={{ color: theme.colors.textTertiary, fontSize: fs.micro ?? fs.bodySm, marginTop: sp.s3 }}>
-          Searching the exercise library to add a new pairing arrives with routine editing.
+          {t('logger:supersetPairSheet.libraryNote')}
         </Text>
 
         <TouchableOpacity
@@ -205,7 +211,7 @@ export function SupersetPairSheet(props: SupersetPairSheetProps): React.ReactEle
               fontWeight: fw.bold,
             }}
           >
-            {canConfirm ? confirmLabel : 'Pick at least one'}
+            {canConfirm ? confirmLabel : t('logger:supersetPairSheet.pickAtLeastOne')}
           </Text>
         </TouchableOpacity>
 
@@ -213,9 +219,9 @@ export function SupersetPairSheet(props: SupersetPairSheetProps): React.ReactEle
           style={[styles.cancelBtn, { borderColor: theme.colors.borderDefault, borderRadius: r.md, marginTop: sp.s3 }]}
           onPress={onClose}
           accessibilityRole="button"
-          accessibilityLabel="Cancel"
+          accessibilityLabel={t('logger:supersetPairSheet.cancel')}
         >
-          <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodyMd }}>Cancel</Text>
+          <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodyMd }}>{t('logger:supersetPairSheet.cancel')}</Text>
         </TouchableOpacity>
       </View>
     </Modal>

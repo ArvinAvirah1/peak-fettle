@@ -18,6 +18,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ScrollView,
   StyleSheet,
@@ -69,6 +70,7 @@ function TrendChart({
   height?: number;
 }): React.ReactElement | null {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   if (values.length === 0) return null;
 
   const pad = 10;
@@ -88,7 +90,7 @@ function TrendChart({
       ]}
     >
       <View style={chartStyles.headerRow}>
-        <Text style={[chartStyles.kicker, { color: theme.colors.textTertiary }]}>TREND</Text>
+<Text style={[chartStyles.kicker, { color: theme.colors.textTertiary }]}>{t('screens2:measurements.trendKicker')}</Text>
         <Text style={[chartStyles.latest, { color: theme.colors.textPrimary }]}>
           {last.toFixed(1)} {unitLabel}
         </Text>
@@ -103,7 +105,7 @@ function TrendChart({
         ))}
       </Svg>
       <Text style={[chartStyles.range, { color: theme.colors.textTertiary }]}>
-        {values.length} entr{values.length !== 1 ? 'ies' : 'y'} · low {min.toFixed(1)} · high {max.toFixed(1)} {unitLabel}
+        {t('screens2:measurements.trendRange', { count: values.length, low: min.toFixed(1), high: max.toFixed(1), unit: unitLabel })}
       </Text>
     </View>
   );
@@ -157,6 +159,7 @@ function MetricChip({
 
 export default function MeasurementsScreen(): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const { user } = useAuth();
   // The LENGTH unit defaults to cm for metric users, in for lbs (weight) users
   // — a reasonable default; there is no separate server-side length pref field,
@@ -260,13 +263,13 @@ export default function MeasurementsScreen(): React.ReactElement {
     <ScreenLayout scrollable contentStyle={styles.content}>
       <>
         <Text style={[styles.sub, { color: theme.colors.textSecondary }]}>
-          Track waist, chest, arms, and more over time — free, local, and private.
+          {t('screens2:measurements.subtitle')}
         </Text>
 
         {/* ── Bodyweight reference row (reads the canonical weekly table) ── */}
         {bodyweightLatest ? (
           <View style={[styles.bwRow, { borderColor: theme.colors.borderDefault, backgroundColor: theme.colors.bgSecondary }]}>
-            <Text style={{ fontSize: fontSize.bodySm, color: theme.colors.textSecondary }}>Bodyweight (weekly)</Text>
+<Text style={{ fontSize: fontSize.bodySm, color: theme.colors.textSecondary }}>{t('screens2:measurements.bodyweightWeekly')}</Text>
             <Text style={{ fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold, color: theme.colors.textPrimary }}>
               {formatWeight(bodyweightLatest.weight_kg, (user?.unit_pref as UnitSystem) ?? 'kg', 1)}
             </Text>
@@ -304,7 +307,7 @@ export default function MeasurementsScreen(): React.ReactElement {
           {customLoggedKeys.map((k) => (
             <MetricChip key={k} label={metricLabel(k)} selected={selectedMetric === k} onPress={() => setSelectedMetric(k)} />
           ))}
-          <MetricChip label="+ Custom" selected={showCustomInput} onPress={() => setShowCustomInput((s) => !s)} />
+          <MetricChip label={t('screens2:measurements.addCustomChip')} selected={showCustomInput} onPress={() => setShowCustomInput((s) => !s)} />
         </ScrollView>
 
         {showCustomInput ? (
@@ -313,11 +316,11 @@ export default function MeasurementsScreen(): React.ReactElement {
               style={[styles.customInput, { borderColor: theme.colors.borderDefault, color: theme.colors.textPrimary }]}
               value={customMetric}
               onChangeText={setCustomMetric}
-              placeholder="e.g. left forearm"
+              placeholder={t('screens2:measurements.customPlaceholder')}
               placeholderTextColor={theme.colors.textTertiary}
-              accessibilityLabel="Custom metric name"
+              accessibilityLabel={t('screens2:measurements.customNameA11y')}
             />
-            <PFButton variant="primary" label="Add" onPress={handleAddCustom} />
+            <PFButton variant="primary" label={t('common:add')} onPress={handleAddCustom} />
           </View>
         ) : null}
 
@@ -341,12 +344,12 @@ export default function MeasurementsScreen(): React.ReactElement {
               keyboardType="decimal-pad"
               placeholder="—"
               placeholderTextColor={theme.colors.textTertiary}
-              accessibilityLabel={`${metricLabel(selectedMetric)} value`}
+              accessibilityLabel={t('screens2:measurements.metricValueA11y', { metric: metricLabel(selectedMetric) })}
             />
           </View>
           <PFButton
             variant="primary"
-            label={saving ? 'Saving…' : 'Save'}
+            label={saving ? t('screens2:measurements.saving') : t('common:save')}
             onPress={handleSave}
             disabled={saving || inputValue.trim() === ''}
             style={{ marginTop: spacing.s5 }}
@@ -358,7 +361,7 @@ export default function MeasurementsScreen(): React.ReactElement {
           <TrendChart values={chartValues} unitLabel={unitLabel} />
         ) : (
           <Text style={[styles.note, { color: theme.colors.textTertiary }]}>
-            No entries yet for {metricLabel(selectedMetric)}. Log one above to start a trend.
+            {t('screens2:measurements.noEntriesYet', { metric: metricLabel(selectedMetric) })}
           </Text>
         )}
       </>

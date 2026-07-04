@@ -6,6 +6,7 @@
  */
 
 import React, { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { View, StyleSheet } from 'react-native';
 import Animated, { FadeIn, FadeInDown, FadeInUp, useReducedMotion } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
@@ -18,6 +19,7 @@ const FIRST_LAUNCH_KEY = '@peak_fettle/first_launch_done';
 
 export default function SplashScreen(): React.ReactElement {
   const router = useRouter();
+  const { t } = useTranslation();
   const { theme, fontSize, fontWeight } = useTheme();
   const { colors } = theme;
   const reducedMotion = useReducedMotion();
@@ -68,7 +70,7 @@ export default function SplashScreen(): React.ReactElement {
           marginTop: 12,
         }}
       >
-        Peak Fettle
+        {t('screens2:splash.wordmark')}
       </Animated.Text>
       <Animated.Text
         entering={sublineEntering}
@@ -79,7 +81,7 @@ export default function SplashScreen(): React.ReactElement {
           letterSpacing: 1,
         }}
       >
-        Train. Rank. Dominate.
+        {t('screens2:splash.tagline')}
       </Animated.Text>
     </View>
   );

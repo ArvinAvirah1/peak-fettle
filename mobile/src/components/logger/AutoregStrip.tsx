@@ -34,6 +34,8 @@ import { Ionicons } from '../Icon';
 import { useTheme } from '../../theme/ThemeContext';
 import { formatWeight, UnitSystem } from '../../constants/units';
 import type { AutoregSuggestion } from '../../lib/trainingEngine/v2/autoregulation';
+import { useTranslation } from 'react-i18next';
+import { engineBecause } from '../../i18n/engine';
 
 export interface AutoregStripProps {
   /** The computed suggestion for the CURRENT exercise, or null (renders nothing). */
@@ -55,6 +57,7 @@ export interface AutoregStripProps {
 export function AutoregStrip(props: AutoregStripProps): React.ReactElement | null {
   const { suggestion, unitPref, onApply, onDismiss, onMute } = props;
   const { theme, fontSize: fs, fontWeight: fw, spacing: sp, radius: r } = useTheme();
+  const { t } = useTranslation();
 
   if (!suggestion) return null;
 
@@ -72,17 +75,17 @@ export function AutoregStrip(props: AutoregStripProps): React.ReactElement | nul
           padding: sp.s3,
         },
       ]}
-      accessibilityLabel="Suggested next load"
+      accessibilityLabel={t('logger:autoregStrip.a11ySuggestedLoad')}
     >
       <View style={styles.titleRow}>
         <Ionicons name="bulb-outline" size={16} color={accent} />
         <Text style={[styles.title, { color: accent, fontSize: fs.bodySm, fontWeight: fw.bold, marginLeft: sp.s2 }]}>
-          SUGGESTED NEXT LOAD
+          {t('logger:autoregStrip.title')}
         </Text>
         <TouchableOpacity
           onPress={onDismiss}
           accessibilityRole="button"
-          accessibilityLabel="Dismiss this suggestion for the rest of this session"
+          accessibilityLabel={t('logger:autoregStrip.dismissA11y')}
           style={styles.dismissBtn}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         >
@@ -92,14 +95,14 @@ export function AutoregStrip(props: AutoregStripProps): React.ReactElement | nul
 
       <Text
         style={[styles.suggestedValue, { color: theme.colors.textPrimary, fontSize: fs.heading3, fontWeight: fw.bold }]}
-        accessibilityLabel={`Suggested ${suggestedLabel}`}
+        accessibilityLabel={t('logger:autoregStrip.suggestedA11y', { value: suggestedLabel })}
       >
         {suggestedLabel}
       </Text>
 
-      {/* The "because" line — rendered VERBATIM, never rewritten (founder spec). */}
+      {/* The "because" line — translated via engineBecause; EN copy is the guaranteed fallback (founder spec: never rewritten/summarized). */}
       <Text style={[styles.becauseText, { color: theme.colors.textSecondary, fontSize: fs.bodySm }]}>
-        {suggestion.because}
+        {engineBecause(suggestion)}
       </Text>
 
       <View style={styles.actions}>
@@ -107,20 +110,20 @@ export function AutoregStrip(props: AutoregStripProps): React.ReactElement | nul
           style={[styles.applyBtn, { backgroundColor: accent, borderRadius: r.md }]}
           onPress={() => onApply(suggestion.suggested_kg)}
           accessibilityRole="button"
-          accessibilityLabel={`Apply suggested load ${suggestedLabel}`}
+          accessibilityLabel={t('logger:autoregStrip.applyA11y', { value: suggestedLabel })}
         >
           <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fs.bodyMd, fontWeight: fw.bold }}>
-            Apply {suggestedLabel}
+            {t('logger:autoregStrip.applyLabel', { value: suggestedLabel })}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.muteBtn, { borderColor: theme.colors.borderDefault, borderRadius: r.md }]}
           onPress={onMute}
           accessibilityRole="button"
-          accessibilityLabel="Stop suggesting loads for this exercise"
+          accessibilityLabel={t('logger:autoregStrip.muteA11y')}
         >
           <Text style={{ color: theme.colors.textSecondary, fontSize: fs.bodySm, fontWeight: fw.medium }}>
-            Mute for this exercise
+            {t('logger:autoregStrip.muteLabel')}
           </Text>
         </TouchableOpacity>
       </View>

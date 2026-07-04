@@ -17,6 +17,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '../Icon';
 import { useTheme } from '../../theme/ThemeContext';
+import { useTranslation } from 'react-i18next';
 
 /** One already-logged link in the chain, in DISPLAY units. */
 export interface DropChainLink {
@@ -44,11 +45,11 @@ export interface DropChainBarProps {
 }
 
 /** "80×8" style, tolerating bodyweight (no weight). */
-function linkLabel(l: DropChainLink, unitLabel: string): string {
+function linkLabel(l: DropChainLink, unitLabel: string, t: (key: string, opts?: Record<string, unknown>) => string): string {
   const w = l.weight?.trim();
   const reps = l.reps?.trim() || '0';
-  if (!w) return `BW×${reps}`;
-  return `${w}${unitLabel}×${reps}`;
+  if (!w) return t('logger:dropChainBar.bwLink', { reps });
+  return t('logger:dropChainBar.weightLink', { weight: w, unit: unitLabel, reps });
 }
 
 export function DropChainBar(props: DropChainBarProps): React.ReactElement {
@@ -61,6 +62,7 @@ export function DropChainBar(props: DropChainBarProps): React.ReactElement {
     onDone,
   } = props;
   const { theme, fontSize: fs, fontWeight: fw, spacing: sp, radius: r } = useTheme();
+  const { t } = useTranslation();
   const amber = theme.colors.statusWarning;
 
   return (
@@ -74,12 +76,12 @@ export function DropChainBar(props: DropChainBarProps): React.ReactElement {
           padding: sp.s3,
         },
       ]}
-      accessibilityLabel="Drop set chain in progress"
+      accessibilityLabel={t('logger:dropChainBar.a11yInProgress')}
     >
       <View style={styles.titleRow}>
         <Ionicons name="trending-down" size={16} color={amber} />
         <Text style={[styles.title, { color: amber, fontSize: fs.bodySm, fontWeight: fw.bold, marginLeft: sp.s2 }]}>
-          DROP SET
+          {t('logger:dropChainBar.title')}
         </Text>
       </View>
 
@@ -101,7 +103,7 @@ export function DropChainBar(props: DropChainBarProps): React.ReactElement {
               ]}
             >
               <Text style={{ color: theme.colors.textPrimary, fontSize: fs.bodySm, fontVariant: ['tabular-nums'] }}>
-                {linkLabel(l, unitLabel)}
+                {linkLabel(l, unitLabel, t)}
               </Text>
             </View>
           </React.Fragment>
@@ -115,23 +117,24 @@ export function DropChainBar(props: DropChainBarProps): React.ReactElement {
           accessibilityRole="button"
           accessibilityLabel={
             nextDropWeightLabel
-              ? `Log drop ${nextDropIndex} at ${nextDropWeightLabel} ${unitLabel}`
-              : `Log drop ${nextDropIndex}`
+              ? t('logger:dropChainBar.logDropA11y', { index: nextDropIndex, weight: nextDropWeightLabel, unit: unitLabel })
+              : t('logger:dropChainBar.logDropA11yNoWeight', { index: nextDropIndex })
           }
         >
           <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fs.bodyMd, fontWeight: fw.bold }}>
-            + Log drop {nextDropIndex}
-            {nextDropWeightLabel ? `  ·  ${nextDropWeightLabel}${unitLabel}` : ''}
+            {nextDropWeightLabel
+              ? t('logger:dropChainBar.logDropLabelWithWeight', { index: nextDropIndex, weight: nextDropWeightLabel, unit: unitLabel })
+              : t('logger:dropChainBar.logDropLabel', { index: nextDropIndex })}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.doneBtn, { borderColor: theme.colors.borderDefault, borderRadius: r.md }]}
           onPress={onDone}
           accessibilityRole="button"
-          accessibilityLabel="Done, start rest"
+          accessibilityLabel={t('logger:dropChainBar.doneA11y')}
         >
           <Text style={{ color: theme.colors.textSecondary, fontSize: fs.bodySm, fontWeight: fw.medium }}>
-            Done — start rest
+            {t('logger:dropChainBar.doneLabel')}
           </Text>
         </TouchableOpacity>
       </View>

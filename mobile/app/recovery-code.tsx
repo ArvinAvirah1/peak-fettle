@@ -21,6 +21,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Alert,
   Animated,
@@ -109,6 +110,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
 export default function RecoveryCodeScreen(): React.ReactElement {
   const { theme, spacing: sp, fontSize: fs, radius: r } = useTheme();
   const { colors } = theme;
+  const { t } = useTranslation();
   const router = useRouter();
   const reduceMotion = useReduceMotion();
 
@@ -135,15 +137,15 @@ export default function RecoveryCodeScreen(): React.ReactElement {
       setTimeout(() => setCopied(false), 2000);
     } else {
       Alert.alert(
-        'Copy not available',
-        'Install expo-clipboard (npx expo install expo-clipboard) to enable copy, or write the code down manually.',
+        t('screens2:recoveryCode.copyUnavailableTitle'),
+        t('screens2:recoveryCode.copyUnavailableBody'),
       );
     }
   }, [code]);
 
   const handleConfirm = useCallback(async () => {
     if (!confirmed) {
-      Alert.alert('Please confirm', 'Check the box to confirm you have saved your recovery code.');
+      Alert.alert(t('screens2:recoveryCode.confirmTitle'), t('screens2:recoveryCode.confirmBody'));
       return;
     }
     setAcking(true);
@@ -151,7 +153,7 @@ export default function RecoveryCodeScreen(): React.ReactElement {
       await markRecoveryCodeAcknowledged();
       router.back();
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : String(err));
+      Alert.alert(t('screens2:recoveryCode.errorTitle'), err instanceof Error ? err.message : String(err));
     } finally {
       setAcking(false);
     }
@@ -172,7 +174,7 @@ export default function RecoveryCodeScreen(): React.ReactElement {
             style={[styles.title, { color: colors.textPrimary, fontSize: fs.heading2, fontWeight: fontWeight.bold, marginBottom: sp.s3 }]}
             accessibilityRole="header"
           >
-            Recovery code
+            {t('screens2:recoveryCode.title')}
           </Text>
           <View
             style={[
@@ -188,14 +190,13 @@ export default function RecoveryCodeScreen(): React.ReactElement {
             ]}
           >
             <Text style={{ color: colors.textSecondary, fontSize: fs.bodyMd, lineHeight: 24, textAlign: 'center' }}>
-              No recovery code is waiting to be displayed.{'\n\n'}
-              A new recovery code is only generated when your first encrypted backup is created. Back up your data from the Export screen to generate one.
+              {t('screens2:recoveryCode.noCodeBody')}
             </Text>
           </View>
           <TouchableOpacity
             onPress={() => router.back()}
             accessibilityRole="button"
-            accessibilityLabel="Go back"
+            accessibilityLabel={t('screens2:recoveryCode.goBackA11y')}
             style={[
               styles.btn,
               {
@@ -208,7 +209,7 @@ export default function RecoveryCodeScreen(): React.ReactElement {
             ]}
           >
             <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold, textAlign: 'center' }}>
-              Go back
+              {t('common:back')}
             </Text>
           </TouchableOpacity>
         </ScrollView>
@@ -231,7 +232,7 @@ export default function RecoveryCodeScreen(): React.ReactElement {
           style={[styles.title, { color: colors.textPrimary, fontSize: fs.heading2, fontWeight: fontWeight.bold, marginBottom: sp.s2 }]}
           accessibilityRole="header"
         >
-          Save your recovery code
+          {t('screens2:recoveryCode.saveTitle')}
         </Text>
 
         {/* Warning banner */}
@@ -251,11 +252,10 @@ export default function RecoveryCodeScreen(): React.ReactElement {
             accessibilityRole="alert"
           >
             <Text style={{ color: colors.statusError, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold, marginBottom: sp.s1 }}>
-              This is the only way to restore your data on a new platform.
+              {t('screens2:recoveryCode.warningTitle')}
             </Text>
             <Text style={{ color: colors.textSecondary, fontSize: fs.bodySm, lineHeight: 20 }}>
-              We cannot recover this code. If you lose it and also lose access to this device, your encrypted backup cannot be decrypted — your data will be unrecoverable.{'\n\n'}
-              Write it down or store it in a password manager before continuing.
+              {t('screens2:recoveryCode.warningBody')}
             </Text>
           </View>
         </Animated.View>
@@ -286,7 +286,7 @@ export default function RecoveryCodeScreen(): React.ReactElement {
                 lineHeight: 30,
               }}
               selectable
-              accessibilityLabel={'Recovery code: ' + code}
+              accessibilityLabel={t('screens2:recoveryCode.codeA11y', { code })}
             >
               {code}
             </Text>
@@ -311,7 +311,7 @@ export default function RecoveryCodeScreen(): React.ReactElement {
               Animated.spring(copyScale, { toValue: 1, damping: 15, stiffness: 300, useNativeDriver: true }).start();
             }}
             accessibilityRole="button"
-            accessibilityLabel="Copy recovery code to clipboard"
+accessibilityLabel={t('screens2:recoveryCode.copyA11y')}
             style={[
               styles.btn,
               {
@@ -334,7 +334,7 @@ export default function RecoveryCodeScreen(): React.ReactElement {
                 textAlign: 'center',
               }}
             >
-              {copied ? 'Copied!' : 'Copy to clipboard'}
+              {copied ? t('screens2:recoveryCode.copied') : t('screens2:recoveryCode.copyToClipboard')}
             </Text>
           </TouchableOpacity>
         </Animated.View>
@@ -345,7 +345,7 @@ export default function RecoveryCodeScreen(): React.ReactElement {
             onPress={() => setConfirmed((v) => !v)}
             accessibilityRole="checkbox"
             accessibilityState={{ checked: confirmed }}
-            accessibilityLabel="I have saved my recovery code"
+accessibilityLabel={t('screens2:recoveryCode.savedCheckboxA11y')}
             style={[styles.checkRow, { marginBottom: sp.s5 }]}
           >
             <View
@@ -371,7 +371,7 @@ export default function RecoveryCodeScreen(): React.ReactElement {
               )}
             </View>
             <Text style={{ color: colors.textPrimary, fontSize: fs.bodyMd, flex: 1, lineHeight: 22 }}>
-              I have saved my recovery code somewhere safe.
+              {t('screens2:recoveryCode.savedCheckboxLabel')}
             </Text>
           </TouchableOpacity>
 
@@ -380,7 +380,7 @@ export default function RecoveryCodeScreen(): React.ReactElement {
             onPress={handleConfirm}
             disabled={acking}
             accessibilityRole="button"
-            accessibilityLabel="Confirm I have saved the recovery code"
+accessibilityLabel={t('screens2:recoveryCode.confirmButtonA11y')}
             style={[
               styles.btn,
               {
@@ -401,7 +401,7 @@ export default function RecoveryCodeScreen(): React.ReactElement {
                 textAlign: 'center',
               }}
             >
-              {acking ? 'Saving…' : "I've saved it — continue"}
+              {acking ? t('screens2:recoveryCode.savingLabel') : t('screens2:recoveryCode.confirmButtonLabel')}
             </Text>
           </TouchableOpacity>
 
@@ -414,7 +414,7 @@ export default function RecoveryCodeScreen(): React.ReactElement {
               lineHeight: 18,
             }}
           >
-            Your backup is encrypted on this device before upload. We cannot read your data or recover this code.
+{t('screens2:recoveryCode.footerNote')}
           </Text>
         </Animated.View>
       </ScrollView>

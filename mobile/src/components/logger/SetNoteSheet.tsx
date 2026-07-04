@@ -27,6 +27,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { stepperPalette, spacing, radius, fontSize, fontWeight } from '../../theme/tokens';
 import { SET_FLAG_DEFS, hasFlag, toggleFlag } from '../../data/setNotes';
+import { useTranslation } from 'react-i18next';
 
 export interface SetNoteSheetProps {
   visible: boolean;
@@ -56,6 +57,7 @@ export function SetNoteSheet({
   onSave,
 }: SetNoteSheetProps): React.ReactElement {
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
   const [note, setNote] = useState(initialNote ?? '');
   const [flags, setFlags] = useState(initialFlags ?? 0);
   const [savedNote, setSavedNote] = useState(initialNote ?? '');
@@ -106,13 +108,17 @@ export function SetNoteSheet({
           >
             <View style={styles.handle} />
             <Text style={styles.title} numberOfLines={1}>
-              {setLabel ? setLabel : 'Set note'}
+              {setLabel ? setLabel : t('logger:setNoteSheet.defaultTitle')}
             </Text>
 
-            <Text style={styles.sectionLabel}>FLAGS</Text>
+            <Text style={styles.sectionLabel}>{t('logger:setNoteSheet.flagsLabel')}</Text>
             <View style={styles.chipRow}>
               {SET_FLAG_DEFS.map((def) => {
                 const active = hasFlag(flags, def.bit);
+                // Render-site translation of a data/localSchema.ts constant (not a
+                // pure-logic module owned elsewhere): def.key -> logger:setNoteSheet.flag_<key>,
+                // falling back to def.label if a key is ever added without a translation.
+                const flagLabel = t(`logger:setNoteSheet.flag_${def.key}` as never, { defaultValue: def.label });
                 return (
                   <TouchableOpacity
                     key={def.key}
@@ -120,26 +126,30 @@ export function SetNoteSheet({
                     onPress={() => handleToggleFlag(def.bit)}
                     accessibilityRole="button"
                     accessibilityState={{ selected: active }}
-                    accessibilityLabel={`${def.label} flag${active ? ', on' : ', off'}`}
+                    accessibilityLabel={
+                      active
+                        ? t('logger:setNoteSheet.flagA11yOn', { label: flagLabel })
+                        : t('logger:setNoteSheet.flagA11yOff', { label: flagLabel })
+                    }
                   >
                     <Text style={[styles.chipLabel, active && styles.chipLabelActive]}>
-                      {def.label}
+                      {flagLabel}
                     </Text>
                   </TouchableOpacity>
                 );
               })}
             </View>
 
-            <Text style={[styles.sectionLabel, { marginTop: spacing.s4 }]}>NOTE</Text>
+            <Text style={[styles.sectionLabel, { marginTop: spacing.s4 }]}>{t('logger:setNoteSheet.noteLabel')}</Text>
             <TextInput
               style={styles.noteInput}
               value={note}
               onChangeText={setNote}
-              placeholder="e.g. felt pinchy in the left shoulder"
+              placeholder={t('logger:setNoteSheet.notePlaceholder')}
               placeholderTextColor={stepperPalette.muted}
               multiline
               maxLength={MAX_NOTE_LENGTH}
-              accessibilityLabel="Set note text"
+              accessibilityLabel={t('logger:setNoteSheet.noteInputA11y')}
             />
 
             <View style={styles.actionRow}>
@@ -147,9 +157,9 @@ export function SetNoteSheet({
                 style={styles.saveBtn}
                 onPress={handleClose}
                 accessibilityRole="button"
-                accessibilityLabel="Save and close"
+                accessibilityLabel={t('logger:setNoteSheet.saveAndCloseA11y')}
               >
-                <Text style={styles.saveLabel}>{noteDirty ? 'Save note' : 'Done'}</Text>
+                <Text style={styles.saveLabel}>{noteDirty ? t('logger:setNoteSheet.saveNote') : t('logger:setNoteSheet.done')}</Text>
               </TouchableOpacity>
             </View>
           </Pressable>

@@ -32,6 +32,7 @@ import { PersonalBest } from '../api/sets';
 import { UnitSystem } from '../constants/units';
 import { useTheme } from '../theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
+import { useTranslation } from 'react-i18next';
 
 // ---------------------------------------------------------------------------
 // Props
@@ -122,6 +123,7 @@ export function SetEntryForm({
   personalBest,
 }: SetEntryFormProps): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const isLift = exercise.category === 'lift';
   const distanceLabel = unitPref === 'lbs' ? 'miles' : 'km';
 
@@ -148,11 +150,11 @@ export function SetEntryForm({
   function validateLift(): string | null {
     const w = parseFloat(liftFields.weight);
     const r = parseInt(liftFields.reps, 10);
-    if (isNaN(w) || w <= 0) return 'Enter a valid weight';
-    if (isNaN(r) || r <= 0 || r > 9999) return 'Enter valid reps (1–9999)';
+    if (isNaN(w) || w <= 0) return t('logger:setEntryForm.validWeight');
+    if (isNaN(r) || r <= 0 || r > 9999) return t('logger:setEntryForm.validReps');
     if (liftFields.rir !== '') {
       const rir = parseInt(liftFields.rir, 10);
-      if (isNaN(rir) || rir < 0 || rir > 10) return 'RIR must be 0–10 (leave blank to skip)';
+      if (isNaN(rir) || rir < 0 || rir > 10) return t('logger:setEntryForm.validRir');
     }
     return null;
   }
@@ -163,10 +165,10 @@ export function SetEntryForm({
       cardioFields.durationSs
     );
     if (durationSec === null || durationSec <= 0)
-      return 'Enter a valid duration (mm:ss)';
+      return t('logger:setEntryForm.validDuration');
     if (cardioFields.distanceDisplay !== '') {
       const val = parseFloat(cardioFields.distanceDisplay);
-      if (isNaN(val) || val <= 0) return 'Enter a valid distance';
+      if (isNaN(val) || val <= 0) return t('logger:setEntryForm.validDistance');
     }
     return null;
   }
@@ -243,7 +245,7 @@ export function SetEntryForm({
       }
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : 'Failed to log set';
+        err instanceof Error ? err.message : t('logger:setEntryForm.failedToLog');
       setError(message);
     } finally {
       setIsSubmitting(false);
@@ -259,28 +261,28 @@ export function SetEntryForm({
     <View style={styles.fieldsContainer}>
       {/* Weight */}
       <View style={styles.fieldGroup}>
-        <Text style={[styles.fieldLabel, { color: theme.colors.textSecondary }]}>Weight ({unitPref})</Text>
+        <Text style={[styles.fieldLabel, { color: theme.colors.textSecondary }]}>{t('logger:setEntryForm.weightLabel', { unit: unitPref })}</Text>
         <TextInput
           style={[styles.input, {
             backgroundColor: theme.colors.bgSecondary,
             color: theme.colors.textPrimary,
             borderColor: theme.colors.borderDefault,
           }]}
-          placeholder={`e.g. ${unitPref === 'lbs' ? '135' : '60'}`}
+          placeholder={t('logger:setEntryForm.weightPlaceholder', { value: unitPref === 'lbs' ? '135' : '60' })}
           placeholderTextColor={theme.colors.textTertiary}
           keyboardType="decimal-pad"
           value={liftFields.weight}
-          onChangeText={(t) => setLiftFields((prev) => ({ ...prev, weight: t }))}
+          onChangeText={(txt) => setLiftFields((prev) => ({ ...prev, weight: txt }))}
           returnKeyType="next"
           onSubmitEditing={() => repsRef.current?.focus()}
-          accessibilityLabel="Weight"
+          accessibilityLabel={t('logger:setEntryForm.weightA11y')}
           maxLength={7}
         />
       </View>
 
       {/* Reps */}
       <View style={styles.fieldGroup}>
-        <Text style={[styles.fieldLabel, { color: theme.colors.textSecondary }]}>Reps</Text>
+        <Text style={[styles.fieldLabel, { color: theme.colors.textSecondary }]}>{t('logger:setEntryForm.repsLabel')}</Text>
         <TextInput
           ref={repsRef}
           style={[styles.input, {
@@ -288,21 +290,21 @@ export function SetEntryForm({
             color: theme.colors.textPrimary,
             borderColor: theme.colors.borderDefault,
           }]}
-          placeholder="e.g. 8"
+          placeholder={t('logger:setEntryForm.repsPlaceholder')}
           placeholderTextColor={theme.colors.textTertiary}
           keyboardType="number-pad"
           value={liftFields.reps}
-          onChangeText={(t) => setLiftFields((prev) => ({ ...prev, reps: t }))}
+          onChangeText={(txt) => setLiftFields((prev) => ({ ...prev, reps: txt }))}
           returnKeyType="done"
-          accessibilityLabel="Reps"
+          accessibilityLabel={t('logger:setEntryForm.repsA11y')}
         />
       </View>
 
       {/* RIR (optional) */}
       <View style={styles.fieldGroup}>
         <Text style={[styles.fieldLabel, { color: theme.colors.textSecondary }]}>
-          RIR{' '}
-          <Text style={[styles.fieldLabelOptional, { color: theme.colors.textTertiary }]}>(optional — 0 = to failure)</Text>
+          {t('logger:setEntryForm.rirLabel')}{' '}
+          <Text style={[styles.fieldLabelOptional, { color: theme.colors.textTertiary }]}>{t('logger:setEntryForm.rirOptional')}</Text>
         </Text>
         <TextInput
           style={[styles.input, {
@@ -310,13 +312,13 @@ export function SetEntryForm({
             color: theme.colors.textPrimary,
             borderColor: theme.colors.borderDefault,
           }]}
-          placeholder="Leave blank to skip"
+          placeholder={t('logger:setEntryForm.rirPlaceholder')}
           placeholderTextColor={theme.colors.textTertiary}
           keyboardType="number-pad"
           value={liftFields.rir}
-          onChangeText={(t) => setLiftFields((prev) => ({ ...prev, rir: t }))}
+          onChangeText={(txt) => setLiftFields((prev) => ({ ...prev, rir: txt }))}
           returnKeyType="done"
-          accessibilityLabel="Reps in reserve (optional)"
+          accessibilityLabel={t('logger:setEntryForm.rirA11y')}
         />
       </View>
     </View>
@@ -326,7 +328,7 @@ export function SetEntryForm({
     <View style={styles.fieldsContainer}>
       {/* Duration */}
       <View style={styles.fieldGroup}>
-        <Text style={[styles.fieldLabel, { color: theme.colors.textSecondary }]}>Duration (mm : ss)</Text>
+        <Text style={[styles.fieldLabel, { color: theme.colors.textSecondary }]}>{t('logger:setEntryForm.durationLabel')}</Text>
         <View style={styles.durationRow}>
           <TextInput
             style={[styles.input, styles.durationInput, {
@@ -339,12 +341,12 @@ export function SetEntryForm({
             keyboardType="number-pad"
             maxLength={3}
             value={cardioFields.durationMm}
-            onChangeText={(t) =>
-              setCardioFields((prev) => ({ ...prev, durationMm: t }))
+            onChangeText={(txt) =>
+              setCardioFields((prev) => ({ ...prev, durationMm: txt }))
             }
             returnKeyType="next"
             onSubmitEditing={() => ssRef.current?.focus()}
-            accessibilityLabel="Duration minutes"
+            accessibilityLabel={t('logger:setEntryForm.durationMmA11y')}
           />
           <Text style={[styles.durationSeparator, { color: theme.colors.textTertiary }]}>:</Text>
           <TextInput
@@ -359,11 +361,11 @@ export function SetEntryForm({
             keyboardType="number-pad"
             maxLength={2}
             value={cardioFields.durationSs}
-            onChangeText={(t) =>
-              setCardioFields((prev) => ({ ...prev, durationSs: t }))
+            onChangeText={(txt) =>
+              setCardioFields((prev) => ({ ...prev, durationSs: txt }))
             }
             returnKeyType="done"
-            accessibilityLabel="Duration seconds"
+            accessibilityLabel={t('logger:setEntryForm.durationSsA11y')}
           />
         </View>
       </View>
@@ -371,8 +373,8 @@ export function SetEntryForm({
       {/* Distance */}
       <View style={styles.fieldGroup}>
         <Text style={[styles.fieldLabel, { color: theme.colors.textSecondary }]}>
-          Distance ({distanceLabel}){' '}
-          <Text style={[styles.fieldLabelOptional, { color: theme.colors.textTertiary }]}>(optional)</Text>
+          {t('logger:setEntryForm.distanceLabel', { unit: distanceLabel })}{' '}
+          <Text style={[styles.fieldLabelOptional, { color: theme.colors.textTertiary }]}>{t('logger:setEntryForm.optional')}</Text>
         </Text>
         <TextInput
           style={[styles.input, {
@@ -380,15 +382,15 @@ export function SetEntryForm({
             color: theme.colors.textPrimary,
             borderColor: theme.colors.borderDefault,
           }]}
-          placeholder={`e.g. 5.0 ${distanceLabel}`}
+          placeholder={t('logger:setEntryForm.distancePlaceholder', { unit: distanceLabel })}
           placeholderTextColor={theme.colors.textTertiary}
           keyboardType="decimal-pad"
           value={cardioFields.distanceDisplay}
-          onChangeText={(t) =>
-            setCardioFields((prev) => ({ ...prev, distanceDisplay: t }))
+          onChangeText={(txt) =>
+            setCardioFields((prev) => ({ ...prev, distanceDisplay: txt }))
           }
           returnKeyType="done"
-          accessibilityLabel={`Distance in ${distanceLabel} (optional)`}
+          accessibilityLabel={t('logger:setEntryForm.distanceA11y', { unit: distanceLabel })}
         />
       </View>
     </View>
@@ -416,7 +418,7 @@ export function SetEntryForm({
                 <Text style={[styles.exerciseName, { color: theme.colors.textPrimary }]}>{exercise.name}</Text>
                 {setCount > 0 && (
                   <Text style={[styles.setCountLabel, { color: theme.colors.textTertiary }]}>
-                    {setCount} set{setCount !== 1 ? 's' : ''} logged
+                    {t('logger:setEntryForm.setsLoggedCount', { count: setCount })}
                   </Text>
                 )}
               </View>
@@ -424,9 +426,9 @@ export function SetEntryForm({
                 style={styles.closeButton}
                 onPress={onClose}
                 accessibilityRole="button"
-                accessibilityLabel="Close set entry form"
+                accessibilityLabel={t('logger:setEntryForm.closeFormA11y')}
               >
-                <Text style={[styles.closeButtonText, { color: theme.colors.accentDefault }]}>Done</Text>
+                <Text style={[styles.closeButtonText, { color: theme.colors.accentDefault }]}>{t('logger:setEntryForm.done')}</Text>
               </TouchableOpacity>
             </View>
 
@@ -436,7 +438,7 @@ export function SetEntryForm({
               borderColor: theme.colors.borderDefault,
             }]}>
               <Text style={[styles.setIndicatorText, { color: theme.colors.textSecondary }]}>
-                Set {currentSetIndex + 1}
+                {t('logger:setEntryForm.setNumber', { number: currentSetIndex + 1 })}
               </Text>
             </View>
 
@@ -448,21 +450,27 @@ export function SetEntryForm({
                 borderColor: theme.colors.accentDefault,
               }]}>
                 <Text style={[styles.pbCardTitle, { color: theme.colors.accentDefault }]}>
-                  Personal Bests
+                  {t('logger:setEntryForm.personalBests')}
                 </Text>
                 {personalBest.last_session ? (
                   <View style={styles.pbRow}>
-                    <Text style={[styles.pbRowLabel, { color: theme.colors.textSecondary }]}>Last session</Text>
+                    <Text style={[styles.pbRowLabel, { color: theme.colors.textSecondary }]}>{t('logger:setEntryForm.lastSession')}</Text>
                     <Text style={[styles.pbRowValue, { color: theme.colors.textPrimary }]}>
-                      {formatWeight(personalBest.last_session.weight_kg, unitPref)} × {personalBest.last_session.reps} reps
+                      {t('logger:setEntryForm.repsSuffix', {
+                        value: formatWeight(personalBest.last_session.weight_kg, unitPref),
+                        reps: personalBest.last_session.reps,
+                      })}
                     </Text>
                   </View>
                 ) : null}
                 {personalBest.all_time_best ? (
                   <View style={styles.pbRow}>
-                    <Text style={[styles.pbRowLabel, { color: theme.colors.textSecondary }]}>All-time best</Text>
+                    <Text style={[styles.pbRowLabel, { color: theme.colors.textSecondary }]}>{t('logger:setEntryForm.allTimeBest')}</Text>
                     <Text style={[styles.pbRowValue, { color: theme.colors.textPrimary }]}>
-                      {formatWeight(personalBest.all_time_best.weight_kg, unitPref)} × {personalBest.all_time_best.reps} reps
+                      {t('logger:setEntryForm.repsSuffix', {
+                        value: formatWeight(personalBest.all_time_best.weight_kg, unitPref),
+                        reps: personalBest.all_time_best.reps,
+                      })}
                     </Text>
                   </View>
                 ) : null}
@@ -488,12 +496,12 @@ export function SetEntryForm({
                 onPress={handleLog}
                 disabled={isSubmitting}
                 accessibilityRole="button"
-                accessibilityLabel="Log this set"
+                accessibilityLabel={t('logger:setEntryForm.logSetA11y')}
               >
                 {isSubmitting ? (
                   <ActivityIndicator color={theme.colors.textPrimary} />
                 ) : (
-                  <Text style={[styles.logButtonText, { color: theme.colors.textPrimary }]}>Log Set</Text>
+                  <Text style={[styles.logButtonText, { color: theme.colors.textPrimary }]}>{t('logger:setEntryForm.logSet')}</Text>
                 )}
               </TouchableOpacity>
 
@@ -505,9 +513,9 @@ export function SetEntryForm({
                 onPress={handleLog}
                 disabled={isSubmitting}
                 accessibilityRole="button"
-                accessibilityLabel="Log this set and log another"
+                accessibilityLabel={t('logger:setEntryForm.logAnotherA11y')}
               >
-                <Text style={[styles.logAnotherText, { color: theme.colors.accentDefault }]}>Log Another</Text>
+                <Text style={[styles.logAnotherText, { color: theme.colors.accentDefault }]}>{t('logger:setEntryForm.logAnother')}</Text>
               </TouchableOpacity>
             </View>
           </ScrollView>

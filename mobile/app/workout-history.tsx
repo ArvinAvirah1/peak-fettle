@@ -18,6 +18,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
   SectionList,
@@ -169,6 +170,7 @@ export default function WorkoutHistoryScreen(): React.ReactElement {
   const router = useRouter();
   const { theme, spacing, fontSize, fontWeight, radius } = useTheme();
   const { colors } = theme;
+  const { t } = useTranslation();
   const { user } = useAuth();
   const localFirst = isLocalFirst(user);
 
@@ -236,7 +238,7 @@ export default function WorkoutHistoryScreen(): React.ReactElement {
       // fetch never completed. The server returns all history in one call, so
       // there is no pagination state to update here.
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load workout history');
+      setError(err instanceof Error ? err.message : t('screens2:workoutHistory.loadFailed'));
     } finally {
       fetchingRef.current = false;
       setLoading(false);
@@ -273,9 +275,9 @@ export default function WorkoutHistoryScreen(): React.ReactElement {
               marginBottom: spacing.s4,
             }}
           >
-            Could not load your workout history.
+            {t('screens2:workoutHistory.errorState')}
           </Text>
-          <PFButton variant="primary" label="Retry" onPress={handleRetry} />
+          <PFButton variant="primary" label={t('common:retry')} onPress={handleRetry} />
         </View>
       </ScreenLayout>
     );
@@ -304,7 +306,7 @@ export default function WorkoutHistoryScreen(): React.ReactElement {
               marginBottom: spacing.s2,
             }}
           >
-            No workouts yet
+            {t('screens2:workoutHistory.emptyTitle')}
           </Text>
           <Text
             style={{
@@ -314,11 +316,11 @@ export default function WorkoutHistoryScreen(): React.ReactElement {
               marginBottom: spacing.s5,
             }}
           >
-            Start logging to see your history here.
+            {t('screens2:workoutHistory.emptyBody')}
           </Text>
           <PFButton
             variant="ghost"
-            label="Log your first workout"
+            label={t('screens2:workoutHistory.logFirstWorkout')}
             onPress={() => router.push('/(tabs)/log')}
           />
         </View>
@@ -405,7 +407,7 @@ export default function WorkoutHistoryScreen(): React.ReactElement {
                 >
                   {/* When a routine titles the row, show the date alongside the count. */}
                   {(item.routine_name?.trim() ? `${formatRowDate(item.day_key)} · ` : '') +
-                    (item.exercise_count === 1 ? '1 exercise' : `${item.exercise_count} exercises`)}
+                    t('screens2:workoutHistory.exerciseCount', { count: item.exercise_count })}
                 </Text>
               </View>
 
@@ -417,7 +419,7 @@ export default function WorkoutHistoryScreen(): React.ReactElement {
                   fontVariant: ['tabular-nums'],
                 }}
               >
-                {`${item.total_sets} sets · ${item.total_volume_kg} kg`}
+                {t('screens2:workoutHistory.setsAndVolumeKg', { count: item.total_sets, volume: item.total_volume_kg })}
               </Text>
             </View>
           </PressableCard>

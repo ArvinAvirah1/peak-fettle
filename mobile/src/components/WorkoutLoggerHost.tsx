@@ -106,6 +106,7 @@ import {
 } from './loggerLogic';
 import { genId } from '../db/localDb';
 import { epley1Rm } from '../lib/oneRm';
+import { useTranslation } from 'react-i18next';
 
 // Dynamic require for alternatives API (Agent 3's file — optional at parse time)
 let getAlternativesApi: ((exerciseId: string, opts?: { avoid?: string; limit?: number }) => Promise<import('../api/alternatives').AlternativesResult>) | null = null;
@@ -134,9 +135,10 @@ interface PaywallUpgradeModalProps {
 
 function PaywallUpgradeModal({ visible, onDismiss, onUpgrade }: PaywallUpgradeModalProps): React.ReactElement {
   const { theme, fontSize: fs, fontWeight: fw, spacing: sp, radius: r } = useTheme();
+  const { t } = useTranslation();
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onDismiss} statusBarTranslucent>
-      <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} onPress={onDismiss} accessibilityLabel="Dismiss upgrade prompt" />
+      <Pressable style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)' }} onPress={onDismiss} accessibilityLabel={t('logger:paywallModal.dismissA11y')} />
       <View style={[pwStyles.sheet, { backgroundColor: theme.colors.bgPrimary, borderTopLeftRadius: r.lg, borderTopRightRadius: r.lg, paddingHorizontal: sp.s5, paddingTop: sp.s5, paddingBottom: sp.s6 }]}>
         <View style={[pwStyles.pill, { backgroundColor: theme.colors.borderDefault, borderRadius: r.full ?? 999, marginBottom: sp.s5 }]} />
         <View style={{ alignItems: 'center', marginBottom: sp.s3 }}>
@@ -144,16 +146,16 @@ function PaywallUpgradeModal({ visible, onDismiss, onUpgrade }: PaywallUpgradeMo
             <Ionicons name="flash" size={28} color={theme.colors.accentDefault} />
           </View>
         </View>
-        <Text style={{ fontSize: fs.display, fontWeight: fw.bold, color: theme.colors.textPrimary, textAlign: 'center', marginBottom: sp.s2 }}>You're on a roll!</Text>
+        <Text style={{ fontSize: fs.display, fontWeight: fw.bold, color: theme.colors.textPrimary, textAlign: 'center', marginBottom: sp.s2 }}>{t('logger:paywallModal.title')}</Text>
         <Text style={{ fontSize: fs.bodyMd, color: theme.colors.textSecondary, textAlign: 'center', lineHeight: 22, marginBottom: sp.s5 }}>
-          You've hit your 5 free sessions. Upgrade to Peak Fettle Pro for{' '}
-          <Text style={{ fontWeight: fw.bold, color: theme.colors.textPrimary }}>personalised AI training plans</Text> that adapt to your progress.
+          {t('logger:paywallModal.body')}{' '}
+          <Text style={{ fontWeight: fw.bold, color: theme.colors.textPrimary }}>{t('logger:paywallModal.bodyBold')}</Text> {t('logger:paywallModal.bodySuffix')}
         </Text>
-        <TouchableOpacity style={[{ backgroundColor: theme.colors.accentDefault, borderRadius: r.md, paddingVertical: sp.s4, marginBottom: sp.s3, alignItems: 'center' }]} onPress={onUpgrade} accessibilityRole="button" accessibilityLabel="Upgrade to Pro">
-          <Text style={{ fontSize: fs.bodyLg, fontWeight: fw.bold, color: theme.components.buttonPrimaryText, textAlign: 'center' }}>See Plans</Text>
+        <TouchableOpacity style={[{ backgroundColor: theme.colors.accentDefault, borderRadius: r.md, paddingVertical: sp.s4, marginBottom: sp.s3, alignItems: 'center' }]} onPress={onUpgrade} accessibilityRole="button" accessibilityLabel={t('logger:paywallModal.upgradeA11y')}>
+          <Text style={{ fontSize: fs.bodyLg, fontWeight: fw.bold, color: theme.components.buttonPrimaryText, textAlign: 'center' }}>{t('logger:paywallModal.seePlans')}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={{ paddingVertical: sp.s3, alignItems: 'center' }} onPress={onDismiss} accessibilityRole="button" accessibilityLabel="Maybe later">
-          <Text style={{ fontSize: fs.bodyMd, color: theme.colors.textTertiary, textAlign: 'center' }}>Maybe later</Text>
+        <TouchableOpacity style={{ paddingVertical: sp.s3, alignItems: 'center' }} onPress={onDismiss} accessibilityRole="button" accessibilityLabel={t('logger:paywallModal.maybeLaterA11y')}>
+          <Text style={{ fontSize: fs.bodyMd, color: theme.colors.textTertiary, textAlign: 'center' }}>{t('logger:paywallModal.maybeLater')}</Text>
         </TouchableOpacity>
       </View>
     </Modal>
@@ -236,6 +238,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
     const { user } = useAuth();
     const router = useRouter();
     const { theme } = useTheme();
+    const { t } = useTranslation();
     const unitPref = user?.unit_pref ?? 'kg';
 
     const {
@@ -639,14 +642,14 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           })
           .catch(() => {
             if (!mountedRef.current) return;
-            Alert.alert('Could not load routine', 'Please try again.');
+            Alert.alert(t('logger:workoutLoggerHost.couldNotLoadRoutineTitle'), t('logger:workoutLoggerHost.pleaseTryAgain'));
           });
       },
 
       startWithExercise(exerciseId: string, exerciseName: string) {
         const session: RoutineSession = {
           source: 'free',
-          name: 'Free session',
+          name: t('logger:workoutLoggerHost.freeSessionName'),
           exercises: [{ exerciseId, name: exerciseName, loggedSetCount: 0, done: false }],
           currentIndex: 0,
         };
@@ -828,7 +831,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           } else {
             handleStartStepper({
               source: 'free',
-              name: 'Free session',
+              name: t('logger:workoutLoggerHost.freeSessionName'),
               exercises: [{
                 exerciseId: exercise.id,
                 name: exercise.name,
@@ -1413,12 +1416,12 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
         }));
       if (exercises.length === 0) return;
       try {
-        await createRoutine({ name: `Session ${new Date().toLocaleDateString()}`, exercises });
-        Alert.alert('Routine saved', 'Your session has been saved as a new routine.');
+        await createRoutine({ name: t('logger:workoutLoggerHost.sessionRoutineName', { date: new Date().toLocaleDateString() }), exercises });
+        Alert.alert(t('logger:workoutLoggerHost.sessionSavedTitle'), t('logger:workoutLoggerHost.sessionSavedMessage'));
         setStepperVisible(false);
         setRoutineSession(null);
       } catch {
-        Alert.alert('Error', 'Could not save routine');
+        Alert.alert(t('logger:workoutLoggerHost.errorTitle'), t('logger:workoutLoggerHost.couldNotSaveRoutine'));
       }
     }, [routineSession]);
 
@@ -1439,7 +1442,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
         if (isPaywall) {
           setShowPaywall(true);
         } else {
-          Alert.alert('Error', 'Could not load alternative exercises');
+          Alert.alert(t('logger:workoutLoggerHost.errorTitle'), t('logger:workoutLoggerHost.couldNotLoadAlternatives'));
         }
       } finally {
         setAlternativesLoading(false);
@@ -1523,11 +1526,11 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
       const res = await excludeExercisePermanently(orig.id);
       if (res === 'excluded' || res === 'already-excluded') {
         setQuickSwapCanPermanent(false);
-        setQuickSwapConfirmation((c) => c ?? `Won't suggest ${orig.name} again`);
+        setQuickSwapConfirmation((c) => c ?? t('logger:workoutLoggerHost.wontSuggestAgain', { name: orig.name }));
       } else if (res === 'no-plan') {
         setQuickSwapCanPermanent(false);
       } else {
-        Alert.alert('Could not save', 'The swap for today still applies.');
+        Alert.alert(t('logger:workoutLoggerHost.couldNotSaveTitle'), t('logger:workoutLoggerHost.swapStillApplies'));
       }
     }, [quickSwapOriginal]);
 
@@ -1549,8 +1552,11 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
       const nextEx = routineSession.exercises[routineSession.currentIndex + 1];
       setSessionContext({
         exerciseName: cur.name,
-        setProgress: total != null ? `${Math.min(loggedCount + 1, total)} / ${total}` : `${loggedCount} logged`,
-        nextTarget: nextEx ? `Next: ${nextEx.name}` : null,
+        setProgress:
+          total != null
+            ? t('logger:workoutLoggerHost.liveSetProgress', { current: Math.min(loggedCount + 1, total), total })
+            : t('logger:workoutLoggerHost.liveLoggedCount', { count: loggedCount }),
+        nextTarget: nextEx ? t('logger:workoutLoggerHost.nextExercise', { name: nextEx.name }) : null,
       });
     }, [routineSession, stepperSets, setSessionContext]);
 
@@ -1578,12 +1584,12 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
 
     const handleFinishWorkout = useCallback(() => {
       Alert.alert(
-        'Finish workout?',
-        `${totalSets} set${totalSets !== 1 ? 's' : ''} logged — your progress is already saved.`,
+        t('logger:workoutLoggerHost.finishWorkoutTitle'),
+        t('logger:workoutLoggerHost.finishWorkoutMessage', { count: totalSets }),
         [
-          { text: 'Keep logging', style: 'cancel' },
+          { text: t('logger:workoutLoggerHost.keepLogging'), style: 'cancel' },
           {
-            text: 'Finish',
+            text: t('logger:workoutLoggerHost.finish'),
             onPress: () => {
               haptics.success();
               // TICKET-097: completion-based cycle advance (in-loop routines only).
@@ -1650,16 +1656,19 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
 
     // Mini-bar copy: routine/session name + progress. Prefer exercise position
     // ("Exercise 3 / 6") for a routine; fall back to a set count for free sessions.
-    const miniBarTitle = routineSession?.name ?? 'Workout';
+    const miniBarTitle = routineSession?.name ?? t('logger:workoutLoggerHost.workoutFallbackTitle');
     const miniBarProgress = useMemo(() => {
       if (!routineSession) return '';
       const n = routineSession.exercises.length;
       if (routineSession.source === 'routine' && n > 0) {
-        return `Exercise ${Math.min(routineSession.currentIndex + 1, n)} / ${n}`;
+        return t('logger:workoutLoggerHost.exerciseProgress', {
+          current: Math.min(routineSession.currentIndex + 1, n),
+          total: n,
+        });
       }
       const logged = routineSession.exercises.reduce((sum, e) => sum + e.loggedSetCount, 0);
-      return `${logged} set${logged !== 1 ? 's' : ''} logged`;
-    }, [routineSession]);
+      return t('logger:workoutLoggerHost.setsLoggedCount', { count: logged });
+    }, [routineSession, t]);
 
     // ── Render ────────────────────────────────────────────────────────────────
 
@@ -1689,15 +1698,15 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
             />
             <View style={[altStyles.sheet, { backgroundColor: theme.colors.bgElevated }]}>
               <View style={[altStyles.handle, { backgroundColor: theme.colors.borderDefault }]} />
-              <Text style={[altStyles.title, { color: theme.colors.textPrimary }]}>Alternative exercises</Text>
+              <Text style={[altStyles.title, { color: theme.colors.textPrimary }]}>{t('logger:workoutLoggerHost.alternativesTitle')}</Text>
               <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodySm, marginBottom: spacing.s3 }}>
-                Same muscles, different equipment
+                {t('logger:workoutLoggerHost.alternativesSubtitle')}
               </Text>
               {alternativesLoading ? (
                 <ActivityIndicator color={theme.colors.accentDefault} style={{ marginTop: spacing.s4 }} />
               ) : alternativesList.length === 0 ? (
                 <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodySm, marginTop: spacing.s3 }}>
-                  No alternatives found for this exercise.
+                  {t('logger:workoutLoggerHost.noAlternatives')}
                 </Text>
               ) : (
                 <ScrollView style={{ maxHeight: 320 }}>
@@ -1707,7 +1716,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
                       style={[altStyles.row, { borderBottomColor: theme.colors.borderDefault }]}
                       onPress={() => handleSelectAlternative(alt)}
                       accessibilityRole="button"
-                      accessibilityLabel={`Choose ${alt.name}`}
+                      accessibilityLabel={t('logger:workoutLoggerHost.chooseAlternativeA11y', { name: alt.name })}
                     >
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: theme.colors.textPrimary, fontSize: fontSize.bodyMd, fontWeight: fontWeight.medium }}>
@@ -1726,9 +1735,9 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
                 style={[altStyles.cancelBtn, { borderColor: theme.colors.borderDefault }]}
                 onPress={() => setAlternativesSheetExerciseId(null)}
                 accessibilityRole="button"
-                accessibilityLabel="Cancel"
+                accessibilityLabel={t('logger:workoutLoggerHost.cancel')}
               >
-                <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodyMd }}>Cancel</Text>
+                <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodyMd }}>{t('logger:workoutLoggerHost.cancel')}</Text>
               </TouchableOpacity>
             </View>
           </Modal>
@@ -1737,7 +1746,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
         {/* Stage 3: Pro region-aware quick-swap sheet (local-first, no network). */}
         <QuickSwapSheet
           visible={quickSwapVisible}
-          originalName={quickSwapOriginal?.name ?? 'this exercise'}
+          originalName={quickSwapOriginal?.name ?? t('logger:workoutLoggerHost.thisExerciseFallback')}
           candidates={quickSwapCandidates}
           emptyReason={quickSwapReason}
           confirmation={quickSwapConfirmation}
@@ -1777,11 +1786,13 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
             <TouchableOpacity
               onPress={cycleRestDefault}
               accessibilityRole="button"
-              accessibilityLabel={`Rest timer. Default ${restDefault} seconds. Tap to change default`}
+              accessibilityLabel={t('logger:workoutLoggerHost.restTimerA11y', { seconds: restDefault })}
             >
               <Text style={{ color: theme.colors.accentDefault, fontSize: fontSize.bodyMd, fontWeight: fontWeight.bold, fontVariant: ['tabular-nums'] }}>
-                Rest: {Math.floor(restSecondsLeft / 60).toString().padStart(2, '0')}:{(restSecondsLeft % 60).toString().padStart(2, '0')}
-                <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.micro }}>  · {restDefault}s ▸</Text>
+                {t('logger:workoutLoggerHost.restLabel', {
+                  time: `${Math.floor(restSecondsLeft / 60).toString().padStart(2, '0')}:${(restSecondsLeft % 60).toString().padStart(2, '0')}`,
+                })}
+                <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.micro }}>{t('logger:workoutLoggerHost.restDefaultSuffix', { seconds: restDefault })}</Text>
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -1800,7 +1811,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
               }}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               accessibilityRole="button"
-              accessibilityLabel="Add 30 seconds of rest"
+              accessibilityLabel={t('logger:workoutLoggerHost.add30SecA11y')}
             >
               <Text style={{ color: theme.colors.accentDefault, fontSize: fontSize.bodySm, fontWeight: fontWeight.bold }}>+30s</Text>
             </TouchableOpacity>
@@ -1808,7 +1819,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
               onPress={() => { setRestEndAt(null); restTimer.cancel(); }}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               accessibilityRole="button"
-              accessibilityLabel="Dismiss rest timer"
+              accessibilityLabel={t('logger:workoutLoggerHost.dismissRestTimerA11y')}
             >
               <Text style={{ color: theme.colors.textTertiary, fontSize: 20, lineHeight: 24 }}>×</Text>
             </TouchableOpacity>
@@ -1901,12 +1912,12 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
                 const finishedRoutineId =
                   routineSession?.source === 'routine' ? routineSession.routineId : undefined;
                 Alert.alert(
-                  'Finish workout?',
-                  `${totalSets} set${totalSets !== 1 ? 's' : ''} logged — your progress is already saved.`,
+                  t('logger:workoutLoggerHost.finishWorkoutTitle'),
+                  t('logger:workoutLoggerHost.finishWorkoutMessage', { count: totalSets }),
                   [
-                    { text: 'Keep logging', style: 'cancel' },
+                    { text: t('logger:workoutLoggerHost.keepLogging'), style: 'cancel' },
                     {
-                      text: 'Finish',
+                      text: t('logger:workoutLoggerHost.finish'),
                       onPress: () => {
                         haptics.success();
                         writeFinishedWorkoutToHealth(); // TICKET-136

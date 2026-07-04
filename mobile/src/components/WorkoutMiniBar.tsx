@@ -22,6 +22,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from './Icon';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius, fontSize, fontWeight } from '../theme/tokens';
+import { useTranslation } from 'react-i18next';
 
 // Height of the tab-bar content area (matches app/(tabs)/_layout.tsx: 56 + inset).
 const TAB_BAR_CONTENT_HEIGHT = 56;
@@ -66,6 +67,7 @@ export function WorkoutMiniBar({
 }: WorkoutMiniBarProps): React.ReactElement | null {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
 
   if (!visible) return null;
 
@@ -84,7 +86,11 @@ export function WorkoutMiniBar({
         activeOpacity={0.85}
         onPress={onPress}
         accessibilityRole="button"
-        accessibilityLabel={`Resume workout: ${title}, ${progress}${showRest ? `, resting ${fmtRest(restSecondsLeft as number)}` : ''}`}
+        accessibilityLabel={
+          showRest
+            ? t('logger:miniBar.a11yLabelResting', { title, progress, rest: fmtRest(restSecondsLeft as number) })
+            : t('logger:miniBar.a11yLabel', { title, progress })
+        }
         style={[
           styles.bar,
           {

@@ -17,6 +17,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
   FlatList,
@@ -59,12 +60,13 @@ interface LiftRowProps {
 function LiftRow({ entry, isSelected, onPress }: LiftRowProps): React.ReactElement {
   const { theme, spacing, fontSize, fontWeight, radius } = useTheme();
   const { colors } = theme;
+  const { t } = useTranslation();
 
   return (
     <Pressable
       onPress={() => onPress(entry)}
       accessibilityRole="button"
-      accessibilityLabel={`View progress for ${entry.name}`}
+      accessibilityLabel={t('screens2:trends.viewProgressA11y', { name: entry.name })}
       style={({ pressed }) => [
         styles.row,
         {
@@ -92,7 +94,7 @@ function LiftRow({ entry, isSelected, onPress }: LiftRowProps): React.ReactEleme
           {entry.name}
         </Text>
         <Text style={{ fontSize: fontSize.caption, color: colors.textTertiary }}>
-          {isSelected ? 'Viewing ▾' : '›'}
+          {isSelected ? t('screens2:trends.viewingIndicator') : '›'}
         </Text>
       </View>
     </Pressable>
@@ -106,6 +108,7 @@ function LiftRow({ entry, isSelected, onPress }: LiftRowProps): React.ReactEleme
 export default function TrendsScreen(): React.ReactElement {
   const { theme, spacing, fontSize, fontWeight, radius } = useTheme();
   const { colors } = theme;
+  const { t } = useTranslation();
   const { user } = useAuth();
   const unitPref = (user?.unit_pref as 'kg' | 'lbs') ?? 'kg';
 
@@ -204,7 +207,7 @@ export default function TrendsScreen(): React.ReactElement {
               marginBottom: spacing.s2,
             }}
           >
-            No lifts logged yet
+            {t('screens2:trends.emptyTitle')}
           </Text>
           <Text
             style={{
@@ -213,7 +216,7 @@ export default function TrendsScreen(): React.ReactElement {
               textAlign: 'center',
             }}
           >
-            Start logging workouts to see your progress trends here.
+            {t('screens2:trends.emptyBody')}
           </Text>
         </View>
       </ScreenLayout>
@@ -271,6 +274,7 @@ export default function TrendsScreen(): React.ReactElement {
 
 function TrendsHeader({ unitPref }: { unitPref: 'kg' | 'lbs' }): React.ReactElement {
   const { theme, spacing, fontSize, fontWeight, radius } = useTheme();
+  const { t } = useTranslation();
   const router = useRouter();
   const { history } = useBodyweight();
   return (
@@ -280,7 +284,7 @@ function TrendsHeader({ unitPref }: { unitPref: 'kg' | 'lbs' }): React.ReactElem
       <Pressable
         onPress={() => router.push('/one-rm' as Parameters<typeof router.push>[0])}
         accessibilityRole="button"
-        accessibilityLabel="Open the 1RM calculator"
+accessibilityLabel={t('screens2:trends.openOneRmA11y')}
         style={{
           borderWidth: 1,
           borderColor: theme.colors.borderDefault,
@@ -295,12 +299,12 @@ function TrendsHeader({ unitPref }: { unitPref: 'kg' | 'lbs' }): React.ReactElem
         }}
       >
         <Text style={{ color: theme.colors.textPrimary, fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold }}>
-          1RM calculator
+          {t('screens2:trends.oneRmCalculator')}
         </Text>
         <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodySm }}>›</Text>
       </Pressable>
       <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.micro, fontWeight: fontWeight.semibold, letterSpacing: 1.2, marginBottom: spacing.s2 }}>
-        LIFT PROGRESS
+        {t('screens2:trends.liftProgressHeader')}
       </Text>
     </View>
   );

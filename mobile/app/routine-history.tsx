@@ -11,6 +11,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ActivityIndicator,
   FlatList,
@@ -51,6 +52,7 @@ export default function RoutineHistoryScreen(): React.ReactElement {
   const { name } = useLocalSearchParams<{ name: string }>();
   const router = useRouter();
   const { theme: { colors }, spacing, fontSize, fontWeight, radius } = useTheme();
+  const { t } = useTranslation();
   const { user } = useAuth();
   const unitPref: UnitSystem = (user?.unit_pref as UnitSystem) ?? 'kg';
 
@@ -97,11 +99,11 @@ export default function RoutineHistoryScreen(): React.ReactElement {
           }}
           numberOfLines={1}
         >
-          {routineName || 'Routine'}
+          {routineName || t('screens2:routineHistory.fallbackTitle')}
         </Text>
         {!loading ? (
           <Text style={{ fontSize: fontSize.bodySm, color: colors.textSecondary, marginTop: spacing.s1 }}>
-            {sessions.length === 1 ? '1 session' : `${sessions.length} sessions`}
+{t('screens2:routineHistory.sessionCount', { count: sessions.length })}
           </Text>
         ) : null}
       </View>
@@ -111,9 +113,9 @@ export default function RoutineHistoryScreen(): React.ReactElement {
       ) : sessions.length === 0 ? (
         <View style={styles.centered}>
           <Text style={{ fontSize: fontSize.bodyMd, color: colors.textSecondary, textAlign: 'center' }}>
-            No sessions logged for this routine yet.
+            {t('screens2:routineHistory.emptyState')}
           </Text>
-          <PFButton variant="ghost" label="Go back" onPress={() => router.back()} style={{ marginTop: spacing.s4 }} />
+          <PFButton variant="ghost" label={t('common:back')} onPress={() => router.back()} style={{ marginTop: spacing.s4 }} />
         </View>
       ) : (
         <FlatList
@@ -145,7 +147,7 @@ export default function RoutineHistoryScreen(): React.ReactElement {
                   {formatRowDate(item.dayKey)}
                 </Text>
                 <Text style={{ fontSize: fontSize.bodySm, color: colors.textSecondary, fontVariant: ['tabular-nums'] }}>
-                  {`${item.setCount} set${item.setCount !== 1 ? 's' : ''} · ${formatWeight(item.volumeKg, unitPref, 0)}`}
+                  {t('screens2:routineHistory.setsAndVolume', { count: item.setCount, volume: formatWeight(item.volumeKg, unitPref, 0) })}
                 </Text>
               </View>
             </PressableCard>

@@ -108,6 +108,7 @@ import { isAutoregMuted, setAutoregMuted } from '../data/exercisePrefs';
 import { getAutoregContext } from '../data/autoregHistory';
 import { suggestNextLoad, AutoregSuggestion } from '../lib/trainingEngine/v2/autoregulation';
 import AutoregStrip from './logger/AutoregStrip';
+import { useTranslation } from 'react-i18next';
 
 // expo-haptics is wrapped in utils/haptics with a platform guard; import the
 // wrapper so a missing native module never throws (option 11 / log confirmation).
@@ -423,6 +424,7 @@ function SetChip({
   /** TICKET-128: RIR ⇄ RPE display toggle. Storage is unaffected either way. */
   effortDisplay?: EffortDisplay;
 }) {
+  const { t } = useTranslation();
   let label: string;
   if (set.durationSec != null) {
     // Cardio chip: "Set 1 · 22:30 · 5.0 km"
@@ -432,12 +434,12 @@ function SetChip({
     let distStr = '';
     if (set.distanceM != null) {
       if (unitPref === 'lbs') {
-        distStr = ` · ${(set.distanceM / 1609.344).toFixed(2)} mi`;
+        distStr = t('logger:setChip.distanceMi', { value: (set.distanceM / 1609.344).toFixed(2) });
       } else {
-        distStr = ` · ${(set.distanceM / 1000).toFixed(2)} km`;
+        distStr = t('logger:setChip.distanceKm', { value: (set.distanceM / 1000).toFixed(2) });
       }
     }
-    label = `Set ${index + 1} · ${durStr}${distStr}`;
+    label = t('logger:setChip.cardioLabel', { index: index + 1, duration: `${durStr}${distStr}` });
   } else {
     const rirNum = set.rir != null && set.rir !== '' ? parseInt(set.rir, 10) : null;
     // formatEffort is the single pure helper (loggerLogic.ts) — "to failure" /
@@ -445,7 +447,7 @@ function SetChip({
     // the chip text changes with the setting but the underlying value never does.
     const effort = formatEffort(rirNum, effortDisplay);
     const rirLabel = effort ? ` · ${effort}` : '';
-    label = `Set ${index + 1} · ${set.weight}×${set.reps}${rirLabel}`;
+    label = t('logger:setChip.liftLabel', { index: index + 1, weight: set.weight, reps: set.reps, effort: rirLabel });
   }
   // TICKET-129: a small dot suffix when this set already has a note/flags, so
   // the chip communicates "there's an annotation here" without opening the sheet.
@@ -462,7 +464,11 @@ function SetChip({
         onLongPress={noteable ? onLongPress : undefined}
         delayLongPress={350}
         accessibilityRole="button"
-        accessibilityLabel={`Edit set ${index + 1}${noteable ? '. Long-press to add a note or flag.' : ''}`}
+        accessibilityLabel={
+          noteable
+            ? t('logger:setChip.editNoteableA11y', { index: index + 1 })
+            : t('logger:setChip.editA11y', { index: index + 1 })
+        }
       >
         <Text style={[chipStyles.label, editing && chipStyles.labelEditing]}>{label}{annotationSuffix}  ✎</Text>
       </TouchableOpacity>
@@ -539,14 +545,14 @@ function normaliseSex(raw: string | null | undefined): 'male' | 'female' {
 }
 
 /** "3 sets · top 100×6" summary for the JUST LOGGED interstitial. */
-function topSetLabel(sets: LoggedSet[]): string {
+function topSetLabel(sets: LoggedSet[], t: (key: string, opts?: Record<string, unknown>) => string): string {
   const first = sets[0];
   if (!first) return '';
   let best = first;
   for (const s of sets) {
     if ((parseFloat(s.weight) || 0) > (parseFloat(best.weight) || 0)) best = s;
   }
-  return `${sets.length} set${sets.length !== 1 ? 's' : ''} · top ${best.weight}×${best.reps}`;
+  return t('logger:topSetLabel.summary', { count: sets.length, weight: best.weight, reps: best.reps });
 }
 
 // ── Inline rest-timer ring (option 4) ────────────────────────────────────────
@@ -567,6 +573,7 @@ function RestRing({
   onAdd: () => void;
   reducedMotion: boolean;
 }): React.ReactElement {
+  const { t } = useTranslation();
   const size = 44;
   const stroke = 4;
   const r = (size - stroke) / 2;
@@ -586,7 +593,7 @@ function RestRing({
         style={restRingStyles.pill}
         onPress={onSkip}
         accessibilityRole="button"
-        accessibilityLabel={`Resting, ${label} left. Tap to skip.`}
+        accessibilityLabel={t('logger:restRing.restingA11y', { label })}
       >
         <View style={{ width: size, height: size }}>
           <Svg width={size} height={size}>
@@ -617,8 +624,8 @@ function RestRing({
           </View>
         </View>
         <View style={restRingStyles.textCol}>
-          <Text style={restRingStyles.label}>Rest {label}</Text>
-          <Text style={restRingStyles.sub}>tap to skip</Text>
+          <Text style={restRingStyles.label}>{t('logger:restRing.restLabel', { label })}</Text>
+          <Text style={restRingStyles.sub}>{t('logger:restRing.tapToSkip')}</Text>
         </View>
       </TouchableOpacity>
       <TouchableOpacity
@@ -626,7 +633,7 @@ function RestRing({
         onPress={onAdd}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
         accessibilityRole="button"
-        accessibilityLabel="Add 30 seconds of rest"
+        accessibilityLabel={t('logger:restRing.add30SecA11y')}
       >
         <Text style={restRingStyles.addLabel}>+30s</Text>
       </TouchableOpacity>
@@ -659,6 +666,7 @@ function StepperControl({
   unitSuffix?: string | null;
   maxLength?: number;
 }): React.ReactElement {
+  const { t } = useTranslation();
   return (
     <View style={styles.inputGroup}>
       <View style={wuStyles.weightLabelRow}>
@@ -670,7 +678,7 @@ function StepperControl({
           style={stepperCtl.btn}
           onPress={() => onStep(-1)}
           accessibilityRole="button"
-          accessibilityLabel={`Decrease ${accessibilityLabel}`}
+          accessibilityLabel={t('logger:stepperControl.decreaseA11y', { label: accessibilityLabel })}
         >
           <Ionicons name="remove" size={22} color={stepperPalette.text} />
         </TouchableOpacity>
@@ -692,7 +700,7 @@ function StepperControl({
           style={stepperCtl.btn}
           onPress={() => onStep(1)}
           accessibilityRole="button"
-          accessibilityLabel={`Increase ${accessibilityLabel}`}
+          accessibilityLabel={t('logger:stepperControl.increaseA11y', { label: accessibilityLabel })}
         >
           <Ionicons name="add" size={22} color={stepperPalette.text} />
         </TouchableOpacity>
@@ -737,6 +745,7 @@ export default function StepperLogger({
   onOpenSetNote,
   suppressAutoregSuggestions = false,
 }: Props): React.ReactElement {
+  const { t } = useTranslation();
   const { exercises, currentIndex, name: routineName } = routineSession;
   const reducedMotion = useReducedMotion(); // 2026-06-10 aesthetic pass
   const insets = useSafeAreaInsets();
@@ -1064,7 +1073,7 @@ export default function StepperLogger({
   // routine variant carries targetSets, so free/smart sessions are unaffected
   // (isPlannedComplete returns false without a positive target).
   const plannedComplete = isPlannedComplete(currentExerciseSets.length, currentEx?.targetSets);
-  const advanceLabel = nextPendingEx ? `Next exercise: ${nextPendingEx.name}` : 'Finish workout';
+  const advanceLabel = nextPendingEx ? t('logger:stepperLogger.advanceNextExercise', { name: nextPendingEx.name }) : t('logger:stepperLogger.finishWorkoutLabel');
   const isOffRoutine =
     routineSession.source === 'routine' && (currentEx?.exerciseId ?? '') === '';
 
@@ -1227,12 +1236,12 @@ export default function StepperLogger({
     const storedRir = rpeToRir(typed);
     setRir(storedRir == null ? '' : String(storedRir));
   }, [effortDisplay]);
-  const rirFieldLabel = effortDisplay === 'rpe' ? 'RPE' : 'RIR';
+  const rirFieldLabel = effortDisplay === 'rpe' ? t('logger:stepperLogger.rirLabelRpe') : t('logger:stepperLogger.rirLabelRir');
   const rirFieldAccessibilityLabel =
-    effortDisplay === 'rpe' ? 'Rate of perceived exertion (optional)' : 'Reps in reserve (optional)';
+    effortDisplay === 'rpe' ? t('logger:stepperLogger.rirA11yRpe') : t('logger:stepperLogger.rirA11yRir');
   const rirFieldHint =
-    effortDisplay === 'rpe' ? 'RPE optional · 10 = to failure' : 'RIR optional · 0 = to failure';
-  const addRirLinkLabel = effortDisplay === 'rpe' ? '＋ Add RPE (optional)' : '＋ Add RIR (optional)';
+    effortDisplay === 'rpe' ? t('logger:stepperLogger.rirHintRpe') : t('logger:stepperLogger.rirHintRir');
+  const addRirLinkLabel = effortDisplay === 'rpe' ? t('logger:stepperLogger.addRpeLabel') : t('logger:stepperLogger.addRirLabel');
 
   // ── Swipe between exercises (option 8) — keeps the existing buttons. ───────
   // Track whether the inner ScrollView has been scrolled down; we only claim
@@ -1464,29 +1473,29 @@ export default function StepperLogger({
             onPress={onClose}
             style={styles.closeBtn}
             accessibilityRole="button"
-            accessibilityLabel="Close stepper"
+            accessibilityLabel={t('logger:stepperLogger.closeStepperA11y')}
           >
             <Ionicons name="chevron-down" size={20} color={stepperPalette.muted} />
           </TouchableOpacity>
           <Text style={styles.routineName} numberOfLines={1}>
-            {isFreeLike ? 'Free session' : routineName}
+            {isFreeLike ? t('logger:stepperLogger.freeSessionName') : routineName}
           </Text>
         </View>
         <View style={styles.emptyState}>
           <View style={styles.emptyIcon}>
             <Ionicons name="barbell-outline" size={32} color={stepperPalette.accent} />
           </View>
-          <Text style={styles.emptyTitle}>No exercises yet</Text>
+          <Text style={styles.emptyTitle}>{t('logger:stepperLogger.noExercisesTitle')}</Text>
           <Text style={styles.emptySub}>
-            Add your first exercise to start logging sets for this session.
+            {t('logger:stepperLogger.noExercisesBody')}
           </Text>
           <TouchableOpacity
             style={styles.emptyCta}
             onPress={onAddExercise ?? onBrowseLibrary}
             accessibilityRole="button"
-            accessibilityLabel="Add exercise"
+            accessibilityLabel={t('logger:stepperLogger.addExerciseA11y')}
           >
-            <Text style={styles.emptyCtaLabel}>＋ Add exercise</Text>
+            <Text style={styles.emptyCtaLabel}>{t('logger:stepperLogger.addExerciseLabel')}</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -1494,10 +1503,10 @@ export default function StepperLogger({
   }
 
   const kicker = isFreeLike
-    ? `EXERCISE ${currentIndex + 1} · NO ROUTINE`
+    ? t('logger:stepperLogger.kickerFreeLike', { index: currentIndex + 1 })
     : isOffRoutine
-      ? 'NOT IN ROUTINE'
-      : `EXERCISE ${currentIndex + 1} OF ${exercises.length}`;
+      ? t('logger:stepperLogger.kickerOffRoutine')
+      : t('logger:stepperLogger.kickerRoutine', { index: currentIndex + 1, total: exercises.length });
 
   const showInterstitial = variant === 'smart' && showSuggest;
 
@@ -1514,12 +1523,15 @@ export default function StepperLogger({
   // "Log drop N"; else the plain "Log set N". Edit mode keeps "Save set N".
   const logSetLabelText =
     editingIndex != null
-      ? `Save set ${editingIndex + 1}`
+      ? t('logger:stepperLogger.saveSetLabel', { number: editingIndex + 1 })
       : chainActive && dropChain
-        ? `Log drop ${dropChain.nextDropIndex}`
+        ? t('logger:stepperLogger.logDropLabel', { index: dropChain.nextDropIndex })
         : groupInfo
-          ? `Log set — ${currentEx?.name ?? ''} (${groupInfo.letter}${groupInfo.posInGroup})`
-          : `Log set ${setNumber}`;
+          ? t('logger:stepperLogger.logSetGroupLabel', {
+              name: currentEx?.name ?? '',
+              group: `${groupInfo.letter}${groupInfo.posInGroup}`,
+            })
+          : t('logger:stepperLogger.logSetLabel', { number: setNumber });
   const primaryLogButton = (
     <Animated.View style={logBtnStyle}>
       <TouchableOpacity
@@ -1531,7 +1543,7 @@ export default function StepperLogger({
         {justLoggedTick ? (
           <View style={styles.logSetConfirm}>
             <Ionicons name="checkmark" size={18} color={stepperPalette.accentInk} />
-            <Text style={styles.logSetLabel}>Logged</Text>
+            <Text style={styles.logSetLabel}>{t('logger:setChip.logged')}</Text>
           </View>
         ) : (
           <Text style={styles.logSetLabel} numberOfLines={1}>
@@ -1550,9 +1562,9 @@ export default function StepperLogger({
         onPress={() => { setEditingIndex(null); setWeight(''); setReps(''); setRir(''); }}
         style={styles.cancelEditLink}
         accessibilityRole="button"
-        accessibilityLabel="Cancel editing set"
+        accessibilityLabel={t('logger:stepperLogger.cancelEditingSetA11y')}
       >
-        <Text style={styles.cancelEditLabel}>Cancel edit</Text>
+        <Text style={styles.cancelEditLabel}>{t('logger:stepperLogger.cancelEdit')}</Text>
       </TouchableOpacity>
     ) : null;
 
@@ -1577,7 +1589,7 @@ export default function StepperLogger({
           onPress={onClose}
           style={styles.closeBtn}
           accessibilityRole="button"
-          accessibilityLabel="Close stepper"
+          accessibilityLabel={t('logger:stepperLogger.closeStepperA11y')}
         >
           <Ionicons name="chevron-down" size={20} color={stepperPalette.muted} />
         </TouchableOpacity>
@@ -1585,19 +1597,23 @@ export default function StepperLogger({
         {isFreeLike ? (
           <>
             <Text style={styles.routineName} numberOfLines={1}>
-              Free session{weekNumber != null && !isNaN(weekNumber) && weekNumber > 0 ? ` · wk ${weekNumber}` : ''}
+              {weekNumber != null && !isNaN(weekNumber) && weekNumber > 0
+                ? t('logger:stepperLogger.freeSessionWithWeek', { week: weekNumber })
+                : t('logger:stepperLogger.freeSessionName')}
             </Text>
             <Text style={styles.progressLabel}>
-              {totalLogged} logged
+              {t('logger:stepperLogger.setsLoggedCount', { count: totalLogged })}
             </Text>
           </>
         ) : (
           <>
             <Text style={styles.routineName} numberOfLines={1}>
-              {routineName}{weekNumber != null && !isNaN(weekNumber) && weekNumber > 0 ? ` · wk ${weekNumber}` : ''}
+              {weekNumber != null && !isNaN(weekNumber) && weekNumber > 0
+                ? t('logger:stepperLogger.routineNameWithWeek', { name: routineName, week: weekNumber })
+                : routineName}
             </Text>
             {useProgressBar ? (
-              <View style={styles.progressBarTrack} accessible accessibilityLabel={`Exercise ${currentIndex + 1} of ${exercises.length}`}>
+              <View style={styles.progressBarTrack} accessible accessibilityLabel={t('logger:stepperLogger.exerciseOfA11y', { current: currentIndex + 1, total: exercises.length })}>
                 <Animated.View style={[styles.progressBarFill, barStyle]} />
               </View>
             ) : (
@@ -1608,7 +1624,7 @@ export default function StepperLogger({
               </View>
             )}
             <Text style={styles.progressLabel}>
-              {currentIndex + 1} / {exercises.length}
+              {t('logger:stepperLogger.progressFraction', { current: currentIndex + 1, total: exercises.length })}
             </Text>
           </>
         )}
@@ -1619,7 +1635,7 @@ export default function StepperLogger({
           }
           style={styles.closeBtn}
           accessibilityRole="button"
-          accessibilityLabel={`View details for ${currentEx?.name ?? 'exercise'}`}
+          accessibilityLabel={t('logger:stepperLogger.viewDetailsA11y', { name: currentEx?.name ?? t('logger:stepperLogger.exerciseFallback') })}
         >
           <Ionicons name="information-circle-outline" size={20} color={stepperPalette.muted} />
         </TouchableOpacity>
@@ -1636,12 +1652,12 @@ export default function StepperLogger({
         {showInterstitial ? (
           /* ── §3c · JUST LOGGED interstitial (PRO smart-suggest) ──────────── */
           <>
-            <Text style={styles.exLabel}>JUST LOGGED</Text>
+            <Text style={styles.exLabel}>{t('logger:stepperLogger.justLogged')}</Text>
             <Text style={styles.exName}>{currentEx.name}</Text>
 
             {currentExerciseSets.length > 0 && (
               <View style={[chipStyles.chip, styles.summaryChip]}>
-                <Text style={chipStyles.label}>{topSetLabel(currentExerciseSets)}</Text>
+                <Text style={chipStyles.label}>{topSetLabel(currentExerciseSets, t)}</Text>
               </View>
             )}
 
@@ -1651,7 +1667,7 @@ export default function StepperLogger({
                 <View style={styles.suggestionCard}>
                   <View style={styles.suggestionCardTop}>
                     <View style={styles.suggestionPill}>
-                      <Text style={styles.suggestionPillLabel}>Suggested next</Text>
+                      <Text style={styles.suggestionPillLabel}>{t('logger:stepperLogger.suggestedNext')}</Text>
                     </View>
                     <Text style={styles.suggestionReason} numberOfLines={1}>
                       {activeSug.reason}
@@ -1660,10 +1676,10 @@ export default function StepperLogger({
                   <Text style={styles.suggestionName}>{activeSug.name}</Text>
                   {(activeSug.pbLabel || (activeSug as SuggestCandidate & { repTarget?: string | null }).repTarget) ? (
                     <Text style={styles.suggestionPb}>
-                      {activeSug.pbLabel ? `PB ${activeSug.pbLabel}` : ''}
+                      {activeSug.pbLabel ? t('logger:stepperLogger.pbPrefix', { value: activeSug.pbLabel }) : ''}
                       {activeSug.pbLabel && (activeSug as SuggestCandidate & { repTarget?: string | null }).repTarget ? ' · ' : ''}
                       {(activeSug as SuggestCandidate & { repTarget?: string | null }).repTarget
-                        ? `aim ${(activeSug as SuggestCandidate & { repTarget?: string | null }).repTarget}`
+                        ? t('logger:stepperLogger.aimReps', { target: (activeSug as SuggestCandidate & { repTarget?: string | null }).repTarget })
                         : ''}
                     </Text>
                   ) : null}
@@ -1672,7 +1688,7 @@ export default function StepperLogger({
                 {/* Ranked alternatives — "enumerate more" */}
                 {sugList.length > 1 && (
                   <>
-                    <Text style={styles.altLabel}>OR TRY</Text>
+                    <Text style={styles.altLabel}>{t('logger:stepperLogger.orTry')}</Text>
                     {sugList
                       .filter((s) => s.exerciseId !== activeSug.exerciseId)
                       .map((s) => (
@@ -1681,7 +1697,7 @@ export default function StepperLogger({
                           style={styles.altRow}
                           onPress={() => setSelectedSug(s)}
                           accessibilityRole="button"
-                          accessibilityLabel={`Choose ${s.name} instead`}
+                          accessibilityLabel={t('logger:stepperLogger.chooseInsteadA11y', { name: s.name })}
                         >
                           <View style={styles.altRowText}>
                             <Text style={styles.altName} numberOfLines={1}>{s.name}</Text>
@@ -1695,7 +1711,7 @@ export default function StepperLogger({
               </>
             ) : (
               <Text style={styles.emptySuggest}>
-                You&apos;re all caught up — no further suggestions for this session.
+                {t('logger:stepperLogger.allCaughtUp')}
               </Text>
             )}
           </>
@@ -1711,12 +1727,12 @@ export default function StepperLogger({
                 <View style={ssStyles.pill}>
                   <Ionicons name="git-merge" size={13} color={stepperPalette.accentInk} />
                   <Text style={ssStyles.pillLabel}>
-                    SUPERSET {groupInfo.letter} · ROUND {groupInfo.round} OF {groupInfo.rounds}
+                    {t('logger:stepperLogger.supersetPill', { letter: groupInfo.letter, round: groupInfo.round, rounds: groupInfo.rounds })}
                   </Text>
                 </View>
                 {groupInfo.otherNames.length > 0 ? (
                   <Text style={ssStyles.pairedWith} numberOfLines={1}>
-                    paired with {groupInfo.otherNames.join(', ')}
+                    {t('logger:stepperLogger.pairedWith', { names: groupInfo.otherNames.join(', ') })}
                   </Text>
                 ) : null}
               </View>
@@ -1735,13 +1751,13 @@ export default function StepperLogger({
               <View style={styles.pbCard}>
                 {(pbLabel || repTarget) ? (
                   <Text style={styles.pbText}>
-                    {pbLabel ? `PB ${pbLabel}` : ''}
+                    {pbLabel ? t('logger:stepperLogger.pbPrefix', { value: pbLabel }) : ''}
                     {pbLabel && repTarget ? ' · ' : ''}
-                    {repTarget ? `aim ${repTarget} reps` : ''}
+                    {repTarget ? t('logger:stepperLogger.aimRepsTarget', { target: repTarget }) : ''}
                   </Text>
                 ) : null}
                 {lastSessionLabel ? (
-                  <Text style={wuStyles.lastSessionText}>Last session: {lastSessionLabel}</Text>
+                  <Text style={wuStyles.lastSessionText}>{t('logger:stepperLogger.lastSession', { value: lastSessionLabel })}</Text>
                 ) : null}
               </View>
             )}
@@ -1765,16 +1781,16 @@ export default function StepperLogger({
             {!isCardio && (currentEx.exerciseId ?? '') !== '' && (
               goalEditing ? (
                 <View style={goalStyles.card}>
-                  <Text style={goalStyles.title}>GOAL — WEIGHT × REPS</Text>
+                  <Text style={goalStyles.title}>{t('logger:stepperLogger.goalTitle')}</Text>
                   <View style={goalStyles.editRow}>
                     <TextInput
                       style={goalStyles.input}
                       value={goalWeight}
                       onChangeText={setGoalWeight}
                       keyboardType="decimal-pad"
-                      placeholder="weight"
+                      placeholder={t('logger:stepperLogger.goalWeightPlaceholder')}
                       placeholderTextColor={stepperPalette.muted}
-                      accessibilityLabel="Goal weight"
+                      accessibilityLabel={t('logger:stepperLogger.goalWeightA11y')}
                     />
                     <Text style={goalStyles.times}>×</Text>
                     <TextInput
@@ -1782,16 +1798,16 @@ export default function StepperLogger({
                       value={goalReps}
                       onChangeText={setGoalReps}
                       keyboardType="number-pad"
-                      placeholder="reps"
+                      placeholder={t('logger:stepperLogger.goalRepsPlaceholder')}
                       placeholderTextColor={stepperPalette.muted}
-                      accessibilityLabel="Goal reps"
+                      accessibilityLabel={t('logger:stepperLogger.goalRepsA11y')}
                     />
                     <TouchableOpacity
                       onPress={handleSaveGoal}
                       accessibilityRole="button"
-                      accessibilityLabel="Save goal"
+                      accessibilityLabel={t('logger:stepperLogger.saveGoalA11y')}
                     >
-                      <Text style={goalStyles.saveLabel}>Save</Text>
+                      <Text style={goalStyles.saveLabel}>{t('logger:stepperLogger.save')}</Text>
                     </TouchableOpacity>
                   </View>
                   <View style={goalStyles.editActions}>
@@ -1799,17 +1815,17 @@ export default function StepperLogger({
                       <TouchableOpacity
                         onPress={handleRemoveGoal}
                         accessibilityRole="button"
-                        accessibilityLabel="Remove goal"
+                        accessibilityLabel={t('logger:stepperLogger.removeGoalA11y')}
                       >
-                        <Text style={goalStyles.removeLabel}>Remove goal</Text>
+                        <Text style={goalStyles.removeLabel}>{t('logger:stepperLogger.removeGoal')}</Text>
                       </TouchableOpacity>
                     ) : null}
                     <TouchableOpacity
                       onPress={() => setGoalEditing(false)}
                       accessibilityRole="button"
-                      accessibilityLabel="Cancel goal editing"
+                      accessibilityLabel={t('logger:stepperLogger.cancelGoalEditingA11y')}
                     >
-                      <Text style={goalStyles.cancelLabel}>Cancel</Text>
+                      <Text style={goalStyles.cancelLabel}>{t('logger:stepperLogger.cancel')}</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -1825,25 +1841,41 @@ export default function StepperLogger({
                   accessibilityRole="button"
                   accessibilityLabel={
                     goal.achieved_at
-                      ? `Goal achieved: ${kgToInputValue(goal.target_weight_kg, unitPref)} ${unitLabel} for ${goal.target_reps} reps. Tap to set a new goal.`
-                      : `Goal: ${kgToInputValue(goal.target_weight_kg, unitPref)} ${unitLabel} for ${goal.target_reps} reps. Tap to edit.`
+                      ? t('logger:stepperLogger.goalAchievedA11y', {
+                          weight: kgToInputValue(goal.target_weight_kg, unitPref),
+                          unit: unitLabel,
+                          reps: goal.target_reps,
+                        })
+                      : t('logger:stepperLogger.goalEditA11y', {
+                          weight: kgToInputValue(goal.target_weight_kg, unitPref),
+                          unit: unitLabel,
+                          reps: goal.target_reps,
+                        })
                   }
                 >
                   <Text style={goal.achieved_at ? goalStyles.achievedText : goalStyles.rowText}>
                     {goal.achieved_at
-                      ? `🏆 Goal achieved — ${kgToInputValue(goal.target_weight_kg, unitPref)} ${unitLabel} × ${goal.target_reps}`
-                      : `🎯 Goal ${kgToInputValue(goal.target_weight_kg, unitPref)} ${unitLabel} × ${goal.target_reps}`}
+                      ? t('logger:stepperLogger.goalAchievedLabel', {
+                          weight: kgToInputValue(goal.target_weight_kg, unitPref),
+                          unit: unitLabel,
+                          reps: goal.target_reps,
+                        })
+                      : t('logger:stepperLogger.goalLabel', {
+                          weight: kgToInputValue(goal.target_weight_kg, unitPref),
+                          unit: unitLabel,
+                          reps: goal.target_reps,
+                        })}
                   </Text>
-                  <Text style={goalStyles.editLabel}>{goal.achieved_at ? 'set new' : 'edit'}</Text>
+                  <Text style={goalStyles.editLabel}>{goal.achieved_at ? t('logger:stepperLogger.setNew') : t('logger:stepperLogger.edit')}</Text>
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity
                   onPress={() => { setGoalWeight(''); setGoalReps(''); setGoalEditing(true); }}
                   style={wuStyles.enableLink}
                   accessibilityRole="button"
-                  accessibilityLabel="Set a weight and rep goal for this exercise"
+                  accessibilityLabel={t('logger:stepperLogger.setGoalA11y')}
                 >
-                  <Text style={wuStyles.enableLabel}>＋ Goal (optional)</Text>
+                  <Text style={wuStyles.enableLabel}>{t('logger:stepperLogger.addGoalLabel')}</Text>
                 </TouchableOpacity>
               )
             )}
@@ -1858,7 +1890,7 @@ export default function StepperLogger({
                   entering={reducedMotion ? undefined : FadeInDown.duration(220)}
                 >
                   <View style={wuStyles.headerRow}>
-                    <Text style={wuStyles.title}>WARM-UP</Text>
+                    <Text style={wuStyles.title}>{t('logger:stepperLogger.warmup')}</Text>
                     <TouchableOpacity
                       onPress={() => {
                         const idx = WARMUP_SET_CHOICES.indexOf(wuSets);
@@ -1867,16 +1899,16 @@ export default function StepperLogger({
                         persistWuPrefs(true, next);
                       }}
                       accessibilityRole="button"
-                      accessibilityLabel="Change number of warm-up sets"
+                      accessibilityLabel={t('logger:stepperLogger.changeWarmupSetsA11y')}
                     >
-                      <Text style={wuStyles.setsToggle}>{wuSets} set{wuSets !== 1 ? 's' : ''} ▸</Text>
+                      <Text style={wuStyles.setsToggle}>{t('logger:stepperLogger.warmupSetsToggle', { count: wuSets })}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => { setWuEnabled(false); persistWuPrefs(false, wuSets); }}
                       accessibilityRole="button"
-                      accessibilityLabel="Turn warm-up off for this exercise"
+                      accessibilityLabel={t('logger:stepperLogger.warmupOffA11y')}
                     >
-                      <Text style={wuStyles.offLink}>off</Text>
+                      <Text style={wuStyles.offLink}>{t('logger:stepperLogger.off')}</Text>
                     </TouchableOpacity>
                   </View>
                   {warmupPlan.length > 0 ? (
@@ -1886,18 +1918,20 @@ export default function StepperLogger({
                         style={wuStyles.row}
                         onPress={() => { setWeight(w.weight > 0 ? String(w.weight) : ''); setReps(String(w.reps)); }}
                         accessibilityRole="button"
-                        accessibilityLabel={`Use warm-up set ${i + 1}: ${w.weight} for ${w.reps} reps`}
+                        accessibilityLabel={t('logger:stepperLogger.useWarmupSetA11y', { index: i + 1, weight: w.weight, reps: w.reps })}
                       >
                         <Text style={wuStyles.rowPct}>{Math.round(w.pct * 100)}%</Text>
                         <Text style={wuStyles.rowMain}>
-                          {w.weight > 0 ? `${w.weight} × ${w.reps}` : `bodyweight × ${w.reps}`}
+                          {w.weight > 0
+                            ? t('logger:stepperLogger.warmupRow', { weight: w.weight, reps: w.reps })
+                            : t('logger:stepperLogger.warmupBodyweightRow', { reps: w.reps })}
                         </Text>
-                        <Text style={wuStyles.rowUse}>tap to fill</Text>
+                        <Text style={wuStyles.rowUse}>{t('logger:stepperLogger.tapToFill')}</Text>
                       </TouchableOpacity>
                     ))
                   ) : (
                     <Text style={wuStyles.hint}>
-                      Log this exercise once — recommendations come from your previous top set.
+                      {t('logger:stepperLogger.warmupHint')}
                     </Text>
                   )}
                 </Animated.View>
@@ -1906,9 +1940,9 @@ export default function StepperLogger({
                   onPress={() => { setWuEnabled(true); persistWuPrefs(true, wuSets); }}
                   style={wuStyles.enableLink}
                   accessibilityRole="button"
-                  accessibilityLabel="Add a warm-up ramp for this exercise"
+                  accessibilityLabel={t('logger:stepperLogger.addWarmupA11y')}
                 >
-                  <Text style={wuStyles.enableLabel}>＋ Warm-up ramp (optional)</Text>
+                  <Text style={wuStyles.enableLabel}>{t('logger:stepperLogger.addWarmupLabel')}</Text>
                 </TouchableOpacity>
               )
             )}
@@ -1946,7 +1980,7 @@ export default function StepperLogger({
               <>
                 <View style={styles.inputRow}>
                   <View style={[styles.inputGroup, { flex: 1.5 }]}>
-                    <Text style={styles.inputLabel}>DURATION (MM : SS)</Text>
+                    <Text style={styles.inputLabel}>{t('logger:stepperLogger.durationLabel')}</Text>
                     <View style={styles.durationRow}>
                       <TextInput
                         style={[styles.input, styles.durationInput]}
@@ -1957,7 +1991,7 @@ export default function StepperLogger({
                         placeholderTextColor={stepperPalette.muted}
                         maxLength={3}
                         selectTextOnFocus
-                        accessibilityLabel="Duration minutes"
+                        accessibilityLabel={t('logger:stepperLogger.durationMmA11y')}
                       />
                       <Text style={styles.durationSep}>:</Text>
                       <TextInput
@@ -1969,23 +2003,23 @@ export default function StepperLogger({
                         placeholderTextColor={stepperPalette.muted}
                         maxLength={2}
                         selectTextOnFocus
-                        accessibilityLabel="Duration seconds"
+                        accessibilityLabel={t('logger:stepperLogger.durationSsA11y')}
                       />
                     </View>
                   </View>
                 </View>
                 <View style={styles.inputRow}>
                   <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>DISTANCE ({distanceLabel.toUpperCase()}) — OPTIONAL</Text>
+                    <Text style={styles.inputLabel}>{t('logger:stepperLogger.distanceLabel', { unit: distanceLabel.toUpperCase() })}</Text>
                     <TextInput
                       style={styles.input}
                       value={cardioDistance}
                       onChangeText={setCardioDistance}
                       keyboardType="decimal-pad"
-                      placeholder={`e.g. 5.0`}
+                      placeholder={t('logger:stepperLogger.distancePlaceholder')}
                       placeholderTextColor={stepperPalette.muted}
                       selectTextOnFocus
-                      accessibilityLabel={`Distance in ${distanceLabel} (optional)`}
+                      accessibilityLabel={t('logger:stepperLogger.distanceA11y', { unit: distanceLabel })}
                     />
                   </View>
                 </View>
@@ -2002,10 +2036,10 @@ export default function StepperLogger({
                     onPress={() => setShowConditioningTimer(true)}
                     style={ssStyles.dropStartBtn}
                     accessibilityRole="button"
-                    accessibilityLabel="Open conditioning timer (EMOM, AMRAP, or intervals)"
+                    accessibilityLabel={t('logger:stepperLogger.openConditioningTimerA11y')}
                   >
                     <Ionicons name="stopwatch-outline" size={16} color={SS_AMBER} />
-                    <Text style={ssStyles.dropStartLabel}>Conditioning timer…</Text>
+                    <Text style={ssStyles.dropStartLabel}>{t('logger:stepperLogger.conditioningTimerLabel')}</Text>
                   </TouchableOpacity>
                 ) : null}
 
@@ -2018,19 +2052,19 @@ export default function StepperLogger({
                 {showMoreMetrics ? (
                   <View style={moreStyles.card}>
                     <View style={moreStyles.headerRow}>
-                      <Text style={moreStyles.title}>MORE METRICS — OPTIONAL</Text>
+                      <Text style={moreStyles.title}>{t('logger:stepperLogger.moreMetricsTitle')}</Text>
                       <TouchableOpacity
                         onPress={() => setShowMoreMetrics(false)}
                         accessibilityRole="button"
-                        accessibilityLabel="Hide more metrics"
+                        accessibilityLabel={t('logger:stepperLogger.hideMetricsA11y')}
                       >
-                        <Text style={moreStyles.hideLink}>hide</Text>
+                        <Text style={moreStyles.hideLink}>{t('logger:stepperLogger.hide')}</Text>
                       </TouchableOpacity>
                     </View>
 
                     <View style={styles.inputRow}>
                       <View style={styles.inputGroup}>
-                        <Text style={styles.inputLabel}>AVG HR (BPM)</Text>
+                        <Text style={styles.inputLabel}>{t('logger:stepperLogger.avgHrLabel')}</Text>
                         <TextInput
                           style={styles.input}
                           value={mHrAvg}
@@ -2040,11 +2074,11 @@ export default function StepperLogger({
                           placeholderTextColor={stepperPalette.muted}
                           maxLength={3}
                           selectTextOnFocus
-                          accessibilityLabel="Average heart rate in beats per minute (optional)"
+                          accessibilityLabel={t('logger:stepperLogger.avgHrA11y')}
                         />
                       </View>
                       <View style={styles.inputGroup}>
-                        <Text style={styles.inputLabel}>MAX HR (BPM)</Text>
+                        <Text style={styles.inputLabel}>{t('logger:stepperLogger.maxHrLabel')}</Text>
                         <TextInput
                           style={styles.input}
                           value={mHrMax}
@@ -2054,14 +2088,14 @@ export default function StepperLogger({
                           placeholderTextColor={stepperPalette.muted}
                           maxLength={3}
                           selectTextOnFocus
-                          accessibilityLabel="Maximum heart rate in beats per minute (optional)"
+                          accessibilityLabel={t('logger:stepperLogger.maxHrA11y')}
                         />
                       </View>
                     </View>
 
                     <View style={styles.inputRow}>
                       <View style={styles.inputGroup}>
-                        <Text style={styles.inputLabel}>CALORIES (KCAL)</Text>
+                        <Text style={styles.inputLabel}>{t('logger:stepperLogger.caloriesLabel')}</Text>
                         <TextInput
                           style={styles.input}
                           value={mCalories}
@@ -2071,11 +2105,11 @@ export default function StepperLogger({
                           placeholderTextColor={stepperPalette.muted}
                           maxLength={5}
                           selectTextOnFocus
-                          accessibilityLabel="Calories burned in kilocalories (optional)"
+                          accessibilityLabel={t('logger:stepperLogger.caloriesA11y')}
                         />
                       </View>
                       <View style={styles.inputGroup}>
-                        <Text style={styles.inputLabel}>CADENCE (SPM)</Text>
+                        <Text style={styles.inputLabel}>{t('logger:stepperLogger.cadenceLabel')}</Text>
                         <TextInput
                           style={styles.input}
                           value={mCadence}
@@ -2085,14 +2119,14 @@ export default function StepperLogger({
                           placeholderTextColor={stepperPalette.muted}
                           maxLength={3}
                           selectTextOnFocus
-                          accessibilityLabel="Cadence in steps per minute (optional)"
+                          accessibilityLabel={t('logger:stepperLogger.cadenceA11y')}
                         />
                       </View>
                     </View>
 
                     <View style={styles.inputRow}>
                       <View style={styles.inputGroup}>
-                        <Text style={styles.inputLabel}>ELEV GAIN (M)</Text>
+                        <Text style={styles.inputLabel}>{t('logger:stepperLogger.elevGainLabel')}</Text>
                         <TextInput
                           style={styles.input}
                           value={mElevation}
@@ -2102,11 +2136,11 @@ export default function StepperLogger({
                           placeholderTextColor={stepperPalette.muted}
                           maxLength={6}
                           selectTextOnFocus
-                          accessibilityLabel="Elevation gain in metres (optional)"
+                          accessibilityLabel={t('logger:stepperLogger.elevGainA11y')}
                         />
                       </View>
                       <View style={styles.inputGroup}>
-                        <Text style={styles.inputLabel}>RPE (1–10)</Text>
+                        <Text style={styles.inputLabel}>{t('logger:stepperLogger.rpeLabel')}</Text>
                         <TextInput
                           style={styles.input}
                           value={mRpe}
@@ -2116,28 +2150,28 @@ export default function StepperLogger({
                           placeholderTextColor={stepperPalette.muted}
                           maxLength={2}
                           selectTextOnFocus
-                          accessibilityLabel="Rate of perceived exertion, 1 to 10 (optional)"
+                          accessibilityLabel={t('logger:stepperLogger.rpeA11y')}
                         />
                       </View>
                     </View>
 
                     <View style={styles.inputRow}>
                       <View style={styles.inputGroup}>
-                        <Text style={styles.inputLabel}>SPLITS (PER {distanceLabel.toUpperCase()})</Text>
+                        <Text style={styles.inputLabel}>{t('logger:stepperLogger.splitsLabel', { unit: distanceLabel.toUpperCase() })}</Text>
                         <TextInput
                           style={styles.input}
                           value={mSplits}
                           onChangeText={setMSplits}
                           keyboardType="numbers-and-punctuation"
-                          placeholder="e.g. 5:10, 5:02, 4:58"
+                          placeholder={t('logger:stepperLogger.splitsPlaceholder')}
                           placeholderTextColor={stepperPalette.muted}
                           selectTextOnFocus
-                          accessibilityLabel={`Lap or split times per ${distanceLabel}, comma separated (optional)`}
+                          accessibilityLabel={t('logger:stepperLogger.splitsA11y', { unit: distanceLabel })}
                         />
                       </View>
                     </View>
                     <Text style={moreStyles.hint}>
-                      Splits: one per {distanceLabel}, mm:ss or seconds — all fields optional.
+                      {t('logger:stepperLogger.splitsHint', { unit: distanceLabel })}
                     </Text>
                   </View>
                 ) : (
@@ -2145,9 +2179,9 @@ export default function StepperLogger({
                     onPress={() => setShowMoreMetrics(true)}
                     style={moreStyles.enableLink}
                     accessibilityRole="button"
-                    accessibilityLabel="Add more cardio metrics: heart rate, calories, cadence, elevation, RPE, splits"
+                    accessibilityLabel={t('logger:stepperLogger.addMetricsA11y')}
                   >
-                    <Text style={moreStyles.enableLabel}>＋ More metrics (optional)</Text>
+                    <Text style={moreStyles.enableLabel}>{t('logger:stepperLogger.addMetricsLabel')}</Text>
                   </TouchableOpacity>
                 )}
               </>
@@ -2171,27 +2205,27 @@ export default function StepperLogger({
                       onPress={copyLastSet}
                       style={styles.ghostBtn}
                       accessibilityRole="button"
-                      accessibilityLabel={`Copy last session ${ghostLast.weightStr} ${unitLabel} for ${ghostLast.reps} reps`}
+                      accessibilityLabel={t('logger:stepperLogger.copyLastA11y', { weight: ghostLast.weightStr, unit: unitLabel, reps: ghostLast.reps })}
                     >
                       <Text style={styles.ghostText}>
-                        last: {ghostLast.weightStr} {unitLabel} × {ghostLast.reps}
+                        {t('logger:stepperLogger.ghostLast', { weight: ghostLast.weightStr, unit: unitLabel, reps: ghostLast.reps })}
                       </Text>
                       <Ionicons name="copy-outline" size={13} color={stepperPalette.muted} />
                     </TouchableOpacity>
                   ) : (
-                    <Text style={styles.ghostTextEmpty}>last: —</Text>
+                    <Text style={styles.ghostTextEmpty}>{t('logger:stepperLogger.ghostLastEmpty')}</Text>
                   )}
                 </View>
 
                 <View style={styles.inputRow}>
                   <StepperControl
-                    label="WEIGHT"
+                    label={t('logger:stepperLogger.weightLabel')}
                     value={weight}
                     onChangeText={setWeight}
                     onStep={stepWeight}
                     keyboardType="decimal-pad"
-                    placeholder={isBodyweightExercise(currentEx?.name) ? 'BW' : '—'}
-                    accessibilityLabel="Weight"
+                    placeholder={isBodyweightExercise(currentEx?.name) ? t('logger:stepperLogger.weightPlaceholderBw') : '—'}
+                    accessibilityLabel={t('logger:stepperLogger.weightA11y')}
                     unitSuffix={unitLabel}
                     maxLength={7}
                     rightAccessory={
@@ -2199,20 +2233,20 @@ export default function StepperLogger({
                         onPress={() => setPlateCalcVisible(true)}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                         accessibilityRole="button"
-                        accessibilityLabel="Open plate and load calculator"
+                        accessibilityLabel={t('logger:stepperLogger.openPlateCalcA11y')}
                       >
                         <Ionicons name="calculator-outline" size={16} color={stepperPalette.accent} />
                       </TouchableOpacity>
                     }
                   />
                   <StepperControl
-                    label="REPS"
+                    label={t('logger:stepperLogger.repsLabel')}
                     value={reps}
                     onChangeText={setReps}
                     onStep={stepReps}
                     keyboardType="number-pad"
                     placeholder="—"
-                    accessibilityLabel="Reps"
+                    accessibilityLabel={t('logger:stepperLogger.repsA11y')}
                     maxLength={4}
                   />
                 </View>
@@ -2241,7 +2275,7 @@ export default function StepperLogger({
                     onPress={() => setShowRir(true)}
                     style={styles.addRirLink}
                     accessibilityRole="button"
-                    accessibilityLabel={effortDisplay === 'rpe' ? 'Add rate of perceived exertion' : 'Add reps in reserve'}
+                    accessibilityLabel={effortDisplay === 'rpe' ? t('logger:stepperLogger.addRpeA11y') : t('logger:stepperLogger.addRirA11y')}
                   >
                     <Text style={styles.addRirLabel}>{addRirLinkLabel}</Text>
                   </TouchableOpacity>
@@ -2255,9 +2289,9 @@ export default function StepperLogger({
                 onPress={onChooseAlternative}
                 style={styles.altExerciseLink}
                 accessibilityRole="button"
-                accessibilityLabel="Choose alternative exercise"
+                accessibilityLabel={t('logger:stepperLogger.chooseAlternativeA11y')}
               >
-                <Text style={styles.altExerciseLinkLabel}>Choose alternative exercise</Text>
+                <Text style={styles.altExerciseLinkLabel}>{t('logger:stepperLogger.chooseAlternativeLabel')}</Text>
               </TouchableOpacity>
             ) : null}
 
@@ -2269,18 +2303,18 @@ export default function StepperLogger({
                 onPress={() => onUnlinkSuperset(groupId)}
                 style={styles.altExerciseLink}
                 accessibilityRole="button"
-                accessibilityLabel="Unlink superset"
+                accessibilityLabel={t('logger:stepperLogger.unlinkSupersetA11y')}
               >
-                <Text style={styles.altExerciseLinkLabel}>Unlink superset</Text>
+                <Text style={styles.altExerciseLinkLabel}>{t('logger:stepperLogger.unlinkSupersetLabel')}</Text>
               </TouchableOpacity>
             ) : !isCardio && !isGrouped && onSupersetWith && hasOtherPending ? (
               <TouchableOpacity
                 onPress={onSupersetWith}
                 style={styles.altExerciseLink}
                 accessibilityRole="button"
-                accessibilityLabel="Superset with another exercise"
+                accessibilityLabel={t('logger:stepperLogger.supersetWithA11y')}
               >
-                <Text style={styles.altExerciseLinkLabel}>Superset with…</Text>
+                <Text style={styles.altExerciseLinkLabel}>{t('logger:stepperLogger.supersetWithLabel')}</Text>
               </TouchableOpacity>
             ) : null}
 
@@ -2315,10 +2349,10 @@ export default function StepperLogger({
             onPress={onStartDropChain}
             style={ssStyles.dropStartBtn}
             accessibilityRole="button"
-            accessibilityLabel="Add a drop set off the last set"
+            accessibilityLabel={t('logger:stepperLogger.addDropSetA11y')}
           >
             <Ionicons name="trending-down" size={16} color={SS_AMBER} />
-            <Text style={ssStyles.dropStartLabel}>+ Drop set</Text>
+            <Text style={ssStyles.dropStartLabel}>{t('logger:stepperLogger.addDropSetLabel')}</Text>
           </TouchableOpacity>
         </View>
       ) : null}
@@ -2340,20 +2374,20 @@ export default function StepperLogger({
               entering={reducedMotion ? undefined : FadeInDown.duration(180)}
               style={styles.retryToast}
             >
-              <Text style={styles.retryToastText} numberOfLines={1}>Couldn&apos;t save</Text>
+              <Text style={styles.retryToastText} numberOfLines={1}>{t('logger:stepperLogger.couldntSave')}</Text>
               <TouchableOpacity
                 onPress={handleRetrySave}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 accessibilityRole="button"
-                accessibilityLabel="Retry saving the set"
+                accessibilityLabel={t('logger:stepperLogger.retrySaveA11y')}
               >
-                <Text style={styles.retryToastBtn}>Retry</Text>
+                <Text style={styles.retryToastBtn}>{t('logger:stepperLogger.retry')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => setRetryToast(false)}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 accessibilityRole="button"
-                accessibilityLabel="Dismiss"
+                accessibilityLabel={t('logger:stepperLogger.dismissA11y')}
               >
                 <Text style={styles.retryToastDismiss}>×</Text>
               </TouchableOpacity>
@@ -2378,17 +2412,17 @@ export default function StepperLogger({
               style={styles.switchBtn}
               onPress={onAddNextExercise}
               accessibilityRole="button"
-              accessibilityLabel="Add next exercise"
+              accessibilityLabel={t('logger:stepperLogger.addNextExerciseA11y')}
             >
-              <Text style={styles.switchBtnLabel}>＋ Add next exercise</Text>
+              <Text style={styles.switchBtnLabel}>{t('logger:stepperLogger.addNextExerciseLabel')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.switchBtn}
               onPress={onSaveAsRoutine}
               accessibilityRole="button"
-              accessibilityLabel="Finish and save as routine"
+              accessibilityLabel={t('logger:stepperLogger.finishSaveRoutineA11y')}
             >
-              <Text style={styles.switchBtnLabel}>Finish &amp; save as routine</Text>
+              <Text style={styles.switchBtnLabel}>{t('logger:stepperLogger.finishSaveRoutineLabel')}</Text>
             </TouchableOpacity>
           </>
         ) : variant === 'smart' ? (
@@ -2398,19 +2432,19 @@ export default function StepperLogger({
                 style={styles.continueBtn}
                 onPress={handleAcceptSug}
                 accessibilityRole="button"
-                accessibilityLabel={activeSug ? `Continue to ${activeSug.name}` : 'Finish workout'}
+                accessibilityLabel={activeSug ? t('logger:stepperLogger.continueToA11y', { name: activeSug.name }) : t('logger:stepperLogger.finishWorkoutA11y')}
               >
                 <Text style={styles.continueBtnLabel}>
-                  {activeSug ? `Continue to ${activeSug.name} →` : 'Finish workout'}
+                  {activeSug ? t('logger:stepperLogger.continueToLabel', { name: activeSug.name }) : t('logger:stepperLogger.finishWorkoutLabel')}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.switchBtn}
                 onPress={() => setSwitcherVisible(true)}
                 accessibilityRole="button"
-                accessibilityLabel="Select different exercise"
+                accessibilityLabel={t('logger:stepperLogger.selectDifferentA11y')}
               >
-                <Text style={styles.switchBtnLabel}>Select different exercise</Text>
+                <Text style={styles.switchBtnLabel}>{t('logger:stepperLogger.selectDifferentLabel')}</Text>
               </TouchableOpacity>
             </>
           ) : (
@@ -2422,19 +2456,19 @@ export default function StepperLogger({
                 onPress={handleDoneSeeNext}
                 disabled={currentExerciseSets.length === 0}
                 accessibilityRole="button"
-                accessibilityLabel="Done, see what's next"
+                accessibilityLabel={t('logger:stepperLogger.doneSeeWhatsNextA11y')}
               >
                 <Text style={styles.switchBtnLabel}>
-                  {currentExerciseSets.length === 0 ? 'Log a set to continue' : "Done — see what's next →"}
+                  {currentExerciseSets.length === 0 ? t('logger:stepperLogger.logToContinue') : t('logger:stepperLogger.doneSeeWhatsNextLabel')}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.switchBtn}
                 onPress={() => setSwitcherVisible(true)}
                 accessibilityRole="button"
-                accessibilityLabel="Select different exercise"
+                accessibilityLabel={t('logger:stepperLogger.selectDifferentA11y')}
               >
-                <Text style={styles.switchBtnLabel}>Select different exercise</Text>
+                <Text style={styles.switchBtnLabel}>{t('logger:stepperLogger.selectDifferentLabel')}</Text>
               </TouchableOpacity>
             </>
           )
@@ -2459,17 +2493,17 @@ export default function StepperLogger({
                 style={styles.switchBtn}
                 onPress={handleLogSet}
                 accessibilityRole="button"
-                accessibilityLabel={`Log an extra set, set ${setNumber}`}
+                accessibilityLabel={t('logger:stepperLogger.logExtraSetA11y', { number: setNumber })}
               >
-                <Text style={styles.switchBtnLabel}>{`Log set ${setNumber}`}</Text>
+                <Text style={styles.switchBtnLabel}>{t('logger:stepperLogger.logSetLabel', { number: setNumber })}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.switchBtn}
                 onPress={() => setSwitcherVisible(true)}
                 accessibilityRole="button"
-                accessibilityLabel="Select different exercise"
+                accessibilityLabel={t('logger:stepperLogger.selectDifferentA11y')}
               >
-                <Text style={styles.switchBtnLabel}>Select different exercise</Text>
+                <Text style={styles.switchBtnLabel}>{t('logger:stepperLogger.selectDifferentLabel')}</Text>
               </TouchableOpacity>
             </>
           ) : (
@@ -2480,19 +2514,19 @@ export default function StepperLogger({
               style={styles.switchBtn}
               onPress={handleContinue}
               accessibilityRole="button"
-              accessibilityLabel={nextPendingEx ? `Continue to ${nextPendingEx.name}` : 'Finish workout'}
+              accessibilityLabel={nextPendingEx ? t('logger:stepperLogger.continueToA11y', { name: nextPendingEx.name }) : t('logger:stepperLogger.finishWorkoutA11y')}
             >
               <Text style={styles.switchBtnLabel}>
-                {nextPendingEx ? `Continue to ${nextPendingEx.name} →` : 'Finish workout'}
+                {nextPendingEx ? t('logger:stepperLogger.continueToLabel', { name: nextPendingEx.name }) : t('logger:stepperLogger.finishWorkoutLabel')}
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.switchBtn}
               onPress={() => setSwitcherVisible(true)}
               accessibilityRole="button"
-              accessibilityLabel="Select different exercise"
+              accessibilityLabel={t('logger:stepperLogger.selectDifferentA11y')}
             >
-              <Text style={styles.switchBtnLabel}>Select different exercise</Text>
+              <Text style={styles.switchBtnLabel}>{t('logger:stepperLogger.selectDifferentLabel')}</Text>
             </TouchableOpacity>
           </>
           )
@@ -2504,14 +2538,14 @@ export default function StepperLogger({
         <Pressable style={styles.promptBackdrop} onPress={() => setOffRoutinePrompt(null)}>
           <Pressable style={styles.prompt} onPress={() => {}}>
             <View style={styles.handle} />
-            <Text style={styles.promptTitle}>Add {offRoutinePrompt.exerciseName} to "{routineName}"?</Text>
-            <Text style={styles.promptSub}>Keep it for next time — where should it go?</Text>
+            <Text style={styles.promptTitle}>{t('logger:stepperLogger.addToRoutinePrompt', { exercise: offRoutinePrompt.exerciseName, routine: routineName })}</Text>
+            <Text style={styles.promptSub}>{t('logger:stepperLogger.addToRoutineSub')}</Text>
 
             {/* TICKET-081 §1c: row 1 = End of routine | After current; row 2 (full-width) = Pick position… */}
             <View style={styles.placementGrid}>
               {([
-                ['end', 'End of routine'],
-                ['after_current', 'After current'],
+                ['end', t('logger:stepperLogger.endOfRoutine')],
+                ['after_current', t('logger:stepperLogger.afterCurrent')],
               ] as const).map(([pos, label]) => (
                 <TouchableOpacity
                   key={pos}
@@ -2533,7 +2567,7 @@ export default function StepperLogger({
               accessibilityState={{ checked: promptPlacement === 'pick' }}
             >
               <Text style={[styles.placementOptLabel, promptPlacement === 'pick' && styles.placementOptLabelOn]}>
-                Pick position…
+                {t('logger:stepperLogger.pickPosition')}
               </Text>
             </TouchableOpacity>
 
@@ -2542,8 +2576,10 @@ export default function StepperLogger({
                 {Array.from({ length: exercises.length + 1 }, (_, slot) => {
                   const label =
                     slot === 0
-                      ? 'At start'
-                      : `After ${exercises[slot - 1]?.name ?? `exercise ${slot}`}`;
+                      ? t('logger:stepperLogger.atStart')
+                      : exercises[slot - 1]?.name
+                        ? t('logger:stepperLogger.afterExercise', { name: exercises[slot - 1]?.name })
+                        : t('logger:stepperLogger.afterExerciseFallback', { index: slot });
                   const on = pickIndex === slot;
                   return (
                     <TouchableOpacity
@@ -2568,13 +2604,13 @@ export default function StepperLogger({
                 style={[styles.promptBtn, styles.promptBtnGhost]}
                 onPress={() => setOffRoutinePrompt(null)}
               >
-                <Text style={styles.promptBtnGhostLabel}>Not now</Text>
+                <Text style={styles.promptBtnGhostLabel}>{t('logger:stepperLogger.notNow')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.promptBtn, styles.promptBtnPrimary]}
                 onPress={handleAddOffRoutine}
               >
-                <Text style={styles.promptBtnPrimaryLabel}>Add to routine</Text>
+                <Text style={styles.promptBtnPrimaryLabel}>{t('logger:stepperLogger.addToRoutine')}</Text>
               </TouchableOpacity>
             </View>
           </Pressable>

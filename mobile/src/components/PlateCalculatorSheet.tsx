@@ -37,6 +37,7 @@ import {
 } from '../lib/plateMath';
 import { getExercisePrefs, setExercisePrefs } from '../data/exercisePrefs';
 import { kgToLbs, displayToKg, UnitSystem } from '../constants/units';
+import { useTranslation } from 'react-i18next';
 
 type Mode = 'barbell' | 'machine' | 'warmup';
 
@@ -62,6 +63,7 @@ export default function PlateCalculatorSheet({
   onUseWeight,
   workingWeightForWarmup,
 }: Props): React.ReactElement {
+  const { t } = useTranslation();
   const isLbs = unitPref === 'lbs';
   const defaultBar = isLbs ? DEFAULT_BAR_LB : DEFAULT_BAR_KG;
   const plates = isLbs ? LB_PLATES : KG_PLATES;
@@ -140,7 +142,7 @@ export default function PlateCalculatorSheet({
       <Pressable style={styles.backdrop} onPress={onClose}>
         <Pressable style={styles.sheet} onPress={() => {}}>
           <View style={styles.handle} />
-          <Text style={styles.title}>Load calculator</Text>
+          <Text style={styles.title}>{t('logger:plateCalculator.title')}</Text>
 
           {/* Mode toggle */}
           <View style={styles.modeRow}>
@@ -150,10 +152,20 @@ export default function PlateCalculatorSheet({
                 style={[styles.modeBtn, mode === m && styles.modeBtnActive]}
                 onPress={() => setMode(m)}
                 accessibilityRole="button"
-                accessibilityLabel={m === 'barbell' ? 'Barbell mode' : 'Machine or cable mode'}
+                accessibilityLabel={
+                  m === 'barbell'
+                    ? t('logger:plateCalculator.barbellModeA11y')
+                    : m === 'machine'
+                    ? t('logger:plateCalculator.machineModeA11y')
+                    : t('logger:plateCalculator.warmupModeA11y')
+                }
               >
                 <Text style={[styles.modeLabel, mode === m && styles.modeLabelActive]}>
-                  {m === 'barbell' ? 'Barbell' : m === 'machine' ? 'Machine / cable' : 'Warm-up'}
+                  {m === 'barbell'
+                    ? t('logger:plateCalculator.mode_barbell')
+                    : m === 'machine'
+                    ? t('logger:plateCalculator.mode_machine')
+                    : t('logger:plateCalculator.mode_warmup')}
                 </Text>
               </TouchableOpacity>
             ))}
@@ -164,7 +176,7 @@ export default function PlateCalculatorSheet({
             <>
               <View style={styles.inputRow}>
                 <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>TARGET TOTAL ({unitLabel.toUpperCase()})</Text>
+                  <Text style={styles.inputLabel}>{t('logger:plateCalculator.targetTotalLabel', { unit: unitLabel.toUpperCase() })}</Text>
                   <TextInput
                     style={styles.input}
                     value={target}
@@ -173,11 +185,11 @@ export default function PlateCalculatorSheet({
                     placeholder="—"
                     placeholderTextColor={stepperPalette.muted}
                     selectTextOnFocus
-                    accessibilityLabel="Target total weight"
+                    accessibilityLabel={t('logger:plateCalculator.targetTotalA11y')}
                   />
                 </View>
                 <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>BAR ({unitLabel.toUpperCase()})</Text>
+                  <Text style={styles.inputLabel}>{t('logger:plateCalculator.barLabel', { unit: unitLabel.toUpperCase() })}</Text>
                   <TextInput
                     style={styles.input}
                     value={baseWeight}
@@ -186,42 +198,46 @@ export default function PlateCalculatorSheet({
                     placeholder={String(defaultBar)}
                     placeholderTextColor={stepperPalette.muted}
                     selectTextOnFocus
-                    accessibilityLabel="Bar weight"
+                    accessibilityLabel={t('logger:plateCalculator.barA11y')}
                   />
                 </View>
               </View>
 
               {breakdown && !breakdown.belowBar ? (
                 <View style={styles.resultCard}>
-                  <Text style={styles.resultLabel}>PER SIDE</Text>
+                  <Text style={styles.resultLabel}>{t('logger:plateCalculator.perSide')}</Text>
                   {breakdown.perSide.length === 0 ? (
-                    <Text style={styles.resultBig}>Empty bar</Text>
+                    <Text style={styles.resultBig}>{t('logger:plateCalculator.emptyBar')}</Text>
                   ) : (
                     <Text style={styles.resultBig}>
                       {breakdown.perSide.map((p) => `${p.plate}×${p.count}`).join('  ·  ')}
                     </Text>
                   )}
                   <Text style={styles.resultSub}>
-                    Loads {breakdown.achievedTotal} {unitLabel}
                     {breakdown.residual !== 0
-                      ? ` (${breakdown.residual > 0 ? '−' : '+'}${Math.abs(breakdown.residual)} ${unitLabel} vs target)`
-                      : ' — exact'}
+                      ? t('logger:plateCalculator.loadsResidual', {
+                          total: breakdown.achievedTotal,
+                          unit: unitLabel,
+                          sign: breakdown.residual > 0 ? '−' : '+',
+                          residual: Math.abs(breakdown.residual),
+                        })
+                      : t('logger:plateCalculator.loadsExact', { total: breakdown.achievedTotal, unit: unitLabel })}
                   </Text>
                   <TouchableOpacity
                     style={styles.useBtn}
                     onPress={() => handleUse(breakdown.achievedTotal)}
                     accessibilityRole="button"
-                    accessibilityLabel="Use this weight"
+                    accessibilityLabel={t('logger:plateCalculator.useThisWeightA11y')}
                   >
                     <Text style={styles.useBtnLabel}>
-                      Use {breakdown.achievedTotal} {unitLabel}
+                      {t('logger:plateCalculator.useWeightLabel', { value: breakdown.achievedTotal, unit: unitLabel })}
                     </Text>
                   </TouchableOpacity>
                 </View>
               ) : breakdown && breakdown.belowBar ? (
-                <Text style={styles.hint}>Target is below the bar weight.</Text>
+                <Text style={styles.hint}>{t('logger:plateCalculator.belowBarHint')}</Text>
               ) : (
-                <Text style={styles.hint}>Enter a target weight to see the plates.</Text>
+                <Text style={styles.hint}>{t('logger:plateCalculator.enterTargetHint')}</Text>
               )}
             </>
           )}
@@ -231,7 +247,7 @@ export default function PlateCalculatorSheet({
             <>
               <View style={styles.inputRow}>
                 <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>MACHINE WEIGHT ({unitLabel.toUpperCase()})</Text>
+                  <Text style={styles.inputLabel}>{t('logger:plateCalculator.machineWeightLabel', { unit: unitLabel.toUpperCase() })}</Text>
                   <TextInput
                     style={styles.input}
                     value={baseWeight}
@@ -240,11 +256,11 @@ export default function PlateCalculatorSheet({
                     placeholder="—"
                     placeholderTextColor={stepperPalette.muted}
                     selectTextOnFocus
-                    accessibilityLabel="Machine stack weight"
+                    accessibilityLabel={t('logger:plateCalculator.machineWeightA11y')}
                   />
                 </View>
               </View>
-              <Text style={styles.inputLabel}>PULLEY CONFIGURATION</Text>
+              <Text style={styles.inputLabel}>{t('logger:plateCalculator.pulleyConfigLabel')}</Text>
               <View style={styles.pulleyRow}>
                 {PULLEY_OPTIONS.map((p) => (
                   <TouchableOpacity
@@ -252,7 +268,7 @@ export default function PlateCalculatorSheet({
                     style={[styles.pulleyBtn, pulleyId === p.id && styles.modeBtnActive]}
                     onPress={() => setPulleyId(p.id)}
                     accessibilityRole="button"
-                    accessibilityLabel={`Pulley ${p.label}`}
+                    accessibilityLabel={t('logger:plateCalculator.pulleyA11y', { label: p.label })}
                   >
                     <Text style={[styles.modeLabel, pulleyId === p.id && styles.modeLabelActive]}>
                       {p.id}
@@ -264,29 +280,29 @@ export default function PlateCalculatorSheet({
 
               {baseNum > 0 ? (
                 <View style={styles.resultCard}>
-                  <Text style={styles.resultLabel}>EFFECTIVE LOAD</Text>
+                  <Text style={styles.resultLabel}>{t('logger:plateCalculator.effectiveLoad')}</Text>
                   <Text style={styles.resultBig}>
                     {effective} {unitLabel}
                   </Text>
                   <Text style={styles.resultSub}>
                     {pulley.factor === 1
-                      ? 'Direct drive — stack weight is the real load.'
-                      : `Stack ${baseNum} ${unitLabel} × ${pulley.factor} — log the effective load so your strength stats stay accurate.`}
+                      ? t('logger:plateCalculator.directDrive')
+                      : t('logger:plateCalculator.stackEffective', { stack: baseNum, unit: unitLabel, factor: pulley.factor })}
                   </Text>
                   <TouchableOpacity
                     style={styles.useBtn}
                     onPress={() => handleUse(effective)}
                     accessibilityRole="button"
-                    accessibilityLabel="Use effective weight"
+                    accessibilityLabel={t('logger:plateCalculator.useEffectiveWeightA11y')}
                   >
                     <Text style={styles.useBtnLabel}>
-                      Use {effective} {unitLabel}
+                      {t('logger:plateCalculator.useWeightLabel', { value: effective, unit: unitLabel })}
                     </Text>
                   </TouchableOpacity>
                 </View>
               ) : (
                 <Text style={styles.hint}>
-                  Enter the machine weight first — it&apos;s remembered for this exercise.
+                  {t('logger:plateCalculator.enterMachineWeightHint')}
                 </Text>
               )}
             </>
@@ -298,13 +314,16 @@ export default function PlateCalculatorSheet({
               {warmupLadder.length === 0 ? (
                 <Text style={styles.hint}>
                   {workingWeightForWarmup
-                    ? 'Working weight is too light to generate a warm-up ladder.'
-                    : 'Enter a target weight in the Barbell tab to generate warm-up rungs.'}
+                    ? t('logger:plateCalculator.workingWeightTooLight')
+                    : t('logger:plateCalculator.enterTargetForWarmup')}
                 </Text>
               ) : (
                 <>
                   <Text style={[styles.inputLabel, { marginBottom: spacing.s3 }]}>
-                    WARM-UP LADDER — {Math.round((workingWeightForWarmup ?? targetNum) * 10) / 10} {unitLabel}
+                    {t('logger:plateCalculator.warmupLadderLabel', {
+                      value: Math.round((workingWeightForWarmup ?? targetNum) * 10) / 10,
+                      unit: unitLabel,
+                    })}
                   </Text>
                   {warmupLadder.map(({ pct, weight, skip }, idx) => {
                     if (skip) return null;
@@ -318,7 +337,7 @@ export default function PlateCalculatorSheet({
                         style={[styles.rungRow, isExp && styles.rungRowActive]}
                         onPress={() => setExpandedRung(isExp ? null : idx)}
                         accessibilityRole="button"
-                        accessibilityLabel={`${Math.round(pct * 100)}% warm-up — ${weight} ${unitLabel}`}
+                        accessibilityLabel={t('logger:plateCalculator.rungA11y', { pct: Math.round(pct * 100), weight, unit: unitLabel })}
                       >
                         <View style={styles.rungHeader}>
                           <Text style={[styles.rungPct, { color: stepperPalette.accent }]}>
@@ -335,17 +354,20 @@ export default function PlateCalculatorSheet({
                           <View style={styles.rungBreakdown}>
                             <Text style={{ color: stepperPalette.muted, fontSize: fontSize.caption, marginBottom: spacing.s2 }}>
                               {bk.perSide.length === 0
-                                ? 'Empty bar'
-                                : bk.perSide.map((p) => `${p.plate}×${p.count}`).join('  ·  ')}{' '}
-                              per side — loads {bk.achievedTotal} {unitLabel}
+                                ? t('logger:plateCalculator.rungBreakdownEmptyBar', { total: bk.achievedTotal, unit: unitLabel })
+                                : t('logger:plateCalculator.rungBreakdown', {
+                                    plates: bk.perSide.map((p) => `${p.plate}×${p.count}`).join('  ·  '),
+                                    total: bk.achievedTotal,
+                                    unit: unitLabel,
+                                  })}
                             </Text>
                             <TouchableOpacity
                               style={styles.useBtn}
                               onPress={() => handleUse(weight)}
                               accessibilityRole="button"
-                              accessibilityLabel={`Use ${weight} ${unitLabel}`}
+                              accessibilityLabel={t('logger:plateCalculator.useWeightRungA11y', { value: weight, unit: unitLabel })}
                             >
-                              <Text style={styles.useBtnLabel}>Use {weight} {unitLabel}</Text>
+                              <Text style={styles.useBtnLabel}>{t('logger:plateCalculator.useWeightLabel', { value: weight, unit: unitLabel })}</Text>
                             </TouchableOpacity>
                           </View>
                         )}

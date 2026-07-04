@@ -6,6 +6,7 @@
  */
 
 import React, { useEffect, useState, useCallback } from 'react';
+import { useTranslation, type TFunction } from 'react-i18next';
 import {
   View,
   Text,
@@ -79,24 +80,30 @@ interface Template {
 const DISCIPLINES = ['All', 'powerlifting', 'weightlifting', 'general_strength', 'running', 'cycling', 'swimming', 'other_mixed'];
 const EXPERIENCE_LEVELS = ['All', 'beginner', 'intermediate', 'advanced', 'elite'];
 
-const DISCIPLINE_LABEL: Record<string, string> = {
-  All: 'All disciplines',
-  powerlifting: 'Powerlifting',
-  weightlifting: 'Weightlifting',
-  general_strength: 'Strength',
-  running: 'Running',
-  cycling: 'Cycling',
-  swimming: 'Swimming',
-  other_mixed: 'Mixed',
-};
+function disciplineLabel(t: TFunction, key: string): string {
+  const map: Record<string, string> = {
+    All: t('screens2:templates.disciplineAll'),
+    powerlifting: t('screens2:templates.disciplinePowerlifting'),
+    weightlifting: t('screens2:templates.disciplineWeightlifting'),
+    general_strength: t('screens2:templates.disciplineStrength'),
+    running: t('screens2:templates.disciplineRunning'),
+    cycling: t('screens2:templates.disciplineCycling'),
+    swimming: t('screens2:templates.disciplineSwimming'),
+    other_mixed: t('screens2:templates.disciplineMixed'),
+  };
+  return map[key] ?? key;
+}
 
-const LEVEL_LABEL: Record<string, string> = {
-  beginner: 'Beginner',
-  intermediate: 'Intermediate',
-  advanced: 'Advanced',
-  elite: 'Elite',
-  All: 'All',
-};
+function levelLabel(t: TFunction, key: string): string {
+  const map: Record<string, string> = {
+    beginner: t('screens2:templates.levelBeginner'),
+    intermediate: t('screens2:templates.levelIntermediate'),
+    advanced: t('screens2:templates.levelAdvanced'),
+    elite: t('screens2:templates.levelElite'),
+    All: t('screens2:templates.levelAll'),
+  };
+  return map[key] ?? key;
+}
 
 // ---------------------------------------------------------------------------
 // Skeleton loader
@@ -191,6 +198,7 @@ function TemplateCard({
   fontWeight,
   spacing,
   radius,
+  t,
 }: {
   template: Template;
   onPress: () => void;
@@ -199,6 +207,7 @@ function TemplateCard({
   fontWeight: any;
   spacing: any;
   radius: any;
+  t: TFunction;
 }) {
   return (
     <PFCard>
@@ -230,7 +239,7 @@ function TemplateCard({
             ]}
           >
             <Text style={{ fontSize: fontSize.caption, color: colors.textSecondary }}>
-              {LEVEL_LABEL[template.experience_level] ?? template.experience_level}
+              {levelLabel(t, template.experience_level)}
             </Text>
           </View>
           <View
@@ -240,7 +249,7 @@ function TemplateCard({
             ]}
           >
             <Text style={{ fontSize: fontSize.caption, color: colors.textSecondary }}>
-              {template.days_per_week}d/wk
+              {t('screens2:templates.daysPerWeekSuffix', { count: template.days_per_week })}
             </Text>
           </View>
         </View>
@@ -258,19 +267,23 @@ function TemplateCard({
 // Main screen
 // ---------------------------------------------------------------------------
 
-// Display labels for the shelf's progression-style chip — mirrors LEVEL_LABEL's
-// pattern of a small display-only lookup, kept next to the other constants.
-const PROGRESSION_STYLE_LABEL: Record<string, string> = {
-  linear: 'Linear',
-  wave: 'Wave',
-  dup: 'DUP',
-  block: 'Block',
-};
+// Display labels for the shelf's progression-style chip — mirrors levelLabel's
+// pattern of a small display-only lookup, kept next to the other helpers.
+function progressionStyleLabel(t: TFunction, key: string): string {
+  const map: Record<string, string> = {
+    linear: t('screens2:templates.progressionLinear'),
+    wave: t('screens2:templates.progressionWave'),
+    dup: t('screens2:templates.progressionDup'),
+    block: t('screens2:templates.progressionBlock'),
+  };
+  return map[key] ?? key;
+}
 
 export default function TemplatesScreen(): React.ReactElement {
   const router = useRouter();
   const { theme, fontSize, fontWeight, spacing, radius } = useTheme();
   const { colors } = theme;
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
 
@@ -302,15 +315,15 @@ export default function TemplatesScreen(): React.ReactElement {
         await adoptProgramToSchedule(user, userId, program, new Date());
         setProgramSelected(null);
         Alert.alert(
-          'Program added',
-          `${program.name} is on your schedule. Open the schedule screen to set timing.`,
+          t('screens2:templates.programAddedTitle'),
+          t('screens2:templates.programAddedBody', { name: program.name }),
           [
-            { text: 'Later', style: 'cancel' },
-            { text: 'Open schedule', onPress: () => router.push('/routines' as any) },
+            { text: t('screens2:templates.later'), style: 'cancel' },
+            { text: t('screens2:templates.openSchedule'), onPress: () => router.push('/routines' as any) },
           ],
         );
       } catch {
-        Alert.alert('Could not add program', 'Something went wrong saving this program. Please try again.');
+        Alert.alert(t('screens2:templates.couldNotAddTitle'), t('screens2:templates.couldNotAddBody'));
       } finally {
         setAdopting(false);
       }
@@ -321,11 +334,11 @@ export default function TemplatesScreen(): React.ReactElement {
       if (await hasExistingSchedule()) {
         setAdopting(false);
         Alert.alert(
-          'Replace your schedule?',
-          'You already have a training schedule. Replace it with this program, or keep your current one?',
+          t('screens2:planSurvey.replaceScheduleTitle'),
+          t('screens2:templates.replaceScheduleBodyProgram'),
           [
-            { text: 'Keep', style: 'cancel' },
-            { text: 'Replace', style: 'destructive', onPress: proceed },
+            { text: t('screens2:planSurvey.keep'), style: 'cancel' },
+            { text: t('screens2:planAdjust.replace'), style: 'destructive', onPress: proceed },
           ],
           { cancelable: true },
         );
@@ -334,7 +347,7 @@ export default function TemplatesScreen(): React.ReactElement {
       }
     } catch {
       setAdopting(false);
-      Alert.alert('Could not add program', 'Something went wrong saving this program. Please try again.');
+      Alert.alert(t('screens2:templates.couldNotAddTitle'), t('screens2:templates.couldNotAddBody'));
     }
   }, [user, router]);
 
@@ -360,7 +373,7 @@ export default function TemplatesScreen(): React.ReactElement {
       const payload = res.data;
       setTemplates(Array.isArray(payload) ? payload : payload.templates ?? []);
     } catch {
-      setError('Could not load templates. Check your connection and try again.');
+      setError(t('screens2:templates.loadError'));
     } finally {
       setLoading(false);
     }
@@ -372,26 +385,26 @@ export default function TemplatesScreen(): React.ReactElement {
 
   // Recommended: same discipline + level as user
   const recommended = templates.filter(
-    (t) =>
-      (user?.experience_level ? t.experience_level === user.experience_level : true),
+    (tpl) =>
+      (user?.experience_level ? tpl.experience_level === user.experience_level : true),
   );
 
   // Filtered by search + chips
-  const filtered = templates.filter((t) => {
+  const filtered = templates.filter((tpl) => {
     const matchesSearch =
       search.length === 0 ||
-      t.name.toLowerCase().includes(search.toLowerCase()) ||
-      t.description.toLowerCase().includes(search.toLowerCase());
+      tpl.name.toLowerCase().includes(search.toLowerCase()) ||
+      tpl.description.toLowerCase().includes(search.toLowerCase());
     return matchesSearch;
   });
 
   // Fetch the full template (with sessions) before opening the detail modal.
   // The list endpoint returns summaries only — sessions are on GET /templates/:id.
-  const handleSelectTemplate = useCallback(async (t: Template) => {
+  const handleSelectTemplate = useCallback(async (tpl: Template) => {
     setDetailLoading(true);
-    setSelected(t); // open modal immediately with what we have
+    setSelected(tpl); // open modal immediately with what we have
     try {
-      const res = await apiClient.get<Template>(`/templates/${t.id}`);
+      const res = await apiClient.get<Template>(`/templates/${tpl.id}`);
       setSelected(res.data);
     } catch {
       // If detail fetch fails, keep the summary in selected (sessions will be [] / undefined).
@@ -429,7 +442,7 @@ export default function TemplatesScreen(): React.ReactElement {
         <TextInput
           value={search}
           onChangeText={setSearch}
-          placeholder="Search templates..."
+          placeholder={t('screens2:templates.searchPlaceholder')}
           placeholderTextColor={colors.textTertiary}
           style={[
             styles.searchInput,
@@ -444,7 +457,7 @@ export default function TemplatesScreen(): React.ReactElement {
               borderColor: colors.borderDefault,
             },
           ]}
-          accessibilityLabel="Search templates"
+accessibilityLabel={t('screens2:templates.searchA11y')}
           returnKeyType="search"
         />
       </View>
@@ -459,7 +472,7 @@ export default function TemplatesScreen(): React.ReactElement {
         {DISCIPLINES.map((d) => (
           <Chip
             key={d}
-            label={DISCIPLINE_LABEL[d] ?? d}
+label={disciplineLabel(t, d)}
             active={disciplineFilter === d}
             onPress={() => setDisciplineFilter(d)}
             colors={colors}
@@ -481,7 +494,7 @@ export default function TemplatesScreen(): React.ReactElement {
         {EXPERIENCE_LEVELS.map((l) => (
           <Chip
             key={l}
-            label={LEVEL_LABEL[l]}
+label={levelLabel(t, l)}
             active={levelFilter === l}
             onPress={() => setLevelFilter(l)}
             colors={colors}
@@ -509,7 +522,7 @@ export default function TemplatesScreen(): React.ReactElement {
             marginBottom: spacing.s2,
           }}
         >
-          PREBUILT PROGRAMS · WORKS OFFLINE
+{t('screens2:templates.prebuiltProgramsHeader')}
         </Text>
         {shelfPrograms.map((p) => {
           const previewDay = p.days[0];
@@ -526,7 +539,7 @@ export default function TemplatesScreen(): React.ReactElement {
                 marginBottom: spacing.s2,
               }}
               accessibilityRole="button"
-              accessibilityLabel={`Open ${p.name}`}
+              accessibilityLabel={t('screens2:templates.openProgramA11y', { name: p.name })}
             >
               <Text style={{ fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold, color: colors.textPrimary }}>
                 {p.name}
@@ -537,17 +550,17 @@ export default function TemplatesScreen(): React.ReactElement {
               <View style={[styles.chipRow, { marginTop: spacing.s2 }]}>
                 <View style={[styles.inlineChip, { backgroundColor: colors.bgTertiary, borderRadius: radius.sm, paddingHorizontal: spacing.s2, paddingVertical: 2 }]}>
                   <Text style={{ fontSize: fontSize.caption, color: colors.textSecondary }}>
-                    {`${p.daysPerWeek}d/wk`}
+                    {t('screens2:templates.daysPerWeekShort', { count: p.daysPerWeek })}
                   </Text>
                 </View>
                 <View style={[styles.inlineChip, { backgroundColor: colors.bgTertiary, borderRadius: radius.sm, paddingHorizontal: spacing.s2, paddingVertical: 2 }]}>
                   <Text style={{ fontSize: fontSize.caption, color: colors.textSecondary }}>
-                    {LEVEL_LABEL[p.level] ?? p.level}
+                    {levelLabel(t, p.level)}
                   </Text>
                 </View>
                 <View style={[styles.inlineChip, { backgroundColor: colors.accentSecondary, borderRadius: radius.sm, paddingHorizontal: spacing.s2, paddingVertical: 2 }]}>
                   <Text style={{ fontSize: fontSize.caption, color: colors.accentDefault, fontWeight: fontWeight.medium }}>
-                    {PROGRESSION_STYLE_LABEL[p.progressionStyle] ?? p.progressionStyle}
+                    {progressionStyleLabel(t, p.progressionStyle)}
                   </Text>
                 </View>
               </View>
@@ -556,9 +569,7 @@ export default function TemplatesScreen(): React.ReactElement {
                   style={{ fontSize: fontSize.caption, color: colors.textTertiary, marginTop: spacing.s2 }}
                   numberOfLines={2}
                 >
-                  {`Week 1 preview — ${previewDay.name}: ${previewDay.exercises
-                    .map((ex) => ex.name)
-                    .join(', ')}`}
+                  {t('screens2:templates.week1PreviewLine', { dayName: previewDay.name, exercises: previewDay.exercises.map((ex) => ex.name).join(', ') })}
                 </Text>
               ) : null}
             </Pressable>
@@ -603,7 +614,7 @@ export default function TemplatesScreen(): React.ReactElement {
             marginBottom: spacing.s2,
           }}
         >
-          BEGINNER PROGRAMS · WORKS OFFLINE
+{t('screens2:templates.beginnerProgramsHeader')}
         </Text>
         {bundledPrograms.map((p) => (
           <Pressable
@@ -618,13 +629,13 @@ export default function TemplatesScreen(): React.ReactElement {
               marginBottom: spacing.s2,
             }}
             accessibilityRole="button"
-            accessibilityLabel={`Open ${p.name}`}
+            accessibilityLabel={t('screens2:templates.openProgramA11y', { name: p.name })}
           >
             <Text style={{ fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold, color: colors.textPrimary }}>
               {p.name}
             </Text>
             <Text style={{ fontSize: fontSize.caption, color: colors.textSecondary, marginTop: 2 }}>
-              {`${p.subtitle} · ${p.daysPerWeek}d/wk`}
+              {t('screens2:templates.subtitleAndDaysPerWeek', { subtitle: p.subtitle, count: p.daysPerWeek })}
             </Text>
           </Pressable>
         ))}
@@ -640,7 +651,7 @@ export default function TemplatesScreen(): React.ReactElement {
           <Text style={{ color: colors.statusError, fontSize: fontSize.bodyMd, textAlign: 'center', marginBottom: spacing.s4 }}>
             {error}
           </Text>
-          <PFButton label="Retry" onPress={fetchTemplates} variant="secondary" />
+          <PFButton label={t('common:retry')} onPress={fetchTemplates} variant="secondary" />
         </View>
       ) : (
         <FlatList
@@ -655,6 +666,7 @@ export default function TemplatesScreen(): React.ReactElement {
               fontWeight={fontWeight}
               spacing={spacing}
               radius={radius}
+              t={t}
             />
           )}
           contentContainerStyle={{ paddingHorizontal: spacing.s4, paddingBottom: spacing.s8 }}
@@ -670,18 +682,19 @@ export default function TemplatesScreen(): React.ReactElement {
                     marginBottom: spacing.s3,
                   }}
                 >
-                  Recommended for you
+                  {t('screens2:templates.recommendedForYou')}
                 </Text>
-                {recommended.slice(0, 2).map((t) => (
-                  <View key={t.id} style={{ marginBottom: spacing.s3 }}>
+                {recommended.slice(0, 2).map((tpl) => (
+                  <View key={tpl.id} style={{ marginBottom: spacing.s3 }}>
                     <TemplateCard
-                      template={t}
-                      onPress={() => handleSelectTemplate(t)}
+                      template={tpl}
+                      onPress={() => handleSelectTemplate(tpl)}
                       colors={colors}
                       fontSize={fontSize}
                       fontWeight={fontWeight}
                       spacing={spacing}
                       radius={radius}
+                      t={t}
                     />
                   </View>
                 ))}
@@ -694,7 +707,7 @@ export default function TemplatesScreen(): React.ReactElement {
                     marginTop: spacing.s2,
                   }}
                 >
-                  All templates
+                  {t('screens2:templates.allTemplates')}
                 </Text>
               </View>
             ) : null
@@ -702,7 +715,7 @@ export default function TemplatesScreen(): React.ReactElement {
           ListEmptyComponent={
             <View style={styles.errorContainer}>
               <Text style={{ color: colors.textSecondary, fontSize: fontSize.bodyMd, textAlign: 'center' }}>
-                No templates match your filters.
+                {t('screens2:templates.noMatchFilters')}
               </Text>
             </View>
           }
@@ -753,12 +766,12 @@ export default function TemplatesScreen(): React.ReactElement {
                   </View>
                   <View style={[styles.inlineChip, { backgroundColor: colors.bgTertiary, borderRadius: radius.sm, paddingHorizontal: spacing.s2, paddingVertical: 2 }]}>
                     <Text style={{ fontSize: fontSize.caption, color: colors.textSecondary }}>
-                      {LEVEL_LABEL[selected.experience_level] ?? selected.experience_level}
+                      {levelLabel(t, selected.experience_level)}
                     </Text>
                   </View>
                   <View style={[styles.inlineChip, { backgroundColor: colors.bgTertiary, borderRadius: radius.sm, paddingHorizontal: spacing.s2, paddingVertical: 2 }]}>
                     <Text style={{ fontSize: fontSize.caption, color: colors.textSecondary }}>
-                      {selected.days_per_week} days/week
+                      {t('screens2:templates.daysPerWeekFull', { count: selected.days_per_week })}
                     </Text>
                   </View>
                 </View>
@@ -784,7 +797,7 @@ export default function TemplatesScreen(): React.ReactElement {
                     marginBottom: spacing.s3,
                   }}
                 >
-                  Sessions ({(selected.sessions ?? []).length})
+                  {t('screens2:templates.sessionsCount', { count: (selected.sessions ?? []).length })}
                 </Text>
                 {(selected.sessions ?? []).map((session, idx) => (
                   <View
@@ -800,11 +813,13 @@ export default function TemplatesScreen(): React.ReactElement {
                     ]}
                   >
                     <Text style={{ fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold, color: colors.textPrimary, marginBottom: 4 }}>
-                      {`Day ${idx + 1}: ${session.session_name}`}
+                      {t('screens2:templates.dayNumberSession', { number: idx + 1, name: session.session_name })}
                     </Text>
                     {session.exercises.map((ex, ei) => (
                       <Text key={ei} style={{ fontSize: fontSize.caption, color: colors.textSecondary }}>
-                        {`• ${ex.exercise_name}  ${ex.sets}×${ex.reps}${ex.rest_seconds ? `  ${ex.rest_seconds}s rest` : ''}`}
+                        {ex.rest_seconds
+                          ? t('screens2:templates.exerciseLineWithRest', { name: ex.exercise_name, sets: ex.sets, reps: ex.reps, rest: ex.rest_seconds })
+                          : t('screens2:templates.exerciseLine', { name: ex.exercise_name, sets: ex.sets, reps: ex.reps })}
                       </Text>
                     ))}
                   </View>
@@ -816,7 +831,7 @@ export default function TemplatesScreen(): React.ReactElement {
               {/* CTA */}
               <View style={{ paddingHorizontal: spacing.s6, paddingTop: spacing.s2 }}>
                 <PFButton
-                  label={starting ? 'Starting…' : 'Start Workout'}
+                  label={starting ? t('screens2:templates.startingWorkout') : t('screens2:templates.startWorkout')}
                   onPress={handleStartWorkout}
                   variant="primary"
                   fullWidth
@@ -858,7 +873,7 @@ export default function TemplatesScreen(): React.ReactElement {
                   {bundledSelected.subtitle}
                 </Text>
                 <Text style={{ fontSize: fontSize.caption, color: colors.textTertiary, marginTop: spacing.s2 }}>
-                  Tap a day to start it in the stepper. No barbell back squat or conventional deadlift — beginner-safe swaps only.
+                  {t('screens2:templates.bundledDetailHint')}
                 </Text>
               </View>
               <ScrollView
@@ -880,19 +895,19 @@ export default function TemplatesScreen(): React.ReactElement {
                       marginBottom: spacing.s2,
                     }}
                     accessibilityRole="button"
-                    accessibilityLabel={`Start ${day.name}`}
+accessibilityLabel={t('screens2:templates.startDayA11y', { name: day.name })}
                   >
                     <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                       <Text style={{ fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold, color: colors.textPrimary }}>
-                        {`Day ${di + 1}: ${day.name}`}
+                        {t('screens2:templates.dayNumberName', { number: di + 1, name: day.name })}
                       </Text>
                       <Text style={{ fontSize: fontSize.caption, color: colors.accentDefault, fontWeight: fontWeight.semibold }}>
-                        Start ▶
+                        {t('screens2:templates.startArrow')}
                       </Text>
                     </View>
                     {day.exercises.map((ex, ei) => (
                       <Text key={ei} style={{ fontSize: fontSize.caption, color: colors.textSecondary }}>
-                        {`• ${bundledExerciseName(ex.slug)}  ${ex.sets}×${ex.reps}`}
+                        {t('screens2:templates.exerciseLine', { name: bundledExerciseName(ex.slug), sets: ex.sets, reps: ex.reps })}
                       </Text>
                     ))}
                   </Pressable>
@@ -946,12 +961,12 @@ export default function TemplatesScreen(): React.ReactElement {
                 <View style={styles.chipRow}>
                   <View style={[styles.inlineChip, { backgroundColor: colors.bgTertiary, borderRadius: radius.sm, paddingHorizontal: spacing.s2, paddingVertical: 2 }]}>
                     <Text style={{ fontSize: fontSize.caption, color: colors.textSecondary }}>
-                      {`${programSelected.daysPerWeek} days/week`}
+                      {t('screens2:templates.daysPerWeekFull', { count: programSelected.daysPerWeek })}
                     </Text>
                   </View>
                   <View style={[styles.inlineChip, { backgroundColor: colors.bgTertiary, borderRadius: radius.sm, paddingHorizontal: spacing.s2, paddingVertical: 2 }]}>
                     <Text style={{ fontSize: fontSize.caption, color: colors.textSecondary }}>
-                      {LEVEL_LABEL[programSelected.level] ?? programSelected.level}
+                      {levelLabel(t, programSelected.level)}
                     </Text>
                   </View>
                   <View style={[styles.inlineChip, { backgroundColor: colors.accentSecondary, borderRadius: radius.sm, paddingHorizontal: spacing.s2, paddingVertical: 2 }]}>
@@ -974,7 +989,7 @@ export default function TemplatesScreen(): React.ReactElement {
                     marginBottom: spacing.s3,
                   }}
                 >
-                  {`Week 1 preview (${programSelected.days.length} sessions)`}
+                  {t('screens2:templates.week1PreviewSessions', { count: programSelected.days.length })}
                 </Text>
                 {programSelected.days.map((day, di) => (
                   <View
@@ -990,13 +1005,13 @@ export default function TemplatesScreen(): React.ReactElement {
                     ]}
                   >
                     <Text style={{ fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold, color: colors.textPrimary, marginBottom: 4 }}>
-                      {`Day ${di + 1}: ${day.name}`}
+                      {t('screens2:templates.dayNumberName', { number: di + 1, name: day.name })}
                     </Text>
                     {day.exercises.map((ex, ei) => (
                       <Text key={ei} style={{ fontSize: fontSize.caption, color: colors.textSecondary }}>
-                        {`• ${ex.name}  ${ex.target_sets ?? '?'}×${ex.target_reps ?? '?'}`}
-                        {ex.superset_group ? `  (superset ${ex.superset_group})` : ''}
-                        {ex.dropset ? '  (dropset)' : ''}
+                        {t('screens2:templates.exerciseLine', { name: ex.name, sets: ex.target_sets ?? '?', reps: ex.target_reps ?? '?' })}
+                        {ex.superset_group ? t('screens2:templates.supersetSuffix', { group: ex.superset_group }) : ''}
+                        {ex.dropset ? t('screens2:templates.dropsetSuffix') : ''}
                       </Text>
                     ))}
                   </View>
@@ -1010,7 +1025,7 @@ export default function TemplatesScreen(): React.ReactElement {
                     marginBottom: 4,
                   }}
                 >
-                  HOW PROGRESSION WORKS
+                  {t('screens2:templates.howProgressionWorks')}
                 </Text>
                 <Text style={{ fontSize: fontSize.caption, color: colors.textSecondary, lineHeight: 18 }}>
                   {programSelected.source_notes}
@@ -1019,7 +1034,7 @@ export default function TemplatesScreen(): React.ReactElement {
 
               <View style={{ paddingHorizontal: spacing.s6, paddingTop: spacing.s2 }}>
                 <PFButton
-                  label={adopting ? 'Adding…' : 'Adopt'}
+                  label={adopting ? t('screens2:templates.adding') : t('screens2:templates.adopt')}
                   onPress={() => handleAdoptProgram(programSelected)}
                   variant="primary"
                   fullWidth

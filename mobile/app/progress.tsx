@@ -14,6 +14,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation, type TFunction } from 'react-i18next';
 import {
   ActivityIndicator,
   FlatList,
@@ -386,6 +387,7 @@ function SkeletonRow({ height = 16 }: { height?: number }): React.ReactElement {
 
 function PRCard({ item }: { item: PREntry }): React.ReactElement {
   const { theme, fontSize, fontWeight, radius, spacing } = useTheme();
+  const { t } = useTranslation();
   return (
     <View
       style={[
@@ -399,7 +401,7 @@ function PRCard({ item }: { item: PREntry }): React.ReactElement {
         },
       ]}
       accessible
-      accessibilityLabel={`${item.exerciseName}, estimated one-rep max ${item.e1rmKg.toFixed(1)} kilograms`}
+      accessibilityLabel={t('screens2:progress.prCardA11y', { name: item.exerciseName, value: item.e1rmKg.toFixed(1) })}
     >
       <View style={styles.prCardRow}>
         <View style={{ flex: 1 }}>
@@ -432,7 +434,7 @@ function PRCard({ item }: { item: PREntry }): React.ReactElement {
               fontVariant: ['tabular-nums'],
             }}
           >
-            {item.e1rmKg.toFixed(1)} kg
+{t('screens2:progress.kgSuffix', { value: item.e1rmKg.toFixed(1) })}
           </Text>
           {item.isRecent && (
             <View
@@ -450,7 +452,7 @@ function PRCard({ item }: { item: PREntry }): React.ReactElement {
                   color: theme.colors.statusSuccess,
                 }}
               >
-                NEW
+                {t('screens2:progress.newBadge')}
               </Text>
             </View>
           )}
@@ -466,6 +468,7 @@ function PRCard({ item }: { item: PREntry }): React.ReactElement {
 
 export default function ProgressScreen(): React.ReactElement {
   const { theme, fontSize, fontWeight, radius, spacing } = useTheme();
+  const { t } = useTranslation();
   const { user } = useAuth();
   const localFirst = isLocalFirst(user);
   const router = useRouter();
@@ -494,7 +497,7 @@ export default function ProgressScreen(): React.ReactElement {
         setCardioData(cardio);
       }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to load progress data.');
+      setError(e instanceof Error ? e.message : t('screens2:progress.loadFailed'));
     } finally {
       setLoading(false);
     }
@@ -580,7 +583,7 @@ export default function ProgressScreen(): React.ReactElement {
                 textAlign: 'center',
               }}
               accessibilityRole="text"
-              accessibilityLabel={`Consistency score: ${data?.consistency ?? 0} percent`}
+  accessibilityLabel={t('screens2:progress.consistencyScoreA11y', { value: data?.consistency ?? 0 })}
             >
               {data?.consistency ?? 0}%
             </Text>
@@ -593,7 +596,7 @@ export default function ProgressScreen(): React.ReactElement {
                 marginBottom: spacing.s3,
               }}
             >
-              consistency last 8 weeks
+  {t('screens2:progress.consistencySubtitle')}
             </Text>
             <PFProgressBar value={(data?.consistency ?? 0) / 100} height={8} />
           </>
@@ -620,10 +623,10 @@ export default function ProgressScreen(): React.ReactElement {
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <View style={{ flex: 1 }}>
             <Text style={{ fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold, color: theme.colors.textPrimary }}>
-              Body measurements
+              {t('screens2:progress.bodyMeasurementsTitle')}
             </Text>
             <Text style={{ fontSize: fontSize.caption, color: theme.colors.textSecondary, marginTop: 2 }}>
-              Waist, chest, arms, and more — track trends over time
+              {t('screens2:progress.bodyMeasurementsSubtitle')}
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={theme.colors.textTertiary} />
@@ -648,10 +651,10 @@ export default function ProgressScreen(): React.ReactElement {
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
           <View style={{ flex: 1 }}>
             <Text style={{ fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold, color: theme.colors.textPrimary }}>
-              Progress photos
+              {t('screens2:progress.progressPhotosTitle')}
             </Text>
             <Text style={{ fontSize: fontSize.caption, color: theme.colors.textSecondary, marginTop: 2 }}>
-              Private, on-device — never leaves your phone
+              {t('screens2:progress.progressPhotosSubtitle')}
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={theme.colors.textTertiary} />
@@ -680,9 +683,9 @@ export default function ProgressScreen(): React.ReactElement {
           </Text>
           <PFButton
             variant="primary"
-            label="Retry"
+            label={t('common:retry')}
             onPress={load}
-            accessibilityLabel="Retry loading progress data"
+            accessibilityLabel={t('screens2:progress.retryA11y')}
           />
         </View>
       ) : null}
@@ -690,7 +693,7 @@ export default function ProgressScreen(): React.ReactElement {
       {/* ── 2. Sessions per week ── */}
       {!error && (
         <>
-          <SectionHeader label="SESSIONS PER WEEK" />
+          <SectionHeader label={t('screens2:progress.sessionsPerWeek')} />
           {loading ? (
             <SkeletonRow height={chartHeight} />
           ) : (
@@ -730,7 +733,7 @@ export default function ProgressScreen(): React.ReactElement {
       {/* ── 3. Weekly volume ── */}
       {!error && (
         <>
-          <SectionHeader label="WEEKLY VOLUME (KG)" />
+          <SectionHeader label={t('screens2:progress.weeklyVolume')} />
           {loading ? (
             <SkeletonRow height={chartHeight} />
           ) : (
@@ -770,7 +773,7 @@ export default function ProgressScreen(): React.ReactElement {
       {/* ── 4. Top PRs ── */}
       {!error && (
         <>
-          <SectionHeader label="YOUR TOP LIFTS" />
+          <SectionHeader label={t('screens2:progress.yourTopLifts')} />
           {loading ? (
             <>
               <SkeletonRow height={72} />
@@ -803,7 +806,7 @@ export default function ProgressScreen(): React.ReactElement {
                   marginTop: spacing.s3,
                 }}
               >
-                No sets logged yet. Start lifting to see your PRs!
+                {t('screens2:progress.noPrsYet')}
               </Text>
             </View>
           ) : (
@@ -812,7 +815,7 @@ export default function ProgressScreen(): React.ReactElement {
               keyExtractor={(item) => item.exerciseId}
               renderItem={({ item }) => <PRCard item={item} />}
               scrollEnabled={false}
-              accessibilityLabel="Your top 5 personal records"
+accessibilityLabel={t('screens2:progress.topPrsA11y')}
             />
           )}
         </>
@@ -821,7 +824,7 @@ export default function ProgressScreen(): React.ReactElement {
       {/* ── 5. Weekly mileage chart ── */}
       {!error && mileageBuckets.length > 0 && (
         <>
-          <SectionHeader label="WEEKLY MILEAGE (KM)" />
+          <SectionHeader label={t('screens2:progress.weeklyMileage')} />
 
           {/* 10% rule overshoot warning banner */}
           {cardioData?.tenPctWarning && (
@@ -840,7 +843,7 @@ export default function ProgressScreen(): React.ReactElement {
                 },
               ]}
               accessibilityRole="alert"
-              accessibilityLabel="10% rule warning: your mileage jumped more than 10% this week. Consider backing off to reduce injury risk."
+accessibilityLabel={t('screens2:progress.tenPctWarningA11y')}
             >
               <Ionicons
                 name="warning-outline"
@@ -856,7 +859,7 @@ export default function ProgressScreen(): React.ReactElement {
                     color: theme.colors.statusWarning,
                   }}
                 >
-                  10% rule: mileage jumped this week
+                  {t('screens2:progress.tenPctWarningTitle')}
                 </Text>
                 <Text
                   style={{
@@ -865,7 +868,7 @@ export default function ProgressScreen(): React.ReactElement {
                     marginTop: 2,
                   }}
                 >
-                  Increasing weekly mileage by more than 10% raises injury risk. Consider an easier week.
+                  {t('screens2:progress.tenPctWarningBody')}
                 </Text>
               </View>
             </View>
@@ -903,7 +906,7 @@ export default function ProgressScreen(): React.ReactElement {
       {/* ── 6. Running pace trend ── */}
       {!error && runPaceTrend.length >= 2 && (
         <>
-          <SectionHeader label="RUNNING PACE TREND (MIN/KM)" />
+          <SectionHeader label={t('screens2:progress.runningPaceTrend')} />
           <VictoryChart
             width={chartWidth}
             height={chartHeight}
@@ -956,7 +959,7 @@ export default function ProgressScreen(): React.ReactElement {
               marginBottom: spacing.s3,
             }}
           >
-            Lower is faster — upward trend means you are getting quicker
+{t('screens2:progress.paceNote')}
           </Text>
         </>
       )}

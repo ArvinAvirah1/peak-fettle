@@ -21,6 +21,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation, type TFunction } from 'react-i18next';
 import {
   ActivityIndicator,
   Alert,
@@ -64,8 +65,8 @@ function formatDate(iso: string): string {
   return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function poseLabel(pose: PhotoPose | null): string {
-  if (!pose) return 'Untagged';
+function poseLabel(pose: PhotoPose | null, t: TFunction): string {
+  if (!pose) return t('screens2:progressPhotos.untagged');
   return PHOTO_POSE_DEFS.find((p) => p.key === pose)?.label ?? pose;
 }
 
@@ -83,6 +84,7 @@ function PhotoTile({
   selected: boolean;
 }): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const uri = photoFileUri(photo.file_name);
   return (
     <Pressable
@@ -95,7 +97,7 @@ function PhotoTile({
         },
       ]}
       accessibilityRole="button"
-      accessibilityLabel={`${poseLabel(photo.pose)} photo from ${formatDate(photo.taken_at)}`}
+      accessibilityLabel={t('screens2:progressPhotos.tileA11y', { pose: poseLabel(photo.pose, t), date: formatDate(photo.taken_at) })}
     >
       {uri ? (
         <Image source={{ uri }} style={tileStyles.image} resizeMode="cover" />
@@ -146,6 +148,7 @@ function CompareView({
   onClose: () => void;
 }): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const compareHeight = Math.round(width * 1.3);
@@ -182,8 +185,8 @@ function CompareView({
     <Modal visible animationType="slide" onRequestClose={onClose}>
       <View style={[compareStyles.container, { backgroundColor: theme.colors.bgPrimary }]}>
         <View style={[compareStyles.header, { paddingTop: Math.max(insets.top, 12), borderBottomColor: theme.colors.borderDefault }]}>
-          <Text style={[compareStyles.headerTitle, { color: theme.colors.textPrimary }]}>Compare</Text>
-          <TouchableOpacity onPress={onClose} accessibilityRole="button" accessibilityLabel="Close compare view">
+          <Text style={[compareStyles.headerTitle, { color: theme.colors.textPrimary }]}>{t('screens2:progressPhotos.compareTitle')}</Text>
+          <TouchableOpacity onPress={onClose} accessibilityRole="button" accessibilityLabel={t('screens2:progressPhotos.closeCompareA11y')}>
             <Ionicons name="close-circle-outline" size={26} color={theme.colors.textSecondary} />
           </TouchableOpacity>
         </View>
@@ -231,7 +234,7 @@ function CompareView({
         </View>
 
         <Text style={[compareStyles.hint, { color: theme.colors.textTertiary }]}>
-          Drag the divider to compare — left: {poseLabel(left.pose)}, right: {poseLabel(right.pose)}
+          {t('screens2:progressPhotos.dragHint', { left: poseLabel(left.pose, t), right: poseLabel(right.pose, t) })}
         </Text>
       </View>
     </Modal>
@@ -293,6 +296,7 @@ function CaptureSheet({
   onSaved: () => void;
 }): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const [pose, setPose] = useState<PhotoPose>('front');
   const [note, setNote] = useState('');
@@ -306,7 +310,7 @@ function CaptureSheet({
         ? await captureProgressPhoto(pose, note.trim() || null)
         : await importProgressPhoto(pose, note.trim() || null);
       if (!result.ok) {
-        Alert.alert('Could not save photo', result.error ?? 'Please try again.');
+        Alert.alert(t('screens2:progressPhotos.saveFailedTitle'), result.error ?? t('screens2:progressPhotos.saveFailedBody'));
         return;
       }
       setNote('');
@@ -329,10 +333,10 @@ function CaptureSheet({
         >
           <View style={sheetStyles.handle} />
           <Text style={[sheetStyles.title, { color: theme.colors.textPrimary }]}>
-            {mode === 'camera' ? 'Take a photo' : 'Choose a photo'}
+            {mode === 'camera' ? t('screens2:progressPhotos.takePhoto') : t('screens2:progressPhotos.choosePhoto')}
           </Text>
 
-          <Text style={[sheetStyles.label, { color: theme.colors.textTertiary }]}>POSE</Text>
+          <Text style={[sheetStyles.label, { color: theme.colors.textTertiary }]}>{t('screens2:progressPhotos.poseLabel')}</Text>
           <View style={sheetStyles.poseRow}>
             {PHOTO_POSE_DEFS.map((p) => (
               <TouchableOpacity
@@ -355,21 +359,21 @@ function CaptureSheet({
             ))}
           </View>
 
-          <Text style={[sheetStyles.label, { color: theme.colors.textTertiary }]}>NOTE (OPTIONAL)</Text>
+          <Text style={[sheetStyles.label, { color: theme.colors.textTertiary }]}>{t('screens2:progressPhotos.noteLabel')}</Text>
           <TextInput
             value={note}
             onChangeText={setNote}
-            placeholder="e.g. after 4 weeks of the cut"
+            placeholder={t('screens2:progressPhotos.notePlaceholder')}
             placeholderTextColor={theme.colors.textTertiary}
             style={[sheetStyles.noteInput, { borderColor: theme.colors.borderDefault, color: theme.colors.textPrimary }]}
             multiline
           />
 
           <View style={sheetStyles.actionsRow}>
-            <PFButton variant="ghost" label="Cancel" onPress={onClose} disabled={saving} />
+            <PFButton variant="ghost" label={t('common:cancel')} onPress={onClose} disabled={saving} />
             <PFButton
               variant="primary"
-              label={saving ? 'Saving…' : 'Save photo'}
+              label={saving ? t('screens2:progressPhotos.savingPhoto') : t('screens2:progressPhotos.savePhoto')}
               onPress={handleSave}
               disabled={saving}
             />
@@ -398,6 +402,7 @@ const sheetStyles = StyleSheet.create({
 
 export default function ProgressPhotosScreen(): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
 
   const [photos, setPhotos] = useState<ProgressPhoto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -461,12 +466,12 @@ export default function ProgressPhotosScreen(): React.ReactElement {
   const handleDelete = useCallback(
     (photo: ProgressPhoto) => {
       Alert.alert(
-        'Delete photo?',
-        `This permanently deletes the ${poseLabel(photo.pose)} photo from ${formatDate(photo.taken_at)}. This cannot be undone.`,
+        t('screens2:progressPhotos.deleteTitle'),
+        t('screens2:progressPhotos.deleteBody', { pose: poseLabel(photo.pose, t), date: formatDate(photo.taken_at) }),
         [
-          { text: 'Cancel', style: 'cancel' },
+          { text: t('common:cancel'), style: 'cancel' },
           {
-            text: 'Delete',
+            text: t('common:delete'),
             style: 'destructive',
             onPress: async () => {
               await deleteProgressPhoto(photo.id);
@@ -484,14 +489,14 @@ export default function ProgressPhotosScreen(): React.ReactElement {
   return (
     <ScreenLayout scrollable={false} contentStyle={styles.content}>
       <Text style={[styles.sub, { color: theme.colors.textSecondary }]}>
-        Your photos never leave your phone — private, on-device, always.
+        {t('screens2:progressPhotos.subtitle')}
       </Text>
 
       {!pickerAvailable ? (
         <View style={[styles.notice, { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault }]}>
           <Ionicons name="lock-closed-outline" size={16} color={theme.colors.textTertiary} />
           <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.caption, flex: 1 }}>
-            Photo capture needs an app update to enable it on this build.
+            {t('screens2:progressPhotos.pickerUnavailable')}
           </Text>
         </View>
       ) : null}
@@ -499,14 +504,14 @@ export default function ProgressPhotosScreen(): React.ReactElement {
       <View style={styles.captureRow}>
         <PFButton
           variant="secondary"
-          label="Camera"
+          label={t('screens2:progressPhotos.cameraButton')}
           onPress={() => setCaptureMode('camera')}
           disabled={!pickerAvailable}
           style={{ flex: 1 }}
         />
         <PFButton
           variant="secondary"
-          label="Library"
+          label={t('screens2:progressPhotos.libraryButton')}
           onPress={() => setCaptureMode('library')}
           disabled={!pickerAvailable}
           style={{ flex: 1 }}
@@ -523,7 +528,7 @@ export default function ProgressPhotosScreen(): React.ReactElement {
           ]}
         >
           <Text style={{ color: poseFilter === 'all' ? theme.colors.accentDefault : theme.colors.textSecondary, fontSize: fontSize.bodySm, fontWeight: fontWeight.semibold }}>
-            All
+            {t('screens2:progressPhotos.allFilter')}
           </Text>
         </TouchableOpacity>
         {PHOTO_POSE_DEFS.map((p) => (
@@ -546,11 +551,11 @@ export default function ProgressPhotosScreen(): React.ReactElement {
         <View style={[styles.compareHint, { backgroundColor: theme.colors.accentDefault + '1A' }]}>
           <Text style={{ color: theme.colors.accentDefault, fontSize: fontSize.caption, fontWeight: fontWeight.semibold }}>
             {compareSelection.length === 1
-              ? 'Tap a second photo to compare'
-              : 'Opening compare…'}
+              ? t('screens2:progressPhotos.tapSecondPhoto')
+              : t('screens2:progressPhotos.openingCompare')}
           </Text>
           <TouchableOpacity onPress={() => setCompareSelection([])}>
-            <Text style={{ color: theme.colors.accentDefault, fontSize: fontSize.caption }}>Cancel</Text>
+            <Text style={{ color: theme.colors.accentDefault, fontSize: fontSize.caption }}>{t('common:cancel')}</Text>
           </TouchableOpacity>
         </View>
       ) : null}
@@ -561,7 +566,7 @@ export default function ProgressPhotosScreen(): React.ReactElement {
         <View style={styles.emptyState}>
           <Ionicons name="images-outline" size={36} color={theme.colors.textTertiary} />
           <Text style={{ color: theme.colors.textTertiary, fontSize: fontSize.bodyMd, textAlign: 'center', marginTop: spacing.s3 }}>
-            No progress photos yet. Take or import your first one above.
+            {t('screens2:progressPhotos.emptyState')}
           </Text>
         </View>
       ) : (
@@ -587,7 +592,7 @@ export default function ProgressPhotosScreen(): React.ReactElement {
           onPress={() => handleDelete(selectedPhoto)}
           style={[styles.deleteFab, { backgroundColor: theme.colors.statusError }]}
           accessibilityRole="button"
-          accessibilityLabel="Delete selected photo"
+accessibilityLabel={t('screens2:progressPhotos.deleteSelectedA11y')}
         >
           <Ionicons name="trash-outline" size={18} color="#fff" />
         </TouchableOpacity>

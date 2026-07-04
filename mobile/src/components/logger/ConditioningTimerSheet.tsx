@@ -47,6 +47,7 @@ import {
   totalDurationSec,
 } from './conditioningTimerLogic';
 import type { CardioMetrics } from '../../data/cardioMetrics';
+import { useTranslation } from 'react-i18next';
 
 export interface ConditioningTimerSheetProps {
   visible: boolean;
@@ -90,6 +91,15 @@ export function ConditioningTimerSheet(props: ConditioningTimerSheetProps): Reac
   const { visible, exerciseName, onFinish, onClose } = props;
   const { theme, fontSize: fs, fontWeight: fw, spacing: sp, radius: r } = useTheme();
   const insets = useSafeAreaInsets();
+  const { t } = useTranslation();
+
+  // Render-site translation of conditioningTimerLogic.modeLabel (pure module,
+  // not owned here): map the mode value to a key, module's own string as
+  // fallback via defaultValue.
+  const trModeLabel = useCallback(
+    (m: ConditioningMode) => t(`logger:conditioningTimer.mode_${m}` as never, { defaultValue: modeLabel(m) }),
+    [t],
+  );
 
   const [mode, setMode] = useState<ConditioningMode>('emom');
   const [config, setConfig] = useState<ConditioningConfig>(DEFAULTS.emom);
@@ -192,7 +202,7 @@ export function ConditioningTimerSheet(props: ConditioningTimerSheetProps): Reac
       <Pressable
         style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)' }}
         onPress={running ? undefined : onClose}
-        accessibilityLabel="Dismiss conditioning timer"
+        accessibilityLabel={t('logger:conditioningTimer.dismissA11y')}
       />
       <View
         style={[
@@ -216,7 +226,7 @@ export function ConditioningTimerSheet(props: ConditioningTimerSheetProps): Reac
         <View style={styles.headerRow}>
           <Ionicons name="stopwatch-outline" size={20} color={theme.colors.accentDefault} />
           <Text style={[styles.title, { color: theme.colors.textPrimary, fontSize: fs.bodyLg, fontWeight: fw.bold, marginLeft: sp.s2 }]}>
-            Conditioning timer
+            {t('logger:conditioningTimer.title')}
           </Text>
         </View>
         <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodySm, marginBottom: sp.s3 }} numberOfLines={1}>
@@ -244,7 +254,7 @@ export function ConditioningTimerSheet(props: ConditioningTimerSheetProps): Reac
                   ]}
                   accessibilityRole="button"
                   accessibilityState={{ selected: on, disabled: running }}
-                  accessibilityLabel={`${modeLabel(m)} mode`}
+                  accessibilityLabel={t('logger:conditioningTimer.modeA11y', { mode: trModeLabel(m) })}
                 >
                   <Text
                     style={{
@@ -253,7 +263,7 @@ export function ConditioningTimerSheet(props: ConditioningTimerSheetProps): Reac
                       fontWeight: fw.bold,
                     }}
                   >
-                    {modeLabel(m)}
+                    {trModeLabel(m)}
                   </Text>
                 </TouchableOpacity>
               );
@@ -266,23 +276,23 @@ export function ConditioningTimerSheet(props: ConditioningTimerSheetProps): Reac
               {config.mode === 'emom' ? (
                 <View style={styles.configRow}>
                   <ConfigField
-                    label="ROUNDS"
+                    label={t('logger:conditioningTimer.roundsLabel')}
                     value={String(config.rounds)}
-                    onChangeText={(t) => updateField({ rounds: parseInt(t, 10) || 0 } as Partial<ConditioningConfig>)}
+                    onChangeText={(txt) => updateField({ rounds: parseInt(txt, 10) || 0 } as Partial<ConditioningConfig>)}
                   />
                   <ConfigField
-                    label="INTERVAL (SEC)"
+                    label={t('logger:conditioningTimer.intervalSecLabel')}
                     value={String(config.intervalSec)}
-                    onChangeText={(t) => updateField({ intervalSec: parseInt(t, 10) || 0 } as Partial<ConditioningConfig>)}
+                    onChangeText={(txt) => updateField({ intervalSec: parseInt(txt, 10) || 0 } as Partial<ConditioningConfig>)}
                   />
                 </View>
               ) : null}
               {config.mode === 'amrap' ? (
                 <View style={styles.configRow}>
                   <ConfigField
-                    label="TIME CAP (SEC)"
+                    label={t('logger:conditioningTimer.timeCapSecLabel')}
                     value={String(config.capSec)}
-                    onChangeText={(t) => updateField({ capSec: parseInt(t, 10) || 0 } as Partial<ConditioningConfig>)}
+                    onChangeText={(txt) => updateField({ capSec: parseInt(txt, 10) || 0 } as Partial<ConditioningConfig>)}
                   />
                 </View>
               ) : null}
@@ -290,25 +300,25 @@ export function ConditioningTimerSheet(props: ConditioningTimerSheetProps): Reac
                 <>
                   <View style={styles.configRow}>
                     <ConfigField
-                      label="ROUNDS"
+                      label={t('logger:conditioningTimer.roundsLabel')}
                       value={String(config.rounds)}
-                      onChangeText={(t) => updateField({ rounds: parseInt(t, 10) || 0 } as Partial<ConditioningConfig>)}
+                      onChangeText={(txt) => updateField({ rounds: parseInt(txt, 10) || 0 } as Partial<ConditioningConfig>)}
                     />
                     <ConfigField
-                      label="WORK (SEC)"
+                      label={t('logger:conditioningTimer.workSecLabel')}
                       value={String(config.workSec)}
-                      onChangeText={(t) => updateField({ workSec: parseInt(t, 10) || 0 } as Partial<ConditioningConfig>)}
+                      onChangeText={(txt) => updateField({ workSec: parseInt(txt, 10) || 0 } as Partial<ConditioningConfig>)}
                     />
                     <ConfigField
-                      label="REST (SEC)"
+                      label={t('logger:conditioningTimer.restSecLabel')}
                       value={String(config.restSec)}
-                      onChangeText={(t) => updateField({ restSec: parseInt(t, 10) || 0 } as Partial<ConditioningConfig>)}
+                      onChangeText={(txt) => updateField({ restSec: parseInt(txt, 10) || 0 } as Partial<ConditioningConfig>)}
                     />
                   </View>
                 </>
               ) : null}
               <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodySm, marginTop: sp.s2 }}>
-                Planned total: {formatClock(planTotalSec)}
+                {t('logger:conditioningTimer.plannedTotal', { time: formatClock(planTotalSec) })}
               </Text>
             </View>
           ) : null}
@@ -319,7 +329,7 @@ export function ConditioningTimerSheet(props: ConditioningTimerSheetProps): Reac
               {config.mode === 'emom' && phase && 'secLeftInRound' in phase ? (
                 <>
                   <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodySm }}>
-                    ROUND {phase.round} OF {(config as { rounds: number }).rounds}
+                    {t('logger:conditioningTimer.roundOfN', { round: phase.round, total: (config as { rounds: number }).rounds })}
                   </Text>
                   <Text style={[styles.bigClock, { color: theme.colors.textPrimary, fontWeight: fw.bold }]}>
                     {formatClock(phase.secLeftInRound)}
@@ -328,7 +338,7 @@ export function ConditioningTimerSheet(props: ConditioningTimerSheetProps): Reac
               ) : null}
               {config.mode === 'amrap' && phase && 'secLeft' in phase ? (
                 <>
-                  <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodySm }}>TIME LEFT</Text>
+                  <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodySm }}>{t('logger:conditioningTimer.timeLeft')}</Text>
                   <Text style={[styles.bigClock, { color: theme.colors.textPrimary, fontWeight: fw.bold }]}>
                     {formatClock(phase.secLeft)}
                   </Text>
@@ -337,18 +347,18 @@ export function ConditioningTimerSheet(props: ConditioningTimerSheetProps): Reac
                       onPress={() => setAmrapRounds((n) => decrementRounds(n))}
                       style={[styles.roundBtn, { borderColor: theme.colors.borderDefault, borderRadius: r.sm ?? 6 }]}
                       accessibilityRole="button"
-                      accessibilityLabel="Remove one round"
+                      accessibilityLabel={t('logger:conditioningTimer.removeRoundA11y')}
                     >
                       <Ionicons name="remove" size={18} color={theme.colors.textSecondary} />
                     </TouchableOpacity>
                     <Text style={{ color: theme.colors.textPrimary, fontSize: fs.bodyLg, fontWeight: fw.bold, marginHorizontal: sp.s3 }}>
-                      {amrapRounds} rounds
+                      {t('logger:conditioningTimer.roundsCount', { count: amrapRounds })}
                     </Text>
                     <TouchableOpacity
                       onPress={() => setAmrapRounds((n) => incrementRounds(n))}
                       style={[styles.roundBtn, { backgroundColor: theme.colors.accentDefault, borderRadius: r.sm ?? 6 }]}
                       accessibilityRole="button"
-                      accessibilityLabel="Add one round"
+                      accessibilityLabel={t('logger:conditioningTimer.addRoundA11y')}
                     >
                       <Ionicons name="add" size={18} color={theme.components.buttonPrimaryText} />
                     </TouchableOpacity>
@@ -364,7 +374,11 @@ export function ConditioningTimerSheet(props: ConditioningTimerSheetProps): Reac
                       fontWeight: fw.bold,
                     }}
                   >
-                    {phase.phase === 'work' ? 'WORK' : 'REST'} · ROUND {phase.round} OF {(config as { rounds: number }).rounds}
+                    {t('logger:conditioningTimer.phaseRoundOfN', {
+                      phase: phase.phase === 'work' ? t('logger:conditioningTimer.workPhase') : t('logger:conditioningTimer.restPhase'),
+                      round: phase.round,
+                      total: (config as { rounds: number }).rounds,
+                    })}
                   </Text>
                   <Text style={[styles.bigClock, { color: theme.colors.textPrimary, fontWeight: fw.bold }]}>
                     {formatClock(phase.secLeftInPhase)}
@@ -373,7 +387,10 @@ export function ConditioningTimerSheet(props: ConditioningTimerSheetProps): Reac
               ) : null}
               {hasResult && !running ? (
                 <Text style={{ color: theme.colors.textTertiary, fontSize: fs.bodySm, marginTop: sp.s2 }}>
-                  {phase?.done ? 'Complete' : 'Stopped'} — {formatClock(Math.round(elapsedMs / 1000))} elapsed
+                  {t('logger:conditioningTimer.resultElapsed', {
+                    status: phase?.done ? t('logger:conditioningTimer.resultComplete') : t('logger:conditioningTimer.resultStopped'),
+                    time: formatClock(Math.round(elapsedMs / 1000)),
+                  })}
                 </Text>
               ) : null}
             </View>
@@ -387,10 +404,10 @@ export function ConditioningTimerSheet(props: ConditioningTimerSheetProps): Reac
               style={[styles.primaryBtn, { backgroundColor: theme.colors.accentDefault, borderRadius: r.md }]}
               onPress={start}
               accessibilityRole="button"
-              accessibilityLabel={`Start ${modeLabel(mode)} timer`}
+              accessibilityLabel={t('logger:conditioningTimer.startModeA11y', { mode: trModeLabel(mode) })}
             >
               <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fs.bodyMd, fontWeight: fw.bold }}>
-                Start {modeLabel(mode)}
+                {t('logger:conditioningTimer.startMode', { mode: trModeLabel(mode) })}
               </Text>
             </TouchableOpacity>
           ) : running ? (
@@ -398,10 +415,10 @@ export function ConditioningTimerSheet(props: ConditioningTimerSheetProps): Reac
               style={[styles.primaryBtn, { backgroundColor: theme.colors.statusWarning, borderRadius: r.md }]}
               onPress={finishOrAbandon}
               accessibilityRole="button"
-              accessibilityLabel="Stop and log this run"
+              accessibilityLabel={t('logger:conditioningTimer.stopAndLogA11y')}
             >
               <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fs.bodyMd, fontWeight: fw.bold }}>
-                Stop &amp; log
+                {t('logger:conditioningTimer.stopAndLog')}
               </Text>
             </TouchableOpacity>
           ) : (
@@ -410,19 +427,19 @@ export function ConditioningTimerSheet(props: ConditioningTimerSheetProps): Reac
                 style={[styles.primaryBtn, { backgroundColor: theme.colors.accentDefault, borderRadius: r.md }]}
                 onPress={finishOrAbandon}
                 accessibilityRole="button"
-                accessibilityLabel="Log this result"
+                accessibilityLabel={t('logger:conditioningTimer.logResultA11y')}
               >
                 <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fs.bodyMd, fontWeight: fw.bold }}>
-                  Log set
+                  {t('logger:conditioningTimer.logSet')}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.secondaryBtn, { borderColor: theme.colors.borderDefault, borderRadius: r.md, marginTop: sp.s2 }]}
                 onPress={reset}
                 accessibilityRole="button"
-                accessibilityLabel="Reset and run again"
+                accessibilityLabel={t('logger:conditioningTimer.resetA11y')}
               >
-                <Text style={{ color: theme.colors.textSecondary, fontSize: fs.bodyMd }}>Run again</Text>
+                <Text style={{ color: theme.colors.textSecondary, fontSize: fs.bodyMd }}>{t('logger:conditioningTimer.runAgain')}</Text>
               </TouchableOpacity>
             </>
           )}
@@ -432,10 +449,10 @@ export function ConditioningTimerSheet(props: ConditioningTimerSheetProps): Reac
             onPress={onClose}
             disabled={running}
             accessibilityRole="button"
-            accessibilityLabel="Cancel"
+            accessibilityLabel={t('logger:conditioningTimer.cancelA11y')}
           >
             <Text style={{ color: running ? theme.colors.textTertiary : theme.colors.textTertiary, fontSize: fs.bodySm, opacity: running ? 0.4 : 1 }}>
-              {running ? 'Stop the timer to close' : 'Cancel'}
+              {running ? t('logger:conditioningTimer.stopToClose') : t('logger:conditioningTimer.cancel')}
             </Text>
           </TouchableOpacity>
         </View>

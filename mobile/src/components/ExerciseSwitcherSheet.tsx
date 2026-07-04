@@ -20,6 +20,7 @@ import {
 import { Ionicons } from './Icon';
 import { stepperPalette, fontFamily, spacing, radius, fontSize } from '../theme/tokens';
 import { RoutineSession } from './RoutineStrip';
+import { useTranslation } from 'react-i18next';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -42,6 +43,7 @@ export default function ExerciseSwitcherSheet({
   onSelectIndex,
   onBrowseLibrary,
 }: Props): React.ReactElement | null {
+  const { t } = useTranslation();
   if (!visible) return null;
 
   const { exercises, currentIndex } = routineSession;
@@ -58,7 +60,7 @@ export default function ExerciseSwitcherSheet({
         {/* Drag handle */}
         <View style={styles.handle} />
 
-        <Text style={styles.sectionLabel}>IN THIS ROUTINE</Text>
+        <Text style={styles.sectionLabel}>{t('logger:exerciseSwitcher.inThisRoutine')}</Text>
 
         <ScrollView
           style={styles.list}
@@ -81,7 +83,7 @@ export default function ExerciseSwitcherSheet({
                   onClose();
                 }}
                 accessibilityRole="button"
-                accessibilityLabel={`${ex.name}${isDone ? ', done' : ''}`}
+                accessibilityLabel={`${ex.name}${isDone ? t('logger:exerciseSwitcher.a11yDoneSuffix') : ''}`}
                 accessibilityState={{ selected: isCurrent }}
               >
                 {/* Check circle */}
@@ -106,10 +108,10 @@ export default function ExerciseSwitcherSheet({
                 {/* Set count / status label */}
                 <Text style={styles.setCount}>
                   {isCurrent
-                    ? 'current'
+                    ? t('logger:exerciseSwitcher.current')
                     : isDone
-                    ? `${ex.loggedSetCount} set${ex.loggedSetCount !== 1 ? 's' : ''}`
-                    : '—'}
+                    ? t('logger:exerciseSwitcher.setCount', { count: ex.loggedSetCount })
+                    : t('logger:exerciseSwitcher.notStarted')}
                 </Text>
               </TouchableOpacity>
             );
@@ -124,10 +126,10 @@ export default function ExerciseSwitcherSheet({
             onBrowseLibrary();
           }}
           accessibilityRole="button"
-          accessibilityLabel="Browse full exercise library"
+          accessibilityLabel={t('logger:exerciseSwitcher.browseLibraryA11y')}
         >
           <Ionicons name="search" size={14} color={stepperPalette.accent} />
-          <Text style={styles.browseText}>Browse full library →</Text>
+          <Text style={styles.browseText}>{t('logger:exerciseSwitcher.browseLibrary')}</Text>
         </TouchableOpacity>
       </View>
     </Modal>

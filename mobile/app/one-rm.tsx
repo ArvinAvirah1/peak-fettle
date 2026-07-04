@@ -7,6 +7,7 @@
  */
 
 import React, { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { useTheme } from '../src/theme/ThemeContext';
 import { useAuth } from '../src/hooks/useAuth';
@@ -18,6 +19,7 @@ const TABLE_REPS = [1, 2, 3, 5, 8, 10, 12];
 
 export default function OneRmScreen(): React.ReactElement {
   const { theme } = useTheme();
+  const { t } = useTranslation();
   const { user } = useAuth();
   const unitLabel = (user?.unit_pref ?? 'kg') === 'lbs' ? 'lb' : 'kg';
 
@@ -33,13 +35,13 @@ export default function OneRmScreen(): React.ReactElement {
     <ScreenLayout>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={[styles.sub, { color: theme.colors.textSecondary }]}>
-          Enter your best recent set. Your tracked e1RM over time is in Trends.
+          {t('screens2:oneRm.subtitle')}
         </Text>
 
         <View style={styles.inputRow}>
           <View style={styles.inputGroup}>
             <Text style={[styles.inputLabel, { color: theme.colors.textTertiary }]}>
-              WEIGHT ({unitLabel.toUpperCase()})
+              {t('screens2:oneRm.weightLabel', { unit: unitLabel.toUpperCase() })}
             </Text>
             <TextInput
               style={[
@@ -55,11 +57,11 @@ export default function OneRmScreen(): React.ReactElement {
               keyboardType="decimal-pad"
               placeholder="—"
               placeholderTextColor={theme.colors.textTertiary}
-              accessibilityLabel="Set weight"
+              accessibilityLabel={t('screens2:oneRm.setWeightA11y')}
             />
           </View>
           <View style={styles.inputGroup}>
-            <Text style={[styles.inputLabel, { color: theme.colors.textTertiary }]}>REPS</Text>
+            <Text style={[styles.inputLabel, { color: theme.colors.textTertiary }]}>{t('screens2:oneRm.repsLabel')}</Text>
             <TextInput
               style={[
                 styles.input,
@@ -74,7 +76,7 @@ export default function OneRmScreen(): React.ReactElement {
               keyboardType="number-pad"
               placeholder="—"
               placeholderTextColor={theme.colors.textTertiary}
-              accessibilityLabel="Reps performed"
+              accessibilityLabel={t('screens2:oneRm.repsPerformedA11y')}
             />
           </View>
         </View>
@@ -101,7 +103,7 @@ export default function OneRmScreen(): React.ReactElement {
                   { color: formula === f ? theme.colors.accentDefault : theme.colors.textSecondary },
                 ]}
               >
-                {f === 'epley' ? 'Epley (app default)' : 'Brzycki'}
+                {f === 'epley' ? t('screens2:oneRm.epleyLabel') : t('screens2:oneRm.brzyckiLabel')}
               </Text>
             </TouchableOpacity>
           ))}
@@ -116,7 +118,7 @@ export default function OneRmScreen(): React.ReactElement {
               ]}
             >
               <Text style={[styles.resultLabel, { color: theme.colors.textTertiary }]}>
-                ESTIMATED 1RM
+                {t('screens2:oneRm.estimated1rm')}
               </Text>
               <Text style={[styles.resultBig, { color: theme.colors.textPrimary }]}>
                 {oneRm.toFixed(1)} {unitLabel}
@@ -124,7 +126,7 @@ export default function OneRmScreen(): React.ReactElement {
             </View>
 
             <Text style={[styles.tableTitle, { color: theme.colors.textTertiary }]}>
-              WORKING WEIGHTS
+              {t('screens2:oneRm.workingWeights')}
             </Text>
             {TABLE_REPS.map((tr) => (
               <View
@@ -132,7 +134,7 @@ export default function OneRmScreen(): React.ReactElement {
                 style={[styles.tableRow, { borderBottomColor: theme.colors.borderDefault }]}
               >
                 <Text style={[styles.tableReps, { color: theme.colors.textSecondary }]}>
-                  {tr} rep{tr !== 1 ? 's' : ''}
+                  {t('screens2:oneRm.repsCount', { count: tr })}
                 </Text>
                 <Text style={[styles.tableWeight, { color: theme.colors.textPrimary }]}>
                   {weightForReps(oneRm, tr, formula).toFixed(1)} {unitLabel}
@@ -140,12 +142,12 @@ export default function OneRmScreen(): React.ReactElement {
               </View>
             ))}
             <Text style={[styles.note, { color: theme.colors.textTertiary }]}>
-              Estimates are least reliable above ~10 reps. The app logs e1RM with Epley.
+              {t('screens2:oneRm.reliabilityNote')}
             </Text>
           </>
         ) : (
           <Text style={[styles.note, { color: theme.colors.textTertiary }]}>
-            Enter a weight and rep count to estimate your max.
+            {t('screens2:oneRm.emptyPrompt')}
           </Text>
         )}
       </ScrollView>
