@@ -38,6 +38,7 @@ import { useAuth } from '../src/hooks/useAuth';
 import { ScreenLayout } from '../src/components/ui';
 import { fontWeight } from '../src/theme/tokens';
 import ReadinessCard from '../src/components/ReadinessCard';
+import FatigueAdviceCard from '../src/components/FatigueAdviceCard';
 import MuscleHeatmap from '../src/components/MuscleHeatmap';
 import {
   getReadiness,
@@ -329,6 +330,13 @@ export default function InsightsScreen(): React.ReactElement {
             </View>
           </Animated.View>
         )}
+
+        {/* ── Fatigue-aware plan-adjustment advice (TICKET-142) ──────────── */}
+        {/* Local on both tiers; renders null internally unless an active plan */}
+        {/* exists AND the engine rule fires — no tier gate needed here. */}
+        <View style={{ marginBottom: sp.s5 }}>
+          <FatigueAdviceCard />
+        </View>
 
         {/* ── Readiness card (Pro only) ──────────────────────────────────── */}
         {user?.is_paid ? (

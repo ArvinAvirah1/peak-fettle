@@ -83,6 +83,9 @@ import {
   setAutoregSuggestionsEnabled,
   setEffortDisplay,
   EffortDisplay,
+  getGroupRestMode,
+  setGroupRestMode,
+  GroupRestMode,
 } from '../../src/data/appSettings';
 import { BADGE_DEFS, BadgeDef } from '../../src/data/badges/badgeDefs'; // TICKET-143
 import { localDb as badgeLocalDb } from '../../src/db/localDb'; // TICKET-143 (badges_earned reads)
@@ -934,6 +937,16 @@ export default function ProfileScreen(): React.ReactElement {
     getEffortDisplay().then(setEffortDisplayPref).catch(() => {});
   }, []);
 
+  // TICKET-144 acceptance criterion 2: grouped-set (superset/circuit) rest
+  // mode — fire the rest timer after a full round (default) or after every
+  // exercise transition within the group. Local-only KV read/write, zero
+  // network, same shape as effortDisplayPref above.
+  const [groupRestModePref, setGroupRestModePref] = useState<GroupRestMode>('after_round');
+  const [isUpdatingGroupRestMode, setIsUpdatingGroupRestMode] = useState(false);
+  useEffect(() => {
+    getGroupRestMode().then(setGroupRestModePref).catch(() => {});
+  }, []);
+
   // TICKET-141: on-device next-load suggestions — off by default (ships dark;
   // flips to default-on only after the founder's self-test week).
   const [autoregEnabled, setAutoregEnabled] = useState(false);
@@ -1155,6 +1168,34 @@ export default function ProfileScreen(): React.ReactElement {
       }
     },
     [effortDisplayPref]
+  );
+
+  // ── B6. Grouped-set (superset/circuit) rest mode (TICKET-144) ───────────
+  // 'after_round' (default) — rest fires only once the whole round is done.
+  // 'after_exercise' — rest also fires on every exercise transition WITHIN
+  // the group (mid-round). Non-grouped exercises are unaffected either way
+  // (loggerLogic.ts's restAfterSet only branches on this mode for grouped
+  // exercises).
+
+  const handleGroupRestModeChange = useCallback(
+    async (mode: GroupRestMode) => {
+      const prev = groupRestModePref;
+      if (mode === prev) return;
+      setGroupRestModePref(mode); // optimistic
+      setIsUpdatingGroupRestMode(true);
+      try {
+        await setGroupRestMode(mode);
+      } catch (err) {
+        setGroupRestModePref(prev);
+        Alert.alert(
+          'Could not save preference',
+          err instanceof Error ? err.message : 'Could not save superset rest setting'
+        );
+      } finally {
+        setIsUpdatingGroupRestMode(false);
+      }
+    },
+    [groupRestModePref]
   );
 
   // ── C. Constraints ───────────────────────────────────────────────────────
@@ -1478,6 +1519,64 @@ export default function ProfileScreen(): React.ReactElement {
                 thumbColor={effortDisplayPref === 'rpe' ? theme.colors.accentDefault : theme.colors.textTertiary}
                 accessibilityLabel="Show effort as RPE instead of RIR"
               />
+            )}
+          </View>
+
+          {/* TICKET-144: grouped-set (superset/circuit) rest mode — same chip-row
+              pattern as the rest-timer presets above (two choices, no Switch,
+              since neither option is an on/off "default"). */}
+          <View style={[
+            styles.settingRow,
+            styles.settingRowTop,
+            styles.restTimerRow,
+            { borderTopColor: theme.colors.borderDefault },
+          ]}>
+            <View style={styles.settingLabelGroup}>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>Superset rest</Text>
+              <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
+                {groupRestModePref === 'after_exercise'
+                  ? 'Rest after every exercise in a circuit'
+                  : 'Rest after each full round'}
+              </Text>
+            </View>
+            {isUpdatingGroupRestMode ? (
+              <ActivityIndicator color={theme.colors.accentDefault} style={styles.toggleSpinner} />
+            ) : (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.restTimerPresetsContent}
+                style={styles.restTimerPresets}
+              >
+                {([
+                  { mode: 'after_round' as GroupRestMode, label: 'After each round' },
+                  { mode: 'after_exercise' as GroupRestMode, label: 'After every exercise' },
+                ]).map(({ mode, label }) => {
+                  const selected = groupRestModePref === mode;
+                  return (
+                    <TouchableOpacity
+                      key={mode}
+                      style={[
+                        styles.restTimerChip,
+                        { borderColor: theme.colors.borderDefault },
+                        selected && { backgroundColor: theme.colors.accentDefault, borderColor: theme.colors.accentDefault },
+                      ]}
+                      onPress={() => handleGroupRestModeChange(mode)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Superset rest: ${label}`}
+                      accessibilityState={{ selected }}
+                    >
+                      <Text style={[
+                        styles.restTimerChipText,
+                        { color: theme.colors.textTertiary },
+                        selected && { color: theme.components.buttonPrimaryText },
+                      ]}>
+                        {label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
             )}
           </View>
 

@@ -18,7 +18,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, Alert, ActivityIndicator } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '../src/hooks/useAuth';
 import { useTheme } from '../src/theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../src/theme/tokens';
@@ -49,11 +49,51 @@ function toggleSet<T>(arr: T[], item: T): T[] {
   return arr.includes(item) ? arr.filter((x) => x !== item) : [...arr, item];
 }
 
+/**
+ * Fatigue-advice router params (TICKET-142, set by FatigueAdviceCard's Accept
+ * action via components/fatigueAdviceMapping.ts's buildPlanAdjustPrefillParams).
+ * Parsed defensively: expo-router params are always strings and may be
+ * absent (a normal "Request changes" nav has none of these) or malformed —
+ * either case simply yields no prefill/banner rather than crashing the screen.
+ * Only the `deloadFrequency` key is ever honored here, matching the mapping
+ * module's narrow FatiguePrefillPatch type — this screen never invents a new
+ * patch field from an untrusted param.
+ */
+function parseFatiguePatch(raw: string | string[] | undefined): Partial<MetaChangePatch> {
+  if (typeof raw !== 'string' || raw.length === 0) return {};
+  try {
+    const parsed = JSON.parse(raw) as Partial<MetaChangePatch>;
+    if (!parsed || typeof parsed !== 'object') return {};
+    return parsed.deloadFrequency != null ? { deloadFrequency: parsed.deloadFrequency } : {};
+  } catch {
+    return {};
+  }
+}
+
+function firstParam(v: string | string[] | undefined): string | undefined {
+  return Array.isArray(v) ? v[0] : v;
+}
+
 export default function PlanAdjustScreen(): React.ReactElement {
   const router = useRouter();
   const { user } = useAuth();
   const { theme } = useTheme();
   const c = theme.colors;
+
+  // TICKET-142: optional fatigue-advice prefill (present only when navigated
+  // here from FatigueAdviceCard's "Review change" action). Absent on a normal
+  // "Request changes" nav — every read below degrades to undefined/{} then.
+  const fatigueParams = useLocalSearchParams<{
+    fatigueRuleId?: string | string[];
+    fatigueBecause?: string | string[];
+    fatiguePatch?: string | string[];
+  }>();
+  const fatigueBecause = firstParam(fatigueParams.fatigueBecause);
+  const fatigueRuleId = firstParam(fatigueParams.fatigueRuleId);
+  const fatiguePrefill = React.useMemo(
+    () => parseFatiguePatch(firstParam(fatigueParams.fatiguePatch)),
+    [fatigueParams.fatiguePatch],
+  );
 
   const [stored, setStored] = useState<StoredGeneratedPlan | null>(null);
   const [loading, setLoading] = useState(true);
@@ -68,6 +108,9 @@ export default function PlanAdjustScreen(): React.ReactElement {
       setStored(s);
       // Seed the patch controls from the current answers so the pickers reflect
       // the plan's present settings (an unchanged pick produces no diff).
+      // A fatigue-advice prefill (deloadFrequency only, see parseFatiguePatch)
+      // is layered on top so the user lands with the suggested option already
+      // selected — they still must hit "Apply changes" themselves (suggest-only).
       if (s) {
         const a = s.survey;
         setPatch({
@@ -79,11 +122,13 @@ export default function PlanAdjustScreen(): React.ReactElement {
           progressionSpeed: a.knobs.progressionSpeed,
           deloadFrequency: a.knobs.deloadFrequency,
           failureProximity: a.knobs.failureProximity,
+          ...fatiguePrefill,
         });
       }
       setLoading(false);
     })();
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const answers: SurveyAnswers | null = stored?.survey ?? null;
@@ -206,6 +251,23 @@ export default function PlanAdjustScreen(): React.ReactElement {
           Adjust a few things — we rebuild your plan instantly. No need to redo the survey.
         </Text>
 
+        {/* TICKET-142: fatigue-advice banner. Always shown when the screen was
+            opened from FatigueAdviceCard's "Review change" action, regardless
+            of whether a mechanism was pre-selected (pull_deload_forward pre-
+            selects "How often to deload?" below; trim_accessory_volume has no
+            clean existing mechanism — see fatigueAdviceMapping.ts — so this
+            banner is the ONLY surface for that advice, exactly per the
+            ticket's fallback rule). Nothing is ever auto-applied: the user
+            still confirms via "Apply changes". */}
+        {fatigueBecause ? (
+          <View style={[styles.fatigueBanner, { backgroundColor: c.bgSecondary, borderLeftColor: c.accentDefault }]}>
+            <Text style={[styles.fatigueBannerTitle, { color: c.accentHover }]}>
+              {fatigueRuleId === 'FT-D1' ? 'Why we suggested this' : 'Fatigue advice'}
+            </Text>
+            <Text style={[styles.fatigueBannerText, { color: c.textSecondary }]}>{fatigueBecause}</Text>
+          </View>
+        ) : null}
+
         <Section title="Days per week">
           <View style={styles.chipGrid}>
             {[1, 2, 3, 4, 5, 6, 7].map((n) => (
@@ -311,6 +373,10 @@ const styles = StyleSheet.create({
 
   header: { fontSize: fontSize.heading3, fontWeight: fontWeight.bold },
   sub: { fontSize: fontSize.bodySm, lineHeight: 20 },
+
+  fatigueBanner: { borderRadius: radius.md, padding: spacing.s4, gap: spacing.s1, borderLeftWidth: 3 },
+  fatigueBannerTitle: { fontSize: fontSize.bodyMd, fontWeight: fontWeight.semibold, marginBottom: spacing.s1 },
+  fatigueBannerText: { fontSize: fontSize.bodySm, lineHeight: 20 },
 
   optionGroup: { gap: 8 },
   chipGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },

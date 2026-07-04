@@ -73,9 +73,14 @@ import {
 } from './loggerLogic';
 // TICKET-128: RIR ⇄ RPE display toggle. Zero-network, local-only KV read —
 // safe to call on mount for both free and Pro (mirrors getExercisePrefs below).
-import { getEffortDisplay, EffortDisplay } from '../data/appSettings';
+import { getEffortDisplay, EffortDisplay, getGroupRestMode, GroupRestMode } from '../data/appSettings';
 // S1 dropset chain UI (amber chips + drop actions) — owns its own presentation.
 import DropChainBar, { type DropChainLink } from './logger/DropChainBar';
+// TICKET-144: EMOM / AMRAP / interval conditioning timer, attachable to a
+// cardio-type exercise. Owns its own sheet UI + safe-area handling; results
+// flow back through the existing onLogCardioSet prop (no new plumbing).
+import { ConditioningTimerSheet, resultToCardioMetrics } from './logger/ConditioningTimerSheet';
+import type { ConditioningConfig, ConditioningResult } from './logger/conditioningTimerLogic';
 import PlateCalculatorSheet from './PlateCalculatorSheet';
 // TICKET-134: exercise media v1 — muscle diagram + form cues sheet, reachable
 // from the logger header (zero network; static catalog + existing components).
@@ -775,6 +780,22 @@ export default function StepperLogger({
     return () => { cancelled = true; };
   }, []);
 
+  // TICKET-144 acceptance criterion 2: grouped-set rest mode ('after_round'
+  // default vs 'after_exercise'). Same local-only KV read shape as
+  // effortDisplay above — loaded ONCE per mount (not the boot path; this
+  // component only mounts for an active workout session) and passed into the
+  // pure restAfterSet predicate below so the LOCAL visual rest ring stays in
+  // lockstep with the host's actual rest-timer firing decision (spec §3: one
+  // predicate, same mode, both places).
+  const [groupRestMode, setGroupRestModeState] = useState<GroupRestMode>('after_round');
+  useEffect(() => {
+    let cancelled = false;
+    getGroupRestMode()
+      .then((mode) => { if (!cancelled) setGroupRestModeState(mode); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
   // ── Local form state — LIFT ──────────────────────────────────────────────
   const [weight, setWeight] = useState('');
   const [reps, setReps] = useState('');
@@ -791,6 +812,12 @@ export default function StepperLogger({
   const [cardioDurationMm, setCardioDurationMm] = useState('');
   const [cardioDurationSs, setCardioDurationSs] = useState('');
   const [cardioDistance, setCardioDistance] = useState('');
+
+  // TICKET-144: conditioning timer sheet (EMOM/AMRAP/interval), attachable to
+  // the current cardio-type exercise. Local UI state only — the sheet's
+  // "Log set" result is handed to onLogCardioSet exactly like a manually-typed
+  // duration, so it goes through the same local-first / tier-symmetric path.
+  const [showConditioningTimer, setShowConditioningTimer] = useState(false);
 
   // ── Optional "More metrics" (P5) — collapsed by default; all fields optional.
   // Held as raw strings; parsed into a CardioMetrics blob only on log. `splits`
@@ -1103,8 +1130,8 @@ export default function StepperLogger({
         i === currentIndex ? { ...e, loggedSetCount: liveCount } : e,
       ),
     };
-    return !restAfterSet(snapshot, currentIndex);
-  }, [chainActive, isGrouped, routineSession, exercises, currentIndex, currentExerciseSets.length]);
+    return !restAfterSet(snapshot, currentIndex, groupRestMode);
+  }, [chainActive, isGrouped, routineSession, exercises, currentIndex, currentExerciseSets.length, groupRestMode]);
 
   // ── S1: when a drop chain advances, pre-fill the weight input with the next
   // drop's −20% weight and clear reps so the user just types the reps achieved.
@@ -1320,6 +1347,35 @@ export default function StepperLogger({
     editingIndex, onUpdateSet, playLogConfirm, restTotal, restSuppressedAfterThisSet,
     mHrAvg, mHrMax, mCalories, mCadence, mElevation, mRpe, mSplits, resetMoreMetrics,
   ]);
+
+  // TICKET-144: conditioning timer finished (or was stopped early) — log it as
+  // a normal cardio set. durationSec comes straight from the pure result
+  // (already clamped to the plan's total by buildConditioningResult); rounds
+  // (when meaningful) ride metrics_json.extras.conditioningRounds, matching
+  // the existing drop/superset metrics_json convention (no server sets.reps
+  // column exists on cardio rows, so this is the only place "reps=rounds" can
+  // land — see conditioningTimerLogic.ts / ConditioningTimerSheet.tsx headers).
+  const handleConditioningFinish = useCallback(
+    (result: ConditioningResult, config: ConditioningConfig) => {
+      setShowConditioningTimer(false);
+      if (result.durationSec <= 0) return; // nothing to log (immediate abandon)
+      if (onLogCardioSet) {
+        Promise.resolve(
+          onLogCardioSet(
+            currentEx?.exerciseId ?? '',
+            result.durationSec,
+            undefined,
+            undefined,
+            resultToCardioMetrics(result, config),
+          ) as unknown,
+        ).catch(() => setRetryToast(true));
+      }
+      playLogConfirm();
+      if (!restSuppressedAfterThisSet) setRestLeft(restTotal);
+      afterLogSet();
+    },
+    [onLogCardioSet, currentEx, playLogConfirm, restSuppressedAfterThisSet, restTotal, afterLogSet],
+  );
 
   // Retry the last failed lift save (option 14).
   const handleRetrySave = useCallback(() => {
@@ -1934,6 +1990,25 @@ export default function StepperLogger({
                   </View>
                 </View>
 
+                {/* TICKET-144: EMOM / AMRAP / interval conditioning timer —
+                    runs the clock, then logs the result as this cardio set's
+                    duration (and rounds, where meaningful) instead of typing
+                    a duration by hand. Zero network. Gated on onLogCardioSet
+                    (undefined in history-edit mode) for parity with the
+                    "+ Drop set" affordance, which is gated on onStartDropChain
+                    the same way. */}
+                {onLogCardioSet ? (
+                  <TouchableOpacity
+                    onPress={() => setShowConditioningTimer(true)}
+                    style={ssStyles.dropStartBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel="Open conditioning timer (EMOM, AMRAP, or intervals)"
+                  >
+                    <Ionicons name="stopwatch-outline" size={16} color={SS_AMBER} />
+                    <Text style={ssStyles.dropStartLabel}>Conditioning timer…</Text>
+                  </TouchableOpacity>
+                ) : null}
+
                 {/* ── Optional "More metrics" (P5): avg/max HR, calories,
                     cadence, elevation, RPE, splits. Collapsed by default behind
                     a "＋ More metrics" link (mirrors the lift RIR / warm-up
@@ -2537,6 +2612,14 @@ export default function StepperLogger({
         visible={detailTarget !== null}
         exercise={detailTarget}
         onClose={() => setDetailTarget(null)}
+      />
+
+      {/* ── TICKET-144: EMOM / AMRAP / interval conditioning timer ──────────── */}
+      <ConditioningTimerSheet
+        visible={showConditioningTimer}
+        exerciseName={currentEx?.name ?? ''}
+        onFinish={handleConditioningFinish}
+        onClose={() => setShowConditioningTimer(false)}
       />
     </KeyboardAvoidingView>
     </SafeAreaView>

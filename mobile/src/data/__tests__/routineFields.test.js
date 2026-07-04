@@ -194,5 +194,72 @@ test('canonicalizeExercise: null-folds absent optional fields (server-echo match
   }, 'all optionals null-folded:');
 });
 
+// -- TICKET-144: N>2 (circuit) group round-trip through the allowlist choke ---
+// point. The routine editor now links up to 5 exercises into ONE group
+// (UI-bound at 4 extra + the anchor); the schema/allowlist itself has never
+// capped group SIZE (only per-field bounds: group id length, rounds 1-10) —
+// this test proves a 4-exercise circuit survives allowlistExercise unchanged,
+// keeps a stable canonicalRoutineKey, and that mixed group/solo membership in
+// the same routine still round-trips correctly (DATA-01 allowlist bounds
+// unchanged by the N>2 UI unlock).
+test('TICKET-144: 4-exercise circuit group round-trips through allowlistExercise unchanged', () => {
+  const raw = [
+    { exercise_id: 'a', name: 'Squat', target_sets: 4, target_reps: '10', superset_group: 'g1', superset_rounds: 4 },
+    { exercise_id: 'b', name: 'Row', target_sets: 4, target_reps: '10', superset_group: 'g1', superset_rounds: 4 },
+    { exercise_id: 'c', name: 'Push-up', target_sets: 4, target_reps: '12', superset_group: 'g1', superset_rounds: 4 },
+    { exercise_id: 'd', name: 'Lunge', target_sets: 4, target_reps: '10', superset_group: 'g1', superset_rounds: 4 },
+  ];
+  const out = raw.map((e) => F.allowlistExercise(e));
+  eq(out.length, 4, 'all 4 members survive the allowlist:');
+  for (let i = 0; i < out.length; i++) {
+    eq(out[i].superset_group, 'g1', `member ${i} keeps group id:`);
+    eq(out[i].superset_rounds, 4, `member ${i} keeps shared rounds:`);
+    eq(out[i].name, raw[i].name, `member ${i} keeps its own name:`);
+  }
+  // Round-trip stability: re-allowlisting the already-allowlisted output is a
+  // no-op (idempotent), matching what a save->reload cycle in the editor does.
+  const out2 = out.map((e) => F.allowlistExercise(e));
+  deepEq(out2, out, 're-allowlisting the allowlisted output is idempotent:');
+});
+
+test('TICKET-144: 5-member group (anchor + 4 linked, the UI max) is NOT rejected by the allowlist', () => {
+  // The allowlist itself imposes no group-SIZE cap (only per-field bounds) —
+  // the 5-member ceiling is a UI decision (SupersetLinkSheet/SupersetPairSheet
+  // MAX_EXTRA = 4). Prove the data layer tolerates the UI's max group size.
+  const raw = ['A1', 'A2', 'A3', 'A4', 'A5'].map((name, i) => ({
+    exercise_id: `e${i}`, name, target_sets: 3, target_reps: '8',
+    superset_group: 'gFull', superset_rounds: 3,
+  }));
+  const out = raw.map((e) => F.allowlistExercise(e));
+  eq(out.length, 5, 'all 5 members kept:');
+  eq(out.every((e) => e.superset_group === 'gFull'), true, 'all share the group id:');
+});
+
+test('TICKET-144: canonicalRoutineKey distinguishes a 4-exercise circuit from the same exercises ungrouped', () => {
+  const grouped4 = [
+    { exercise_id: 'a', name: 'Squat', target_sets: 4, target_reps: '10', superset_group: 'g1', superset_rounds: 4 },
+    { exercise_id: 'b', name: 'Row', target_sets: 4, target_reps: '10', superset_group: 'g1', superset_rounds: 4 },
+    { exercise_id: 'c', name: 'Push-up', target_sets: 4, target_reps: '12', superset_group: 'g1', superset_rounds: 4 },
+    { exercise_id: 'd', name: 'Lunge', target_sets: 4, target_reps: '10', superset_group: 'g1', superset_rounds: 4 },
+  ];
+  const ungrouped4 = grouped4.map(({ superset_group, superset_rounds, ...rest }) => rest);
+  assert(
+    key('CircuitDay', grouped4) !== key('CircuitDay', ungrouped4),
+    '4-exercise circuit key differs from the same exercises ungrouped:',
+  );
+  // A freshly-rebuilt IDENTICAL 4-member circuit (key order shuffled, as a
+  // save/reload would produce) still collapses to the SAME key.
+  const grouped4Rebuilt = [
+    { name: 'Squat', superset_rounds: 4, exercise_id: 'a', superset_group: 'g1', target_reps: '10', target_sets: 4 },
+    { superset_group: 'g1', name: 'Row', exercise_id: 'b', target_sets: 4, target_reps: '10', superset_rounds: 4 },
+    { exercise_id: 'c', superset_rounds: 4, name: 'Push-up', target_reps: '12', superset_group: 'g1', target_sets: 4 },
+    { target_sets: 4, exercise_id: 'd', name: 'Lunge', superset_group: 'g1', target_reps: '10', superset_rounds: 4 },
+  ];
+  eq(
+    key('CircuitDay', grouped4), key('CircuitDay', grouped4Rebuilt),
+    'identical 4-member circuit round-trips to the same key regardless of source key order:',
+  );
+});
+
 console.log('\n' + (passed + failed) + ' tests: ' + passed + ' passed, ' + failed + ' failed\n');
 if (failed > 0) process.exit(1);

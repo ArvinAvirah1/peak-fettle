@@ -354,6 +354,61 @@ test('restAfterSet: ungrouped always fires', () => {
   eq(L.restAfterSet(sess(exs, 0), 0), true, 'ungrouped → always true:');
 });
 
+// ── TICKET-144 acceptance criterion 2: grouped-set rest mode ────────────────
+// 'after_round' (default, omitted mode arg) must be UNCHANGED regression
+// coverage of the block above. 'after_exercise' fires on EVERY exercise
+// transition within a group — mid-round included — while non-grouped
+// exercises are unaffected in EITHER mode.
+
+test("restAfterSet: mode omitted defaults to 'after_round' (regression — identical to explicit after_round)", () => {
+  let exs = [gex(1, { groupId: 'A' }), gex(0, { groupId: 'A' }), gex(0, { groupId: 'A' })];
+  eq(L.restAfterSet(sess(exs, 0), 0), false, 'no mode arg, mid-round → suppress (same as after_round):');
+  eq(L.restAfterSet(sess(exs, 0), 0, 'after_round'), false, 'explicit after_round → same result:');
+
+  exs = [gex(1, { groupId: 'A' }), gex(1, { groupId: 'A' }), gex(1, { groupId: 'A' })];
+  eq(L.restAfterSet(sess(exs, 2), 2), true, 'no mode arg, round end → fires (same as after_round):');
+  eq(L.restAfterSet(sess(exs, 2), 2, 'after_round'), true, 'explicit after_round → same result:');
+});
+
+test("restAfterSet: mode 'after_exercise' fires on EVERY transition in a 3-exercise circuit (A→B, B→C, round end)", () => {
+  // A1 just logged (A=1,B=0,C=0) — after_round would SUPPRESS (peers pending),
+  // but after_exercise fires anyway (A→B transition).
+  let exs = [gex(1, { groupId: 'A' }), gex(0, { groupId: 'A' }), gex(0, { groupId: 'A' })];
+  eq(L.restAfterSet(sess(exs, 0), 0, 'after_exercise'), true, 'A→B transition fires:');
+  eq(L.restAfterSet(sess(exs, 0), 0, 'after_round'), false, 'sanity: after_round still suppresses here:');
+
+  // B1 just logged (A=1,B=1,C=0) — B→C transition fires under after_exercise.
+  exs = [gex(1, { groupId: 'A' }), gex(1, { groupId: 'A' }), gex(0, { groupId: 'A' })];
+  eq(L.restAfterSet(sess(exs, 1), 1, 'after_exercise'), true, 'B→C transition fires:');
+  eq(L.restAfterSet(sess(exs, 1), 1, 'after_round'), false, 'sanity: after_round still suppresses here:');
+
+  // C1 just logged (A=1,B=1,C=1) — round end fires under BOTH modes.
+  exs = [gex(1, { groupId: 'A' }), gex(1, { groupId: 'A' }), gex(1, { groupId: 'A' })];
+  eq(L.restAfterSet(sess(exs, 2), 2, 'after_exercise'), true, 'round end fires (after_exercise):');
+  eq(L.restAfterSet(sess(exs, 2), 2, 'after_round'), true, 'round end fires (after_round too):');
+});
+
+test("restAfterSet: mode 'after_exercise' fires mid-round even on later rounds (not just round 1)", () => {
+  // Round 2 in progress (groupRounds: 4, so peers at 1/4 are NOT yet
+  // "completed" — isExerciseCompleted needs the groupRounds context or a
+  // loggedSetCount==0 peer would otherwise read as "not complete" only by
+  // coincidence). A=2 just logged, B=1,C=1 still behind this round.
+  const exs = [
+    gex(2, { groupId: 'A', groupRounds: 4 }),
+    gex(1, { groupId: 'A', groupRounds: 4 }),
+    gex(1, { groupId: 'A', groupRounds: 4 }),
+  ];
+  eq(L.restAfterSet(sess(exs, 0), 0, 'after_exercise'), true, 'round 2 A→B transition fires:');
+  eq(L.restAfterSet(sess(exs, 0), 0, 'after_round'), false, 'sanity: after_round suppresses mid round-2:');
+});
+
+test("restAfterSet: non-grouped exercises unaffected by mode in EITHER direction", () => {
+  const exs = [ex(1, 3), ex(0, 3)];
+  eq(L.restAfterSet(sess(exs, 0), 0, 'after_round'), true, 'ungrouped + after_round → always true:');
+  eq(L.restAfterSet(sess(exs, 0), 0, 'after_exercise'), true, 'ungrouped + after_exercise → always true:');
+  eq(L.restAfterSet(sess(exs, 0), 0), true, 'ungrouped + no mode arg → always true:');
+});
+
 test('nextPendingExerciseIndex: skips ALL members of a fully-completed group', () => {
   // Group A (idx 0,1) fully done at 3/3 rounds; solo C (idx 2) pending. From the
   // last group member (1), next-pending must land on C, skipping done A members.

@@ -152,3 +152,67 @@ export async function getAutoregSuggestionsEnabled(): Promise<boolean> {
 export async function setAutoregSuggestionsEnabled(enabled: boolean): Promise<void> {
   await setSetting(AUTOREG_SUGGESTIONS_ENABLED_KEY, enabled ? 'true' : 'false');
 }
+
+// ---------------------------------------------------------------------------
+// Typed convenience — grouped-set rest mode (TICKET-144, circuits)
+// ---------------------------------------------------------------------------
+
+/**
+ * Rest-timer behavior inside a superset/circuit group: fire the rest timer
+ * only after a full ROUND (all group members done — current behavior) or
+ * after EVERY exercise transition within the group.
+ */
+export type GroupRestMode = 'after_round' | 'after_exercise';
+
+const GROUP_REST_MODE_KEY = 'group_rest_mode';
+const GROUP_REST_MODE_FALLBACK: GroupRestMode = 'after_round';
+
+export async function getGroupRestMode(): Promise<GroupRestMode> {
+  const raw = await getSetting(GROUP_REST_MODE_KEY);
+  return raw === 'after_exercise' ? 'after_exercise' : GROUP_REST_MODE_FALLBACK;
+}
+
+/** Persist the grouped-set rest mode; junk values coerce to the default. */
+export async function setGroupRestMode(mode: GroupRestMode): Promise<void> {
+  await setSetting(GROUP_REST_MODE_KEY, mode === 'after_exercise' ? 'after_exercise' : 'after_round');
+}
+
+// ---------------------------------------------------------------------------
+// Typed convenience — fatigue-advice dismissal state (TICKET-142)
+// ---------------------------------------------------------------------------
+
+/**
+ * Dismissal-backoff state for the fatigue plan-adjust card. The pure backoff
+ * arithmetic lives in lib/trainingEngine/v2/fatigue.ts (no clock reads there —
+ * "now" is injected); this is only the persistence.
+ */
+export interface FatigueAdviceDismissal {
+  /** ISO datetime of the most recent dismissal, or null if never dismissed. */
+  lastDismissedAt: string | null;
+  /** Consecutive dismissals without an accept in between (drives backoff). */
+  consecutiveDismissals: number;
+}
+
+const FATIGUE_ADVICE_DISMISSAL_KEY = 'fatigue_advice_dismissal';
+
+export async function getFatigueAdviceDismissal(): Promise<FatigueAdviceDismissal> {
+  const raw = await getSetting(FATIGUE_ADVICE_DISMISSAL_KEY);
+  if (!raw) return { lastDismissedAt: null, consecutiveDismissals: 0 };
+  try {
+    const parsed = JSON.parse(raw) as Partial<FatigueAdviceDismissal>;
+    return {
+      lastDismissedAt: typeof parsed.lastDismissedAt === 'string' ? parsed.lastDismissedAt : null,
+      consecutiveDismissals:
+        typeof parsed.consecutiveDismissals === 'number' && Number.isFinite(parsed.consecutiveDismissals)
+          ? Math.max(0, Math.floor(parsed.consecutiveDismissals))
+          : 0,
+    };
+  } catch {
+    return { lastDismissedAt: null, consecutiveDismissals: 0 };
+  }
+}
+
+/** Persist the fatigue-advice dismissal state (accept resets it to zero). */
+export async function setFatigueAdviceDismissal(state: FatigueAdviceDismissal): Promise<void> {
+  await setSetting(FATIGUE_ADVICE_DISMISSAL_KEY, JSON.stringify(state));
+}

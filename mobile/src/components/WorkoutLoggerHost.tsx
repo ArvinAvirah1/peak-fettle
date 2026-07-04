@@ -66,7 +66,7 @@ import { haptics } from '../utils/haptics';
 import { formatWeight, kgToLbs, roundToNearestQuarterLb, displayToKg, parseWeightInput } from '../constants/units';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getRoutine } from '../data/routines';
-import { getRestTimerDefaultSec } from '../data/appSettings'; // P1b — device-local rest default
+import { getRestTimerDefaultSec, getGroupRestMode, GroupRestMode } from '../data/appSettings'; // P1b — device-local rest default; TICKET-144 — grouped-set rest mode
 import { updateLiftSet } from '../data/setEditing'; // P1c — in-place edit of a past set
 import { markRoutineCompleted } from '../data/schedule'; // TICKET-097
 import { checkGoalAchieved } from '../data/exerciseGoals'; // WIDGET-002
@@ -331,6 +331,20 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
       let cancelled = false;
       getRestTimerDefaultSec()
         .then((sec) => { if (!cancelled) setRestDefault(sec); })
+        .catch(() => {});
+      return () => { cancelled = true; };
+    }, []);
+    // TICKET-144 acceptance criterion 2: grouped-set rest mode ('after_round'
+    // default vs 'after_exercise'). Local-only KV read (getGroupRestMode), same
+    // shape/safety as getRestTimerDefaultSec above — loaded ONCE per session
+    // mount (not on the boot path; this effect only runs once this host/stepper
+    // is mounted for an active workout) and passed into the pure restAfterSet
+    // predicate below.
+    const [groupRestMode, setGroupRestMode] = useState<GroupRestMode>('after_round');
+    useEffect(() => {
+      let cancelled = false;
+      getGroupRestMode()
+        .then((mode) => { if (!cancelled) setGroupRestMode(mode); })
         .catch(() => {});
       return () => { cancelled = true; };
     }, []);
@@ -999,7 +1013,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
             : null;
           const suppressForChain = !!activeChain;
           const suppressForGroup =
-            !!snapshot && !restAfterSet(snapshot, snapshot.currentIndex);
+            !!snapshot && !restAfterSet(snapshot, snapshot.currentIndex, groupRestMode);
           if (suppressForChain || suppressForGroup) {
             // No rest — either chain the next drop or hop to the next group
             // member. For a group, auto-advance the stepper immediately.
@@ -1056,7 +1070,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
       // included so PR detection and rest-timer always read the current values (WL-001 /
       // stale-closure-rest / wlh-stale-closure-prdetection).
       [workout, selectedExercise, logSet, updateRoutineExercise, stepperSets, unitPref,
-       stepperPB, exercisePB, routineSession, restDefault, restTimer, dropChain, beginDropChain],
+       stepperPB, exercisePB, routineSession, restDefault, restTimer, dropChain, beginDropChain, groupRestMode],
     );
 
     // Edit a previously-logged LIFT set (e.g. fix a mistyped weight). The sync
@@ -1212,7 +1226,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
                 ),
               }
             : null;
-          if (snapshotC && !restAfterSet(snapshotC, snapshotC.currentIndex)) {
+          if (snapshotC && !restAfterSet(snapshotC, snapshotC.currentIndex, groupRestMode)) {
             const nextIdx = nextInGroupIndex(snapshotC, snapshotC.currentIndex);
             if (nextIdx != null) {
               setRoutineSession((prev) =>
@@ -1232,7 +1246,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
       },
       // restDefault and restTimer added to ensure the cardio path uses the
       // current rest preset (WL-006 / wlh-stale-closure-cardio).
-      [workout, selectedExercise, logSet, updateRoutineExercise, stepperSets, restDefault, restTimer, routineSession],
+      [workout, selectedExercise, logSet, updateRoutineExercise, stepperSets, restDefault, restTimer, routineSession, groupRestMode],
     );
 
     const handleStepperAdvance = useCallback((toIndex: number) => {

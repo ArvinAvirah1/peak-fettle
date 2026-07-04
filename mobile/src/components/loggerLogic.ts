@@ -368,16 +368,40 @@ export function nextInGroupIndex(
 }
 
 /**
+ * TICKET-144 acceptance criterion 2 — grouped-set rest mode. Mirrors
+ * appSettings.GroupRestMode ('after_round' | 'after_exercise') structurally
+ * (this module imports nothing from appSettings — the caller reads the
+ * setting and passes the mode in, keeping this pure: no clock reads, no
+ * storage reads).
+ */
+export type RestMode = 'after_round' | 'after_exercise';
+
+/**
  * Should REST fire after logging the set at `index`?
- *   • Ungrouped exercise → always true (today's behaviour).
- *   • Grouped → false (SUPPRESS) while another member of the group still has work
- *     THIS round (nextInGroupIndex is non-null); true at round end.
+ *   • Ungrouped exercise → always true (today's behaviour, both modes).
+ *   • Grouped, mode 'after_round' (default) → false (SUPPRESS) while another
+ *     member of the group still has work THIS round (nextInGroupIndex is
+ *     non-null); true at round end. This is today's behaviour, unchanged.
+ *   • Grouped, mode 'after_exercise' → true on EVERY exercise transition
+ *     within the group — i.e. also mid-round, immediately after each member's
+ *     set (A1→A2, A2→A3, …), in addition to firing at round end. The caller
+ *     (WorkoutLoggerHost/StepperLogger) still auto-advances to the next group
+ *     member via nextInGroupIndex; only the rest-timer firing decision changes.
+ *
+ * `mode` defaults to 'after_round' so every existing call site and test keeps
+ * current behavior unless it explicitly opts into 'after_exercise'.
+ *
  * The one host-level predicate that gates BOTH setRestEndAt/restTimer.start and
  * the stepper's local visual rest ring (spec §3).
  */
-export function restAfterSet(session: LoggerSession, index: number): boolean {
+export function restAfterSet(
+  session: LoggerSession,
+  index: number,
+  mode: RestMode = 'after_round',
+): boolean {
   const ex = session.exercises[index];
   if (!ex || ex.groupId == null) return true;
+  if (mode === 'after_exercise') return true;
   return nextInGroupIndex(session, index) == null;
 }
 
