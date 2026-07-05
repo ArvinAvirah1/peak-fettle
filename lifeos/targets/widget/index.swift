@@ -1,16 +1,23 @@
 //
 //  LifeOSWidget — Peak Fettle LifeOS home/lock-screen widgets + focus Live Activity.
-//  TICKET-116 (widgets), TICKET-118 (Live Activity).
+//  TICKET-116 (widgets), TICKET-118 (Live Activity), TICKET-171 (interactive
+//  check-off), TICKET-172 (snooze/relock island polish).
 //
 //  Reads the JSON the app writes to the App Group (group.com.peakfettle.lifeos)
 //  under "widget_payload" via src/services/widgetBridge.ts. No network in the
-//  extension — display-only, repainted from the shared payload. Colors come from
+//  extension — display-first, repainted from the shared payload. Colors come from
 //  the payload `theme` block so the widget always matches the in-app theme.
 //
+//  Interactivity (iOS 17+, App Intents):
+//    • ToggleHabitIntent — checks a habit off from the Today widget; queues the
+//      write for the app (pending_habit_toggles) and optimistically flips the
+//      shared snapshot so the tap responds instantly (TICKET-171).
+//    • RelockFocusIntent — one-tap "Relock now" on the snooze Live Activity;
+//      writes the pending_relock marker for the app (TICKET-172).
+//  Pre-17 both fall back to display + deep-link behavior.
+//
 //  NOTE: authored on a non-macOS host; first `xcodebuild` may need minor
-//  signature touch-ups (known, recorded in lifeos/native/README.md). Interactive
-//  in-widget habit check-off (App Intents) is TICKET-117 — this file ships the
-//  display + deep-link version.
+//  signature touch-ups (known, recorded in lifeos/native/README.md).
 //
 
 import WidgetKit
@@ -208,7 +215,7 @@ struct StreakRingView: View {
     }
 }
 
-// MARK: - Interactive check-off (TICKET-117, iOS 17+ App Intents)
+// MARK: - Interactive check-off (TICKET-117/171, iOS 17+ App Intents)
 
 /// Local YYYY-MM-DD day key (matches the TS dayKey() the RN drain expects).
 private func todayDayKey() -> String {
@@ -223,6 +230,13 @@ private func todayDayKey() -> String {
 /// Group; the app drains it (drainPendingToggles in widgetBridge.ts) on next
 /// foreground and writes the lo_habit_logs row via the TICKET-103 path. The
 /// extension cannot touch the RN SQLite DB, so this hand-off is the contract.
+///
+/// TICKET-171: perform() ALSO optimistically flips the tapped row inside the
+/// widget's own snapshot payload (done-only, matching the drain's
+/// logHabit(id, 'done', date) semantics) so the checkmark and counts respond
+/// on the tap itself, without waiting for the app to wake. The app's next real
+/// publish (refreshWidget) overwrites the snapshot wholesale, so the optimistic
+/// state can never drift for longer than one reconcile cycle.
 @available(iOS 17.0, *)
 struct ToggleHabitIntent: AppIntent {
     static var title: LocalizedStringResource = "Mark habit done"
@@ -235,6 +249,7 @@ struct ToggleHabitIntent: AppIntent {
 
     func perform() async throws -> some IntentResult {
         if let defaults = UserDefaults(suiteName: APP_GROUP) {
+            // 1) Queue the check-off for the app to reconcile.
             let key = "pending_habit_toggles"
             var arr: [[String: String]] = []
             if let raw = defaults.string(forKey: key),
@@ -249,6 +264,29 @@ struct ToggleHabitIntent: AppIntent {
             ])
             if let out = try? JSONEncoder().encode(arr), let s = String(data: out, encoding: .utf8) {
                 defaults.set(s, forKey: key)
+            }
+
+            // 2) Optimistic flip of the shared snapshot (TICKET-171). Done-only —
+            //    never un-done — to match what the drain will actually write.
+            if let raw = defaults.string(forKey: PAYLOAD_KEY),
+               let data = raw.data(using: .utf8),
+               var payload = try? JSONDecoder().decode(LifeOSWidgetData.self, from: data) {
+                var flipped = false
+                for i in payload.todayHabits.indices where payload.todayHabits[i].id == habitId {
+                    if !payload.todayHabits[i].done {
+                        payload.todayHabits[i].done = true
+                        flipped = true
+                    }
+                }
+                if flipped {
+                    // todayHabits is capped by the bridge (MAX_TODAY_HABITS) while
+                    // the counts span ALL of today's habits — increment + clamp,
+                    // don't recount from the capped list.
+                    payload.habitsDoneToday = min(payload.habitsTotalToday, payload.habitsDoneToday + 1)
+                    if let out = try? JSONEncoder().encode(payload), let s = String(data: out, encoding: .utf8) {
+                        defaults.set(s, forKey: PAYLOAD_KEY)
+                    }
+                }
             }
         }
         WidgetCenter.shared.reloadAllTimelines()
@@ -453,54 +491,153 @@ struct FocusStatusWidget: Widget {
 
 // MARK: - Focus Live Activity (TICKET-118; started from RN via ActivityKit module)
 
+// ⚠️ MUST stay in sync with the copy in
+// modules/live-activity/ios/LifeOSLiveActivityModule.swift (shared contract —
+// the app process writes this state, this extension renders it).
 struct LifeOSFocusAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable {
         var endsAt: Date
         var blocksHeld: Int
+        /// TICKET-172: true while a snooze/grant window is counting down (the
+        /// island then offers one-tap "Relock now"). Optional so a state written
+        /// by an older module still decodes; nil == false.
+        var isSnooze: Bool?
     }
     var sessionName: String
     var accentHex: String
 }
 
+// MARK: - Relock intent (TICKET-172, iOS 17+)
+
+/// One-tap "Relock now" on the snooze Live Activity. Conforms to
+/// LiveActivityIntent so the system performs it in the APP process (where the
+/// running Activity is reachable) instead of this extension.
+/// ⚠️ MUST stay in sync with the copy in
+/// modules/live-activity/ios/LifeOSLiveActivityModule.swift — same type name,
+/// same perform() body. Dual inclusion is Apple's documented pattern for
+/// LiveActivityIntent: the extension binary needs the type so Button(intent:)
+/// compiles; the app binary's copy is the one that executes.
+@available(iOS 17.0, *)
+struct RelockFocusIntent: LiveActivityIntent {
+    static var title: LocalizedStringResource = "Relock now"
+    static var openAppWhenRun: Bool = false
+
+    init() {}
+
+    func perform() async throws -> some IntentResult {
+        // 1) App Group marker — same handoff pattern as pending_unlock /
+        //    pending_habit_toggles: the app consumes it on next foreground
+        //    (consumePendingRelock in modules/live-activity/index.ts) and
+        //    re-applies the shield app-side (the extension can't).
+        UserDefaults(suiteName: APP_GROUP)?.set(
+            ISO8601DateFormatter().string(from: Date()),
+            forKey: "pending_relock"
+        )
+        // 2) Optimistic response: end the snooze presentation immediately — a
+        //    countdown is void once the user asked to relock. Runs in the app
+        //    process, so the activity is reachable; if the system ever performs
+        //    this copy in the extension instead, `activities` is empty and this
+        //    is a harmless no-op (the marker above still lands).
+        for activity in Activity<LifeOSFocusAttributes>.activities {
+            await activity.end(dismissalPolicy: .immediate)
+        }
+        return .result()
+    }
+}
+
+// MARK: - Live Activity presentation (lock screen + Dynamic Island)
+
 @available(iOS 16.2, *)
 struct LifeOSFocusLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: LifeOSFocusAttributes.self) { context in
-            // Lock screen / banner
-            HStack {
-                Image(systemName: "moon.fill")
-                    .foregroundColor(Color(hex: context.attributes.accentHex, fallback: .orange))
-                VStack(alignment: .leading) {
-                    Text(context.attributes.sessionName).font(.headline)
-                    Text("\(context.state.blocksHeld) blocks held").font(.caption)
+            // Lock screen / banner — mirrors the island: countdown + state, and
+            // the relock action during snooze windows (TICKET-172).
+            let snooze = context.state.isSnooze ?? false
+            let tint = Color(hex: context.attributes.accentHex, fallback: .orange)
+            VStack(spacing: 10) {
+                HStack {
+                    Image(systemName: snooze ? "lock.open.fill" : "moon.fill")
+                        .foregroundColor(tint)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(context.attributes.sessionName).font(.headline)
+                        Text(snooze ? "Snoozed — relocks in" : "\(context.state.blocksHeld) blocks held")
+                            .font(.caption).foregroundColor(.secondary)
+                    }
+                    Spacer()
+                    Text(context.state.endsAt, style: .timer)
+                        .font(.title2).monospacedDigit()
+                        .frame(maxWidth: 90)
+                        .foregroundColor(snooze ? tint : .primary)
                 }
-                Spacer()
-                Text(context.state.endsAt, style: .timer)
-                    .font(.title2).monospacedDigit()
-                    .frame(maxWidth: 90)
+                if snooze {
+                    if #available(iOS 17.0, *) {
+                        Button(intent: RelockFocusIntent()) {
+                            Label("Relock now", systemImage: "lock.fill")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(maxWidth: .infinity)
+                        }
+                        .tint(tint)
+                        .buttonStyle(.borderedProminent)
+                    } else {
+                        // iOS 16: Live Activity buttons don't exist — tapping the
+                        // activity opens the app, where the snooze can be ended.
+                        Text("Open Peak Fettle to relock early")
+                            .font(.caption2).foregroundColor(.secondary)
+                    }
+                }
             }
             .padding()
             .activityBackgroundTint(Color.black.opacity(0.6))
         } dynamicIsland: { context in
-            DynamicIsland {
+            let snooze = context.state.isSnooze ?? false
+            let tint = Color(hex: context.attributes.accentHex, fallback: .orange)
+            return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Label(context.attributes.sessionName, systemImage: "moon.fill")
+                    Label(snooze ? "Snoozed" : context.attributes.sessionName,
+                          systemImage: snooze ? "lock.open.fill" : "moon.fill")
                         .font(.caption)
+                        .foregroundColor(snooze ? tint : .primary)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Text(context.state.endsAt, style: .timer).monospacedDigit().frame(maxWidth: 70)
+                    Text(context.state.endsAt, style: .timer)
+                        .monospacedDigit()
+                        .font(.callout)
+                        .foregroundColor(tint)
+                        .frame(maxWidth: 70)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    Text("\(context.state.blocksHeld) distractions blocked")
-                        .font(.caption2).foregroundColor(.secondary)
+                    if snooze {
+                        if #available(iOS 17.0, *) {
+                            Button(intent: RelockFocusIntent()) {
+                                Label("Relock now", systemImage: "lock.fill")
+                                    .font(.caption.weight(.semibold))
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .tint(tint)
+                            .buttonStyle(.borderedProminent)
+                        } else {
+                            Text("Relocks when the timer ends")
+                                .font(.caption2).foregroundColor(.secondary)
+                        }
+                    } else {
+                        Text("\(context.state.blocksHeld) distractions blocked")
+                            .font(.caption2).foregroundColor(.secondary)
+                    }
                 }
             } compactLeading: {
-                Image(systemName: "moon.fill")
+                Image(systemName: snooze ? "lock.open.fill" : "moon.fill")
+                    .foregroundColor(tint)
             } compactTrailing: {
-                Text(context.state.endsAt, style: .timer).monospacedDigit().frame(maxWidth: 44)
+                Text(context.state.endsAt, style: .timer)
+                    .monospacedDigit()
+                    .foregroundColor(tint)
+                    .frame(maxWidth: 44)
             } minimal: {
-                Image(systemName: "moon.fill")
+                Image(systemName: snooze ? "lock.open.fill" : "moon.fill")
+                    .foregroundColor(tint)
             }
+            .keylineTint(tint)
         }
     }
 }
