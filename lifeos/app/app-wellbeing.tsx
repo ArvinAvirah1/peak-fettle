@@ -35,7 +35,6 @@ import {
   getAllRatings,
   setRating,
   type AppRating,
-  type AppRatingRow,
 } from '../src/features/appscore/appRatingsDb';
 import { computeRatingOnlyScore, type WeeklyScore } from '../src/features/appscore/scoringEngine';
 import { haptic } from '../src/lib/haptics';

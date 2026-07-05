@@ -121,8 +121,10 @@ export default function GoalDetailScreen(): React.ReactElement {
   const applyDelta = async (delta: number): Promise<void> => {
     if (!goalId || pendingDelta) return;
     setPendingDelta(true);
-    haptic.success();
-    await incrementGoalMetric(goalId as string, delta);
+    const next = await incrementGoalMetric(goalId as string, delta);
+    // Success haptic only on a landed write (null = missing goal or failed
+    // write, already toasted by safeWrite) — semantics per lib/haptics.ts.
+    if (next != null) haptic.success();
     await load();
     setPendingDelta(false);
   };

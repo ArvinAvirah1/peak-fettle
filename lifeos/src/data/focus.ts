@@ -14,6 +14,7 @@
 
 import { dayKey, genId, localDb } from '../db/localDb';
 import { FRICTION_DEFAULTS } from '../config/product';
+import { summitDark } from '../theme/tokens';
 import { safeWrite } from '../lib/feedback';
 import { liveActivity } from '../../modules/live-activity';
 
@@ -263,7 +264,7 @@ export async function reclaimedToday(): Promise<{ totalMinutes: number; blocksHe
 // the ActivityKit Live Activity in sync: set on start, clear on end. The widget
 // works from lo_meta.active_focus even when the native Live Activity is absent.
 
-export async function startFocusSession(name: string, endsAtISO: string, accentHex = '#F2A93B'): Promise<void> {
+export async function startFocusSession(name: string, endsAtISO: string, accentHex: string = summitDark.colors.accentDefault): Promise<void> {
   await safeWrite(
     async () => {
       // Additive `startedAt` field (TICKET-163): do NOT rename name/endsAt —

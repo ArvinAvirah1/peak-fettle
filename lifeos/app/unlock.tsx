@@ -15,7 +15,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import Svg, { Circle } from 'react-native-svg';
 import { useTheme } from '../src/theme/ThemeContext';
@@ -26,7 +26,7 @@ import { TypedIntention } from '../src/components/focus/TypedIntention';
 import { HoldTheDot } from '../src/components/focus/HoldTheDot';
 import { ReflectionPrompt } from '../src/components/focus/ReflectionPrompt';
 import { haptic } from '../src/lib/haptics';
-import { fontFamily, fontSize, HIT_TARGET, spacing } from '../src/theme/tokens';
+import { fontFamily, fontSize, spacing } from '../src/theme/tokens';
 import {
   FocusConfigRow,
   FrictionConfig,
@@ -37,6 +37,7 @@ import {
   unlockAttemptsToday,
 } from '../src/data/focus';
 import { blocking } from '../src/native/blocking';
+import { liveActivity } from '../modules/live-activity';
 
 type Phase = 'pick' | 'gate' | 'waiting' | 'granted';
 
@@ -126,6 +127,14 @@ export default function UnlockScreen(): React.ReactElement {
     await logFocusEvent('snooze_used', { configId: target.id });
     await blocking.grantExemption(target.id, friction.grantWindowMin);
     await logFocusEvent('unlock_completed', { configId: target.id, via: 'snooze' });
+    // TICKET-172: snooze countdown on the island / lock screen, with one-tap
+    // relock (iOS 17+). Fail-soft — the unlock never depends on this.
+    try {
+      const endsAt = new Date(Date.now() + friction.grantWindowMin * 60_000).toISOString();
+      liveActivity.start(target.name, endsAt, c.accentDefault, true);
+    } catch {
+      // Live Activity is cosmetic here; ignore.
+    }
     setPhase('granted');
   };
 

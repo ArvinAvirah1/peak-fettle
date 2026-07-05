@@ -22,7 +22,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import ViewShot, { captureRef } from 'react-native-view-shot';
+import { captureRef } from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
 import { ScreenLayout, PFButton, SectionTitle } from '../src/components/ui';
 import { Ionicons } from '../src/components/Icon';
@@ -36,9 +36,8 @@ import { ShareCard } from '../src/features/share/ShareCard';
 import { logMilestoneShareEvent } from '../src/features/share/shareEvents';
 import type { ShareMilestone } from '../src/features/share/milestones';
 import { SHARE_MILESTONES, MILESTONE_LABELS } from '../src/features/share/milestones';
-import { dayKey, localDb } from '../src/db/localDb';
+import { localDb } from '../src/db/localDb';
 import { mergedDailyLogs } from '../src/data/habits';
-import { computeStreak, LogStatus } from '../src/engine/streaks';
 
 function isShareMilestone(n: number): n is ShareMilestone {
   return (SHARE_MILESTONES as readonly number[]).includes(n);
@@ -91,7 +90,6 @@ export default function ShareCardScreen(): React.ReactElement {
       setHabitNames(rows.map((r) => r.name));
 
       // Heat snippet: last 14 days of merged daily status.
-      const today = dayKey();
       const merged = await mergedDailyLogs();
       const snippet: (string | null)[] = [];
       for (let i = 13; i >= 0; i--) {

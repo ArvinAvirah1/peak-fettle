@@ -34,6 +34,7 @@ import { Ionicons } from '../../src/components/Icon';
 import { MoodSparkline } from '../../src/components/MoodSparkline';
 import { MomentumRing } from '../../src/components/focus/MomentumRing';
 import { FloatingPlayerPill } from '../../src/components/focus/FloatingPlayerPill';
+import { MaybeNotificationPrime } from '../../src/components/NotificationPrime';
 import { fontFamily, fontSize, spacing, HIT_TARGET } from '../../src/theme/tokens';
 import { dayKey, localDb } from '../../src/db/localDb';
 import { computeStreak } from '../../src/engine/streaks';
@@ -189,6 +190,10 @@ export default function TodayScreen(): React.ReactElement {
             streak={streak}
           />
         ) : null}
+
+        {/* Contextual notification prime (TICKET-166) — self-gating, once-only;
+            renders null until its own gate opens, so mounting here is free. */}
+        <MaybeNotificationPrime />
 
         {isEnabled('shareCards') && pendingMilestone !== null ? (
           <MilestoneBanner

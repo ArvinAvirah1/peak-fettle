@@ -5,7 +5,7 @@
  * haptic on interactive primitives (TICKET-150 "Summit depth pass").
  */
 
-import React, { useState } from 'react';
+import React from 'react';
 import {
   ActivityIndicator,
   Pressable,

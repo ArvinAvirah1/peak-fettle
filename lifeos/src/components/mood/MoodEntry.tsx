@@ -13,14 +13,12 @@ import { fontFamily, fontSize, HIT_TARGET, radius, spacing } from '../../theme/t
 import { haptic } from '../../lib/haptics';
 import { PressableScale } from '../motion';
 import { Ionicons } from '../Icon';
+import { MOOD_LEVELS, MOOD_LEVEL_META, MoodLevel } from './moodLevels';
 
-export const MOOD_FACES: { value: 1 | 2 | 3 | 4 | 5; icon: string; label: string }[] = [
-  { value: 1, icon: 'rainy-outline', label: 'Heavy' },
-  { value: 2, icon: 'cloudy-outline', label: 'Low' },
-  { value: 3, icon: 'partly-sunny-outline', label: 'Okay' },
-  { value: 4, icon: 'sunny-outline', label: 'Good' },
-  { value: 5, icon: 'star-outline', label: 'Great' },
-];
+/** Face-picker rows, derived from the shared mood-level source (moodLevels.ts). */
+export const MOOD_FACES: { value: MoodLevel; icon: string; label: string }[] = MOOD_LEVELS.map(
+  (value) => ({ value, ...MOOD_LEVEL_META[value] })
+);
 
 export function MoodFacePicker({
   value,

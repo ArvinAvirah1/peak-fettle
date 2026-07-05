@@ -27,19 +27,7 @@ import {
   tagCorrelations,
 } from '../src/data/insights';
 import { TAG_LABELS, MoodTag } from '../src/data/mood';
-
-const MOOD_LABELS: Record<1 | 2 | 3 | 4 | 5, string> = {
-  1: 'Heavy',
-  2: 'Low',
-  3: 'Okay',
-  4: 'Good',
-  5: 'Great',
-};
-
-function moodLabelFor(mood: number): string {
-  const rounded = Math.max(1, Math.min(5, Math.round(mood))) as 1 | 2 | 3 | 4 | 5;
-  return MOOD_LABELS[rounded];
-}
+import { MOOD_LEVEL_LABELS, moodLevelFor } from '../src/components/mood/moodLevels';
 
 function formatTime(ts: string): string {
   // ts is an ISO string; render local HH:MM.
@@ -198,7 +186,7 @@ export default function MoodHistoryScreen(): React.ReactElement {
                               fontSize: fontSize.bodyMd,
                             }}
                           >
-                            {moodLabelFor(entry.mood)}
+                            {MOOD_LEVEL_LABELS[moodLevelFor(entry.mood)]}
                           </Text>
                         </View>
 

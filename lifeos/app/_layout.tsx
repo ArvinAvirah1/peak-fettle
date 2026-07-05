@@ -6,7 +6,9 @@
  *
  * Shield handoff (TICKET-104): shield extensions can't open the app, so on
  * every foreground we consume the App Group pending-unlock marker and route
- * into the friction flow.
+ * into the friction flow. The same watcher consumes the pending-relock marker
+ * the Live Activity's "Relock now" intent writes (TICKET-172) and re-applies
+ * the enabled shields.
  */
 
 import React, { useEffect } from 'react';
@@ -20,6 +22,8 @@ import { AuthProvider } from '../src/auth/AuthContext';
 import { ToastProvider } from '../src/components/Toast';
 import { localDb } from '../src/db/localDb';
 import { blocking, isBlockingAvailable } from '../src/native/blocking';
+import { consumePendingRelock } from '../modules/live-activity';
+import { listFocusConfigs } from '../src/data/focus';
 import { startWidgetBridge } from '../src/services/widgetBridge';
 
 function PendingUnlockWatcher(): null {
@@ -32,6 +36,25 @@ function PendingUnlockWatcher(): null {
       const marker = await blocking.consumePendingUnlock();
       if (marker != null) {
         router.push('/unlock');
+      }
+
+      // TICKET-172: the island's "Relock now" intent (iOS 17+) writes a
+      // pending_relock App Group marker — consume it and end the snooze
+      // window early by re-applying every enabled rule's shield. The Live
+      // Activity itself is already ended optimistically by the intent.
+      // Fail-soft: a shield that can't re-apply never blocks foregrounding.
+      const relock = consumePendingRelock();
+      if (relock != null) {
+        try {
+          const configs = await listFocusConfigs();
+          for (const cfg of configs) {
+            if (cfg.enabled === 1 && cfg.selection_token) {
+              await blocking.applyShield(cfg.id, cfg.selection_token);
+            }
+          }
+        } catch {
+          // never break the foreground path on a relock failure
+        }
       }
     };
 

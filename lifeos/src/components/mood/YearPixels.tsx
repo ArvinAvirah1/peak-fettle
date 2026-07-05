@@ -23,14 +23,7 @@ import { useTheme } from '../../theme/ThemeContext';
 import { fontFamily, fontSize, hairline, radius, spacing } from '../../theme/tokens';
 import { haptic } from '../../lib/haptics';
 import { addDays, weekStart } from '../../engine/streaks';
-
-const MOOD_WORDS: Record<1 | 2 | 3 | 4 | 5, string> = {
-  1: 'Heavy',
-  2: 'Low',
-  3: 'Okay',
-  4: 'Good',
-  5: 'Great',
-};
+import { MOOD_LEVELS, MOOD_LEVEL_LABELS, MoodLevel, moodLevelFor } from './moodLevels';
 
 const WEEKDAY_LETTERS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
@@ -47,14 +40,7 @@ interface DayCell {
 
 type WeekRow = DayCell[];
 
-function moodBucket(avg: number): 1 | 2 | 3 | 4 | 5 {
-  const rounded = Math.round(avg);
-  if (rounded <= 1) return 1;
-  if (rounded >= 5) return 5;
-  return rounded as 1 | 2 | 3 | 4 | 5;
-}
-
-const OPACITY_BY_MOOD: Record<1 | 2 | 3 | 4 | 5, number> = {
+const OPACITY_BY_MOOD: Record<MoodLevel, number> = {
   1: 0.25,
   2: 0.45,
   3: 0.65,
@@ -133,13 +119,10 @@ export function YearPixels({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [endDay, weeks]);
 
-  const legendItems: { mood: 1 | 2 | 3 | 4 | 5; label: string }[] = [
-    { mood: 1, label: 'Heavy' },
-    { mood: 2, label: 'Low' },
-    { mood: 3, label: 'Okay' },
-    { mood: 4, label: 'Good' },
-    { mood: 5, label: 'Great' },
-  ];
+  const legendItems: { mood: MoodLevel; label: string }[] = MOOD_LEVELS.map((mood) => ({
+    mood,
+    label: MOOD_LEVEL_LABELS[mood],
+  }));
 
   return (
     <View>
@@ -215,8 +198,8 @@ export function YearPixels({
                   );
                 }
 
-                const bucket = moodBucket(entry.avg);
-                const label = `${formatDayLabel(day.date)}, average ${MOOD_WORDS[bucket]}, ${entry.count} check-in${entry.count === 1 ? '' : 's'}`;
+                const bucket = moodLevelFor(entry.avg);
+                const label = `${formatDayLabel(day.date)}, average ${MOOD_LEVEL_LABELS[bucket]}, ${entry.count} check-in${entry.count === 1 ? '' : 's'}`;
 
                 return (
                   <Pressable
