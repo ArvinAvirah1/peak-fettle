@@ -1,11 +1,14 @@
 /**
- * Goals data layer (TICKET-105) — 6 fixed domains (Q24), outcome goal →
- * milestones → linked process habits. Progress is two honest signals
- * (milestones done, linked-habit consistency), never one blended score.
+ * Goals data layer (TICKET-105, extended TICKET-161) — 6 fixed domains (Q24),
+ * outcome goal -> milestones -> linked process habits. Progress stays two
+ * honest signals (milestones done, linked-habit consistency); a numeric
+ * metric (TICKET-161) is a third, explicit, separately-labeled signal — it is
+ * never blended into the other two.
  */
 
 import { dayKey, genId, localDb } from '../db/localDb';
-import { consistency, LogStatus } from '../engine/streaks';
+import { addDays, consistency, LogStatus, weekStart } from '../engine/streaks';
+import { safeWrite } from '../lib/feedback';
 
 export type Domain = 'health' | 'professional' | 'growth' | 'interpersonal' | 'financial' | 'mind';
 
@@ -22,6 +25,8 @@ export function domainLabel(key: Domain): string {
   return DOMAINS.find((d) => d.key === key)?.label ?? key;
 }
 
+export type GoalMetricType = 'milestone' | 'numeric' | 'habit_linked';
+
 export interface GoalRow {
   id: string;
   domain: Domain;
@@ -31,6 +36,9 @@ export interface GoalRow {
   status: 'active' | 'achieved' | 'archived';
   source_protocol_id: string | null;
   created_at: string;
+  metric_type: GoalMetricType;
+  metric_target: number | null;
+  metric_current: number | null;
 }
 
 export interface MilestoneRow {
@@ -48,12 +56,26 @@ export async function createGoal(input: {
   why?: string;
   targetDate?: string | null;
   sourceProtocolId?: string | null;
+  metricType?: 'milestone' | 'numeric';
+  metricTarget?: number | null;
+  metricCurrent?: number | null;
 }): Promise<string> {
   const id = genId();
   await localDb.execute(
-    `INSERT INTO lo_goals (id, domain, title, why, target_date, source_protocol_id, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [id, input.domain, input.title, input.why ?? null, input.targetDate ?? null, input.sourceProtocolId ?? null, new Date().toISOString()]
+    `INSERT INTO lo_goals (id, domain, title, why, target_date, source_protocol_id, created_at, metric_type, metric_target, metric_current)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      input.domain,
+      input.title,
+      input.why ?? null,
+      input.targetDate ?? null,
+      input.sourceProtocolId ?? null,
+      new Date().toISOString(),
+      input.metricType ?? 'milestone',
+      input.metricTarget ?? null,
+      input.metricCurrent ?? null,
+    ]
   );
   return id;
 }
@@ -74,6 +96,52 @@ export async function getGoal(id: string): Promise<GoalRow | null> {
 
 export async function setGoalStatus(id: string, status: GoalRow['status']): Promise<void> {
   await localDb.execute(`UPDATE lo_goals SET status = ? WHERE id = ?`, [status, id]);
+}
+
+// --- metric (TICKET-161) ---------------------------------------------------------
+
+/** Patch the target and/or current value of a numeric-metric goal. */
+export async function setGoalMetric(id: string, patch: { target?: number | null; current?: number | null }): Promise<void> {
+  await safeWrite(
+    async () => {
+      const fields: string[] = [];
+      const params: unknown[] = [];
+      if ('target' in patch) {
+        fields.push('metric_target = ?');
+        params.push(patch.target ?? null);
+      }
+      if ('current' in patch) {
+        fields.push('metric_current = ?');
+        params.push(patch.current ?? null);
+      }
+      if (fields.length === 0) return;
+      params.push(id);
+      await localDb.execute(`UPDATE lo_goals SET ${fields.join(', ')} WHERE id = ?`, params);
+    },
+    { context: 'goals.setGoalMetric', errorMessage: "That didn't save. Please try again." }
+  );
+}
+
+/**
+ * Add `delta` (may be negative) to a goal's metric_current, floored at 0.
+ * Returns the new value, or null if the goal doesn't exist or the write failed.
+ */
+export async function incrementGoalMetric(id: string, delta: number): Promise<number | null> {
+  const row = await localDb.getFirst<{ metric_current: number | null }>(
+    `SELECT metric_current FROM lo_goals WHERE id = ?`,
+    [id]
+  );
+  if (!row) return null;
+  const current = row.metric_current ?? 0;
+  const newValue = Math.max(0, current + delta);
+  const result = await safeWrite(
+    async () => {
+      await localDb.execute(`UPDATE lo_goals SET metric_current = ? WHERE id = ?`, [newValue, id]);
+      return newValue;
+    },
+    { context: 'goals.incrementGoalMetric', errorMessage: "That didn't save. Please try again." }
+  );
+  return result ?? null;
 }
 
 // --- milestones ---------------------------------------------------------------
@@ -164,4 +232,41 @@ export async function goalProgress(goalId: string, today?: string): Promise<Goal
     milestonesTotal: milestones.length,
     habitConsistency,
   };
+}
+
+// --- progress over time (TICKET-161) ----------------------------------------------
+
+/**
+ * Weekly cumulative milestone-completion series for a mini progress chart.
+ * Fetches milestones once, then walks the last `weeks` week-buckets
+ * (oldest -> newest); each bucket's cumulativeDone counts milestones whose
+ * completed_at date falls on or before that week's END day (Sunday, when
+ * weeks start Monday via `weekStart`/`addDays`).
+ */
+export async function milestoneWeeklySeries(
+  goalId: string,
+  weeks = 12,
+  today = dayKey()
+): Promise<Array<{ weekStart: string; cumulativeDone: number }>> {
+  const milestones = await milestonesForGoal(goalId);
+  const completedDates = milestones
+    .map((m) => (m.completed_at ? m.completed_at.slice(0, 10) : null))
+    .filter((d): d is string => d != null)
+    .sort();
+
+  const currentWeekStart = weekStart(today);
+  const series: Array<{ weekStart: string; cumulativeDone: number }> = [];
+
+  for (let i = weeks - 1; i >= 0; i--) {
+    const ws = addDays(currentWeekStart, -7 * i);
+    const weekEnd = addDays(ws, 6);
+    let cumulativeDone = 0;
+    for (const d of completedDates) {
+      if (d <= weekEnd) cumulativeDone += 1;
+      else break;
+    }
+    series.push({ weekStart: ws, cumulativeDone });
+  }
+
+  return series;
 }

@@ -1,9 +1,13 @@
 /**
- * Mood check-ins (TICKET-108) — one per day, local-only storage (Q30).
- * mood ≤ 2 triggers the CrisisResourcesBanner in the UI layer (TICKET-100).
+ * Mood check-ins (TICKET-158 "Mood 2.0") — multiple check-ins per day are
+ * legal at the schema level (schema v3 dropped UNIQUE(date) on
+ * lo_mood_checkins), local-only storage (Q30). mood <= 2 still triggers the
+ * CrisisResourcesBanner in the UI layer (TICKET-100) — that behavior is
+ * unchanged, it just now applies per check-in rather than per day.
  */
 
 import { dayKey, genId, localDb } from '../db/localDb';
+import { safeWrite } from '../lib/feedback';
 
 export const MOOD_TAGS = [
   'sleep_good',
@@ -42,29 +46,56 @@ export interface MoodRow {
   note: string | null;
 }
 
-export async function upsertMood(input: {
+/**
+ * Always a plain INSERT — multiple check-ins per day are legal (schema v3
+ * dropped UNIQUE(date)). Replaces the old upsertMood; there is no ON
+ * CONFLICT path anymore.
+ */
+export async function addMood(input: {
   mood: 1 | 2 | 3 | 4 | 5;
   tags: MoodTag[];
   note?: string | null;
   date?: string;
 }): Promise<void> {
   const day = input.date ?? dayKey();
-  await localDb.execute(
-    `INSERT INTO lo_mood_checkins (id, ts, date, mood, tags_json, note) VALUES (?, ?, ?, ?, ?, ?)
-     ON CONFLICT (date) DO UPDATE SET mood = excluded.mood, tags_json = excluded.tags_json,
-       note = excluded.note, ts = excluded.ts`,
-    [genId(), new Date().toISOString(), day, input.mood, JSON.stringify(input.tags), input.note ?? null],
-    { tables: ['lo_mood_checkins'] }
+  await safeWrite(
+    () =>
+      localDb.execute(
+        `INSERT INTO lo_mood_checkins (id, ts, date, mood, tags_json, note) VALUES (?, ?, ?, ?, ?, ?)`,
+        [genId(), new Date().toISOString(), day, input.mood, JSON.stringify(input.tags), input.note ?? null],
+        { tables: ['lo_mood_checkins'] }
+      ),
+    { context: 'mood.addMood', errorMessage: "That check-in didn't save. Please try again." }
   );
 }
 
+/** Latest check-in of the given day (or today), if any. */
 export async function moodForDay(date?: string): Promise<MoodRow | null> {
-  return localDb.getFirst<MoodRow>(`SELECT * FROM lo_mood_checkins WHERE date = ?`, [date ?? dayKey()]);
+  return localDb.getFirst<MoodRow>(
+    `SELECT * FROM lo_mood_checkins WHERE date = ? ORDER BY ts DESC LIMIT 1`,
+    [date ?? dayKey()]
+  );
 }
 
+/** All check-ins for the given day (or today), earliest first. */
+export async function moodsForDay(date?: string): Promise<MoodRow[]> {
+  return localDb.getAll<MoodRow>(
+    `SELECT * FROM lo_mood_checkins WHERE date = ? ORDER BY ts ASC`,
+    [date ?? dayKey()]
+  );
+}
+
+/**
+ * At most one row per day (the latest of each day), ordered date DESC,
+ * limited to `days` rows — the Today sparkline consumes this and expects
+ * one point per day regardless of how many check-ins happened that day.
+ */
 export async function recentMoods(days = 14): Promise<MoodRow[]> {
   return localDb.getAll<MoodRow>(
-    `SELECT * FROM lo_mood_checkins ORDER BY date DESC LIMIT ?`,
+    `SELECT m.* FROM lo_mood_checkins m
+     JOIN (SELECT date, MAX(ts) AS mts FROM lo_mood_checkins GROUP BY date) g
+       ON m.date = g.date AND m.ts = g.mts
+     ORDER BY m.date DESC LIMIT ?`,
     [days]
   );
 }
