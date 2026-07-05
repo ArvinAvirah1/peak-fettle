@@ -28,6 +28,12 @@ module.exports = {
   type: 'watch',
   name: 'PeakFettleWatch',
   displayName: 'Peak Fettle',
+  // Standalone watchOS apps need their OWN AppIcon.appiconset + CFBundleIconName
+  // (unlike extensions) -- reuses the main app's 1024x1024 source; @bacons/
+  // apple-targets generates the full watch icon size set from this one file.
+  // Missing this caused an App Store Connect submission rejection (2026-07-05):
+  // "Missing Info.plist value ... CFBundleIconName ... com.peakfettle.app.watchapp".
+  icon: '../../assets/icon.png',
   // ".watchapp" -> com.peakfettle.app.watchapp (appended to the app bundle id).
   bundleIdentifier: '.watchapp',
   // watchOS 10 -- NavigationStack + modern SwiftUI APIs used by TodayView.
