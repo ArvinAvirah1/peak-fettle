@@ -172,7 +172,7 @@ struct PeakFettleShortcuts: AppShortcutsProvider {
             intent: LogSetIntent(),
             phrases: [
                 "Log a set in \(.applicationName)",
-                "Log \(\.$reps) reps in \(.applicationName)",
+                "Log a set with \(.applicationName)",
                 "\(.applicationName) log a set",
             ],
             shortTitle: "Log a Set",
