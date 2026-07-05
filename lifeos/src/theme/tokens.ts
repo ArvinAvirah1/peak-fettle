@@ -8,6 +8,8 @@
  * AA contrast targets: textPrimary ≥4.5:1, textSecondary ≥3:1 on every surface.
  */
 
+import { StyleSheet, ViewStyle } from 'react-native';
+
 export interface PrimitiveTokens {
   base950: string;
   base900: string;
@@ -146,3 +148,67 @@ export const iconSize = { sm: 18, md: 24, lg: 32 } as const;
 export const motion = { enterMs: 240, exitMs: 160, microMs: 180, staggerMs: 40 } as const;
 /** Minimum hit target (Apple HIG). */
 export const HIT_TARGET = 44;
+
+// --- Depth tokens (additive, TICKET-150 "Summit depth pass") ----------------
+
+/** Single-pixel (or thinnest-possible) hairline border width for the platform. */
+export const hairline = StyleSheet.hairlineWidth;
+
+/**
+ * Elevation tokens — restrained iOS shadow + Android elevation pairs.
+ * shadowColor is intentionally a raw hex here (the one permitted location):
+ * it mirrors the dark-theme base950 ink so shadows read as "depth", not tint,
+ * on both light and dark surfaces. Kept calm: low opacity, small radii.
+ */
+export const elevation: { low: ViewStyle; mid: ViewStyle; high: ViewStyle } = {
+  low: {
+    shadowColor: '#0C0F17',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  mid: {
+    shadowColor: '#0C0F17',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.16,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  high: {
+    shadowColor: '#0C0F17',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+};
+
+/**
+ * Gradient-within-palette tokens — no linear-gradient dependency is installed,
+ * so these are consumed as layered-View stops (or an svg fill) rather than a
+ * true CSS gradient. Stops reference EXISTING primitives only — no new colors.
+ */
+export type GradientStops = readonly [string, string];
+export interface GradientPair {
+  accent: GradientStops;
+  surface: GradientStops;
+}
+
+const summitDarkGradients: GradientPair = {
+  accent: [summitDarkPrimitives.accent500, summitDarkPrimitives.accent600],
+  surface: [summitDarkPrimitives.base800, summitDarkPrimitives.base900],
+};
+
+const summitLightGradients: GradientPair = {
+  accent: [summitLightPrimitives.accent500, summitLightPrimitives.accent600],
+  surface: [summitLightPrimitives.base800, summitLightPrimitives.base900],
+};
+
+/** Default (dark) gradient stops — prefer `gradientsFor(themeName)` when theme-aware. */
+export const gradientStops: GradientPair = summitDarkGradients;
+
+/** Theme-aware gradient stop lookup — 'summitLight' | 'summitDark' (mirrors Theme['name']). */
+export function gradientsFor(themeName: 'summitDark' | 'summitLight'): GradientPair {
+  return themeName === 'summitLight' ? summitLightGradients : summitDarkGradients;
+}

@@ -17,6 +17,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider, useTheme } from '../src/theme/ThemeContext';
 import { AuthProvider } from '../src/auth/AuthContext';
+import { ToastProvider } from '../src/components/Toast';
 import { localDb } from '../src/db/localDb';
 import { blocking, isBlockingAvailable } from '../src/native/blocking';
 import { startWidgetBridge } from '../src/services/widgetBridge';
@@ -94,11 +95,13 @@ export default function RootLayout(): React.ReactElement {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <ThemeProvider>
-          <AuthProvider>
-            <StatusBar style="auto" />
-            <PendingUnlockWatcher />
-            <RootStack />
-          </AuthProvider>
+          <ToastProvider>
+            <AuthProvider>
+              <StatusBar style="auto" />
+              <PendingUnlockWatcher />
+              <RootStack />
+            </AuthProvider>
+          </ToastProvider>
         </ThemeProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
