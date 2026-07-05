@@ -16,10 +16,19 @@
  * (src/data/backup.ts header), a successful restore always ends with a
  * "re-pick your blocked apps" prompt, plus a "re-tag your apps" prompt when
  * the appWellbeingScoring feature flag is on.
+ *
+ * T169 (this pass): backupNow/restoreFromServer are the local-write surface
+ * on this screen (backupManager.ts writes device state internally), so both
+ * are wrapped in `safeWrite` here — a thrown error now surfaces a toast
+ * instead of silently doing nothing. Result feedback also goes through
+ * `showToast` (kept the inline notice/error Text too, since that copy is
+ * part of the confirm/recovery flow, not a fire-and-forget completion).
+ * ActivityIndicator now shows on the Backup card surface while a request is
+ * in flight, in addition to the existing PFButton `loading` state.
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../src/theme/ThemeContext';
 import { Card, PFButton, PFInput, ScreenLayout, SectionTitle } from '../src/components/ui';
@@ -27,6 +36,7 @@ import { Ionicons } from '../src/components/Icon';
 import { fontFamily, fontSize, spacing } from '../src/theme/tokens';
 import { PRODUCT_NAME } from '../src/config/product';
 import { useFeatureFlags } from '../src/hooks/useFeatureFlags';
+import { safeWrite, showToast } from '../src/lib/feedback';
 import {
   backupNow,
   consumePendingRecoveryCode,
@@ -69,6 +79,7 @@ export default function DataHandlingScreen(): React.ReactElement {
   const appWellbeingOn = isEnabled('appWellbeingScoring');
 
   const [status, setStatus] = useState<BackupStatus | null>(null);
+  const [statusLoading, setStatusLoading] = useState(true);
   const [backingUp, setBackingUp] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -78,8 +89,13 @@ export default function DataHandlingScreen(): React.ReactElement {
   const [restoredCount, setRestoredCount] = useState<number | null>(null);
 
   const refreshStatus = useCallback(async () => {
-    const s = await getStatus();
-    setStatus(s);
+    setStatusLoading(true);
+    try {
+      const s = await getStatus();
+      setStatus(s);
+    } finally {
+      setStatusLoading(false);
+    }
   }, []);
 
   useEffect(() => {
@@ -91,9 +107,14 @@ export default function DataHandlingScreen(): React.ReactElement {
     setNotice(null);
     setBackingUp(true);
     try {
-      const result = await backupNow();
+      const result = await safeWrite(() => backupNow(), {
+        errorMessage: 'Backup could not complete. Your data is safe on this device — try again later.',
+        context: 'data-handling.backupNow',
+      });
+      if (result === undefined) return;
       if (!result.ok) {
         setError('Backup could not reach the server right now. Your data is safe on this device — try again later.');
+        showToast({ kind: 'error', message: 'Backup could not reach the server.' });
         return;
       }
       if (result.needsRecoveryAck) {
@@ -108,6 +129,7 @@ export default function DataHandlingScreen(): React.ReactElement {
         }
       }
       setNotice('Backup complete.');
+      showToast({ kind: 'success', message: 'Backup complete.' });
       await refreshStatus();
     } finally {
       setBackingUp(false);
@@ -119,7 +141,11 @@ export default function DataHandlingScreen(): React.ReactElement {
     setNotice(null);
     setRestoring(true);
     try {
-      const result = await restoreFromServer(code ? { recoveryCode: code } : {});
+      const result = await safeWrite(() => restoreFromServer(code ? { recoveryCode: code } : {}), {
+        errorMessage: 'Restore could not complete. Please try again.',
+        context: 'data-handling.restoreFromServer',
+      });
+      if (result === undefined) return;
       if (!result.ok) {
         // "No keychain key" is the expected signal to ask for the recovery code.
         if (!code && /recovery code/i.test(result.reason)) {
@@ -127,10 +153,12 @@ export default function DataHandlingScreen(): React.ReactElement {
           return;
         }
         setError(`Restore failed: ${result.reason}`);
+        showToast({ kind: 'error', message: 'Restore failed. Please try again.' });
         return;
       }
       setRestoredCount(result.restored);
       setRestoreStage('done');
+      showToast({ kind: 'success', message: 'Restore complete.' });
       await refreshStatus();
     } finally {
       setRestoring(false);
@@ -254,10 +282,24 @@ export default function DataHandlingScreen(): React.ReactElement {
 
       <SectionTitle>Backup</SectionTitle>
       <Card>
-        <Body>{formatBackupTimestamp(status?.lastLocalAt ?? null)}</Body>
+        {statusLoading ? (
+          <View
+            accessible
+            accessibilityLabel="Loading backup status"
+            style={{ flexDirection: 'row', alignItems: 'center' }}
+          >
+            <ActivityIndicator color={c.accentDefault} />
+            <Text style={{ color: c.textTertiary, fontFamily: fontFamily.regular, fontSize: fontSize.bodySm, marginLeft: spacing.s2 }}>
+              Checking backup status…
+            </Text>
+          </View>
+        ) : (
+          <Body>{formatBackupTimestamp(status?.lastLocalAt ?? null)}</Body>
+        )}
 
         {notice ? (
           <Text
+            accessibilityRole="alert"
             style={{
               color: c.statusSuccess ?? c.accentDefault,
               fontFamily: fontFamily.medium,
@@ -285,6 +327,19 @@ export default function DataHandlingScreen(): React.ReactElement {
           disabled={restoring}
           style={{ marginTop: spacing.s4 }}
         />
+
+        {backingUp ? (
+          <View
+            accessible
+            accessibilityLabel="Backing up your data"
+            style={{ flexDirection: 'row', alignItems: 'center', marginTop: spacing.s2 }}
+          >
+            <ActivityIndicator color={c.textTertiary} size="small" />
+            <Text style={{ color: c.textTertiary, fontFamily: fontFamily.regular, fontSize: fontSize.caption, marginLeft: spacing.s2 }}>
+              Encrypting and uploading your backup…
+            </Text>
+          </View>
+        ) : null}
 
         {restoreStage === 'confirm-code' ? (
           <View style={{ marginTop: spacing.s4 }}>
@@ -315,6 +370,7 @@ export default function DataHandlingScreen(): React.ReactElement {
                 setRecoveryCode('');
                 setError(null);
               }}
+              disabled={restoring}
               style={{ marginTop: spacing.s2 }}
             />
           </View>
@@ -329,6 +385,19 @@ export default function DataHandlingScreen(): React.ReactElement {
             style={{ marginTop: spacing.s3 }}
           />
         )}
+
+        {restoring ? (
+          <View
+            accessible
+            accessibilityLabel="Restoring your data"
+            style={{ flexDirection: 'row', alignItems: 'center', marginTop: spacing.s2 }}
+          >
+            <ActivityIndicator color={c.textTertiary} size="small" />
+            <Text style={{ color: c.textTertiary, fontFamily: fontFamily.regular, fontSize: fontSize.caption, marginLeft: spacing.s2 }}>
+              Downloading and restoring your backup…
+            </Text>
+          </View>
+        ) : null}
       </Card>
 
       <SectionTitle>What we don't do</SectionTitle>

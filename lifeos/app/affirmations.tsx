@@ -25,6 +25,8 @@ import { Ionicons } from '../src/components/Icon';
 import { fontFamily, fontSize, HIT_TARGET, spacing } from '../src/theme/tokens';
 import { useFeatureFlags } from '../src/hooks/useFeatureFlags';
 import { useAffirmations } from '../src/features/affirmations/useAffirmations';
+import { haptic } from '../src/lib/haptics';
+import { safeWrite, showToast } from '../src/lib/feedback';
 
 export default function AffirmationsScreen(): React.ReactElement {
   const { theme } = useTheme();
@@ -60,11 +62,19 @@ export default function AffirmationsScreen(): React.ReactElement {
     return (
       <ScreenLayout>
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.s12 }}>
-          <ActivityIndicator color={c.accentDefault} />
+          <ActivityIndicator color={c.accentDefault} accessibilityLabel="Loading affirmations" />
         </View>
       </ScreenLayout>
     );
   }
+
+  const handleToggle = (id: string, on: boolean, label: string): void => {
+    haptic.selection();
+    void safeWrite(() => toggle(id, on), {
+      errorMessage: "That didn't save. Please try again.",
+      context: `affirmations.toggle:${id}`,
+    });
+  };
 
   const handleAdd = async (): Promise<void> => {
     const trimmed = draftText.trim();
@@ -78,9 +88,15 @@ export default function AffirmationsScreen(): React.ReactElement {
     }
     setAdding(true);
     setAddError(null);
-    await addLine(trimmed);
-    setDraftText('');
+    const result = await safeWrite(() => addLine(trimmed), {
+      errorMessage: "That didn't save. Please try again.",
+      context: 'affirmations.addLine',
+    });
     setAdding(false);
+    if (result !== undefined) {
+      setDraftText('');
+      showToast({ kind: 'success', message: 'Line added.' });
+    }
   };
 
   const seedRows = rows.filter((r) => r.source === 'seed');
@@ -175,7 +191,7 @@ export default function AffirmationsScreen(): React.ReactElement {
                 </Text>
                 <Switch
                   value={row.enabled === 1}
-                  onValueChange={(on) => void toggle(row.id, on)}
+                  onValueChange={(on) => handleToggle(row.id, on, row.text)}
                   trackColor={{ true: c.accentDefault, false: c.borderDefault }}
                   ios_backgroundColor={c.borderDefault}
                   accessibilityLabel={`Enable: ${row.text}`}
@@ -227,7 +243,7 @@ export default function AffirmationsScreen(): React.ReactElement {
             </Text>
             <Switch
               value={row.enabled === 1}
-              onValueChange={(on) => void toggle(row.id, on)}
+              onValueChange={(on) => handleToggle(row.id, on, row.text)}
               trackColor={{ true: c.accentDefault, false: c.borderDefault }}
               ios_backgroundColor={c.borderDefault}
               accessibilityLabel={`Enable: ${row.text}`}
@@ -240,6 +256,7 @@ export default function AffirmationsScreen(): React.ReactElement {
       {rows.length === 0 ? (
         <EmptyState
           icon="sparkles-outline"
+          illustration="generic"
           title="No affirmations yet"
           body="Add your own above, or wait a moment for the built-in lines to load."
         />

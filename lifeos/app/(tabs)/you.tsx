@@ -1,8 +1,12 @@
 /**
- * You tab — weekly recap + correlations (TICKET-109), re-survey entry
- * (TICKET-107 cadence), theme, data handling, the permanent "Need help?"
- * crisis link (TICKET-100), sign out (spatially separated, destructive
- * styling per nav rules).
+ * You tab — profile header + weekly recap + correlations (TICKET-109),
+ * re-survey entry (TICKET-107 cadence), features, theme, data handling, the
+ * permanent "Need help?" crisis link (TICKET-100), sign out (spatially
+ * separated, destructive styling per nav rules).
+ *
+ * TICKET-168 "You-hub redesign": regrouped into Profile header / Features /
+ * Data & Privacy / Support sections. Existing data calls (buildWeeklyRecap,
+ * moodHabitCorrelation) and the OPTIONAL_FEATURES flag wiring are unchanged.
  */
 
 import React, { useCallback, useState } from 'react';
@@ -18,6 +22,7 @@ import { PRODUCT_NAME } from '../../src/config/product';
 import { OPTIONAL_FEATURES, type OptionalFeature } from '../../src/config/features';
 import { useFeatureFlags } from '../../src/hooks/useFeatureFlags';
 import { WeeklyScoreCard } from '../../src/features/appscore/WeeklyScoreCard';
+import { haptic, isHapticsEnabled, setHapticsEnabled } from '../../src/lib/haptics';
 
 export default function YouScreen(): React.ReactElement {
   const { theme, mode, setMode } = useTheme();
@@ -29,6 +34,7 @@ export default function YouScreen(): React.ReactElement {
   const [recap, setRecap] = useState<WeeklyRecap | null>(null);
   const [correlation, setCorrelation] = useState<CorrelationInsight | null>(null);
   const [correlationDismissed, setCorrelationDismissed] = useState(false);
+  const [hapticsOn, setHapticsOn] = useState(isHapticsEnabled());
 
   useFocusEffect(
     useCallback(() => {
@@ -98,14 +104,22 @@ export default function YouScreen(): React.ReactElement {
 
   return (
     <ScreenLayout>
-      <Text style={{ color: c.textSecondary, fontFamily: fontFamily.regular, fontSize: fontSize.bodySm, marginTop: spacing.s3 }}>
-        {profile?.email ?? ''}
-      </Text>
+      {/* --- Profile header ---------------------------------------------- */}
+      <Card variant="elevated" style={{ marginTop: spacing.s3 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Ionicons name="person-circle-outline" size={40} color={c.accentDefault} />
+          <View style={{ flex: 1, marginLeft: spacing.s3 }}>
+            <Text style={{ color: c.textPrimary, fontFamily: fontFamily.semibold, fontSize: fontSize.bodyMd }}>
+              {profile?.email ?? ''}
+            </Text>
+            <Text style={{ color: c.textTertiary, fontFamily: fontFamily.regular, fontSize: fontSize.caption, marginTop: 2 }}>
+              {PRODUCT_NAME}
+            </Text>
+          </View>
+        </View>
 
-      <SectionTitle>This week</SectionTitle>
-      {recap ? (
-        <Card>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+        {recap ? (
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.s4 }}>
             <View style={{ flex: 1 }}>
               <Text style={{ color: c.textPrimary, fontFamily: fontFamily.bold, fontSize: fontSize.heading3, fontVariant: ['tabular-nums'] }}>
                 {recap.habitsDone}
@@ -115,21 +129,8 @@ export default function YouScreen(): React.ReactElement {
             <View style={{ flex: 1 }}>
               <Text style={{ color: c.textPrimary, fontFamily: fontFamily.bold, fontSize: fontSize.heading3, fontVariant: ['tabular-nums'] }}>
                 {recap.avgMoodThisWeek != null ? recap.avgMoodThisWeek.toFixed(1) : '—'}
-                {recap.avgMoodThisWeek != null && recap.avgMoodLastWeek != null ? (
-                  <Text style={{ color: c.textTertiary, fontSize: fontSize.bodySm }}>
-                    {'  '}({recap.avgMoodLastWeek.toFixed(1)} last wk)
-                  </Text>
-                ) : null}
               </Text>
               <Text style={{ color: c.textTertiary, fontFamily: fontFamily.regular, fontSize: fontSize.caption }}>avg mood</Text>
-            </View>
-          </View>
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: spacing.s4 }}>
-            <View style={{ flex: 1 }}>
-              <Text style={{ color: c.textPrimary, fontFamily: fontFamily.bold, fontSize: fontSize.heading3, fontVariant: ['tabular-nums'] }}>
-                {recap.exercisesCompleted}
-              </Text>
-              <Text style={{ color: c.textTertiary, fontFamily: fontFamily.regular, fontSize: fontSize.caption }}>exercises</Text>
             </View>
             <View style={{ flex: 1 }}>
               <Text style={{ color: c.textPrimary, fontFamily: fontFamily.bold, fontSize: fontSize.heading3, fontVariant: ['tabular-nums'] }}>
@@ -138,16 +139,17 @@ export default function YouScreen(): React.ReactElement {
               <Text style={{ color: c.textTertiary, fontFamily: fontFamily.regular, fontSize: fontSize.caption }}>blocks held</Text>
             </View>
           </View>
-          {recap.brightSpot ? (
-            <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: spacing.s4 }}>
-              <Ionicons name="sparkles-outline" size={16} color={c.accentDefault} />
-              <Text style={{ flex: 1, color: c.textSecondary, fontFamily: fontFamily.regular, fontSize: fontSize.bodySm, marginLeft: spacing.s2 }}>
-                {recap.brightSpot}
-              </Text>
-            </View>
-          ) : null}
-        </Card>
-      ) : null}
+        ) : null}
+
+        {recap?.brightSpot ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: spacing.s4 }}>
+            <Ionicons name="sparkles-outline" size={16} color={c.accentDefault} />
+            <Text style={{ flex: 1, color: c.textSecondary, fontFamily: fontFamily.regular, fontSize: fontSize.bodySm, marginLeft: spacing.s2 }}>
+              {recap.brightSpot}
+            </Text>
+          </View>
+        ) : null}
+      </Card>
 
       {correlation && !correlationDismissed ? (
         <Card>
@@ -171,14 +173,16 @@ export default function YouScreen(): React.ReactElement {
       {/* App wellbeing weekly score — self-guards on the flag + on having ratings. */}
       <WeeklyScoreCard />
 
-      <SectionTitle>Your plan</SectionTitle>
+      {/* --- Features ------------------------------------------------------ */}
+      <SectionTitle>Features</SectionTitle>
       <Card>
         {linkRow('refresh-outline', 'Re-run the survey', () => router.push('/onboarding/survey'))}
         {linkRow('trail-sign-outline', 'Review plan proposals', () => router.push('/onboarding/plan-reveal'))}
         {linkRow('calendar-outline', 'Weekly review', () => router.push('/weekly-review'))}
+        {linkRow('bar-chart-outline', 'Mood history', () => router.push('/mood-history'))}
+        {linkRow('notifications-outline', 'Reminders', () => router.push('/reminders'))}
       </Card>
 
-      <SectionTitle>Features</SectionTitle>
       <Text
         style={{
           color: c.textTertiary,
@@ -202,8 +206,28 @@ export default function YouScreen(): React.ReactElement {
         <Card>{linkRow('sparkles-outline', 'Affirmations', () => router.push('/affirmations'))}</Card>
       ) : null}
 
-      <SectionTitle>Appearance</SectionTitle>
+      {/* --- Data & Privacy ------------------------------------------------ */}
+      <SectionTitle>Data & Privacy</SectionTitle>
       <Card>
+        {linkRow('shield-checkmark-outline', 'How we handle your data', () => router.push('/data-handling'))}
+      </Card>
+      <Text
+        style={{
+          color: c.textTertiary,
+          fontFamily: fontFamily.regular,
+          fontSize: fontSize.caption,
+          lineHeight: 17,
+          marginTop: spacing.s1,
+          marginBottom: spacing.s2,
+        }}
+      >
+        Everything you track lives on this device.
+      </Text>
+
+      <Card>
+        <Text style={{ color: c.textSecondary, fontFamily: fontFamily.medium, fontSize: fontSize.bodySm, marginBottom: spacing.s2 }}>
+          Appearance
+        </Text>
         <View style={{ flexDirection: 'row' }}>
           {(['system', 'dark', 'light'] as const).map((m) => (
             <Pressable
@@ -211,7 +235,10 @@ export default function YouScreen(): React.ReactElement {
               accessibilityRole="button"
               accessibilityState={{ selected: mode === m }}
               accessibilityLabel={`Theme ${m}`}
-              onPress={() => setMode(m)}
+              onPress={() => {
+                haptic.selection();
+                setMode(m);
+              }}
               style={{
                 flex: 1,
                 minHeight: HIT_TARGET,
@@ -230,16 +257,42 @@ export default function YouScreen(): React.ReactElement {
             </Pressable>
           ))}
         </View>
+
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            minHeight: HIT_TARGET,
+            marginTop: spacing.s4,
+            paddingTop: spacing.s3,
+            borderTopWidth: 1,
+            borderTopColor: c.borderDefault,
+          }}
+        >
+          <View style={{ flex: 1, paddingRight: spacing.s3 }}>
+            <Text style={{ color: c.textPrimary, fontFamily: fontFamily.medium, fontSize: fontSize.bodyMd }}>Haptics</Text>
+            <Text style={{ color: c.textTertiary, fontFamily: fontFamily.regular, fontSize: fontSize.caption, marginTop: 2 }}>
+              Subtle vibration feedback on taps and completions.
+            </Text>
+          </View>
+          <Switch
+            value={hapticsOn}
+            onValueChange={(on) => {
+              setHapticsEnabled(on);
+              setHapticsOn(on);
+              if (on) haptic.selection();
+            }}
+            trackColor={{ true: c.accentDefault, false: c.borderDefault }}
+            ios_backgroundColor={c.borderDefault}
+            accessibilityLabel="Haptics"
+            accessibilityState={{ checked: hapticsOn }}
+          />
+        </View>
       </Card>
 
-      <SectionTitle>Reminders</SectionTitle>
+      {/* --- Support -------------------------------------------------------- */}
+      <SectionTitle>Support</SectionTitle>
       <Card>
-        {linkRow('notifications-outline', 'Reminders', () => router.push('/reminders'))}
-      </Card>
-
-      <SectionTitle>Privacy & support</SectionTitle>
-      <Card>
-        {linkRow('shield-checkmark-outline', 'How we handle your data', () => router.push('/data-handling'))}
         {linkRow('heart-outline', 'Need help?', () => router.push('/crisis-help'))}
       </Card>
 

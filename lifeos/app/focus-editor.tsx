@@ -1,7 +1,8 @@
 /**
- * Focus rule editor (TICKET-104) — create a session, daily limit, or
- * focus-now rule. App selection happens afterwards via the system picker
- * (never pre-selected). Friction settings show the honest defaults.
+ * Focus rule editor (TICKET-104, extended TICKET-162) — create a session,
+ * daily limit, or focus-now rule. App selection happens afterwards via the
+ * system picker (never pre-selected). Friction settings show the honest
+ * defaults plus an unlock-friction intervention picker (TICKET-162).
  */
 
 import React, { useState } from 'react';
@@ -10,13 +11,29 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTheme } from '../src/theme/ThemeContext';
 import { PFButton, PFInput, ScreenLayout, SectionTitle } from '../src/components/ui';
 import { fontFamily, fontSize, HIT_TARGET, radius, spacing } from '../src/theme/tokens';
-import { createFocusConfig, defaultFriction, FocusKind, FocusSchedule } from '../src/data/focus';
+import {
+  createFocusConfig,
+  defaultFriction,
+  FocusKind,
+  FocusSchedule,
+  INTERVENTION_LABELS,
+  InterventionKind,
+} from '../src/data/focus';
 import { blocking, isBlockingAvailable } from '../src/native/blocking';
 import { setSelectionToken, setFocusEnabled, logFocusEvent } from '../src/data/focus';
 import { FRICTION_DEFAULTS } from '../src/config/product';
+import { haptic } from '../src/lib/haptics';
 
 const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const DURATIONS = [15, 25, 50, 90];
+const INTERVENTION_ORDER: InterventionKind[] = ['breathing', 'typed_intention', 'hold_the_dot', 'reflection'];
+
+const INTERVENTION_BLURBS: Record<InterventionKind, string> = {
+  breathing: 'a short breathing pause',
+  typed_intention: 'typing out your intention',
+  hold_the_dot: 'holding a steady dot for a moment',
+  reflection: 'a quick reflection prompt',
+};
 
 export default function FocusEditorScreen(): React.ReactElement {
   const { theme } = useTheme();
@@ -31,6 +48,7 @@ export default function FocusEditorScreen(): React.ReactElement {
   const [end, setEnd] = useState('12:00');
   const [limitMin, setLimitMin] = useState('45');
   const [durationMin, setDurationMin] = useState(25);
+  const [intervention, setIntervention] = useState<InterventionKind>('breathing');
   const [saving, setSaving] = useState(false);
 
   const save = async (): Promise<void> => {
@@ -52,7 +70,7 @@ export default function FocusEditorScreen(): React.ReactElement {
       kind,
       name: name.trim() || defaultName,
       schedule,
-      friction: defaultFriction(),
+      friction: { ...defaultFriction(), intervention },
     });
 
     // focus-now starts immediately: pick apps → shield now; a one-shot
@@ -182,10 +200,28 @@ export default function FocusEditorScreen(): React.ReactElement {
       ) : null}
 
       <SectionTitle>Unlock friction</SectionTitle>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
+        {INTERVENTION_ORDER.map((k) => (
+          <Pressable
+            key={k}
+            accessibilityRole="button"
+            accessibilityState={{ selected: intervention === k }}
+            onPress={() => {
+              haptic.selection();
+              setIntervention(k);
+            }}
+            style={chip(intervention === k)}
+          >
+            <Text style={{ color: c.textPrimary, fontFamily: fontFamily.medium, fontSize: fontSize.bodySm }}>
+              {INTERVENTION_LABELS[k]}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
       <Text style={{ color: c.textSecondary, fontFamily: fontFamily.regular, fontSize: fontSize.bodySm, lineHeight: 21 }}>
         Unlocking a blocked app starts a wait that grows through the day ({FRICTION_DEFAULTS.waitLadderSec
           .map((s) => (s < 60 ? `${s}s` : `${Math.round(s / 60)}m`))
-          .join(' → ')}), with a short breathing pause on repeat attempts. You get{' '}
+          .join(' → ')}); repeat unlocks start with {INTERVENTION_BLURBS[intervention]}. You get{' '}
         {FRICTION_DEFAULTS.snoozeBudget} quick snoozes a day. "Keep me blocked" is always one tap — and you
         can switch any rule off right here, any time.
       </Text>

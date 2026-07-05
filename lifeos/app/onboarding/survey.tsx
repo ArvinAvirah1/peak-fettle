@@ -5,6 +5,12 @@
  * Output: SurveyAnswers → saveSurvey() → generateAndStoreProtocols() →
  * plan-reveal. The obstacle question per domain encodes WOOP-style mental
  * contrasting (derivation R16).
+ *
+ * TICKET-166: adds a visible "Step X of Y" caption alongside the progress
+ * bar, and a per-step Skip for non-essential steps (hours, chronotype, pain
+ * apps) so users can move through faster without losing the required steps
+ * (domains, assessment, values). No permission is requested anywhere in this
+ * screen — notification priming happens later, contextually, on plan-reveal.
  */
 
 import React, { useMemo, useState } from 'react';
@@ -17,8 +23,12 @@ import { fontFamily, fontSize, HIT_TARGET, radius, spacing } from '../../src/the
 import { DOMAINS, Domain } from '../../src/data/goals';
 import { Chronotype, SURVEY_VERSION, SurveyAnswers, VALUE_KEYS } from '../../src/engine/directionTypes';
 import { generateAndStoreProtocols, saveSurvey } from '../../src/data/protocols';
+import { haptic } from '../../src/lib/haptics';
+import { safeWrite } from '../../src/lib/feedback';
 
 const HOUR_CHOICES = [2, 4, 6, 8, 12, 16];
+const DEFAULT_HOURS = 4;
+const DEFAULT_CHRONOTYPE: Chronotype = 'mixed';
 const VALUE_LABELS: Record<string, string> = {
   mastery: 'Mastery',
   connection: 'Connection',
@@ -34,11 +44,14 @@ function Chip({
   selected,
   onPress,
   badge,
+  onRemove,
 }: {
   label: string;
   selected: boolean;
   onPress: () => void;
   badge?: string;
+  /** When set, renders a trailing close-outline icon (e.g. pain-app chips). */
+  onRemove?: () => void;
 }): React.ReactElement {
   const { theme } = useTheme();
   const c = theme.colors;
@@ -46,8 +59,11 @@ function Chip({
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ selected }}
-      accessibilityLabel={label}
-      onPress={onPress}
+      accessibilityLabel={onRemove ? `Remove ${label}` : label}
+      onPress={() => {
+        haptic.selection();
+        onPress();
+      }}
       style={({ pressed }) => ({
         minHeight: HIT_TARGET,
         paddingHorizontal: spacing.s4,
@@ -77,6 +93,9 @@ function Chip({
       >
         {label}
       </Text>
+      {onRemove ? (
+        <Ionicons name="close-outline" size={16} color={c.textSecondary} style={{ marginLeft: spacing.s1 }} />
+      ) : null}
     </Pressable>
   );
 }
@@ -98,6 +117,9 @@ export default function SurveyScreen(): React.ReactElement {
 
   // Steps: 0 domains, 1 per-domain assessment, 2 hours, 3 chronotype, 4 values, 5 pain apps
   const TOTAL_STEPS = 6;
+  // Non-essential steps: skipping falls back to a sane default and advances.
+  const SKIPPABLE_STEPS = new Set([2, 3]);
+  const isSkippable = SKIPPABLE_STEPS.has(step);
 
   const canNext = useMemo(() => {
     switch (step) {
@@ -118,47 +140,99 @@ export default function SurveyScreen(): React.ReactElement {
     }
   }, [step, domains, assessment, hours, chronotype, values]);
 
-  const finish = async (): Promise<void> => {
+  const finish = async (answersOverride?: { hours?: number; chronotype?: Chronotype }): Promise<void> => {
     setGenerating(true);
     const answers: SurveyAnswers = {
       surveyVersion: SURVEY_VERSION,
       kind: 'onboarding',
       domains,
       selfAssessment: assessment,
-      hoursPerWeek: hours ?? 4,
-      chronotype: chronotype ?? 'mixed',
+      hoursPerWeek: answersOverride?.hours ?? hours ?? DEFAULT_HOURS,
+      chronotype: answersOverride?.chronotype ?? chronotype ?? DEFAULT_CHRONOTYPE,
       values,
       painApps,
     };
-    await saveSurvey(answers);
-    await generateAndStoreProtocols(answers);
+    const ok = await safeWrite(async () => {
+      await saveSurvey(answers);
+      await generateAndStoreProtocols(answers);
+      return true;
+    }, {
+      errorMessage: "Couldn't build your plan. Please try again.",
+      context: 'survey.finish',
+    });
+    if (!ok) {
+      setGenerating(false);
+      return;
+    }
     router.replace('/onboarding/plan-reveal');
   };
 
   const next = (): void => {
+    haptic.impact('light');
     if (step < TOTAL_STEPS - 1) setStep(step + 1);
     else void finish();
   };
 
+  const back = (): void => {
+    haptic.impact('light');
+    setStep(step - 1);
+  };
+
+  // Per-step skip: applies the non-essential step's default, then advances
+  // exactly like Next would.
+  const skip = (): void => {
+    haptic.impact('light');
+    if (step === 2) {
+      setHours((prev) => prev ?? DEFAULT_HOURS);
+      setStep(step + 1);
+      return;
+    }
+    if (step === 3) {
+      setChronotype((prev) => prev ?? DEFAULT_CHRONOTYPE);
+      setStep(step + 1);
+      return;
+    }
+  };
+
+  const isLastStep = step === TOTAL_STEPS - 1;
+  const finishLabel = painApps.length === 0 ? 'Skip & build my plan' : 'Build my plan';
+  const nextLabel = isLastStep ? finishLabel : 'Next';
+
   return (
     <ScreenLayout>
-      {/* progress bar */}
-      <View
-        accessibilityLabel={`Step ${step + 1} of ${TOTAL_STEPS}`}
-        style={{ flexDirection: 'row', marginTop: spacing.s3, marginBottom: spacing.s5 }}
-      >
-        {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
-          <View
-            key={i}
+      {/* progress bar + step caption */}
+      <View style={{ marginTop: spacing.s3, marginBottom: spacing.s5 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.s2 }}>
+          <Text
             style={{
-              flex: 1,
-              height: 4,
-              borderRadius: radius.full,
-              marginRight: i < TOTAL_STEPS - 1 ? spacing.s1 : 0,
-              backgroundColor: i <= step ? c.accentDefault : c.borderDefault,
+              color: c.textSecondary,
+              fontFamily: fontFamily.medium,
+              fontSize: fontSize.caption,
+              fontVariant: ['tabular-nums'],
             }}
-          />
-        ))}
+          >
+            {`Step ${step + 1} of ${TOTAL_STEPS}`}
+          </Text>
+          {isSkippable ? (
+            <Text style={{ color: c.textTertiary, fontFamily: fontFamily.regular, fontSize: fontSize.caption }}>
+              Optional — you can skip this
+            </Text>
+          ) : null}
+        </View>
+        <View accessibilityLabel={`Step ${step + 1} of ${TOTAL_STEPS}`} style={{ flexDirection: 'row' }}>
+          {Array.from({ length: TOTAL_STEPS }).map((_, i) => (
+            <View
+              key={i}
+              style={{
+                flex: 1,
+                height: 4,
+                borderRadius: radius.full,
+                marginRight: i < TOTAL_STEPS - 1 ? spacing.s1 : 0,
+                backgroundColor: i <= step ? c.accentDefault : c.borderDefault,
+              }}
+            />
+          ))}
+        </View>
       </View>
 
       {step === 0 && (
@@ -296,7 +370,13 @@ export default function SurveyScreen(): React.ReactElement {
           />
           <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
             {painApps.map((a) => (
-              <Chip key={a} label={`${a}  ✕`} selected onPress={() => setPainApps((prev) => prev.filter((x) => x !== a))} />
+              <Chip
+                key={a}
+                label={a}
+                selected
+                onRemove={() => setPainApps((prev) => prev.filter((x) => x !== a))}
+                onPress={() => setPainApps((prev) => prev.filter((x) => x !== a))}
+              />
             ))}
           </View>
         </View>
@@ -304,10 +384,13 @@ export default function SurveyScreen(): React.ReactElement {
 
       <View style={{ flexDirection: 'row', marginTop: spacing.s8 }}>
         {step > 0 ? (
-          <PFButton label="Back" variant="secondary" onPress={() => setStep(step - 1)} style={{ flex: 1, marginRight: spacing.s3 }} />
+          <PFButton label="Back" variant="secondary" onPress={back} style={{ flex: 1, marginRight: spacing.s3 }} />
+        ) : null}
+        {isSkippable ? (
+          <PFButton label="Skip" variant="ghost" onPress={skip} style={{ flex: 1, marginRight: spacing.s3 }} />
         ) : null}
         <PFButton
-          label={step === TOTAL_STEPS - 1 ? 'Build my plan' : 'Next'}
+          label={nextLabel}
           onPress={next}
           disabled={!canNext}
           loading={generating}

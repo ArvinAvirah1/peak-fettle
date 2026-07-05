@@ -8,6 +8,17 @@
  * Time entry: @react-native-community/datetimepicker is NOT a project dep,
  * so we use inline preset time chips (07:00 / 09:00 / 12:00 / 18:00 / 21:00)
  * — no new native dependency added.
+ *
+ * T169 (this pass): every custom control (time chips, weekday chips, toggle
+ * switches) now carries an explicit accessibilityRole + label + state; the
+ * ≤2/day + quiet-hours rule is legible as inline caption text both at the top
+ * of the screen AND right above the Daily reminders section, where the
+ * toggles that can trigger the cap live. Saving is implicit (every change
+ * calls saveReminderConfig + rescheduleAll) so a small inline "Saving…" /
+ * "Saved" indicator now tracks that in-flight write, which is wrapped in
+ * `safeWrite` with a success toast. haptic.selection() fires on every
+ * toggle/chip/segment change. Permission-request timing is UNCHANGED — still
+ * requested lazily the first time any reminder is enabled, never on mount.
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
@@ -17,6 +28,8 @@ import { Ionicons } from '../src/components/Icon';
 import { useTheme } from '../src/theme/ThemeContext';
 import { fontFamily, fontSize, HIT_TARGET, radius, spacing } from '../src/theme/tokens';
 import { useFeatureFlags } from '../src/hooks/useFeatureFlags';
+import { haptic } from '../src/lib/haptics';
+import { safeWrite, showToast } from '../src/lib/feedback';
 import {
   configureNotificationHandler,
   DEFAULT_REMINDER_CONFIG,
@@ -56,16 +69,23 @@ function TimeChips({
   const { theme } = useTheme();
   const c = theme.colors;
   return (
-    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s1 }}>
+    <View
+      accessibilityRole="radiogroup"
+      accessibilityLabel={accessibilityLabel}
+      style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.s1 }}
+    >
       {options.map((t) => {
         const selected = t === value;
         return (
           <Pressable
             key={t}
-            accessibilityRole="button"
+            accessibilityRole="radio"
             accessibilityLabel={`${accessibilityLabel} ${t}`}
-            accessibilityState={{ selected }}
-            onPress={() => onChange(t)}
+            accessibilityState={{ selected, checked: selected }}
+            onPress={() => {
+              haptic.selection();
+              onChange(t);
+            }}
             style={({ pressed }) => ({
               paddingHorizontal: spacing.s3,
               paddingVertical: spacing.s1,
@@ -105,16 +125,23 @@ function WeekdayPicker({
   const { theme } = useTheme();
   const c = theme.colors;
   return (
-    <View style={{ flexDirection: 'row', gap: spacing.s1, marginTop: spacing.s2 }}>
+    <View
+      accessibilityRole="radiogroup"
+      accessibilityLabel="Day of the week"
+      style={{ flexDirection: 'row', gap: spacing.s1, marginTop: spacing.s2 }}
+    >
       {WEEKDAYS.map((label, idx) => {
         const selected = idx === value;
         return (
           <Pressable
             key={idx}
-            accessibilityRole="button"
+            accessibilityRole="radio"
             accessibilityLabel={`${WEEKDAY_FULL[idx]}`}
-            accessibilityState={{ selected }}
-            onPress={() => onChange(idx)}
+            accessibilityState={{ selected, checked: selected }}
+            onPress={() => {
+              haptic.selection();
+              onChange(idx);
+            }}
             style={({ pressed }) => ({
               flex: 1,
               minHeight: HIT_TARGET - 4,
@@ -180,9 +207,13 @@ function ReminderRow({
         </View>
         <Switch
           value={enabled}
-          onValueChange={onToggle}
+          onValueChange={(v) => {
+            haptic.selection();
+            onToggle(v);
+          }}
           trackColor={{ true: c.accentDefault, false: c.borderDefault }}
           ios_backgroundColor={c.borderDefault}
+          accessibilityRole="switch"
           accessibilityLabel={`Toggle ${label}`}
           accessibilityState={{ checked: enabled }}
         />
@@ -215,6 +246,7 @@ export default function RemindersScreen(): React.ReactElement {
   const [cfg, setCfg] = useState<ReminderConfig>(DEFAULT_REMINDER_CONFIG);
   const [loaded, setLoaded] = useState(false);
   const [permAsked, setPermAsked] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   // Load config on mount, configure handler.
   useEffect(() => {
@@ -225,25 +257,38 @@ export default function RemindersScreen(): React.ReactElement {
     });
   }, []);
 
-  // Persist + reschedule on every config change after initial load.
+  // Persist + reschedule on every config change after initial load. Wrapped in
+  // safeWrite so a thrown error surfaces a toast instead of failing silently;
+  // a small inline "Saving…" indicator tracks the in-flight write.
   const applyConfig = useCallback(
     async (next: ReminderConfig) => {
       setCfg(next);
-      await saveReminderConfig(next);
-      // Request permission the first time the user enables any reminder.
-      if (!permAsked) {
-        const anyEnabled =
-          next.dailyHabit?.enabled ||
-          next.moodPrompt?.enabled ||
-          next.weeklyReview?.enabled ||
-          next.affirmationMorning?.enabled ||
-          next.affirmationEvening?.enabled;
-        if (anyEnabled) {
-          setPermAsked(true);
-          await requestPermission();
+      setSaving(true);
+      try {
+        const saved = await safeWrite(() => saveReminderConfig(next), {
+          errorMessage: "That didn't save. Please try again.",
+          context: 'reminders.saveReminderConfig',
+        });
+        if (saved === undefined) return;
+        // Request permission the first time the user enables any reminder.
+        // Timing unchanged: lazy, on first enable, never on mount.
+        if (!permAsked) {
+          const anyEnabled =
+            next.dailyHabit?.enabled ||
+            next.moodPrompt?.enabled ||
+            next.weeklyReview?.enabled ||
+            next.affirmationMorning?.enabled ||
+            next.affirmationEvening?.enabled;
+          if (anyEnabled) {
+            setPermAsked(true);
+            await requestPermission();
+          }
         }
+        await rescheduleAll(next);
+        showToast({ kind: 'success', message: 'Reminders updated.' });
+      } finally {
+        setSaving(false);
       }
-      await rescheduleAll(next);
     },
     [permAsked]
   );
@@ -280,9 +325,11 @@ export default function RemindersScreen(): React.ReactElement {
         At most 2 reminders a day, never during quiet hours. All opt-in — nothing schedules until you turn it on.
       </Text>
 
-      {/* Live schedule summary */}
+      {/* Live schedule summary + saving indicator */}
       {loaded ? (
         <View
+          accessible
+          accessibilityLabel={saving ? `${summary}. Saving.` : summary}
           style={{
             backgroundColor: c.bgElevated,
             borderRadius: radius.md,
@@ -304,10 +351,33 @@ export default function RemindersScreen(): React.ReactElement {
           >
             {summary}
           </Text>
+          {saving ? (
+            <Text
+              style={{
+                color: c.textTertiary,
+                fontFamily: fontFamily.medium,
+                fontSize: fontSize.caption,
+                marginLeft: spacing.s2,
+              }}
+            >
+              Saving…
+            </Text>
+          ) : null}
         </View>
       ) : null}
 
       <SectionTitle>Daily reminders</SectionTitle>
+      <Text
+        style={{
+          color: c.textTertiary,
+          fontFamily: fontFamily.regular,
+          fontSize: fontSize.caption,
+          lineHeight: 17,
+          marginBottom: spacing.s2,
+        }}
+      >
+        Up to 2 of these can fire on any one day — the rest quietly sit out once the cap is reached.
+      </Text>
       <Card>
         <ReminderRow
           label="Habit check-in"

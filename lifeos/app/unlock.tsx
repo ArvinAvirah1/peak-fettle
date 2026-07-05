@@ -2,13 +2,15 @@
  * Unlock friction flow (TICKET-104, Q19) — reached via the shield handoff
  * (App Group marker) or lifeos://unlock.
  *
- * Sequence: pick which rule to unlock → (breathing gate on repeat attempts)
- * → escalating wait timer (determinate ring, tabular digits) → grant window.
- * A daily snooze budget skips friction. "Never mind, keep it blocked" is
- * always visible (CONTENT_SAFETY.md §3) and logs a held block — the win.
+ * Sequence: pick which rule to unlock -> (gate: selected intervention from
+ * the friction library on repeat attempts -- breathing / typed-intention /
+ * hold-the-dot / reflection prompt, TICKET-162) -> escalating wait timer
+ * (determinate ring, tabular digits) -> grant window. A daily snooze budget
+ * skips friction. "Never mind, keep it blocked" is always visible
+ * (CONTENT_SAFETY.md 3) and logs a held block -- the win.
  *
  * Security note (TICKET-113): this screen holds ALL friction state. The deep
- * link carries no authority — arriving here doesn't lift anything; only
+ * link carries no authority -- arriving here doesn't lift anything; only
  * grantExemption() after completion does.
  */
 
@@ -16,11 +18,14 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import Svg, { Circle } from 'react-native-svg';
-import * as Haptics from 'expo-haptics';
 import { useTheme } from '../src/theme/ThemeContext';
 import { Card, PFButton, ScreenLayout, SectionTitle } from '../src/components/ui';
 import { Ionicons } from '../src/components/Icon';
 import { BreathingGate } from '../src/components/BreathingGate';
+import { TypedIntention } from '../src/components/focus/TypedIntention';
+import { HoldTheDot } from '../src/components/focus/HoldTheDot';
+import { ReflectionPrompt } from '../src/components/focus/ReflectionPrompt';
+import { haptic } from '../src/lib/haptics';
 import { fontFamily, fontSize, HIT_TARGET, spacing } from '../src/theme/tokens';
 import {
   FocusConfigRow,
@@ -33,7 +38,14 @@ import {
 } from '../src/data/focus';
 import { blocking } from '../src/native/blocking';
 
-type Phase = 'pick' | 'breathing' | 'waiting' | 'granted';
+type Phase = 'pick' | 'gate' | 'waiting' | 'granted';
+
+const GATE_HEADER: Record<FrictionConfig['intervention'], string> = {
+  breathing: 'First, one steady minute',
+  typed_intention: 'First, say what it’s for',
+  hold_the_dot: 'First, hold steady for ten seconds',
+  reflection: 'First, a moment to check in',
+};
 
 export default function UnlockScreen(): React.ReactElement {
   const { theme } = useTheme();
@@ -77,7 +89,7 @@ export default function UnlockScreen(): React.ReactElement {
     const wait = ladder[Math.min(attempts, ladder.length - 1)];
     setWaitTotal(wait);
     setSecondsLeft(wait);
-    setPhase(attempts >= f.breathingFromAttempt ? 'breathing' : 'waiting');
+    setPhase(attempts >= f.breathingFromAttempt ? 'gate' : 'waiting');
   }, []);
 
   // countdown
@@ -95,15 +107,17 @@ export default function UnlockScreen(): React.ReactElement {
       void (async () => {
         await blocking.grantExemption(target.id, friction.grantWindowMin);
         await logFocusEvent('unlock_completed', { configId: target.id });
-        await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+        haptic.success();
         setPhase('granted');
       })();
     }
   }, [phase, secondsLeft, target, friction.grantWindowMin]);
 
   const holdBlock = async (): Promise<void> => {
-    if (target) await logFocusEvent('unlock_abandoned', { configId: target.id });
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => undefined);
+    if (target) {
+      await logFocusEvent('unlock_abandoned', { configId: target.id, minutes: friction.grantWindowMin });
+    }
+    haptic.impact('light');
     router.back();
   };
 
@@ -145,12 +159,20 @@ export default function UnlockScreen(): React.ReactElement {
         </View>
       ) : null}
 
-      {phase === 'breathing' && target ? (
+      {phase === 'gate' && target ? (
         <View style={{ flex: 1, justifyContent: 'center' }}>
           <Text accessibilityRole="header" style={{ color: c.textPrimary, fontFamily: fontFamily.semibold, fontSize: fontSize.heading3, textAlign: 'center' }}>
-            First, one steady minute
+            {GATE_HEADER[friction.intervention]}
           </Text>
-          <BreathingGate onComplete={() => setPhase('waiting')} />
+          {friction.intervention === 'typed_intention' ? (
+            <TypedIntention onComplete={() => setPhase('waiting')} />
+          ) : friction.intervention === 'hold_the_dot' ? (
+            <HoldTheDot onComplete={() => setPhase('waiting')} />
+          ) : friction.intervention === 'reflection' ? (
+            <ReflectionPrompt onComplete={() => setPhase('waiting')} />
+          ) : (
+            <BreathingGate onComplete={() => setPhase('waiting')} />
+          )}
           <PFButton label="Never mind, keep it blocked" variant="secondary" onPress={() => void holdBlock()} />
         </View>
       ) : null}

@@ -93,6 +93,7 @@ export default function LoginScreen(): React.ReactElement {
         {serverError ? (
           <Text
             accessibilityRole="alert"
+            accessibilityLiveRegion="polite"
             style={{
               color: theme.colors.statusError,
               fontFamily: fontFamily.regular,
@@ -109,6 +110,7 @@ export default function LoginScreen(): React.ReactElement {
         <Link href="/(auth)/register" asChild>
           <Text
             accessibilityRole="link"
+            accessibilityLabel="New here? Create an account"
             style={{
               color: theme.colors.accentDefault,
               fontFamily: fontFamily.medium,
@@ -116,6 +118,7 @@ export default function LoginScreen(): React.ReactElement {
               textAlign: 'center',
               marginTop: spacing.s5,
               paddingVertical: spacing.s2,
+              minHeight: 44,
             }}
           >
             New here? Create an account

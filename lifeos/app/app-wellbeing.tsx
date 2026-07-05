@@ -23,7 +23,7 @@
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { useTheme } from '../src/theme/ThemeContext';
 import { useFeatureFlags } from '../src/hooks/useFeatureFlags';
@@ -38,6 +38,8 @@ import {
   type AppRatingRow,
 } from '../src/features/appscore/appRatingsDb';
 import { computeRatingOnlyScore, type WeeklyScore } from '../src/features/appscore/scoringEngine';
+import { haptic } from '../src/lib/haptics';
+import { safeWrite } from '../src/lib/feedback';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -146,6 +148,7 @@ export default function AppWellbeingScreen(): React.ReactElement {
   // Current ratings keyed by token_label.
   const [ratingMap, setRatingMap] = useState<Map<string, AppRating>>(new Map());
   const [weeklyScore, setWeeklyScore] = useState<WeeklyScore | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const loadData = useCallback(async () => {
     const [cfgs, ratings] = await Promise.all([
@@ -163,18 +166,25 @@ export default function AppWellbeingScreen(): React.ReactElement {
     }
     setRatingMap(map);
     setWeeklyScore(computeRatingOnlyScore(ratings));
+    setLoading(false);
   }, []);
 
   useEffect(() => {
     if (!isEnabled('appWellbeingScoring')) return;
+    setLoading(true);
     void loadData();
   }, [isEnabled, loadData]);
 
   const handleRatingChange = useCallback(
     async (tokenLabel: string, rating: AppRating) => {
+      haptic.selection();
       // Optimistic update.
       setRatingMap((prev) => new Map(prev).set(tokenLabel, rating));
-      await setRating(tokenLabel, rating);
+      const result = await safeWrite(() => setRating(tokenLabel, rating), {
+        errorMessage: "That didn't save. Please try again.",
+        context: 'app-wellbeing.setRating',
+      });
+      if (result === undefined) return;
       // Recompute score from DB so it reflects the persisted state.
       const allRatings = await getAllRatings();
       setWeeklyScore(computeRatingOnlyScore(allRatings));
@@ -194,6 +204,18 @@ export default function AppWellbeingScreen(): React.ReactElement {
           cta="Go to Features"
           onPress={() => router.push('/(tabs)/you')}
         />
+      </ScreenLayout>
+    );
+  }
+
+  // Loading state — async config + rating fetch.
+  if (loading) {
+    return (
+      <ScreenLayout>
+        <Stack.Screen options={{ title: 'App Wellbeing' }} />
+        <View style={{ alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.s12 }}>
+          <ActivityIndicator color={c.accentDefault} accessibilityLabel="Loading app wellbeing data" />
+        </View>
       </ScreenLayout>
     );
   }
@@ -243,6 +265,7 @@ export default function AppWellbeingScreen(): React.ReactElement {
                     fontFamily: fontFamily.regular,
                     fontSize: fontSize.caption,
                     marginTop: 2,
+                    fontVariant: ['tabular-nums'],
                   }}
                 >
                   {weeklyScore.energizingCount} energizing · {weeklyScore.drainingCount} draining
@@ -315,6 +338,7 @@ export default function AppWellbeingScreen(): React.ReactElement {
       {!hasConfigs ? (
         <EmptyState
           icon="apps-outline"
+          illustration="focus"
           title="No app limits set up yet"
           body="Head to the Focus tab to pick apps to limit first, then come back here to tag them as Energizing, Neutral, or Draining."
           cta="Go to Focus"

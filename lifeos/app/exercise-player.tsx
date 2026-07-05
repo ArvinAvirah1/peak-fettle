@@ -5,16 +5,16 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Animated, { FadeInDown, useReducedMotion } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
 import { useTheme } from '../src/theme/ThemeContext';
 import { PFButton, ScreenLayout } from '../src/components/ui';
 import { Ionicons } from '../src/components/Icon';
 import { fontFamily, fontSize, HIT_TARGET, radius, spacing } from '../src/theme/tokens';
 import { ExerciseRow, getExercise, logExerciseCompletion } from '../src/data/mood';
 import { listHabits, logHabit } from '../src/data/habits';
+import { haptic } from '../src/lib/haptics';
 
 export default function ExercisePlayerScreen(): React.ReactElement {
   const { theme } = useTheme();
@@ -24,11 +24,17 @@ export default function ExercisePlayerScreen(): React.ReactElement {
   const { slug } = useLocalSearchParams<{ slug: string }>();
 
   const [exercise, setExercise] = useState<ExerciseRow | null>(null);
+  const [loading, setLoading] = useState(true);
   const [index, setIndex] = useState(0);
   const [done, setDone] = useState(false);
 
   useEffect(() => {
-    if (slug) void getExercise(slug).then(setExercise);
+    if (!slug) return;
+    setLoading(true);
+    void getExercise(slug).then((row) => {
+      setExercise(row);
+      setLoading(false);
+    });
   }, [slug]);
 
   const steps = useMemo(() => (exercise ? exercise.body.split('\n').filter(Boolean) : []), [exercise]);
@@ -43,15 +49,19 @@ export default function ExercisePlayerScreen(): React.ReactElement {
       return n.includes('breath') || n.includes('mindful') || n.includes('meditat');
     });
     if (match) await logHabit(match.id, 'done');
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => undefined);
+    haptic.success();
     setDone(true);
   };
 
-  if (!exercise) {
+  if (loading || !exercise) {
     return (
       <ScreenLayout scroll={false}>
-        <View style={{ flex: 1, justifyContent: 'center' }}>
-          <PFButton label="Close" variant="secondary" onPress={() => router.back()} />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+          {loading ? (
+            <ActivityIndicator color={c.accentDefault} accessibilityLabel="Loading exercise" />
+          ) : (
+            <PFButton label="Close" variant="secondary" onPress={() => router.back()} />
+          )}
         </View>
       </ScreenLayout>
     );
@@ -60,9 +70,15 @@ export default function ExercisePlayerScreen(): React.ReactElement {
   if (done) {
     return (
       <ScreenLayout scroll={false} edges={['top', 'bottom']}>
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <Ionicons name="checkmark-circle-outline" size={56} color={c.statusSuccess} />
-          <Text style={{ color: c.textPrimary, fontFamily: fontFamily.bold, fontSize: fontSize.heading2, marginTop: spacing.s4 }}>
+        <View
+          style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}
+          accessibilityLiveRegion="polite"
+        >
+          <Ionicons name="checkmark-circle-outline" size={56} color={c.statusSuccess} accessibilityLabel="" />
+          <Text
+            accessibilityRole="header"
+            style={{ color: c.textPrimary, fontFamily: fontFamily.bold, fontSize: fontSize.heading2, marginTop: spacing.s4 }}
+          >
             {exercise.title} — done
           </Text>
           <Text style={{ color: c.textSecondary, fontFamily: fontFamily.regular, fontSize: fontSize.bodyMd, marginTop: spacing.s2, textAlign: 'center' }}>
@@ -75,11 +91,15 @@ export default function ExercisePlayerScreen(): React.ReactElement {
   }
 
   const step = steps[index];
+  const isLastStep = index === steps.length - 1;
 
   return (
     <ScreenLayout scroll={false} edges={['top', 'bottom']}>
       <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: spacing.s2 }}>
-        <Text style={{ color: c.textSecondary, fontFamily: fontFamily.medium, fontSize: fontSize.bodySm, fontVariant: ['tabular-nums'] }}>
+        <Text
+          accessibilityLabel={`${exercise.title}, step ${index + 1} of ${steps.length}`}
+          style={{ color: c.textSecondary, fontFamily: fontFamily.medium, fontSize: fontSize.bodySm, fontVariant: ['tabular-nums'] }}
+        >
           {exercise.title} · {index + 1}/{steps.length}
         </Text>
         <Pressable
@@ -91,7 +111,11 @@ export default function ExercisePlayerScreen(): React.ReactElement {
           <Ionicons name="close-outline" size={26} color={c.textSecondary} />
         </Pressable>
       </View>
-      <View style={{ flexDirection: 'row', marginBottom: spacing.s6 }}>
+      <View
+        style={{ flexDirection: 'row', marginBottom: spacing.s6 }}
+        accessibilityElementsHidden
+        importantForAccessibility="no-hide-descendants"
+      >
         {steps.map((_, i) => (
           <View
             key={i}
@@ -112,6 +136,7 @@ export default function ExercisePlayerScreen(): React.ReactElement {
         style={{ flex: 1, justifyContent: 'center' }}
       >
         <Text
+          accessibilityLiveRegion="polite"
           style={{
             color: c.textPrimary,
             fontFamily: fontFamily.medium,
@@ -127,11 +152,26 @@ export default function ExercisePlayerScreen(): React.ReactElement {
 
       <View style={{ paddingBottom: spacing.s4 }}>
         <PFButton
-          label={index === steps.length - 1 ? 'Finish' : 'Next'}
-          onPress={() => (index === steps.length - 1 ? void finish() : setIndex(index + 1))}
+          label={isLastStep ? 'Finish' : 'Next'}
+          onPress={() => {
+            if (isLastStep) {
+              void finish();
+            } else {
+              haptic.impact('light');
+              setIndex(index + 1);
+            }
+          }}
         />
         {index > 0 ? (
-          <PFButton label="Back" variant="ghost" onPress={() => setIndex(index - 1)} style={{ marginTop: spacing.s2 }} />
+          <PFButton
+            label="Back"
+            variant="ghost"
+            onPress={() => {
+              haptic.selection();
+              setIndex(index - 1);
+            }}
+            style={{ marginTop: spacing.s2 }}
+          />
         ) : null}
       </View>
     </ScreenLayout>

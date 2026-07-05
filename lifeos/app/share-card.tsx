@@ -3,6 +3,15 @@
  * react-native-view-shot, and shares via expo-sharing. No upload; no in-app
  * feed. Flag-gated: when 'shareCards' is OFF, redirects back immediately.
  *
+ * T170 (this pass): fires the shared `Celebration` overlay once on mount when
+ * the incoming streak/milestone pair is a genuine SHARE_MILESTONES crossing.
+ * Celebration is an absolutely-positioned, pointerEvents="none" overlay — it
+ * never blocks taps on the buttons underneath, and it self-handles reduce-
+ * motion (fires onDone immediately, no particles). Because motion can be off
+ * for a user, the milestone label + numeral are ALSO always visible as plain
+ * text in the card content (via ShareCard's own badge), so no information is
+ * motion-only.
+ *
  * Route params:
  *   streakCount  string (number)
  *   milestone    string (7 | 30 | 66 | 100 | 365)
@@ -11,7 +20,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import ViewShot, { captureRef } from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
@@ -20,6 +29,9 @@ import { Ionicons } from '../src/components/Icon';
 import { useTheme } from '../src/theme/ThemeContext';
 import { fontFamily, fontSize, spacing } from '../src/theme/tokens';
 import { useFeatureFlags } from '../src/hooks/useFeatureFlags';
+import { haptic } from '../src/lib/haptics';
+import { showToast } from '../src/lib/feedback';
+import { Celebration } from '../src/components/motion';
 import { ShareCard } from '../src/features/share/ShareCard';
 import { logMilestoneShareEvent } from '../src/features/share/shareEvents';
 import type { ShareMilestone } from '../src/features/share/milestones';
@@ -47,6 +59,7 @@ export default function ShareCardScreen(): React.ReactElement {
   const [habitNames, setHabitNames] = useState<string[]>([]);
   const [heatSnippet, setHeatSnippet] = useState<(string | null)[]>(Array(14).fill(null));
   const [capturing, setCapturing] = useState(false);
+  const [celebrate, setCelebrate] = useState(false);
 
   // Redirect if flag is off.
   useEffect(() => {
@@ -54,6 +67,19 @@ export default function ShareCardScreen(): React.ReactElement {
       router.replace('/(tabs)');
     }
   }, [isEnabled, router]);
+
+  // Fire the celebration overlay once shortly after mount, only for a real
+  // milestone crossing. It is a non-blocking overlay — buttons stay tappable
+  // throughout and after. Reduce-motion is handled entirely inside
+  // Celebration (no particles, immediate onDone); the static badge in
+  // ShareCard's own content covers the reduce-motion case.
+  useEffect(() => {
+    if (!isEnabled('shareCards')) return;
+    if (!isShareMilestone(milestoneRaw)) return;
+    const t = setTimeout(() => setCelebrate(true), 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEnabled, milestoneRaw]);
 
   // Load habit names and heat snippet from localDb.
   useEffect(() => {
@@ -93,7 +119,7 @@ export default function ShareCardScreen(): React.ReactElement {
       });
       const canShare = await Sharing.isAvailableAsync();
       if (!canShare) {
-        Alert.alert('Sharing not available', 'Sharing is not supported on this device.');
+        showToast({ kind: 'error', message: 'Sharing is not supported on this device.' });
         return;
       }
       await Sharing.shareAsync(uri, {
@@ -102,8 +128,9 @@ export default function ShareCardScreen(): React.ReactElement {
       });
       // Log the share event after the system sheet dismisses.
       await logMilestoneShareEvent(streakCount);
+      haptic.success();
     } catch {
-      // Sharing cancelled or failed — non-fatal, no error toast.
+      showToast({ kind: 'error', message: 'Could not share this card. Please try again.' });
     } finally {
       setCapturing(false);
     }
@@ -113,6 +140,11 @@ export default function ShareCardScreen(): React.ReactElement {
 
   return (
     <ScreenLayout>
+      {/* Non-blocking celebration overlay — pointerEvents="none" inside
+          Celebration itself, so it never intercepts taps. Clears its own
+          run flag via onDone so it fires exactly once. */}
+      <Celebration run={celebrate} onDone={() => setCelebrate(false)} particleCount={140} />
+
       <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: spacing.s2 }}>
         <Ionicons name="share-social-outline" size={22} color={c.accentDefault} accessibilityLabel="" />
         <Text
@@ -129,11 +161,14 @@ export default function ShareCardScreen(): React.ReactElement {
 
       <SectionTitle top={spacing.s5}>Preview</SectionTitle>
 
-      {/* Off-screen capturable card: rendered in the tree but clipped */}
+      {/* Off-screen capturable card: rendered in the tree but clipped.
+          The milestone label + streak numeral are part of ShareCard's own
+          content (not motion-only), so this stays fully informative even
+          with reduce-motion on and the Celebration overlay suppressed. */}
       <View
         style={{ overflow: 'hidden', borderRadius: 0, marginBottom: spacing.s4 }}
-        accessible={false}
-        importantForAccessibility="no-hide-descendants"
+        accessible
+        accessibilityLabel={`${MILESTONE_LABELS[milestone]} milestone card, streak ${streakCount}`}
       >
         <ShareCard
           cardRef={cardRef}
