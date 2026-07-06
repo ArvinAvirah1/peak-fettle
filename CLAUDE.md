@@ -34,6 +34,8 @@ Both apps (`mobile/`, `lifeos/`) now ship `expo-updates` (~29.0.18) with `runtim
 - **Server-only change:** git push (Railway auto-deploys) — no build, no update.
 - **One-time bootstrap:** the FIRST build of each app after 2026-07-06 must be a full EAS build — OTA only reaches builds that already contain the expo-updates client. Until that build is installed, `eas update` does nothing visible.
 
+**Fingerprint gotcha (hit 2026-07-06):** the fingerprint is computed from the FOUNDER'S LOCAL project (including `node_modules`) at `eas build`/`eas update` time. After any dependency change lands in package.json/lockfile, the founder must `npm install` locally (mobile/ has .npmrc legacy-peer-deps; lifeos needs `--legacy-peer-deps`) BEFORE building or publishing, or the build fails with "Runtime version calculated on local machine not equal to runtime version calculated during build."
+
 `eas update:list --branch production` shows what's live. Update publishes are near-instant and free vs ~20+ min of build queue — prefer them aggressively.
 
 ## 🧭 Which tickets should THIS agent do? — model routing (founder decision, 2026-05-25 LATE-4)
