@@ -33,6 +33,8 @@ interface AuthContextValue {
   hasLifeOsAccess: boolean | null;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
+  /** Sign in with Apple / Google: provider id_token -> POST /auth/oauth (TICKET-099 server). */
+  loginWithOAuth: (provider: 'apple' | 'google', idToken: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -144,6 +146,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
     [persistTokens, refreshProfile]
   );
 
+  const loginWithOAuth = useCallback(
+    async (provider: 'apple' | 'google', idToken: string) => {
+      const res = await apiClient.post<{ accessToken: string; refreshToken: string }>('/auth/oauth', {
+        provider,
+        idToken,
+      });
+      await persistTokens(res.data.accessToken, res.data.refreshToken);
+      accessRef.current = res.data.accessToken;
+      refreshRef.current = res.data.refreshToken;
+      await refreshProfile();
+    },
+    [persistTokens, refreshProfile]
+  );
+
   const logout = useCallback(async () => {
     try {
       await apiClient.post('/auth/logout', { refreshToken: refreshRef.current });
@@ -161,10 +177,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
       hasLifeOsAccess: profile ? profile.lifeos_access : null,
       login,
       register,
+      loginWithOAuth,
       logout,
       refreshProfile,
     }),
-    [isLoading, accessToken, profile, login, register, logout, refreshProfile]
+    [isLoading, accessToken, profile, login, register, loginWithOAuth, logout, refreshProfile]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

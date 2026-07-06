@@ -97,11 +97,25 @@ async function verifyProviderToken(idToken, opts) {
   return jwt.verify(idToken, publicKey, { algorithms: ['RS256'], audience, issuer });
 }
 
+/**
+ * Parse an audience env value. Supports a comma-separated list so ONE deploy
+ * can serve multiple client apps (e.g. APPLE_OAUTH_AUDIENCE=
+ * "com.peakfettle.app,com.peakfettle.lifeos" — the fitness app and LifeOS
+ * produce id_tokens with different `aud` values). jwt.verify accepts a string
+ * or an array. Single values and injected test arrays pass through unchanged.
+ */
+function parseAudience(raw) {
+  if (!raw || typeof raw !== 'string' || !raw.includes(',')) return raw;
+  const list = raw.split(',').map((s) => s.trim()).filter(Boolean);
+  if (list.length === 0) return undefined;
+  return list.length === 1 ? list[0] : list;
+}
+
 /** Verify a token for a named provider and return normalized identity claims. */
 async function verifyOAuthIdToken(provider, idToken, deps) {
   const cfg = PROVIDERS[provider];
   if (!cfg) throw err('unsupported_provider', 'unsupported_provider', 400);
-  const audience = (deps && deps.audience) || process.env[cfg.audienceEnv];
+  const audience = parseAudience((deps && deps.audience) || process.env[cfg.audienceEnv]);
   const payload = await verifyProviderToken(idToken, {
     issuer: cfg.issuer,
     jwksUri: cfg.jwksUri,
@@ -116,4 +130,4 @@ async function verifyOAuthIdToken(provider, idToken, deps) {
   };
 }
 
-module.exports = { PROVIDERS, verifyProviderToken, verifyOAuthIdToken, jwkToPublicKey };
+module.exports = { PROVIDERS, verifyProviderToken, verifyOAuthIdToken, jwkToPublicKey, parseAudience };

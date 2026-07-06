@@ -9,6 +9,7 @@ import axios from 'axios';
 import { useAuth } from '../../src/auth/AuthContext';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { PFButton, PFInput, ScreenLayout } from '../../src/components/ui';
+import { OAuthButtons } from '../../src/components/auth/OAuthButtons';
 import { fontFamily, fontSize, spacing } from '../../src/theme/tokens';
 
 export default function RegisterScreen(): React.ReactElement {
@@ -108,6 +109,8 @@ export default function RegisterScreen(): React.ReactElement {
         ) : null}
 
         <PFButton label="Create account" onPress={handleRegister} loading={submitting} />
+
+        <OAuthButtons />
 
         <Link href="/(auth)/login" asChild>
           <Text
