@@ -70,5 +70,18 @@ const partial = E.parseImport({ format: 'peak-fettle-backup', schemaVersion: 1, 
 ok(partial.ok && Array.isArray(partial.tables.workouts) && partial.tables.workouts.length === 0, 'missing table → empty array');
 ok(partial.ok && partial.tables.bogus === undefined, 'unknown table is dropped');
 
-console.log(failures === 0 ? '\nALL EXPORT-ENGINE TESTS PASS' : `\n${failures} TEST(S) FAILED`);
-process.exit(failures === 0 ? 0 : 1);
+// 6. canonicalizeAsync — chunked/yielding variant MUST stay byte-identical to
+// canonicalize() (TAB-FREEZE 2026-07-05: backupNow encrypts the async form; the
+// determinism/signing contract depends on the two never drifting apart).
+(async () => {
+  const asyncForm = await E.canonicalizeAsync(docA);
+  ok(asyncForm === E.canonicalize(docA), 'canonicalizeAsync is byte-identical to canonicalize');
+  // Tiny slice size forces many yield points across a multi-row table.
+  const sliced = await E.canonicalizeAsync(docB, 1);
+  ok(sliced === E.canonicalize(docB), 'canonicalizeAsync (rowsPerSlice=1) is byte-identical');
+  const empty = E.makeExportDoc({});
+  ok(await E.canonicalizeAsync(empty) === E.canonicalize(empty), 'canonicalizeAsync matches on an all-empty doc');
+
+  console.log(failures === 0 ? '\nALL EXPORT-ENGINE TESTS PASS' : `\n${failures} TEST(S) FAILED`);
+  process.exit(failures === 0 ? 0 : 1);
+})();

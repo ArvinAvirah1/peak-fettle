@@ -1491,7 +1491,7 @@ export default function ProfileScreen(): React.ReactElement {
             styles.restTimerRow,
             { borderTopColor: theme.colors.borderDefault },
           ]}>
-            <View style={styles.settingLabelGroup}>
+            <View style={[styles.settingLabelGroup, styles.restTimerLabelGroup]}>
               <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>{t('settings:profile.defaultRestTimer')}</Text>
               <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
                 {t('settings:profile.secondsBetweenSets', { sec: restTimerDefault })}
@@ -1572,7 +1572,7 @@ export default function ProfileScreen(): React.ReactElement {
             styles.restTimerRow,
             { borderTopColor: theme.colors.borderDefault },
           ]}>
-            <View style={styles.settingLabelGroup}>
+            <View style={[styles.settingLabelGroup, styles.restTimerLabelGroup]}>
               <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>{t('settings:profile.supersetRest')}</Text>
               <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
                 {groupRestModePref === 'after_exercise'
@@ -1653,9 +1653,10 @@ export default function ProfileScreen(): React.ReactElement {
           <View style={[
             styles.settingRow,
             styles.settingRowTop,
+            styles.restTimerRow,
             { borderTopColor: theme.colors.borderDefault },
           ]}>
-            <View style={styles.settingLabelGroup}>
+            <View style={[styles.settingLabelGroup, styles.restTimerLabelGroup]}>
               <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>
                 {t('settings:language.label')}
               </Text>
@@ -2332,11 +2333,26 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
   restTimerRow: {
-    flexWrap: 'wrap',
+    // BUG 2026-07-05 ("text divisions formatting is off"): this used to be the
+    // row direction + flexWrap, with the flex:1 (basis-0) label group sharing
+    // the line with the wide horizontal chip ScrollView — the ScrollView's
+    // intrinsic content width ate the whole row and the label collapsed to a
+    // ~1-character column ("D/ef/au/lt…"). Chip rows now stack: label block on
+    // top, full-width chip strip underneath. Nothing shares a line, so no
+    // translation/font-scale can re-trigger the collapse.
+    flexDirection: 'column',
+    alignItems: 'stretch',
     minHeight: 72,
-    alignItems: 'flex-start',
+    gap: spacing.s2,
     paddingTop: spacing.s4,
     paddingBottom: spacing.s3,
+  },
+  restTimerLabelGroup: {
+    // Neutralize settingLabelGroup's flex:1 — in the column layout a basis-0
+    // flex child would collapse to zero HEIGHT (same bug, rotated 90°).
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: 'auto',
   },
   restTimerPresets: {
     // flex-shrink so it doesn't overflow when the label is wide
