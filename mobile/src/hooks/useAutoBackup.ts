@@ -27,16 +27,17 @@ export function useAutoBackup(): void {
   useEffect(() => {
     if (!shouldBackup) return;
 
-    // Launch trigger (2026-07-03 first attempt, finished 2026-07-05): DEFERRED
-    // *and* now FIRST-BACKUP-ONLY. The 2026-07-03 fix deferred this by 20s, but
-    // that only moved the JS-thread freeze (sync stringify + pure-JS AES-GCM in
-    // backupNow) to 20s after launch — the tester's recurring "tabs dead for
-    // ~5s" bug. maybeAutoBackup('launch') now returns immediately whenever ANY
-    // successful backup exists, so this trigger is purely a first-run safety
-    // net (tiny DB → negligible cost). Steady-state backups run on the
-    // background transition below, when the user is not interacting; that path
-    // also aborts if the app comes back to the foreground mid-pipeline. See
-    // backupManager.maybeAutoBackup / backupNow({shouldAbort}).
+    // Launch trigger (2026-07-03 free-tier responsiveness fix): DEFERRED.
+    // This used to fire synchronously with the tab-layout mount. backupNow()
+    // SELECT*s every table (sets/workouts grow unboundedly) and canonicalizes
+    // the whole document with a synchronous recursive stringify on the JS
+    // thread - convoying Home's first-paint queries on the shared SQLite
+    // connection and blocking tap handlers for seconds. It is FREE-TIER-ONLY
+    // (usesBlobBackup), which is exactly why only free users felt the lag.
+    // Defer past first interactions + a generous delay; the 6h debounce inside
+    // maybeAutoBackup still applies, and the background-transition trigger
+    // below stays immediate (the user is not interacting then, which is the
+    // ideal moment to pay the backup cost).
     const LAUNCH_BACKUP_DELAY_MS = 20_000;
     let launchTimer: ReturnType<typeof setTimeout> | null = null;
     const launchTask = InteractionManager.runAfterInteractions(() => {

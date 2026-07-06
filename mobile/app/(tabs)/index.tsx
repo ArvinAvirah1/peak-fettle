@@ -59,7 +59,6 @@ import { getPlans, getPlan } from '../../src/api/plans';
 import { getPercentile } from '../../src/api/percentile';
 import { logRestDay, undoRestDay } from '../../src/api/workouts';
 import { isLocalFirst } from '../../src/data/backup/tierPolicy';
-import { loadLocalProfile } from '../../src/data/profile';
 import { ensureExerciseCatalogCached } from '../../src/data/exerciseNames';
 import { getRoutineFolders, RoutineFolder } from '../../src/data/routineHistory';
 import { localDb, genId } from '../../src/db/localDb';
@@ -414,24 +413,6 @@ export default function HomeScreen(): React.ReactElement {
   useEffect(() => {
     void ensureExerciseCatalogCached();
   }, []);
-
-  // Greeting name (BUG 2026-07-05): a display name the user EXPLICITLY set must
-  // always be greeted verbatim. resolveGreetingName's random-token heuristic
-  // exists to hide legacy server-generated handles ("sb622htzmm"), but it also
-  // swallowed legitimate user-typed names like "testacc1" (lowercase+digit,
-  // ≥8 chars). The on-device user_profile.display_name column is only ever
-  // written by an explicit edit on the Profile screen (saveProfile), so a
-  // non-null value there is proof the name is user-set — use it verbatim and
-  // skip the heuristic. Re-reads whenever the in-session name changes (i.e.
-  // right after an edit) so the greeting updates without a restart.
-  const [localDisplayName, setLocalDisplayName] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    loadLocalProfile()
-      .then((p) => { if (!cancelled) setLocalDisplayName(p?.display_name ?? null); })
-      .catch(() => { /* best-effort: fall back to resolveGreetingName */ });
-    return () => { cancelled = true; };
-  }, [user?.display_name]);
   const todayLoading = todayLoadingRaw && !loadTimedOut;
   const historyLoading = historyLoadingRaw && !loadTimedOut;
 
@@ -969,7 +950,7 @@ export default function HomeScreen(): React.ReactElement {
         <View style={styles.headerRow}>
           <Text style={{ fontSize: fontSize.heading2, fontWeight: fontWeight.bold, color: theme.colors.textPrimary, letterSpacing: -0.3 }}>
           {/* E-003: was fontWeight '700' */}
-            {getGreeting(localDisplayName ?? resolveGreetingName(user?.display_name, user?.email, user?.id, t('tabs:home.greetingFallbackName')), t)}
+            {getGreeting(resolveGreetingName(user?.display_name, user?.email, user?.id, t('tabs:home.greetingFallbackName')), t)}
           </Text>
           <SyncStatusIndicator />
         </View>

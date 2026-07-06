@@ -90,16 +90,8 @@ export default function TabsLayout(): React.ReactElement {
   return (
     <Tabs
       screenOptions={{
-        // BLANK-TAB BUG (2026-07-05): `animation: 'shift'` (added 2026-06-10,
-        // "animate tab switches instead of hard cuts") REMOVED. bottom-tabs v7
-        // drives scene visibility through the transition's animated
-        // opacity/transform values; intermittently a FOCUSED scene was left in
-        // its hidden state — a fully-rendered page showing as a blank screen
-        // until the next tab switch recomputed scene states (its content
-        // flashed in exactly at transition start). Timing-dependent race, any
-        // tab, any time, worse under JS-thread stalls. The default hard cut is
-        // the pre-2026-06-10 behavior and never exhibited this. Do NOT re-add
-        // 'shift'/'fade' without soak-testing the blank-tab repro on device.
+        // 2026-06-10 aesthetic pass: animate tab switches instead of hard cuts.
+        animation: 'shift',
         tabBarActiveTintColor: colors.accentDefault,
         tabBarInactiveTintColor: colors.textTertiary,
         tabBarStyle: {
