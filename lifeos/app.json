@@ -10,6 +10,7 @@
     "ios": {
       "bundleIdentifier": "com.peakfettle.lifeos",
       "supportsTablet": false,
+      "usesAppleSignIn": true,
       "infoPlist": {
         "UIBackgroundModes": [],
         "NSSupportsLiveActivities": true,
@@ -17,7 +18,6 @@
       },
       "entitlements": {
         "com.apple.security.application-groups": [
-          "group.com.peakfettle.lifeos",
           "group.com.peakfettle.lifeos"
         ],
         "com.apple.developer.family-controls": true
@@ -33,6 +33,7 @@
       "expo-sqlite",
       "expo-notifications",
       "expo-web-browser",
+      "expo-apple-authentication",
       [
         "expo-font",
         {
@@ -114,4 +115,18 @@
             }
           }
         },
-        "projectId": "ab38da8c-7f05-4d0
+        "projectId": "ab38da8c-7f05-4d0a-9910-faab42a9fed4"
+      },
+      "router": {}
+    },
+    "owner": "arvinavirah",
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/ab38da8c-7f05-4d0a-9910-faab42a9fed4",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    }
+  }
+}

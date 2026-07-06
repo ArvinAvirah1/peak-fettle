@@ -22,6 +22,20 @@ These are the highest-leverage things to know before touching this app. Most of 
 
 **8. Nothing reaches the device without push + EAS rebuild.** EAS builds from `origin/main`, and Railway deploys on push to `main`. Many "still broken" reports were just the phone running an old build. Order: fix → commit → `git push origin main` (= server deploy) → `eas build` → install → test. A local commit alone changes nothing the user can see.
 
+## 🚀 OTA-first ship path: default to `eas update`, rebuild only for native changes (added 2026-07-06)
+
+Both apps (`mobile/`, `lifeos/`) now ship `expo-updates` (~29.0.18) with `runtimeVersion: { "policy": "fingerprint" }`, `updates.url` set to their EAS project, and eas.json channels `preview`/`production` mapped to the same-named build profiles.
+
+**MANDATORY for every agent: after landing ANY change, classify it and tell the founder explicitly which ship path applies.** Build minutes are the scarce resource — never tell the founder to `eas build` when `eas update` suffices.
+
+- **JS/TS/JS-asset-only change** (screens, hooks, data layer, styles, JS-required images, copy): ship OTA — `cd mobile && eas update --channel production -m "<msg>"` (or `--channel preview` for preview-profile installs; same from `lifeos/`). `eas update` bundles the LOCAL working tree, so no git push is needed for the update itself — but still push for backup + Railway deploy. Installed apps download on the next launch and apply on the launch after that (tell testers: restart twice).
+- **Native change → full `eas build` still required:** any added/removed npm dep containing native code, anything in `app.json`/`eas.json`/config plugins/entitlements/Info.plist, icons/splash, fonts embedded via the expo-font plugin, widgets/watch/App Intents/apple-targets, expo SDK upgrades. The fingerprint runtimeVersion is the fail-safe: if the native fingerprint changed, old builds silently ignore the update (no crash) — but nothing ships until a rebuild + push.
+- **Mixed change:** rebuild (the JS rides along in the build).
+- **Server-only change:** git push (Railway auto-deploys) — no build, no update.
+- **One-time bootstrap:** the FIRST build of each app after 2026-07-06 must be a full EAS build — OTA only reaches builds that already contain the expo-updates client. Until that build is installed, `eas update` does nothing visible.
+
+`eas update:list --branch production` shows what's live. Update publishes are near-instant and free vs ~20+ min of build queue — prefer them aggressively.
+
 ## 🧭 Which tickets should THIS agent do? — model routing (founder decision, 2026-05-25 LATE-4)
 
 Active backlog: **TICKET-128…146** in `DEV_ROADMAP_2026-07-03-FEATURE-GAPS.md` — see its 🚦 STATUS block (as of 2026-07-04 only 140 [parked on founder go/no-go] and 146 [must run solo, last] remain). The TICKET-051…062 plan below is COMPLETE — historical reference only. Pick your lane by the model you are running:
