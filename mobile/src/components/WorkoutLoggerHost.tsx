@@ -1640,6 +1640,32 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
       if (finishedRoutineId) markRoutineCompleted(finishedRoutineId).catch(() => {});
     }, [restTimer]);
 
+    // Confirm → finish-and-save → terminate. The ONE explicit terminating flow,
+    // shared by (a) finishing normally past the last exercise (onFinish) and
+    // (b) ending EARLY mid-routine via the header "End" control (onEndWorkout).
+    // Either way the confirm dialog fires and whatever has been logged is kept
+    // (sets persist as they are logged), so leaving early never loses progress.
+    const confirmAndFinish = useCallback(() => {
+      const finishedRoutineId =
+        routineSession?.source === 'routine' ? routineSession.routineId : undefined;
+      Alert.alert(
+        t('logger:workoutLoggerHost.finishWorkoutTitle'),
+        t('logger:workoutLoggerHost.finishWorkoutMessage', { count: totalSets }),
+        [
+          { text: t('logger:workoutLoggerHost.keepLogging'), style: 'cancel' },
+          {
+            text: t('logger:workoutLoggerHost.finish'),
+            onPress: () => {
+              haptics.success();
+              writeFinishedWorkoutToHealth(); // TICKET-136
+              runBadgeEvaluation(user?.id ?? 'local').catch(() => {}); // TICKET-143
+              terminateSession(finishedRoutineId);
+            },
+          },
+        ],
+      );
+    }, [routineSession, totalSets, t, writeFinishedWorkoutToHealth, user, terminateSession]);
+
     // The header down-arrow: MINIMIZE (keep the session alive, hide the stepper
     // Modal, show the mini-bar). History-edit mode has no live workout, so there
     // it simply closes (handled at the call site).
@@ -1908,26 +1934,11 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
                 }
                 // Fix #2: ending a workout is the ONE explicit terminating action, so
                 // it goes through the confirmation (the down-arrow now only minimizes).
-                // TICKET-097: completion-based cycle advance (in-loop routines only).
-                const finishedRoutineId =
-                  routineSession?.source === 'routine' ? routineSession.routineId : undefined;
-                Alert.alert(
-                  t('logger:workoutLoggerHost.finishWorkoutTitle'),
-                  t('logger:workoutLoggerHost.finishWorkoutMessage', { count: totalSets }),
-                  [
-                    { text: t('logger:workoutLoggerHost.keepLogging'), style: 'cancel' },
-                    {
-                      text: t('logger:workoutLoggerHost.finish'),
-                      onPress: () => {
-                        haptics.success();
-                        writeFinishedWorkoutToHealth(); // TICKET-136
-                        runBadgeEvaluation(user?.id ?? 'local').catch(() => {}); // TICKET-143
-                        terminateSession(finishedRoutineId);
-                      },
-                    },
-                  ],
-                );
+                confirmAndFinish();
               }}
+              // End the workout EARLY (leave before the routine is complete). Same
+              // confirm → finish-and-save flow; hidden while correcting history.
+              onEndWorkout={historyMode ? undefined : confirmAndFinish}
               onBrowseLibrary={() => {
                 setStepperVisible(false);
                 setPickerVisible(true);

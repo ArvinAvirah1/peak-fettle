@@ -891,3 +891,30 @@ export const SCHEMA_V14_STATEMENTS: MigrationStatement[] = [
 export const SCHEMA_V15_STATEMENTS: MigrationStatement[] = [
   { type: 'alter_add_column', table: 'exercise_prefs', column: 'autoreg_muted', definition: 'INTEGER DEFAULT 0' },
 ];
+
+// ---------------------------------------------------------------------------
+// v16 statements — daily health metrics: steps, distance, exercise minutes.
+//
+// `daily_health_metrics` (v2) so far only carried resting_hr_bpm/hrv_ms/
+// sleep_hours/active_kcal. The local-first health dashboard also needs the
+// three most common wearable/HealthKit "activity" fields, so v16 adds:
+//   • steps            INTEGER — step count for the day.
+//   • distance_m       REAL    — distance covered, canonical METERS (never
+//                                convert at the storage layer — display-unit
+//                                conversion happens only where the value is
+//                                rendered, mirroring the weight_kg convention).
+//   • exercise_minutes INTEGER — minutes of recorded exercise/activity for the
+//                                day (NOT the workout-session duration_sec on
+//                                `sets` — this is the wearable's daily activity
+//                                total, e.g. Apple's "Exercise" ring).
+//
+// All three are nullable and additive; existing rows read back NULL for each
+// until backfilled by a sync. Guarded ALTER ADD COLUMN — same idempotency
+// pattern as v3/v4/v6/v8/v11/v15 (SQLite has no "ADD COLUMN IF NOT EXISTS";
+// the migration runner checks pragma_table_info before executing each).
+// Added 2026-07-06.
+export const SCHEMA_V16_STATEMENTS: MigrationStatement[] = [
+  { type: 'alter_add_column', table: 'daily_health_metrics', column: 'steps', definition: 'INTEGER' },
+  { type: 'alter_add_column', table: 'daily_health_metrics', column: 'distance_m', definition: 'REAL' },
+  { type: 'alter_add_column', table: 'daily_health_metrics', column: 'exercise_minutes', definition: 'INTEGER' },
+];

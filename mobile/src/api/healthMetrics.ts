@@ -26,6 +26,14 @@ export interface DailyHealthMetric {
   hrv_ms: number | null;
   sleep_hours: number | null;
   active_kcal: number | null;
+  // Local-first health dashboard fields (schema v16). Additive + optional so
+  // existing construction sites (e.g. useHealthMetrics.ts's rowToMetric, which
+  // predates these columns) keep compiling untouched; the server payload/
+  // endpoints are unchanged — these are never sent/read over REST, only
+  // populated from the on-device daily_health_metrics table.
+  steps?: number | null;
+  distance_m?: number | null;
+  exercise_minutes?: number | null;
   // Must match server Zod enum: 'apple_healthkit' | 'garmin' | 'wear_os' | 'manual'
   source: 'apple_healthkit' | 'garmin' | 'wear_os' | 'manual';
   created_at: string;

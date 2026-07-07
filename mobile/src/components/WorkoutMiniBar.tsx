@@ -10,9 +10,17 @@
  *
  * Purely presentational: all session state stays in WorkoutLoggerHost, which
  * owns `minimized` visibility and passes progress + the live rest countdown down
- * as props. No RN <Modal> here (it must sit UNDER modals, above the tab bar), so
- * the standard safe-area inset applies normally — we add the tab-bar height +
- * bottom inset so the bar clears the tab bar rather than hiding behind it.
+ * as props. No RN <Modal> here (it must sit UNDER modals, above the tab bar).
+ *
+ * Positioning fix (founder report, 2026-07-06): the host is mounted INSIDE the
+ * Home tab screen (app/(tabs)/index.tsx → ScreenLayout), whose bottom edge is
+ * ALREADY the top of the tab bar (the tab bar is laid out below the screen, not
+ * overlaid). The previous offset added a FULL tab-bar height (56 + bottom inset)
+ * on top of that, so the bar floated ~a-centimetre ABOVE the tab bar instead of
+ * resting on it. When `aboveTabBar`, we now only lift the bar by a small gap so
+ * it stacks directly on top of the tab bar. The `aboveTabBar=false` path (host
+ * on a non-tab screen, where the screen DOES extend to the bottom inset) still
+ * clears the home-indicator inset.
  * =============================================================================
  */
 
@@ -23,9 +31,6 @@ import { Ionicons } from './Icon';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius, fontSize, fontWeight } from '../theme/tokens';
 import { useTranslation } from 'react-i18next';
-
-// Height of the tab-bar content area (matches app/(tabs)/_layout.tsx: 56 + inset).
-const TAB_BAR_CONTENT_HEIGHT = 56;
 
 export interface WorkoutMiniBarProps {
   /** Show/hide the bar. */
@@ -71,12 +76,14 @@ export function WorkoutMiniBar({
 
   if (!visible) return null;
 
-  // Sit ABOVE the tab bar: the tab bar occupies (56 + insets.bottom); when the
-  // host is on a non-tab screen we only clear the bottom inset. A small gap
-  // lifts the bar off the tab-bar border.
-  const bottomOffset =
-    (aboveTabBar ? TAB_BAR_CONTENT_HEIGHT + insets.bottom : Math.max(insets.bottom, spacing.s3)) +
-    spacing.s2;
+  // Sit directly ON TOP of the tab bar. When `aboveTabBar` the host is inside a
+  // tab screen whose bottom edge is already the tab bar's top, so we only add a
+  // small gap to lift the bar off the tab-bar border (NOT a full tab-bar
+  // height — that double-counted and floated the bar ~1cm too high). On a
+  // non-tab host we clear the bottom safe-area inset instead.
+  const bottomOffset = aboveTabBar
+    ? spacing.s2
+    : Math.max(insets.bottom, spacing.s3) + spacing.s2;
 
   const showRest = restSecondsLeft != null && restSecondsLeft > 0;
 

@@ -195,15 +195,15 @@ function eq(a, b, msg) {
     await runMigrations(db);
     const v2 = db._pragmas.user_version;
     eq(v1, v2, 'version changed on second run:');
-    eq(v1, 15, 'expected version 15:');
+    eq(v1, 16, 'expected version 16:');
   });
 
   // 2. Fresh install reaches the latest version
-  await test('fresh install reaches user_version 15', async () => {
+  await test('fresh install reaches user_version 16', async () => {
     const db = makeStubDb();
     eq(db._pragmas.user_version, 0, 'starts at 0:');
     await runMigrations(db);
-    eq(db._pragmas.user_version, 15, 'should be 15 after migration:');
+    eq(db._pragmas.user_version, 16, 'should be 16 after migration:');
   });
 
   // 3. v2 tables created (10 spot-checked)
@@ -319,7 +319,7 @@ function eq(a, b, msg) {
 
     await runMigrations(db);
 
-    eq(db._pragmas.user_version, 15, 'should reach 15 from a v10 baseline:');
+    eq(db._pragmas.user_version, 16, 'should reach 16 from a v10 baseline:');
     assert(db._tableColumns['sets'].has('note'), 'v10->v11 upgrade missing sets.note');
     assert(db._tableColumns['sets'].has('flags'), 'v10->v11 upgrade missing sets.flags');
     assert(db._createdTables.has('body_measurements'), 'v11->v12 upgrade missing body_measurements');
@@ -374,18 +374,36 @@ function eq(a, b, msg) {
     assert(cols.has('autoreg_muted'), 'exercise_prefs.autoreg_muted column missing after v15 migration');
   });
 
-  // 3l. v13(progress_photos)->v15 upgrade path: a DB already at user_version 13
-  // (post-TICKET-133, pre-TICKET-143/141) only applies v14 + v15, and both
-  // land correctly (badges_earned created, autoreg_muted added) without
+  // 3l. v13(progress_photos)->v16 upgrade path: a DB already at user_version 13
+  // (post-TICKET-133, pre-TICKET-143/141/health-metrics-activity) applies
+  // v14 + v15 + v16, and all land correctly (badges_earned created,
+  // autoreg_muted added, health-metrics activity columns added) without
   // re-running anything already applied.
-  await test('v13->v15 upgrade path applies only the new migrations', async () => {
+  await test('v13->v16 upgrade path applies only the new migrations', async () => {
     const db = makeStubDb();
     db._pragmas.user_version = 13;
     await runMigrations(db);
-    eq(db._pragmas.user_version, 15, 'should reach 15 from a v13 baseline:');
-    assert(db._createdTables.has('badges_earned'), 'v13->v15 upgrade missing badges_earned');
+    eq(db._pragmas.user_version, 16, 'should reach 16 from a v13 baseline:');
+    assert(db._createdTables.has('badges_earned'), 'v13->v16 upgrade missing badges_earned');
     const cols = db._tableColumns['exercise_prefs'];
-    assert(cols && cols.has('autoreg_muted'), 'v13->v15 upgrade missing exercise_prefs.autoreg_muted');
+    assert(cols && cols.has('autoreg_muted'), 'v13->v16 upgrade missing exercise_prefs.autoreg_muted');
+    const metricsCols = db._tableColumns['daily_health_metrics'];
+    assert(metricsCols && metricsCols.has('steps'), 'v13->v16 upgrade missing daily_health_metrics.steps');
+    assert(metricsCols && metricsCols.has('distance_m'), 'v13->v16 upgrade missing daily_health_metrics.distance_m');
+    assert(metricsCols && metricsCols.has('exercise_minutes'), 'v13->v16 upgrade missing daily_health_metrics.exercise_minutes');
+  });
+
+  // 3m. TICKET (health-metrics activity fields): v16 guarded ALTERs land
+  // steps/distance_m/exercise_minutes on daily_health_metrics on a fresh
+  // install.
+  await test('fresh install adds daily_health_metrics steps/distance_m/exercise_minutes (v16)', async () => {
+    const db = makeStubDb();
+    await runMigrations(db);
+    const cols = db._tableColumns['daily_health_metrics'];
+    assert(cols, 'daily_health_metrics has no recorded columns');
+    assert(cols.has('steps'), 'daily_health_metrics.steps column missing after v16 migration');
+    assert(cols.has('distance_m'), 'daily_health_metrics.distance_m column missing after v16 migration');
+    assert(cols.has('exercise_minutes'), 'daily_health_metrics.exercise_minutes column missing after v16 migration');
   });
 
   // 4. SCHEMA_V2_STATEMENTS shape

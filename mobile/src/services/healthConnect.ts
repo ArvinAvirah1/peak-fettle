@@ -122,6 +122,8 @@ export async function requestHealthConnectPermissions(): Promise<boolean> {
         { accessType: 'read', recordType: 'Weight' },
         { accessType: 'read', recordType: 'ExerciseSession' },
         { accessType: 'write', recordType: 'ExerciseSession' },
+        { accessType: 'read', recordType: 'Steps' },
+        { accessType: 'read', recordType: 'Distance' },
       ]),
       [],
     );
@@ -156,17 +158,30 @@ async function fetchHealthConnectDataInner(
     endTime: to.toISOString(),
   };
 
-  const [restingHr, hrv, sleep, activeEnergy] = await Promise.all([
+  const [restingHr, hrv, sleep, activeEnergy, steps, distance, exerciseSessions] = await Promise.all([
     mod.readRecords('RestingHeartRate', { timeRangeFilter }).then((r) => r.records).catch(() => []),
     mod.readRecords('HeartRateVariabilityRmssd', { timeRangeFilter }).then((r) => r.records).catch(() => []),
     mod.readRecords('SleepSession', { timeRangeFilter }).then((r) => r.records).catch(() => []),
     mod.readRecords('ActiveCaloriesBurned', { timeRangeFilter }).then((r) => r.records).catch(() => []),
+    mod.readRecords('Steps', { timeRangeFilter }).then((r) => r.records).catch(() => []),
+    mod.readRecords('Distance', { timeRangeFilter }).then((r) => r.records).catch(() => []),
+    mod.readRecords('ExerciseSession', { timeRangeFilter }).then((r) => r.records).catch(() => []),
   ]);
 
-  const byDay = new Map<string, { hr: number[]; hrv: number[]; sleepMin: number[]; kcal: number[] }>();
+  const byDay = new Map<string, {
+    hr: number[];
+    hrv: number[];
+    sleepMin: number[];
+    kcal: number[];
+    steps: number[];
+    distanceM: number[];
+    exerciseMin: number[];
+  }>();
   const bucket = (dateStr: string) => {
     const key = dateStr.slice(0, 10);
-    if (!byDay.has(key)) byDay.set(key, { hr: [], hrv: [], sleepMin: [], kcal: [] });
+    if (!byDay.has(key)) {
+      byDay.set(key, { hr: [], hrv: [], sleepMin: [], kcal: [], steps: [], distanceM: [], exerciseMin: [] });
+    }
     return byDay.get(key)!;
   };
 
@@ -182,11 +197,29 @@ async function fetchHealthConnectDataInner(
     const kcal = (r as { energy?: { inKilocalories?: number } }).energy?.inKilocalories;
     if (typeof kcal === 'number') bucket(r.startTime).kcal.push(kcal);
   }
+  for (const r of steps) {
+    const count = (r as { count?: number }).count;
+    if (typeof count === 'number') bucket(r.startTime).steps.push(count);
+  }
+  for (const r of distance) {
+    const meters = (r as { distance?: { inMeters?: number } }).distance?.inMeters;
+    if (typeof meters === 'number') bucket(r.startTime).distanceM.push(meters);
+  }
   for (const r of sleep) {
     const startMs = Date.parse(r.startTime);
     const endMs = r.endTime ? Date.parse(r.endTime) : NaN;
     if (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs) {
       bucket(r.startTime).sleepMin.push((endMs - startMs) / 60000);
+    }
+  }
+  for (const r of exerciseSessions) {
+    // Health Connect ExerciseSession has no separate "exercise time" quantity —
+    // derive exercise minutes from each session's own duration, same as
+    // importHealthConnectCardioMetricsInner below.
+    const startMs = Date.parse(r.startTime);
+    const endMs = r.endTime ? Date.parse(r.endTime) : NaN;
+    if (Number.isFinite(startMs) && Number.isFinite(endMs) && endMs > startMs) {
+      bucket(r.startTime).exerciseMin.push((endMs - startMs) / 60000);
     }
   }
 
@@ -197,12 +230,16 @@ async function fetchHealthConnectDataInner(
 
   const out: DailyHealthKitSample[] = [];
   for (const [date, v] of byDay.entries()) {
+    const stepsSum = sum(v.steps);
     out.push({
       date,
       restingHrBpm: avg(v.hr),
       hrvMs: avg(v.hrv),
       sleepHours: v.sleepMin.length > 0 ? sum(v.sleepMin)! / 60 : null,
       activeKcal: sum(v.kcal),
+      steps: stepsSum != null ? Math.round(stepsSum) : null,
+      distanceM: sum(v.distanceM),
+      exerciseMinutes: sum(v.exerciseMin),
     });
   }
   return out.sort((a, b) => b.date.localeCompare(a.date));

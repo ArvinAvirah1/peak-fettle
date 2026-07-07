@@ -90,6 +90,9 @@ export interface DailyHealthKitSample {
   hrvMs: number | null;
   sleepHours: number | null;
   activeKcal: number | null;
+  steps: number | null;         // whole-day step count (sum)
+  distanceM: number | null;     // whole-day walking+running distance in METERS (sum)
+  exerciseMinutes: number | null; // whole-day Apple Exercise Time in MINUTES (sum)
 }
 
 /**
@@ -265,6 +268,9 @@ export async function requestHealthKitPermissions(): Promise<boolean> {
       'HKCategoryTypeIdentifierSleepAnalysis',
       'HKQuantityTypeIdentifierActiveEnergyBurned',
       'HKQuantityTypeIdentifierBodyMass',
+      'HKQuantityTypeIdentifierStepCount',
+      'HKQuantityTypeIdentifierDistanceWalkingRunning',
+      'HKQuantityTypeIdentifierAppleExerciseTime',
       'HKWorkoutTypeIdentifier',
     ];
     const writeTypes = ['HKWorkoutTypeIdentifier'];
@@ -303,24 +309,40 @@ async function fetchHealthKitDataInner(
   const to = new Date();
   const from = new Date(to.getTime() - days * 86_400_000);
 
-  const [restingHr, hrv, sleep, activeEnergy] = await Promise.all([
+  const [restingHr, hrv, sleep, activeEnergy, steps, distance, exerciseTime] = await Promise.all([
     mod.queryQuantitySamples('HKQuantityTypeIdentifierRestingHeartRate', { from, to }).catch(() => []),
     mod.queryQuantitySamples('HKQuantityTypeIdentifierHeartRateVariabilitySDNN', { from, to }).catch(() => []),
     mod.queryCategorySamples('HKCategoryTypeIdentifierSleepAnalysis', { from, to }).catch(() => []),
     mod.queryQuantitySamples('HKQuantityTypeIdentifierActiveEnergyBurned', { from, to }).catch(() => []),
+    mod.queryQuantitySamples('HKQuantityTypeIdentifierStepCount', { from, to }).catch(() => []),
+    mod.queryQuantitySamples('HKQuantityTypeIdentifierDistanceWalkingRunning', { from, to }).catch(() => []),
+    mod.queryQuantitySamples('HKQuantityTypeIdentifierAppleExerciseTime', { from, to }).catch(() => []),
   ]);
 
   // Bucket every sample by its UTC day (YYYY-MM-DD) and average per bucket.
-  const byDay = new Map<string, { hr: number[]; hrv: number[]; sleepMin: number[]; kcal: number[] }>();
+  const byDay = new Map<string, {
+    hr: number[];
+    hrv: number[];
+    sleepMin: number[];
+    kcal: number[];
+    steps: number[];
+    distanceM: number[];
+    exerciseMin: number[];
+  }>();
   const bucket = (dateStr: string) => {
     const key = dateStr.slice(0, 10);
-    if (!byDay.has(key)) byDay.set(key, { hr: [], hrv: [], sleepMin: [], kcal: [] });
+    if (!byDay.has(key)) {
+      byDay.set(key, { hr: [], hrv: [], sleepMin: [], kcal: [], steps: [], distanceM: [], exerciseMin: [] });
+    }
     return byDay.get(key)!;
   };
 
   for (const s of restingHr) bucket(s.startDate).hr.push(s.quantity);
   for (const s of hrv) bucket(s.startDate).hrv.push(s.quantity);
   for (const s of activeEnergy) bucket(s.startDate).kcal.push(s.quantity);
+  for (const s of steps) bucket(s.startDate).steps.push(s.quantity);
+  for (const s of distance) bucket(s.startDate).distanceM.push(s.quantity);
+  for (const s of exerciseTime) bucket(s.startDate).exerciseMin.push(s.quantity);
   for (const s of sleep) {
     // HealthKit sleep category samples: duration in minutes between start/end.
     const startMs = Date.parse(s.startDate);
@@ -338,12 +360,16 @@ async function fetchHealthKitDataInner(
   const out: DailyHealthKitSample[] = [];
   for (const [date, v] of byDay.entries()) {
     const sleepHours = v.sleepMin.length > 0 ? sum(v.sleepMin)! / 60 : null;
+    const stepsSum = sum(v.steps);
     out.push({
       date,
       restingHrBpm: avg(v.hr),
       hrvMs: avg(v.hrv),
       sleepHours,
       activeKcal: sum(v.kcal),
+      steps: stepsSum != null ? Math.round(stepsSum) : null,
+      distanceM: sum(v.distanceM),
+      exerciseMinutes: sum(v.exerciseMin),
     });
   }
   return out.sort((a, b) => b.date.localeCompare(a.date));

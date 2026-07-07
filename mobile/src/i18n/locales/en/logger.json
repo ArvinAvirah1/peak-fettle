@@ -259,6 +259,8 @@
   },
   "stepperLogger": {
     "closeStepperA11y": "Close stepper",
+    "endWorkoutLabel": "End",
+    "endWorkoutA11y": "End workout early and save",
     "freeSessionName": "Free session",
     "noExercisesTitle": "No exercises yet",
     "noExercisesBody": "Add your first exercise to start logging sets for this session.",

@@ -307,6 +307,14 @@ interface Props {
   /** Close / dismiss the stepper (returns to normal log view) */
   onClose: () => void;
   /**
+   * End the workout EARLY — before every routine exercise is complete (e.g. the
+   * user has to leave). Routes to the same confirm → finish-and-save flow as
+   * finishing normally, so whatever has been logged is kept. Rendered as an
+   * always-available "End" control in the header. Undefined in history-edit mode
+   * (there is no live workout to end).
+   */
+  onEndWorkout?: () => void;
+  /**
    * Stepper variant:
    * - 'routine' : routine session — "Continue to <next>" (default)
    * - 'free'    : add-as-you-go — "＋ Add next exercise" / "Finish & save as routine"
@@ -726,6 +734,7 @@ export default function StepperLogger({
   currentExerciseSets,
   onAddOffRoutineExercise,
   onClose,
+  onEndWorkout,
   variant = 'routine',
   suggestion,
   suggestions,
@@ -1639,6 +1648,19 @@ export default function StepperLogger({
         >
           <Ionicons name="information-circle-outline" size={20} color={stepperPalette.muted} />
         </TouchableOpacity>
+        {/* End the workout early (leave before the routine is finished). Goes
+            through the same confirm → finish-and-save flow, so logged sets are
+            kept. Hidden in history-edit mode (no live workout). */}
+        {onEndWorkout ? (
+          <TouchableOpacity
+            onPress={onEndWorkout}
+            style={styles.endBtn}
+            accessibilityRole="button"
+            accessibilityLabel={t('logger:stepperLogger.endWorkoutA11y')}
+          >
+            <Text style={styles.endBtnLabel}>{t('logger:stepperLogger.endWorkoutLabel')}</Text>
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       <ScrollView
@@ -3041,6 +3063,18 @@ const styles = StyleSheet.create({
   },
   closeBtn: {
     padding: spacing.s1,
+  },
+  endBtn: {
+    paddingHorizontal: spacing.s2,
+    paddingVertical: spacing.s1,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: stepperPalette.line,
+  },
+  endBtnLabel: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: fontSize.bodySm,
+    color: stepperPalette.muted,
   },
   routineName: {
     flex: 1,
