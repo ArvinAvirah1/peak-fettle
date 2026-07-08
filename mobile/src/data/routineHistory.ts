@@ -39,6 +39,15 @@ interface ApiWorkoutRow {
   total_volume_kg?: number;
 }
 
+/**
+ * Coerce a server day_key to the 'YYYY-MM-DD' contract. Older server builds
+ * serialise the Postgres DATE as a full ISO timestamp; slicing keeps the
+ * calendar date and is a no-op on clean values.
+ */
+function toDayKey(v: unknown): string {
+  return String(v ?? '').slice(0, 10);
+}
+
 /** One folder per routine the user has trained, most-recent first. */
 export async function getRoutineFolders(
   user: TierUser | null | undefined,
@@ -73,9 +82,10 @@ export async function getRoutineFolders(
     for (const w of rows) {
       const name = (w.routine_name ?? '').trim();
       if (!name) continue;
+      const dayKey = toDayKey(w.day_key);
       const entry = byName.get(name) ?? { days: new Set<string>(), last: '' };
-      entry.days.add(w.day_key);
-      if (w.day_key > entry.last) entry.last = w.day_key;
+      entry.days.add(dayKey);
+      if (dayKey > entry.last) entry.last = dayKey;
       byName.set(name, entry);
     }
     return Array.from(byName.entries())
@@ -132,9 +142,11 @@ export async function getRoutineSessions(
     return rows
       .filter((w) => (w.routine_name ?? '').trim() === routineName)
       .map((w) => ({
-        dayKey: w.day_key,
-        setCount: w.total_sets ?? 0,
-        volumeKg: w.total_volume_kg ?? 0,
+        dayKey: toDayKey(w.day_key),
+        // COUNT/SUM arrive as strings from older server builds — coerce so the
+        // i18next plural `count` and the volume math see real numbers.
+        setCount: Number(w.total_sets ?? 0),
+        volumeKg: Number(w.total_volume_kg ?? 0),
       }))
       .sort((a, b) => b.dayKey.localeCompare(a.dayKey));
   } catch {

@@ -226,7 +226,16 @@ export default function WorkoutHistoryScreen(): React.ReactElement {
         }));
       } else {
         const res = await apiClient.get<ApiWorkout[]>('/workouts');
-        raw = Array.isArray(res.data) ? res.data : [];
+        // Normalise wire types: older server builds serialise day_key (a
+        // Postgres DATE) as a full ISO timestamp and COUNT/SUM as strings —
+        // both break the date grouping, i18next plural `count`, and rounding.
+        raw = (Array.isArray(res.data) ? res.data : []).map((w) => ({
+          ...w,
+          day_key: String(w.day_key).slice(0, 10),
+          total_sets: Number(w.total_sets ?? 0),
+          total_volume_kg: Math.round(Number(w.total_volume_kg ?? 0)),
+          exercise_count: Number(w.exercise_count ?? 0),
+        }));
       }
 
       const sorted = [...raw].sort((a, b) => b.day_key.localeCompare(a.day_key));

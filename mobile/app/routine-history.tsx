@@ -39,7 +39,8 @@ const SHORT_MONTHS = [
 
 /** "Mon, May 18" from YYYY-MM-DD, parsed in local time (no UTC shift). */
 function formatRowDate(dateStr: string): string {
-  const parts = dateStr.split('-').map(Number);
+  // Tolerate an ISO-timestamp input (server-Date-serialised day_key).
+  const parts = dateStr.slice(0, 10).split('-').map(Number);
   const d = new Date(parts[0] ?? 1970, (parts[1] ?? 1) - 1, parts[2] ?? 1);
   return `${SHORT_DAYS[d.getDay()]}, ${SHORT_MONTHS[d.getMonth()]} ${d.getDate()}`;
 }

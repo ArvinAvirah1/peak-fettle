@@ -13,6 +13,23 @@ import { apiClient } from './client';
 import { Workout, CreateWorkoutPayload } from '../types/api';
 
 /**
+ * Normalise a server workout row in place of trusting its wire types.
+ * Older server builds serialise day_key (a Postgres DATE) as a full ISO
+ * timestamp ("2026-07-05T00:00:00.000Z") and the aggregate totals
+ * (COUNT/SUM) as strings — both break downstream consumers (date headers,
+ * i18next plural `count`, volume math). Safe no-op on already-clean rows.
+ */
+export function normalizeWorkout<T extends Workout>(w: T): T {
+  const raw = w as T & { total_sets?: unknown; total_volume_kg?: unknown };
+  return {
+    ...w,
+    day_key: String(w.day_key).slice(0, 10),
+    ...(raw.total_sets !== undefined && { total_sets: Number(raw.total_sets) }),
+    ...(raw.total_volume_kg !== undefined && { total_volume_kg: Number(raw.total_volume_kg) }),
+  };
+}
+
+/**
  * Fetch workouts for a date range. Both params are optional; omitting
  * both returns up to 90 recent workouts.
  * @param from - YYYY-MM-DD (inclusive)
@@ -25,7 +42,7 @@ export async function getWorkouts(from?: string, to?: string): Promise<Workout[]
       ...(to && { to }),
     },
   });
-  return response.data;
+  return (Array.isArray(response.data) ? response.data : []).map(normalizeWorkout);
 }
 
 /**

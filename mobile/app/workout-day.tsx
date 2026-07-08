@@ -156,7 +156,9 @@ const LONG_MONTHS = [
  * Parses in local time to avoid UTC-offset date-shift.
  */
 function friendlyDate(dateStr: string): string {
-  const [year, month, day] = dateStr.split('-').map(Number);
+  // Tolerate an ISO-timestamp input (server-Date-serialised day_key) — only
+  // the calendar-date prefix is meaningful.
+  const [year, month, day] = dateStr.slice(0, 10).split('-').map(Number);
   const d = new Date(year, month - 1, day);
   return `${LONG_DAYS[d.getDay()]}, ${LONG_MONTHS[d.getMonth()]} ${d.getDate()}`;
 }
@@ -187,9 +189,14 @@ interface DayData {
 }
 
 async function fetchDayData(date: string): Promise<DayData> {
+  // Defensive: accept an ISO-timestamp date param (older builds/links passed
+  // the server's Date-serialised day_key through) — the server contract and
+  // all comparisons below are plain YYYY-MM-DD.
+  const dayKey = date.slice(0, 10);
+
   // 1. Find the workout for this day
   const workoutsRes = await apiClient.get<{ workouts?: ApiWorkout[] } | ApiWorkout[]>(
-    `/workouts?from=${date}&to=${date}`
+    `/workouts?from=${dayKey}&to=${dayKey}`
   );
 
   // Server may return array directly or wrapped in { workouts: [...] }
@@ -199,8 +206,10 @@ async function fetchDayData(date: string): Promise<DayData> {
   } else {
     workouts = (workoutsRes.data as { workouts?: ApiWorkout[] }).workouts ?? [];
   }
+  // Same defence on the response rows (DATE serialised as ISO timestamp).
+  workouts = workouts.map((w) => ({ ...w, day_key: String(w.day_key).slice(0, 10) }));
 
-  const workout = workouts.find((w) => w.day_key === date) ?? workouts[0] ?? null;
+  const workout = workouts.find((w) => w.day_key === dayKey) ?? workouts[0] ?? null;
 
   if (!workout) {
     return { workout: null, isRestDay: false, exerciseGroups: [], totalSets: 0, totalVolumeKg: 0 };

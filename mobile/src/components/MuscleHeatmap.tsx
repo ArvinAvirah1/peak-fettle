@@ -1,24 +1,28 @@
 /**
- * MuscleHeatmap -- front/back SVG body outline with muscles coloured by
- * freshness score from GET /insights/recovery.
+ * MuscleHeatmap -- front/back anatomical body coloured by freshness score
+ * from GET /insights/recovery.
+ *
+ * Rebuilt 2026-07-07: the legacy hand-drawn SVG outline + ellipse "blob"
+ * regions (which never read as a real human) are replaced by the same
+ * `react-native-body-highlighter` anatomical body MuscleMap adopted on
+ * 2026-06-19 -- one art pipeline everywhere. Taxonomy (region keys, aliases,
+ * freshness buckets, detail sheet, substitutes hook) is unchanged.
  *
  * Freshness colour mapping (spec section 6):
  *   0-39  -> theme statusError   (needs recovery)
  *   40-74 -> theme statusWarning (moderate)
  *   75-100 -> theme statusSuccess (fresh)
- *   Not in data (never trained) -> borderDefault tint
+ *   Not in data (never trained) -> body default fill
  *
  * Agent K polish (2026-06-11):
  *   - Empty state: icon + headline + guidance when muscles array is empty
  *   - Entrance animation (FadeInDown, Reduce Motion aware)
- *   - Press scale micro-interaction on dismiss button in detail modal
  *   - Detail modal dismiss button min touch target 44pt
  *
- * Uses react-native-svg (confirmed present in package.json).
  * No raw 'bold' -- fontWeight token only.
  */
 
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Modal,
@@ -28,10 +32,11 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import Svg, { Ellipse, G, Path, Rect } from 'react-native-svg';
+import Body, { type Slug, type ExtendedBodyPart } from 'react-native-body-highlighter';
 import { useTheme } from '../theme/ThemeContext';
-import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
+import { fontWeight, radius } from '../theme/tokens';
 import { MuscleRecovery } from '../api/insights';
+import { useAuth } from '../hooks/useAuth';
 import { useReduceMotion } from '../hooks/useReduceMotion';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
@@ -92,97 +97,79 @@ function normalise(muscle: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// SVG region definitions
+// Region taxonomy
 //
-// TICKET-134 (2026-07-03): Region/ALL_REGIONS/BodyOutline are exported so
-// ExerciseDetailSheet can render the SAME body outline + dot layout for a
-// per-exercise primary/secondary muscle diagram, without a second hand-drawn
-// SVG (the ticket's "no new art pipeline" requirement). Nothing about this
-// component's own rendering changes -- these are additive named exports
-// alongside the unchanged default export.
+// Region `key`s are stable taxonomy IDS consumed by exerciseCatalog media +
+// heatmap logic elsewhere (untouched); `label` is the English fallback for
+// callers that don't have a translation for a given key.
 // ---------------------------------------------------------------------------
 
 export interface Region {
   key: string;
-  /** Canonical English fallback label — region IDS/taxonomy stay untouched,
-   * but this display copy is user-facing; render sites translate via
-   * `regionLabel(region, t)` below rather than reading `.label` directly. */
   label: string;
-  cx: number;
-  cy: number;
-  rx: number;
-  ry: number;
-  side: 'front' | 'back';
 }
 
-/**
- * Translate a region's display name. Region `key`s are stable taxonomy IDs
- * consumed by exerciseCatalog media + heatmap logic elsewhere (untouched);
- * `label` is the English fallback for callers (e.g. ExerciseDetailSheet)
- * that don't have a translation for a given key.
- */
+/** Translate a region's display name (falls back to the English label). */
 export function regionLabel(region: Pick<Region, 'key' | 'label'>, t: TFunction): string {
   const key = `components:muscleHeatmap.regionLabel.${region.key}`;
   return t(key, { defaultValue: region.label });
 }
 
 const REGIONS: Region[] = [
-  // FRONT
-  { key: 'chest',       label: 'Chest',        cx: 60, cy: 80,  rx: 28, ry: 18, side: 'front' },
-  { key: 'front_delts', label: 'Front delts',  cx: 25, cy: 68,  rx: 10, ry: 12, side: 'front' },
-  { key: 'side_delts',  label: 'Side delts',   cx: 95, cy: 68,  rx: 10, ry: 12, side: 'front' },
-  { key: 'biceps',      label: 'Biceps',       cx: 16, cy: 108, rx: 9,  ry: 20, side: 'front' },
-  { key: 'forearms',    label: 'Forearms',     cx: 14, cy: 145, rx: 7,  ry: 18, side: 'front' },
-  { key: 'abs',         label: 'Abs',          cx: 60, cy: 120, rx: 18, ry: 22, side: 'front' },
-  { key: 'obliques',    label: 'Obliques',     cx: 38, cy: 118, rx: 8,  ry: 18, side: 'front' },
-  { key: 'quads',       label: 'Quads',        cx: 45, cy: 185, rx: 16, ry: 30, side: 'front' },
-  { key: 'calves',      label: 'Calves',       cx: 45, cy: 242, rx: 11, ry: 18, side: 'front' },
-  // BACK
-  { key: 'upper_back',  label: 'Upper back',   cx: 60, cy: 78,  rx: 28, ry: 18, side: 'back' },
-  { key: 'rear_delts',  label: 'Rear delts',   cx: 25, cy: 65,  rx: 10, ry: 12, side: 'back' },
-  { key: 'lats',        label: 'Lats',         cx: 60, cy: 108, rx: 22, ry: 22, side: 'back' },
-  { key: 'lower_back',  label: 'Lower back',   cx: 60, cy: 135, rx: 14, ry: 12, side: 'back' },
-  { key: 'triceps',     label: 'Triceps',      cx: 18, cy: 108, rx: 9,  ry: 20, side: 'back' },
-  { key: 'glutes',      label: 'Glutes',       cx: 60, cy: 163, rx: 24, ry: 18, side: 'back' },
-  { key: 'hamstrings',  label: 'Hamstrings',   cx: 45, cy: 200, rx: 16, ry: 28, side: 'back' },
+  { key: 'chest',       label: 'Chest' },
+  { key: 'front_delts', label: 'Front delts' },
+  { key: 'side_delts',  label: 'Side delts' },
+  { key: 'rear_delts',  label: 'Rear delts' },
+  { key: 'biceps',      label: 'Biceps' },
+  { key: 'forearms',    label: 'Forearms' },
+  { key: 'abs',         label: 'Abs' },
+  { key: 'obliques',    label: 'Obliques' },
+  { key: 'quads',       label: 'Quads' },
+  { key: 'calves',      label: 'Calves' },
+  { key: 'upper_back',  label: 'Upper back' },
+  { key: 'lats',        label: 'Lats' },
+  { key: 'lower_back',  label: 'Lower back' },
+  { key: 'triceps',     label: 'Triceps' },
+  { key: 'glutes',      label: 'Glutes' },
+  { key: 'hamstrings',  label: 'Hamstrings' },
 ];
 
-const MIRRORED: Region[] = [
-  { key: 'obliques',    label: 'Obliques',     cx: 82, cy: 118, rx: 8,  ry: 18, side: 'front' },
-  { key: 'front_delts', label: 'Front delts',  cx: 95, cy: 68,  rx: 10, ry: 12, side: 'front' },
-  { key: 'side_delts',  label: 'Side delts',   cx: 25, cy: 68,  rx: 10, ry: 12, side: 'front' },
-  { key: 'biceps',      label: 'Biceps',       cx: 104, cy: 108, rx: 9, ry: 20, side: 'front' },
-  { key: 'forearms',    label: 'Forearms',     cx: 106, cy: 145, rx: 7, ry: 18, side: 'front' },
-  { key: 'quads',       label: 'Quads',        cx: 75, cy: 185, rx: 16, ry: 30, side: 'front' },
-  { key: 'calves',      label: 'Calves',       cx: 75, cy: 242, rx: 11, ry: 18, side: 'front' },
-  // back mirrors
-  { key: 'rear_delts',  label: 'Rear delts',   cx: 95, cy: 65,  rx: 10, ry: 12, side: 'back' },
-  { key: 'triceps',     label: 'Triceps',      cx: 102, cy: 108, rx: 9, ry: 20, side: 'back' },
-  { key: 'hamstrings',  label: 'Hamstrings',   cx: 75, cy: 200, rx: 16, ry: 28, side: 'back' },
-];
+const REGION_BY_KEY = new Map(REGIONS.map((r) => [r.key, r]));
 
-export const ALL_REGIONS = [...REGIONS, ...MIRRORED];
+// Region key -> react-native-body-highlighter slug(s). Several regions share
+// a slug (the library has one 'deltoids' part per side); colour conflicts
+// resolve to the WORST freshness so a fatigued head is never hidden.
+const REGION_TO_SLUGS: Record<string, Slug[]> = {
+  chest:       ['chest'],
+  front_delts: ['deltoids'],
+  side_delts:  ['deltoids'],
+  rear_delts:  ['deltoids'],
+  biceps:      ['biceps'],
+  forearms:    ['forearm'],
+  abs:         ['abs'],
+  obliques:    ['obliques'],
+  quads:       ['quadriceps'],
+  calves:      ['calves'],
+  upper_back:  ['trapezius'],
+  lats:        ['upper-back'],
+  lower_back:  ['lower-back'],
+  triceps:     ['triceps'],
+  glutes:      ['gluteal'],
+  hamstrings:  ['hamstring'],
+};
 
-// ---------------------------------------------------------------------------
-// Body outline
-// ---------------------------------------------------------------------------
-
-export function BodyOutline({ color }: { color: string }): React.ReactElement {
-  return (
-    <G>
-      <Ellipse cx={60} cy={28} rx={18} ry={22} stroke={color} strokeWidth={1.5} fill="none" />
-      <Rect x={52} y={48} width={16} height={12} stroke={color} strokeWidth={1.5} fill="none" rx={4} />
-      <Path
-        d="M28 60 L20 160 L40 165 L40 260 L80 260 L80 165 L100 160 L92 60 Z"
-        stroke={color}
-        strokeWidth={1.5}
-        fill="none"
-      />
-      <Path d="M28 60 L10 90 L8 165 L20 165 L22 90 L34 62" stroke={color} strokeWidth={1.5} fill="none" />
-      <Path d="M92 60 L110 90 L112 165 L100 165 L98 90 L86 62" stroke={color} strokeWidth={1.5} fill="none" />
-    </G>
-  );
+/** Reverse lookup: slug -> region keys that render onto it. */
+const SLUG_TO_REGIONS = new Map<Slug, string[]>();
+for (const [regionKey, slugs] of Object.entries(REGION_TO_SLUGS)) {
+  for (const slug of slugs) {
+    const arr = SLUG_TO_REGIONS.get(slug) ?? [];
+    arr.push(regionKey);
+    SLUG_TO_REGIONS.set(slug, arr);
+  }
 }
+
+/** The library renders height = 400 * scale (width = 200 * scale) at scale 1. */
+const BODY_SCALE = 0.65; // ~130 x 260 pt per figure, matching the old SVG footprint
 
 // ---------------------------------------------------------------------------
 // Detail pop-up
@@ -256,6 +243,7 @@ export default function MuscleHeatmap({ muscles, loading, onSuggestSubstitutes }
   const { theme, spacing: sp, fontSize: fs, radius: r } = useTheme();
   const { t } = useTranslation();
   const { colors } = theme;
+  const { user } = useAuth();
   const [detail, setDetail] = useState<DetailSheet | null>(null);
   const reduceMotion = useReduceMotion();
 
@@ -271,49 +259,78 @@ export default function MuscleHeatmap({ muscles, loading, onSuggestSubstitutes }
     }
   }, [loading, reduceMotion, fadeAnim]);
 
-  // Build lookup
-  const dataMap = new Map<string, MuscleRecovery>();
-  for (const m of muscles) {
-    dataMap.set(normalise(m.muscle), m);
-  }
+  // Region key -> recovery datum
+  const dataMap = useMemo(() => {
+    const m = new Map<string, MuscleRecovery>();
+    for (const item of muscles) {
+      m.set(normalise(item.muscle), item);
+    }
+    return m;
+  }, [muscles]);
 
-  const renderSide = (side: 'front' | 'back') => {
-    const regions = ALL_REGIONS.filter((reg) => reg.side === side);
-    return (
-      <Svg
-        width={120}
-        height={260}
-        viewBox="0 0 120 260"
-        accessibilityLabel={side === 'front' ? t('components:muscleHeatmap.frontBodyDiagram') : t('components:muscleHeatmap.backBodyDiagram')}
-      >
-        <BodyOutline color={colors.borderDefault} />
-        {regions.map((reg, i) => {
-          const data = dataMap.get(reg.key);
-          const fill = freshnessColor(data?.freshness, colors);
-          return (
-            <Ellipse
-              key={`${reg.key}-${i}`}
-              cx={reg.cx}
-              cy={reg.cy}
-              rx={reg.rx}
-              ry={reg.ry}
-              fill={fill + 'CC'}
-              stroke={fill}
-              strokeWidth={1}
-              onPress={() =>
-                setDetail({
-                  key: reg.key,
-                  label: regionLabel(reg, t),
-                  freshness: data?.freshness,
-                  last_worked: data?.last_worked,
-                  sets_last_session: data?.sets_last_session,
-                })
-              }
-            />
-          );
-        })}
-      </Svg>
-    );
+  // Slug -> colour: worst (lowest) freshness wins when regions share a slug.
+  const bodyData: ExtendedBodyPart[] = useMemo(() => {
+    const worstBySlug = new Map<Slug, number | undefined>();
+    for (const [key, data] of dataMap) {
+      for (const slug of REGION_TO_SLUGS[key] ?? []) {
+        const current = worstBySlug.get(slug);
+        const candidate = data.freshness;
+        if (!worstBySlug.has(slug)) {
+          worstBySlug.set(slug, candidate);
+        } else if (candidate !== undefined && (current === undefined || candidate < current)) {
+          worstBySlug.set(slug, candidate);
+        }
+      }
+    }
+    return Array.from(worstBySlug.entries()).map(([slug, freshness]) => ({
+      slug,
+      color: freshnessColor(freshness, colors),
+    }));
+  }, [dataMap, colors]);
+
+  // Tap on a body part -> detail for the worst contributing tracked region
+  // (or the first mapped region, shown as "not tracked").
+  const handlePress = (part: ExtendedBodyPart) => {
+    const slug = part.slug as Slug | undefined;
+    if (!slug) return;
+    const regionKeys = SLUG_TO_REGIONS.get(slug) ?? [];
+    if (regionKeys.length === 0) return;
+
+    let chosen: string | null = null;
+    let chosenFreshness: number | undefined;
+    for (const key of regionKeys) {
+      const d = dataMap.get(key);
+      if (!d) continue;
+      if (chosen === null || (d.freshness ?? Infinity) < (chosenFreshness ?? Infinity)) {
+        chosen = key;
+        chosenFreshness = d.freshness;
+      }
+    }
+    const key = chosen ?? regionKeys[0]!;
+    const region = REGION_BY_KEY.get(key);
+    if (!region) return;
+    const data = dataMap.get(key);
+    setDetail({
+      key,
+      label: regionLabel(region, t),
+      freshness: data?.freshness,
+      last_worked: data?.last_worked,
+      sets_last_session: data?.sets_last_session,
+    });
+  };
+
+  const gender: 'male' | 'female' =
+    (user?.sex ?? '').toLowerCase() === 'female' ? 'female' : 'male';
+
+  const bodyProps = {
+    data: bodyData,
+    gender,
+    scale: BODY_SCALE,
+    onBodyPartPress: handlePress,
+    defaultFill: colors.bgElevated,
+    defaultStroke: colors.borderDefault,
+    defaultStrokeWidth: 0.5,
+    border: colors.borderDefault,
   };
 
   if (!loading && muscles.length === 0) {
@@ -338,12 +355,18 @@ export default function MuscleHeatmap({ muscles, loading, onSuggestSubstitutes }
 
       {/* Diagrams */}
       <View style={styles.diagrams}>
-        <View style={styles.sideWrap}>
-          {renderSide('front')}
+        <View
+          style={styles.sideWrap}
+          accessibilityLabel={t('components:muscleHeatmap.frontBodyDiagram')}
+        >
+          <Body {...bodyProps} side="front" />
           <Text style={[styles.sideLabel, { color: colors.textTertiary, fontSize: fs.micro }]}>{t('components:muscleHeatmap.front')}</Text>
         </View>
-        <View style={styles.sideWrap}>
-          {renderSide('back')}
+        <View
+          style={styles.sideWrap}
+          accessibilityLabel={t('components:muscleHeatmap.backBodyDiagram')}
+        >
+          <Body {...bodyProps} side="back" />
           <Text style={[styles.sideLabel, { color: colors.textTertiary, fontSize: fs.micro }]}>{t('components:muscleHeatmap.back')}</Text>
         </View>
       </View>

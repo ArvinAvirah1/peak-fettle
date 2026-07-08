@@ -44,20 +44,17 @@ import {
   TouchableOpacity,
   StyleSheet,
 } from 'react-native';
-import Svg from 'react-native-svg';
-import { Ellipse } from 'react-native-svg';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeContext';
 import { fontWeight } from '../theme/tokens';
 import { Ionicons } from './Icon';
 import { useAuth } from '../hooks/useAuth';
 import { getExerciseMedia, ExerciseMedia } from '../lib/trainingEngine/exerciseCatalog';
-import { ALL_REGIONS, BodyOutline } from './MuscleHeatmap';
+import { MuscleMap } from './MuscleMap';
 import { getExerciseGoal, ExerciseGoal } from '../data/exerciseGoals';
 import { formatWeight } from '../constants/units';
 import LiftProgressChart from './LiftProgressChart';
 import { useTranslation } from 'react-i18next';
-import type { TFunction } from 'i18next';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -81,94 +78,6 @@ export interface ExerciseDetailSheetProps {
   exercise: ExerciseDetailTarget | null;
   onClose: () => void;
 }
-
-// ---------------------------------------------------------------------------
-// Muscle diagram -- thin wrapper around MuscleHeatmap's own region layout
-// ---------------------------------------------------------------------------
-
-interface MuscleDiagramProps {
-  primary: string[];
-  secondary: string[];
-  accentColor: string;
-  dimColor: string;
-  outlineColor: string;
-}
-
-function MuscleDiagramSide({
-  side,
-  primary,
-  secondary,
-  accentColor,
-  dimColor,
-  outlineColor,
-  t,
-}: MuscleDiagramProps & { side: 'front' | 'back'; t: TFunction }): React.ReactElement {
-  const regions = ALL_REGIONS.filter((r) => r.side === side);
-  const primarySet = new Set(primary);
-  const secondarySet = new Set(secondary);
-  return (
-    <Svg
-      width={100}
-      height={220}
-      viewBox="0 0 120 260"
-      accessibilityLabel={side === 'front' ? t('components:exerciseDetailSheet.frontMuscleDiagram') : t('components:exerciseDetailSheet.backMuscleDiagram')}
-    >
-      <BodyOutline color={outlineColor} />
-      {regions.map((reg, i) => {
-        const isPrimary = primarySet.has(reg.key);
-        const isSecondary = secondarySet.has(reg.key);
-        if (!isPrimary && !isSecondary) return null;
-        const fill = isPrimary ? accentColor : dimColor;
-        return (
-          <Ellipse
-            key={`${reg.key}-${i}`}
-            cx={reg.cx}
-            cy={reg.cy}
-            rx={reg.rx}
-            ry={reg.ry}
-            fill={fill + (isPrimary ? 'E6' : '80')}
-            stroke={fill}
-            strokeWidth={1}
-          />
-        );
-      })}
-    </Svg>
-  );
-}
-
-function MuscleDiagram(props: MuscleDiagramProps): React.ReactElement {
-  const { theme, spacing: sp, fontSize: fs } = useTheme();
-  const { t } = useTranslation();
-  const allKeys = [...props.primary, ...props.secondary];
-  const hasFront = ALL_REGIONS.some((r) => r.side === 'front' && allKeys.includes(r.key));
-  const hasBack = ALL_REGIONS.some((r) => r.side === 'back' && allKeys.includes(r.key));
-  return (
-    <View style={diagramStyles.row}>
-      {(hasFront || !hasBack) && (
-        <View style={diagramStyles.sideWrap}>
-          <MuscleDiagramSide side="front" {...props} t={t} />
-          <Text style={[diagramStyles.sideLabel, { color: theme.colors.textTertiary, fontSize: fs.micro, marginTop: sp.s1 }]}>
-            {t('components:muscleHeatmap.front')}
-          </Text>
-        </View>
-      )}
-      {(hasBack || !hasFront) && (
-        <View style={diagramStyles.sideWrap}>
-          <MuscleDiagramSide side="back" {...props} t={t} />
-          <Text style={[diagramStyles.sideLabel, { color: theme.colors.textTertiary, fontSize: fs.micro, marginTop: sp.s1 }]}>
-            {t('components:muscleHeatmap.back')}
-          </Text>
-        </View>
-      )}
-    </View>
-  );
-}
-
-const diagramStyles = StyleSheet.create({
-  row: { flexDirection: 'row', justifyContent: 'space-evenly' },
-  sideWrap: { alignItems: 'center' },
-  sideLabel: { letterSpacing: 1 },
-});
 
 // ---------------------------------------------------------------------------
 // Section: legend for the muscle diagram
@@ -332,14 +241,18 @@ export function ExerciseDetailSheet({
               <Text style={[styles.sectionTitle, { color: theme.colors.textPrimary, fontSize: fs.bodyMd, marginBottom: sp.s2 }]}>
                 {t('components:exerciseDetailSheet.targetMuscles')}
               </Text>
-              <MuscleDiagram
-                primary={media.primary_muscles}
-                secondary={media.secondary_muscles}
-                accentColor={theme.colors.accentDefault}
-                dimColor={theme.colors.borderDefault}
-                outlineColor={theme.colors.borderDefault}
+              {/* Anatomical body (react-native-body-highlighter via MuscleMap,
+                  the 2026-06-19 rebuild) — replaces the legacy hand-drawn
+                  outline + ellipse blobs that shipped with TICKET-134. */}
+              <MuscleMap
+                groups={media.primary_muscles}
+                secondaryGroups={media.secondary_muscles}
+                size={220}
+                view="both"
+                sex={(user?.sex ?? '').toLowerCase() === 'female' ? 'female' : 'male'}
+                style={styles.muscleMap}
               />
-              <MuscleLegend accentColor={theme.colors.accentDefault} dimColor={theme.colors.borderDefault} />
+              <MuscleLegend accentColor={theme.colors.accentDefault} dimColor={theme.colors.accentDefault + '55'} />
 
               <Text style={[styles.sectionTitle, { color: theme.colors.textPrimary, fontSize: fs.bodyMd, marginTop: sp.s5, marginBottom: sp.s2 }]}>
                 {t('components:exerciseDetailSheet.formCues')}
@@ -400,6 +313,7 @@ const styles = StyleSheet.create({
   headerTitle: { fontWeight: fontWeight.bold, flex: 1, marginRight: 12 },
   closeButton: { minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   content: { paddingBottom: 48 },
+  muscleMap: { justifyContent: 'center' },
   equipmentTag: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4 },
   sectionTitle: { fontWeight: fontWeight.semibold },
   cueRow: { flexDirection: 'row', alignItems: 'flex-start' },

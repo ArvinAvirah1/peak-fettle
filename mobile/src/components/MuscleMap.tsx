@@ -32,6 +32,12 @@ import { useTheme } from '../theme/ThemeContext';
 export interface MuscleMapProps {
   /** Canonical muscle labels to highlight (from muscleGroupsForExercise / muscleGroupsForRoutine) */
   groups: string[];
+  /**
+   * Secondary muscle labels (TICKET-134 exercise media) — rendered in a dimmer
+   * tint than `groups` so primary vs assisting muscles read at a glance.
+   * A label present in both lists renders as primary.
+   */
+  secondaryGroups?: string[];
   /** Rendered height in points — each figure is ~half this wide (default 120) */
   size?: number;
   /** Which body view to render (default 'front') */
@@ -63,7 +69,25 @@ const LABEL_TO_SLUGS: Record<string, Slug[]> = {
   // aggregate aliases (mirror muscleRegions.ts)
   legs:       ['quadriceps', 'hamstring', 'gluteal', 'calves'],
   core:       ['abs', 'obliques'],
+  // MuscleHeatmap-region taxonomy (exerciseCatalog media keys) — lets
+  // ExerciseDetailSheet pass primary_muscles/secondary_muscles verbatim.
+  front_delts: ['deltoids'],
+  side_delts:  ['deltoids'],
+  rear_delts:  ['deltoids'],
+  upper_back:  ['upper-back'],
+  lower_back:  ['lower-back'],
+  erectors:    ['lower-back'],
 };
+
+/** Resolve canonical labels to de-duplicated body-highlighter slugs. */
+export function slugsForLabels(groups: string[]): Slug[] {
+  const slugs = new Set<Slug>();
+  for (const label of groups) {
+    const mapped = LABEL_TO_SLUGS[label.toLowerCase().trim()];
+    if (mapped) for (const s of mapped) slugs.add(s);
+  }
+  return Array.from(slugs);
+}
 
 /** The library renders height = 400 * scale (width = 200 * scale) at scale 1. */
 const BASE_HEIGHT = 400;
@@ -74,6 +98,7 @@ const BASE_HEIGHT = 400;
 
 function MuscleMapInner({
   groups,
+  secondaryGroups,
   size = 120,
   view = 'front',
   sex,
@@ -84,26 +109,29 @@ function MuscleMapInner({
   const c = theme.colors;
 
   // Resolve the highlighted slugs from the canonical labels (de-duplicated).
+  // Primary wins when a slug appears in both tiers (intensity 1 = accent,
+  // intensity 2 = dimmed secondary tint).
   const data: ExtendedBodyPart[] = useMemo(() => {
-    const slugs = new Set<Slug>();
-    for (const label of groups) {
-      const mapped = LABEL_TO_SLUGS[label.toLowerCase().trim()];
-      if (mapped) for (const s of mapped) slugs.add(s);
-    }
-    return Array.from(slugs).map((slug) => ({ slug, intensity: 1 }));
-  }, [groups]);
+    const primary = new Set<Slug>(slugsForLabels(groups));
+    const secondary = slugsForLabels(secondaryGroups ?? []).filter((s) => !primary.has(s));
+    return [
+      ...Array.from(primary).map((slug) => ({ slug, intensity: 1 })),
+      ...secondary.map((slug) => ({ slug, intensity: 2 })),
+    ];
+  }, [groups, secondaryGroups]);
 
   const gender: 'male' | 'female' = sex === 'female' ? 'female' : 'male';
   const scale = size / BASE_HEIGHT;
 
   // Theme-driven colours: resting muscles use the elevated surface, separations
-  // and the body contour use the default border, and a worked muscle (intensity
-  // 1) lights up in the accent colour.
+  // and the body contour use the default border, a primary worked muscle
+  // (intensity 1) lights up in the accent colour, and a secondary muscle
+  // (intensity 2) in a translucent accent tint.
   const bodyProps = {
     data,
     gender,
     scale,
-    colors: [c.accentDefault],
+    colors: [c.accentDefault, c.accentDefault + '55'],
     defaultFill: c.bgElevated,
     defaultStroke: c.borderDefault,
     defaultStrokeWidth: 0.5,
