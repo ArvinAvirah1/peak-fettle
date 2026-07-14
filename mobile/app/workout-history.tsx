@@ -332,6 +332,11 @@ export default function WorkoutHistoryScreen(): React.ReactElement {
             label={t('screens2:workoutHistory.logFirstWorkout')}
             onPress={() => router.push('/(tabs)/log')}
           />
+          <PFButton
+            variant="ghost"
+            label={t('screens2:workoutHistory.logPastWorkout')}
+            onPress={() => router.push('/backdate-workout')}
+          />
         </View>
       </ScreenLayout>
     );
@@ -344,8 +349,16 @@ export default function WorkoutHistoryScreen(): React.ReactElement {
         sections={sections}
         keyExtractor={(item) => item.id}
         ListHeaderComponent={
-          /* Training-frequency heatmap (founder 2026-06-10) over the loaded window */
-          <CalendarHeatmap dayKeys={allWorkouts.map((w) => w.day_key)} />
+          <View>
+            {/* Training-frequency heatmap (founder 2026-06-10) over the loaded window */}
+            <CalendarHeatmap dayKeys={allWorkouts.map((w) => w.day_key)} />
+            {/* Backdate entry (2026-07-14): trained without the phone → add it. */}
+            <PFButton
+              variant="ghost"
+              label={t('screens2:workoutHistory.logPastWorkout')}
+              onPress={() => router.push('/backdate-workout')}
+            />
+          </View>
         }
         stickySectionHeadersEnabled
         onEndReached={handleEndReached}

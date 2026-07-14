@@ -159,6 +159,12 @@ export interface LogLiftSetPayload {
   note?: string;
   /** TICKET-129: quick-tap flag bitmask (0-31). */
   flags?: number;
+  /**
+   * Backdated logging (2026-07-14): ISO datetime the set actually happened.
+   * Omit for live logging — the server stamps now(). Server rejects future
+   * datetimes and anything older than 5 years.
+   */
+  loggedAt?: string;
 }
 
 export interface LogCardioSetPayload {
@@ -173,6 +179,8 @@ export interface LogCardioSetPayload {
   note?: string;
   /** TICKET-129: quick-tap flag bitmask (0-31). */
   flags?: number;
+  /** Backdated logging (2026-07-14): ISO datetime the set actually happened. */
+  loggedAt?: string;
 }
 
 export type LogSetPayload = LogLiftSetPayload | LogCardioSetPayload;

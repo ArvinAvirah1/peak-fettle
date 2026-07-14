@@ -330,6 +330,7 @@ function RootNavigator(): React.ReactElement {
         <Stack.Screen name="progress-photos" options={{ title: 'Progress Photos', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="workout-day" options={{ title: '', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="workout-history" options={{ title: 'Workout History', headerShown: true, gestureEnabled: true }} />
+        <Stack.Screen name="backdate-workout" options={{ title: 'Log Past Workout', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="routine-history" options={{ title: '', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="trends" options={{ title: 'Trends', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="cosmetics" options={{ title: 'Achievements & Shop', headerShown: true, gestureEnabled: true }} />

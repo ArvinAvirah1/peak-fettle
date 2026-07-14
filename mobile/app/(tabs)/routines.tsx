@@ -172,6 +172,11 @@ export default function RoutinesPage(): React.ReactElement {
   // Lightweight toast (option 6).
   const [toast, setToast] = useState<string | null>(null);
   const toastOpacity = useRef(new RNAnimated.Value(0)).current;
+  // 2026-07-14 outage postmortem: a failed list fetch used to fail SILENTLY,
+  // so a Pro user with an unreachable server saw an empty list that looked
+  // exactly like data loss ("I have to remake all of my routines"). Track the
+  // failure so the UI can say "your routines are safe" instead.
+  const [loadError, setLoadError] = useState(false);
 
   // ── Data fetching ──────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
@@ -183,6 +188,7 @@ export default function RoutinesPage(): React.ReactElement {
       const r = await listRoutines(user);
       cachedRoutines = r; // refresh the module cache for instant re-entry
       setRoutines(r);
+      setLoadError(false);
       setTemplates(getStarterSplits());
       // Best-effort last-performed (option 5) — never blocks the list render.
       getLastPerformedMap(user, r)
@@ -192,7 +198,9 @@ export default function RoutinesPage(): React.ReactElement {
         })
         .catch(() => {});
     } catch {
-      // silently fail; user keeps whatever the cache last showed (or empty)
+      // Keep whatever the cache last showed, but SAY the fetch failed — an
+      // unexplained empty list reads as data loss (2026-07-14 outage).
+      setLoadError(true);
     }
   }, [user]);
 
@@ -637,7 +645,29 @@ export default function RoutinesPage(): React.ReactElement {
             {/* ── YOURS section (shared section grammar — option 12) ──────── */}
             <Text style={[styles.sectionLabel, { color: c.textTertiary }]}>{t('tabs:routines.yoursSectionLabel')}</Text>
 
-            {routines.length === 0 ? (
+            {loadError ? (
+              // Fetch failed: reassure + retry. NEVER render the "no routines
+              // yet" empty state on a failed fetch — it reads as data loss.
+              <View style={[styles.emptyCard, { backgroundColor: c.bgSecondary, borderColor: c.borderDefault }]}>
+                <Ionicons name="cloud-offline-outline" size={28} color={c.textTertiary} />
+                <Text style={[styles.emptyTitle, { color: c.textPrimary }]}>{t('tabs:routines.loadFailedTitle')}</Text>
+                <Text style={[styles.emptyBody, { color: c.textSecondary }]}>
+                  {t('tabs:routines.loadFailedBody')}
+                </Text>
+                <TouchableOpacity
+                  style={[styles.emptyPrimaryBtn, { backgroundColor: c.accentDefault }]}
+                  onPress={() => { void loadData(); }}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('tabs:routines.loadFailedRetry')}
+                >
+                  <Text style={[styles.emptyPrimaryLabel, { color: theme.components.buttonPrimaryText }]}>
+                    {t('tabs:routines.loadFailedRetry')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : null}
+
+            {routines.length === 0 && !loadError ? (
               // Real empty state + CTAs (option 3).
               <View style={[styles.emptyCard, { backgroundColor: c.bgSecondary, borderColor: c.borderDefault }]}>
                 <Ionicons name="barbell-outline" size={28} color={c.textTertiary} />

@@ -1051,6 +1051,23 @@ export default function WorkoutDayScreen(): React.ReactElement {
           >
             {t('screens2:workoutDay.emptyState')}
           </Text>
+          {/* Backdate entry (2026-07-14): nothing logged on a PAST day →
+              offer to add the session after the fact. */}
+          {typeof date === 'string' &&
+          /^\d{4}-\d{2}-\d{2}$/.test(date) &&
+          date <
+            (() => {
+              // LOCAL day key (not UTC) — the day_key convention app-wide.
+              const d = new Date();
+              return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            })() ? (
+            <PFButton
+              variant="primary"
+              label={t('screens2:workoutDay.logThisDay')}
+              onPress={() => router.push(`/backdate-workout?date=${date}`)}
+              style={{ marginTop: spacing.s4 }}
+            />
+          ) : null}
           <PFButton
             variant="ghost"
             label={t('common:back')}

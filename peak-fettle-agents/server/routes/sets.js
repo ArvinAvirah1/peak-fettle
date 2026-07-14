@@ -61,6 +61,23 @@ const MAX_FLAGS = 31; // 1+2+4+8+16 — every bit set
 const noteField = z.string().max(500).optional();
 const flagsField = z.number().int().min(0).max(MAX_FLAGS).optional();
 
+// Backdated logging (2026-07-14): an optional client-supplied logged_at so a
+// workout tracked after the fact (forgot the phone / stayed off it in the gym)
+// carries the date it actually happened. ISO datetime, never in the future
+// (24h skew allowance), never older than 5 years (fat-finger guard). Omitted →
+// the column's now() default applies, exactly as before.
+const FUTURE_SKEW_MS = 24 * 60 * 60 * 1000;
+const MAX_BACKDATE_MS = 5 * 365 * 24 * 60 * 60 * 1000;
+const loggedAtField = z
+    .string()
+    .refine((v) => {
+        const t = Date.parse(v);
+        if (Number.isNaN(t)) return false;
+        const now = Date.now();
+        return t <= now + FUTURE_SKEW_MS && t >= now - MAX_BACKDATE_MS;
+    }, { message: 'loggedAt must be a valid ISO datetime, not in the future, within 5 years' })
+    .optional();
+
 const LiftSetSchema = z.object({
     kind: z.literal('lift'),
     workoutId: z.string().uuid(),
@@ -78,6 +95,7 @@ const LiftSetSchema = z.object({
     rir: z.number().int().min(-1).max(10).optional(),
     note: noteField,
     flags: flagsField,
+    loggedAt: loggedAtField,
 });
 
 const CardioSetSchema = z.object({
@@ -90,6 +108,7 @@ const CardioSetSchema = z.object({
     avgPaceSecPerKm: z.number().min(0).optional(),
     note: noteField,
     flags: flagsField,
+    loggedAt: loggedAtField,
 });
 
 const SetSchema = z.discriminatedUnion('kind', [LiftSetSchema, CardioSetSchema]);
@@ -130,6 +149,9 @@ router.post('/', async (req, res, next) => {
             body.kind === 'cardio' ? (body.avgPaceSecPerKm ?? null) : null,
             body.note ?? null,
             body.flags ?? 0,
+            // Backdated logging: COALESCE($14, now()) — omitted → now(),
+            // exactly the column default's old behaviour.
+            body.loggedAt ?? null,
         ];
 
         try {
@@ -139,11 +161,11 @@ router.post('/', async (req, res, next) => {
                     (workout_id, user_id, exercise_id, kind, set_index,
                      reps, weight_raw, rir,
                      duration_sec, distance_m, avg_pace_sec_per_km,
-                     note, flags)
+                     note, flags, logged_at)
                  VALUES ($1, $2, $3, $4, $5,
                          $6, $7, $8,
                          $9, $10, $11,
-                         $12, $13)
+                         $12, $13, COALESCE($14, now()))
                  RETURNING id, workout_id, user_id, exercise_id, kind, set_index,
                            reps, weight_raw, rir,
                            duration_sec, distance_m, avg_pace_sec_per_km,
@@ -168,15 +190,19 @@ router.post('/', async (req, res, next) => {
                 `INSERT INTO sets
                     (workout_id, user_id, exercise_id, kind, set_index,
                      reps, weight_raw, rir,
-                     duration_sec, distance_m, avg_pace_sec_per_km)
+                     duration_sec, distance_m, avg_pace_sec_per_km,
+                     logged_at)
                  VALUES ($1, $2, $3, $4, $5,
                          $6, $7, $8,
-                         $9, $10, $11)
+                         $9, $10, $11,
+                         COALESCE($12, now()))
                  RETURNING id, workout_id, user_id, exercise_id, kind, set_index,
                            reps, weight_raw, rir,
                            duration_sec, distance_m, avg_pace_sec_per_km,
                            logged_at`,
-                insertParams.slice(0, 11)
+                // logged_at exists in every deployed schema (it's in RETURNING
+                // above) — only note/flags are drift-guarded out here.
+                insertParams.slice(0, 11).concat([body.loggedAt ?? null])
             );
             return res.status(201).json(normalizeSet(rows[0]));
         }

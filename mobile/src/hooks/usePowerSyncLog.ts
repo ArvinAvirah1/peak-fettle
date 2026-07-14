@@ -42,7 +42,11 @@ import { useAuth } from './useAuth';
 import { isLocalFirst } from '../data/backup/tierPolicy';
 import { maybeSendWeeklySignals, getActiveGroupIds, VolumeSetRow } from '../data/groupSignals';
 import { computeStreak } from './useStreak';
-import { ensureLocalWorkoutForDay } from '../data/localWorkouts';
+import {
+  ensureLocalWorkoutForDay,
+  getLocalWorkoutForDay,
+  adoptServerWorkout,
+} from '../data/localWorkouts';
 import { localDb } from '../db/localDb';
 import {
   Workout,
@@ -244,22 +248,26 @@ export function usePowerSyncLog(): UsePowerSyncLogResult {
       // valid workoutId even on the first render triggered by setWorkout().
       workoutIdRef.current = w.id;
 
-      // Mirror the workout into local SQLite so offline reads work next time.
-      await db.execute(
-        `INSERT OR REPLACE INTO workouts
-           (id, user_id, day_key, notes, session_type, created_at, updated_at, synced)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
-        [
-          w.id,
-          w.user_id,
-          w.day_key,
-          w.notes ?? null,
-          w.session_type ?? null,
-          w.created_at,
-          w.updated_at,
-        ],
-        { tables: ['workouts'] }
-      );
+      // Outage recovery (2026-07-14): if today's sets were logged while the
+      // server was unreachable, they sit under a LOCAL-only workout id for the
+      // same day. Adopt each stale row into the server workout — re-pointing
+      // sets + queued outbox uploads — or those sets stay invisible (the watch
+      // below filters by w.id) and unsyncable (the queued inserts 403 forever).
+      // Mirroring the server row locally happens inside adoptServerWorkout.
+      try {
+        const staleRows = await db.getAll<{ id: string }>(
+          `SELECT id FROM workouts
+            WHERE day_key = ? AND id != ?
+              AND (user_id = ? OR user_id IS NULL OR user_id = '')`,
+          [todayKey, w.id, userId]
+        );
+        for (const stale of staleRows) {
+          await adoptServerWorkout(stale.id, w);
+        }
+      } catch (adoptErr) {
+        console.error('[usePowerSyncLog] stale-workout adoption failed:', adoptErr);
+      }
+      await adoptServerWorkout(w.id, w); // no stale id: mirror-only path
 
       setWorkout(w);
 
@@ -269,26 +277,30 @@ export function usePowerSyncLog(): UsePowerSyncLogResult {
       const serverSets = await getSetsForWorkout(w.id);
       await hydrateLocalSets(w.id, serverSets);
 
+      // Drain anything queued during the outage now that the workout ids are
+      // reconciled (single-flight; a no-op when the outbox is empty).
+      void syncEngine.flush().catch(() => {});
+
       // Phase 1.5: server fires paywall_trigger=true exactly once (the session
       // that crosses the free-tier limit). Surface it so the UI can prompt.
       if (w.paywall_trigger) {
         setPaywallTriggered(true);
       }
     } catch (err) {
-      // ── Offline fallback: reuse today's locally-cached workout if present ───
-      // so the user can keep logging (sets queue in the outbox until online).
+      // ── Offline fallback: reuse (or mint) today's LOCAL workout row so the ──
+      // user can keep logging; sets queue in the outbox until online. Creating
+      // a local-only id here is safe since 2026-07-14: initWorkout's adoption
+      // (above) and syncEngine's day-key recovery re-point everything to the
+      // real server workout once the API is reachable again. User-scoped: the
+      // old day_key-only SELECT could grab another account's row after a
+      // sign-out/sign-in on the same device.
       try {
-        const local = await db.getFirst<{ id: string }>(
-          'SELECT id FROM workouts WHERE day_key = ? ORDER BY updated_at DESC LIMIT 1',
-          [todayKey]
-        );
-        if (local?.id) {
-          workoutIdRef.current = local.id;
-          const localWorkout = await db.getFirst<Workout>(
-            'SELECT * FROM workouts WHERE id = ? LIMIT 1',
-            [local.id]
-          );
-          if (localWorkout) setWorkout(localWorkout);
+        const localWorkout =
+          (await getLocalWorkoutForDay(todayKey, userId)) ??
+          (userId ? await ensureLocalWorkoutForDay(todayKey, userId) : null);
+        if (localWorkout) {
+          workoutIdRef.current = localWorkout.id;
+          setWorkout(localWorkout);
         } else {
           const msg =
             err instanceof Error ? err.message : 'Could not create workout';
