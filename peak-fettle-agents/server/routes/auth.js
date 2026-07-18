@@ -332,21 +332,81 @@ router.post('/logout', async (req, res, next) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /auth/oauth — Sign in with Apple / Google (TICKET-099)
+// POST /auth/oauth — Sign in with Apple / Google (TICKET-099, relay-aware 2026-07-07)
 // ---------------------------------------------------------------------------
-// Verifies the provider id_token server-side (lib/oauthVerify), then find-or-
-// creates the user by verified email and issues the SAME session/refresh pair as
-// password login. INERT until GOOGLE_OAUTH_AUDIENCE / APPLE_OAUTH_AUDIENCE are
-// configured (returns 501), so shipping it changes nothing until credentials are
-// added + a dev/EAS build wires the client buttons.
+// Verifies the provider id_token server-side (lib/oauthVerify), then resolves
+// the account and issues the SAME session/refresh pair as password login.
+// INERT until GOOGLE_OAUTH_AUDIENCE / APPLE_OAUTH_AUDIENCE are configured
+// (returns 501), so shipping it changes nothing until credentials are added.
+//
+// Resolution order (Hide My Email fix):
+//   1. oauth_identities by (provider, sub) — the provider's stable subject id.
+//      This is the ONLY match that works for Apple "Hide My Email" users after
+//      their first sign-in, because the relay email never equals the email on
+//      an account created by password/Google.
+//   2. users by the token's verified email — legacy path; on a hit the
+//      identity row is backfilled so step 1 wins next time.
+//   3. No account: for a private-relay email, do NOT auto-create. The person
+//      very likely owns an existing account under their real email (that is
+//      the founder's Pro-account lockout), and a silently created shadow
+//      account strands them. Return 409 private_relay_no_account so the client
+//      can offer "link existing account" (POST /auth/oauth/link) or retry with
+//      intent:'create'. Non-relay emails keep the create-on-first-sign-in flow.
 const OAuthSchema = z.object({
     provider: z.enum(['google', 'apple']),
     idToken: z.string().min(10),
+    // 'create' = caller confirmed a brand-new account is wanted even though the
+    // provider email is a private relay that matches nothing.
+    intent: z.enum(['create']).optional(),
 });
+
+const PRIVATE_RELAY_RE = /@privaterelay\.appleid\.com$/i;
+
+/** users row for a linked provider identity, or null (incl. when the
+ *  oauth_identities table has not been migrated yet — drift-tolerant). */
+async function findUserByOAuthIdentity(provider, sub) {
+    try {
+        const { rows } = await pool.query(
+            `SELECT ${USER_PROFILE_SELECT} FROM users
+             WHERE id = (SELECT user_id FROM oauth_identities
+                         WHERE provider = $1 AND provider_sub = $2)
+               AND deleted_at IS NULL`,
+            [provider, sub]
+        );
+        return rows[0] || null;
+    } catch (err) {
+        if (err.code === '42P01') return null; // table missing on prod — degrade
+        throw err;
+    }
+}
+
+/**
+ * Record provider identity -> user. `reassign` re-points an existing mapping
+ * (used by /oauth/link, where the caller just proved BOTH the provider identity
+ * AND the target account's password — e.g. rescuing a sub that got attached to
+ * an accidental shadow account). Returns false when the table is missing.
+ */
+async function linkOAuthIdentity(userId, provider, sub, { reassign = false } = {}) {
+    const conflictAction = reassign
+        ? 'DO UPDATE SET user_id = EXCLUDED.user_id'
+        : 'DO NOTHING';
+    try {
+        await pool.query(
+            `INSERT INTO oauth_identities (user_id, provider, provider_sub)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (provider, provider_sub) ${conflictAction}`,
+            [userId, provider, sub]
+        );
+        return true;
+    } catch (err) {
+        if (err.code === '42P01') return false; // table missing on prod — degrade
+        throw err;
+    }
+}
 
 router.post('/oauth', async (req, res, next) => {
     try {
-        const { provider, idToken } = OAuthSchema.parse(req.body);
+        const { provider, idToken, intent } = OAuthSchema.parse(req.body);
 
         let claims;
         try {
@@ -356,6 +416,13 @@ router.post('/oauth', async (req, res, next) => {
                 return res.status(501).json({ error: 'oauth_not_configured' });
             }
             return res.status(401).json({ error: 'invalid_provider_token' });
+        }
+
+        // 1. Linked identity — works regardless of what email the token carries.
+        const linkedUser = await findUserByOAuthIdentity(provider, claims.sub);
+        if (linkedUser) {
+            const tokens = await issueTokens(linkedUser);
+            return res.json({ user: linkedUser, isNew: false, ...tokens });
         }
 
         const email = (claims.email || '').toLowerCase();
@@ -368,11 +435,10 @@ router.post('/oauth', async (req, res, next) => {
             return res.status(401).json({ error: 'provider_email_not_verified' });
         }
 
-        // Find-or-create by verified email. NOTE: a dedicated oauth_identities
-        // table mapping provider `sub` -> account is the proper long-term store
-        // (and the account-linking follow-up that TICKET-099 scopes OUT). That
-        // needs its own migration + review before it ships.
-        let { rows } = await pool.query(
+        const isPrivateRelay = claims.isPrivateEmail === true || PRIVATE_RELAY_RE.test(email);
+
+        // 2. Email match — backfill the identity link so future sign-ins use it.
+        const { rows } = await pool.query(
             `SELECT ${USER_PROFILE_SELECT} FROM users WHERE email = $1 AND deleted_at IS NULL`,
             [email]
         );
@@ -380,6 +446,17 @@ router.post('/oauth', async (req, res, next) => {
         let isNew = false;
 
         if (!user) {
+            // 3. No account for this identity.
+            if (isPrivateRelay && intent !== 'create') {
+                return res.status(409).json({
+                    error: 'private_relay_no_account',
+                    message:
+                        'This Apple ID hides its email, so it cannot be matched to an ' +
+                        'existing account automatically. Link it by signing in once ' +
+                        'with email + password (POST /auth/oauth/link), or retry with ' +
+                        "intent:'create' to start a new account.",
+                });
+            }
             // OAuth accounts have no usable password: store a random hash so the
             // NOT-NULL column is satisfied and password login is impossible.
             const randomHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
@@ -401,8 +478,65 @@ router.post('/oauth', async (req, res, next) => {
             isNew = true;
         }
 
+        await linkOAuthIdentity(user.id, provider, claims.sub);
+
         const tokens = await issueTokens(user);
         res.json({ user, isNew, ...tokens });
+    } catch (err) { next(err); }
+});
+
+// ---------------------------------------------------------------------------
+// POST /auth/oauth/link — attach a provider identity to an EXISTING account
+// ---------------------------------------------------------------------------
+// The Hide My Email escape hatch: the client holds a fresh provider id_token
+// whose (relay) email matched no account, and the person also supplies their
+// Peak Fettle email + password. Both proofs verified => write the
+// (provider, sub) -> user mapping and sign them in. From then on plain
+// Sign in with Apple resolves via the identity row.
+const OAuthLinkSchema = z.object({
+    provider: z.enum(['google', 'apple']),
+    idToken: z.string().min(10),
+    email: z.string().email(),
+    password: z.string().min(1),
+});
+
+router.post('/oauth/link', async (req, res, next) => {
+    try {
+        const { provider, idToken, email, password } = OAuthLinkSchema.parse(req.body);
+
+        let claims;
+        try {
+            claims = await verifyOAuthIdToken(provider, idToken);
+        } catch (err) {
+            if (err.code === 'not_configured') {
+                return res.status(501).json({ error: 'oauth_not_configured' });
+            }
+            return res.status(401).json({ error: 'invalid_provider_token' });
+        }
+
+        // Password proof of the target account — identical to /auth/login.
+        const { rows } = await pool.query(
+            `SELECT ${USER_PROFILE_SELECT}, password_hash
+             FROM users WHERE email = $1 AND deleted_at IS NULL`,
+            [email]
+        );
+        const user = rows[0];
+        if (!user) return res.status(401).json({ error: 'invalid_credentials' });
+        const ok = await bcrypt.compare(password, user.password_hash);
+        if (!ok) return res.status(401).json({ error: 'invalid_credentials' });
+        delete user.password_hash;
+
+        // reassign: password + provider-token proof together authorize moving the
+        // mapping off a previously-created shadow account onto this one.
+        const linked = await linkOAuthIdentity(user.id, provider, claims.sub, { reassign: true });
+        if (!linked) {
+            // oauth_identities not migrated on this DB — nothing to persist, so
+            // the link would silently not stick. Tell the client honestly.
+            return res.status(501).json({ error: 'oauth_linking_unavailable' });
+        }
+
+        const tokens = await issueTokens(user);
+        res.json({ user, isNew: false, linked: true, ...tokens });
     } catch (err) { next(err); }
 });
 

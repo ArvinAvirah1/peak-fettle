@@ -9,8 +9,10 @@ import axios from 'axios';
 import { useAuth } from '../../src/auth/AuthContext';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { PFButton, PFInput, ScreenLayout } from '../../src/components/ui';
+import { OAuthButtons } from '../../src/components/auth/OAuthButtons';
 import { fontFamily, fontSize, spacing } from '../../src/theme/tokens';
-import { COMPANION_FITNESS_NAME, PRODUCT_NAME } from '../../src/config/product';
+import { COMPANION_FITNESS_NAME } from '../../src/config/product';
+import { BrandWordmark } from '../../src/components/BrandWordmark';
 
 export default function LoginScreen(): React.ReactElement {
   const { login } = useAuth();
@@ -48,17 +50,7 @@ export default function LoginScreen(): React.ReactElement {
   return (
     <ScreenLayout>
       <View style={{ paddingTop: spacing.s16 }}>
-        <Text
-          accessibilityRole="header"
-          style={{
-            color: theme.colors.textPrimary,
-            fontFamily: fontFamily.bold,
-            fontSize: fontSize.heading1,
-            marginBottom: spacing.s2,
-          }}
-        >
-          {PRODUCT_NAME}
-        </Text>
+        <BrandWordmark size={fontSize.heading1} style={{ marginBottom: spacing.s2 }} />
         <Text
           style={{
             color: theme.colors.textSecondary,
@@ -106,6 +98,8 @@ export default function LoginScreen(): React.ReactElement {
         ) : null}
 
         <PFButton label="Sign in" onPress={handleLogin} loading={submitting} />
+
+        <OAuthButtons />
 
         <Link href="/(auth)/register" asChild>
           <Text

@@ -26,12 +26,13 @@
  * it — it is NEVER persisted, logged, or sent to the server.
  */
 
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiClient } from '../../api/client';
 import { localDb } from '../../db/localDb';
 import {
   buildBackupFromDb,
-  canonicalize,
+  canonicalizeAsync,
   parseImport,
   restoreBackupToDb,
 } from './exportEngine';
@@ -182,13 +183,34 @@ export async function ensureKeyAndCode(): Promise<EnsureKeyResult> {
  *      acknowledged, stash the code in pendingRecoveryCode and return
  *      needsRecoveryAck:true so the caller routes to /recovery-code.
  */
-export async function backupNow(): Promise<BackupNowResult> {
+export async function backupNow(
+  opts: {
+    /**
+     * TAB-FREEZE 2026-07-05: checked between pipeline stages. When it returns
+     * true the backup aborts cheaply (returns ok:false, does NOT stamp
+     * last_backup_at, so the next trigger retries). The auto-backup background
+     * trigger passes "user came back to the foreground" here so the expensive
+     * synchronous stages (pure-JS AES-GCM over the whole export) never start
+     * while the user is interacting — a running encrypt can't be interrupted
+     * and was freezing the tab bar for seconds. Manual "Back up now" passes
+     * nothing and always runs to completion.
+     */
+    shouldAbort?: () => boolean;
+  } = {},
+): Promise<BackupNowResult> {
+  const aborted = (): boolean => opts.shouldAbort?.() === true;
   try {
     await localDb.init();
+    if (aborted()) return { ok: false, error: 'aborted: app became active' };
     const doc = await buildBackupFromDb(localDb);
-    const plaintext = canonicalize(doc);
+    if (aborted()) return { ok: false, error: 'aborted: app became active' };
+    // Chunked + yielding — byte-identical to canonicalize() but never blocks
+    // tap handlers on a large history (see exportEngine.canonicalizeAsync).
+    const plaintext = await canonicalizeAsync(doc);
+    if (aborted()) return { ok: false, error: 'aborted: app became active' };
 
     const { dataKey, recoveryCode, isNew, keyWrap, needsRecoveryAck } = await ensureKeyAndCode();
+    if (aborted()) return { ok: false, error: 'aborted: app became active' };
 
     const rng = getRng();
     // encryptBackup no longer derives anything; keyWrap fields are copied verbatim.
@@ -331,6 +353,18 @@ const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
  *   - Skip if last_backup_at is within the last 6 hours.
  *   - Never throw — swallow all errors with console.warn.
  *   - NEVER log key material.
+ *
+ * TAB-FREEZE 2026-07-05 (recurring "can't switch tabs for ~5s" report): the
+ * backup pipeline contains synchronous JS-thread work that cannot be chunked —
+ * pure-JS AES-GCM (@noble/ciphers on Hermes, no JIT) over the entire canonical
+ * export. Deferring the launch trigger by 20s (2026-07-03 attempt) only MOVED
+ * the freeze to 20s after launch, i.e. exactly while the user is browsing. So:
+ *   - 'launch' now runs ONLY if no backup has EVER succeeded (first-run safety
+ *     net for users who somehow never background the app). Steady-state backups
+ *     belong to the 'background' trigger, when nobody is touching the screen.
+ *   - 'background' aborts between stages if the app returns to the foreground
+ *     before the expensive stages start (backupNow's shouldAbort), so a quick
+ *     app-switch can no longer resume into a frozen tab bar.
  */
 export async function maybeAutoBackup(
   reason: 'background' | 'launch',
@@ -338,13 +372,22 @@ export async function maybeAutoBackup(
   try {
     const lastAtStr = await AsyncStorage.getItem(LAST_BACKUP_AT_KEY);
     if (lastAtStr) {
+      if (reason === 'launch') {
+        // A backup exists — steady-state is handled by the background trigger.
+        // Never pay the encrypt cost on the JS thread while the user is active.
+        return;
+      }
       const age = Date.now() - new Date(lastAtStr).getTime();
       if (age < SIX_HOURS_MS) {
         return; // debounce
       }
     }
 
-    const result = await backupNow();
+    const result = await backupNow(
+      reason === 'background'
+        ? { shouldAbort: () => AppState.currentState === 'active' }
+        : {},
+    );
     if (!result.ok) {
       console.warn('[PF/backup] maybeAutoBackup(' + reason + ') failed:', result.error);
     }

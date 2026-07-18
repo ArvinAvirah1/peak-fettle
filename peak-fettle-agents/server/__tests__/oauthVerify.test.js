@@ -8,7 +8,7 @@
  */
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
-const { verifyProviderToken } = require('../lib/oauthVerify');
+const { verifyProviderToken, verifyOAuthIdToken } = require('../lib/oauthVerify');
 
 const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048 });
 const jwk = publicKey.export({ format: 'jwk' });
@@ -69,6 +69,30 @@ async function check(name, fn, shouldThrow) {
     verifyProviderToken(
       jwt.sign({ sub: 'x' }, otherKey, { algorithm: 'RS256', keyid: 'test-kid-1', issuer: ISSUER, audience: AUD, expiresIn: '5m' }),
       { issuer: ISSUER, jwksUri: 'x', audience: AUD, fetchJwks }), true);
+
+  // Apple "Hide My Email": is_private_email (string "true" in real Apple
+  // tokens) must normalize to isPrivateEmail: true so /auth/oauth can route
+  // relay addresses to the link flow instead of email matching.
+  const appleRelayToken = jwt.sign(
+    {
+      sub: 'apple-sub-42',
+      email: '64t9tvkymn@privaterelay.appleid.com',
+      email_verified: 'true',
+      is_private_email: 'true',
+    },
+    privateKey,
+    { algorithm: 'RS256', keyid: 'test-kid-1', issuer: 'https://appleid.apple.com', audience: AUD, expiresIn: '5m' },
+  );
+  const relayClaims = await check('apple hide-my-email token verifies', () =>
+    verifyOAuthIdToken('apple', appleRelayToken, { audience: AUD, fetchJwks }), false);
+  if (relayClaims) {
+    if (relayClaims.isPrivateEmail === true && relayClaims.emailVerified === true) {
+      console.log('  ✓ is_private_email/email_verified strings normalize to booleans');
+    } else {
+      console.log('  ✗ hide-my-email claims not normalized: ' + JSON.stringify(relayClaims));
+      failures++;
+    }
+  }
 
   console.log(failures === 0 ? '\nALL OAUTH-VERIFY TESTS PASS' : `\n${failures} TEST(S) FAILED`);
   process.exit(failures === 0 ? 0 : 1);

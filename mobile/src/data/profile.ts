@@ -222,6 +222,19 @@ export async function saveProfile(
     // username edit persists + syncs across devices; until then it survives only
     // in-session via updateUser() below.
     await patchProfile(payload as PatchProfilePayload);
+
+    // BUG 2026-07-05 (greeting): also persist an explicit display_name edit to
+    // the on-device user_profile row for PRO users. The local column is the
+    // "this name was user-set" marker the Home greeting trusts verbatim (the
+    // random-token heuristic must never suppress a typed name), and — until the
+    // Phase-6 server write lands — it's also the only Pro persistence that
+    // survives independently of the SecureStore-cached user. Best-effort: a
+    // local write failure must not fail a successful server PATCH.
+    if (payload.display_name !== undefined) {
+      try {
+        await writeLocalProfile({ display_name: payload.display_name });
+      } catch { /* best-effort */ }
+    }
   }
 
   // Both branches: reflect the change in the in-memory user immediately.

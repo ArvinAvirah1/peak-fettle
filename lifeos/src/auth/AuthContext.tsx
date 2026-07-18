@@ -33,6 +33,28 @@ interface AuthContextValue {
   hasLifeOsAccess: boolean | null;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
+  /**
+   * Sign in with Apple / Google: provider id_token -> POST /auth/oauth (TICKET-099 server).
+   * Rejects with an axios 409 `private_relay_no_account` when the Apple ID uses
+   * Hide My Email and matches no account — the caller should then offer
+   * linkOAuth (existing account) or retry with intent 'create' (new account).
+   */
+  loginWithOAuth: (
+    provider: 'apple' | 'google',
+    idToken: string,
+    opts?: { intent?: 'create' }
+  ) => Promise<void>;
+  /**
+   * One-time Hide My Email link: proves the provider id_token AND the existing
+   * account's password to POST /auth/oauth/link, which maps the Apple identity
+   * to that account and signs in. Afterwards plain Apple sign-in just works.
+   */
+  linkOAuth: (
+    provider: 'apple' | 'google',
+    idToken: string,
+    email: string,
+    password: string
+  ) => Promise<void>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 }
@@ -144,6 +166,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
     [persistTokens, refreshProfile]
   );
 
+  const loginWithOAuth = useCallback(
+    async (provider: 'apple' | 'google', idToken: string, opts?: { intent?: 'create' }) => {
+      const res = await apiClient.post<{ accessToken: string; refreshToken: string }>('/auth/oauth', {
+        provider,
+        idToken,
+        ...(opts?.intent ? { intent: opts.intent } : {}),
+      });
+      await persistTokens(res.data.accessToken, res.data.refreshToken);
+      accessRef.current = res.data.accessToken;
+      refreshRef.current = res.data.refreshToken;
+      await refreshProfile();
+    },
+    [persistTokens, refreshProfile]
+  );
+
+  const linkOAuth = useCallback(
+    async (provider: 'apple' | 'google', idToken: string, email: string, password: string) => {
+      const res = await apiClient.post<{ accessToken: string; refreshToken: string }>(
+        '/auth/oauth/link',
+        { provider, idToken, email, password }
+      );
+      await persistTokens(res.data.accessToken, res.data.refreshToken);
+      accessRef.current = res.data.accessToken;
+      refreshRef.current = res.data.refreshToken;
+      await refreshProfile();
+    },
+    [persistTokens, refreshProfile]
+  );
+
   const logout = useCallback(async () => {
     try {
       await apiClient.post('/auth/logout', { refreshToken: refreshRef.current });
@@ -161,10 +212,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
       hasLifeOsAccess: profile ? profile.lifeos_access : null,
       login,
       register,
+      loginWithOAuth,
+      linkOAuth,
       logout,
       refreshProfile,
     }),
-    [isLoading, accessToken, profile, login, register, logout, refreshProfile]
+    [isLoading, accessToken, profile, login, register, loginWithOAuth, linkOAuth, logout, refreshProfile]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
