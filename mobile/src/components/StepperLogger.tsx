@@ -2305,7 +2305,9 @@ export default function StepperLogger({
               </>
             )}
 
-            {/* TICKET-082 Part B: "Choose alternative exercise" — pro only */}
+            {/* TICKET-082 Part B / SUBS-001: "Choose alternative exercise" —
+                opens the swap sheet for ALL tiers (user substitutes are free;
+                engine suggestions are Pro-gated inside the sheet). */}
             {onChooseAlternative ? (
               <TouchableOpacity
                 onPress={onChooseAlternative}

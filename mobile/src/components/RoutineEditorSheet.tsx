@@ -33,6 +33,7 @@ import {
   Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
 import { Ionicons } from './Icon';
 import { stepperPalette, fontFamily, fontSize, spacing, radius } from '../theme/tokens';
 import { Routine, RoutineExercise, updateRoutine } from '../data/routines';
@@ -41,6 +42,16 @@ import { ExercisePicker } from './ExercisePicker';
 import { Exercise } from '../types/api';
 import { DropsetConfigSheet, DropsetConfig } from './routineEditor/DropsetConfigSheet';
 import { SupersetLinkSheet, SupersetLinkCandidate } from './routineEditor/SupersetLinkSheet';
+import { SubstituteSwapSheet, SwapSelection } from './SubstituteSwapSheet';
+import {
+  mergedSubstitutesFor,
+  addGlobalSubstitute,
+  removeGlobalSubstitute,
+  uuidOrNull,
+  ScopedSubstitute,
+  SubstituteScope,
+} from '../data/substitutes';
+import { alternativesForDetailed, normalizeName, SwapCandidate } from '../planGen/quickSwap';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 
@@ -154,6 +165,12 @@ export default function RoutineEditorSheet({
   // When the picker is opened to ADD a new member into a forming/existing group,
   // this holds the target group id; a normal "+ Add exercise" leaves it null.
   const [pickerTargetGroup, setPickerTargetGroup] = useState<string | null>(null);
+  // SUBS-001 swap sheet: the item index being swapped (null = closed) + its lists.
+  const [swapForIndex, setSwapForIndex] = useState<number | null>(null);
+  const [swapSubs, setSwapSubs] = useState<ScopedSubstitute[]>([]);
+  const [swapSuggested, setSwapSuggested] = useState<SwapCandidate[]>([]);
+  const [swapReason, setSwapReason] = useState<string | null>(null);
+  const [swapLoading, setSwapLoading] = useState(false);
 
   useEffect(() => {
     setName(routine?.name ?? '');
@@ -163,6 +180,7 @@ export default function RoutineEditorSheet({
     setDropsetForIndex(null);
     setLinkForIndex(null);
     setPickerTargetGroup(null);
+    setSwapForIndex(null);
   }, [routine]);
 
   const blocks = useMemo(() => toBlocks(items), [items]);
@@ -394,6 +412,141 @@ export default function RoutineEditorSheet({
     setPickerVisible(true);
   }, [linkForIndex, createGroup, items]);
 
+  // ── SUBS-001: swap exercise (kebab → SubstituteSwapSheet) ─────────────────
+  /**
+   * Open the swap sheet for one slot. Lists are computed on-device:
+   *   • user subs = the slot's routine-scoped substitutes merged with the
+   *     GLOBAL exercise_substitutes table (data/substitutes.ts) — free feature;
+   *   • suggested = the quick-swap engine ranking (Pro only; free users see
+   *     the locked teaser), excluding everything already in the routine.
+   */
+  const openSwap = useCallback(async (index: number) => {
+    setMenuForIndex(null);
+    const it = items[index];
+    if (!it) return;
+    setSwapForIndex(index);
+    setSwapLoading(true);
+    setSwapSubs([]);
+    setSwapSuggested([]);
+    setSwapReason(null);
+    try {
+      const subs = await mergedSubstitutesFor(
+        { exercise_id: it.exercise_id ?? null, name: it.name },
+        it.substitutes,
+      );
+      setSwapSubs(subs);
+    } catch { /* best-effort — sheet shows the empty state */ }
+    if (user?.is_paid) {
+      const excludeIds = items.map((e) => e.exercise_id).filter(Boolean) as string[];
+      const excludeNames = items.map((e) => e.name).filter(Boolean);
+      const result = alternativesForDetailed(
+        { id: it.exercise_id ?? null, name: it.name || null },
+        { excludeIds, excludeNames, limit: 6 },
+      );
+      setSwapSuggested(result.candidates);
+      setSwapReason(result.reason ?? null);
+    }
+    setSwapLoading(false);
+  }, [items, user?.is_paid]);
+
+  /**
+   * Apply a swap PERMANENTLY to the routine draft: the pick becomes the slot's
+   * exercise (superset/dropset/targets kept) and the original drops into the
+   * slot's substitute list so it stays one tap away ("swap back"). The pick is
+   * removed from the sub list if it was there. exercise_id goes through
+   * uuidOrNull — catalog-v2 (non-UUID) ids must never reach the server Zod.
+   * Persisted on Save via the existing full-replace updateRoutine path.
+   */
+  const applySwap = useCallback((sel: SwapSelection) => {
+    const idx = swapForIndex;
+    if (idx == null) return;
+    const selKey = normalizeName(sel.name);
+    setItems((prev) =>
+      prev.map((it, i) => {
+        if (i !== idx) return it;
+        const original = { exercise_id: it.exercise_id ?? null, name: it.name };
+        const subs = (it.substitutes ?? []).filter(
+          (s) => normalizeName(s.name) !== selKey,
+        );
+        if (
+          original.name &&
+          normalizeName(original.name) !== selKey &&
+          !subs.some((s) => normalizeName(s.name) === normalizeName(original.name))
+        ) {
+          subs.unshift(original);
+        }
+        return {
+          ...it,
+          exercise_id: uuidOrNull(sel.exercise_id),
+          name: sel.name,
+          substitutes: subs.slice(0, 10),
+        };
+      }),
+    );
+    setSwapForIndex(null);
+  }, [swapForIndex]);
+
+  /** Add a substitute from the sheet ('routine' → this slot's JSON; 'global' → device table). */
+  const addSwapSub = useCallback((sub: { exercise_id: string | null; name: string }, scope: SubstituteScope) => {
+    const idx = swapForIndex;
+    if (idx == null) return;
+    const it = items[idx];
+    if (!it) return;
+    const subKey = normalizeName(sub.name);
+    if (!subKey || subKey === normalizeName(it.name)) return;
+    const entry = { exercise_id: uuidOrNull(sub.exercise_id), name: sub.name };
+    if (scope === 'routine') {
+      setItems((prev) =>
+        prev.map((e, i) => {
+          if (i !== idx) return e;
+          const cur = e.substitutes ?? [];
+          if (cur.some((s) => normalizeName(s.name) === subKey)) return e;
+          return { ...e, substitutes: [...cur, entry].slice(0, 10) };
+        }),
+      );
+    } else {
+      void addGlobalSubstitute(
+        { exercise_id: it.exercise_id ?? null, name: it.name },
+        entry,
+      ).catch(() => undefined);
+    }
+    // Optimistic list refresh (dedupe by normalized name).
+    setSwapSubs((prev) =>
+      prev.some((s) => normalizeName(s.name) === subKey)
+        ? prev
+        : [...prev, { ...entry, scope }],
+    );
+  }, [swapForIndex, items]);
+
+  /** Remove a substitute from the sheet (routes by its scope). */
+  const removeSwapSub = useCallback((sub: ScopedSubstitute) => {
+    const idx = swapForIndex;
+    if (idx == null) return;
+    const subKey = normalizeName(sub.name);
+    if (sub.scope === 'routine') {
+      setItems((prev) =>
+        prev.map((e, i) => {
+          if (i !== idx) return e;
+          const cur = (e.substitutes ?? []).filter(
+            (s) => normalizeName(s.name) !== subKey,
+          );
+          return { ...e, substitutes: cur.length > 0 ? cur : null };
+        }),
+      );
+    } else {
+      const it = items[idx];
+      if (it) {
+        void removeGlobalSubstitute(
+          { exercise_id: it.exercise_id ?? null, name: it.name },
+          sub,
+        ).catch(() => undefined);
+      }
+    }
+    setSwapSubs((prev) =>
+      prev.filter((s) => !(s.scope === sub.scope && normalizeName(s.name) === subKey)),
+    );
+  }, [swapForIndex, items]);
+
   // ── Unlink a whole group (dissolve) ───────────────────────────────────────
   const unlinkGroup = useCallback((groupId: string) => {
     setItems((prev) =>
@@ -527,6 +680,7 @@ export default function RoutineEditorSheet({
                     onMakeDropsets={() => openDropset(block.index)}
                     onRemoveDropsets={() => removeDropsetAt(block.index)}
                     onSupersetWith={() => openLink(block.index)}
+                    onSwap={() => void openSwap(block.index)}
                   />
                 ) : (
                   <GroupCard
@@ -551,6 +705,7 @@ export default function RoutineEditorSheet({
                     onMemberUpdateReps={(idx, t) => updateReps(idx, t)}
                     onMemberMakeDropsets={(idx) => openDropset(idx)}
                     onMemberRemoveDropsets={(idx) => removeDropsetAt(idx)}
+                    onMemberSwap={(idx) => void openSwap(idx)}
                   />
                 ),
               )
@@ -616,6 +771,30 @@ export default function RoutineEditorSheet({
         onSearchLibrary={searchLibraryForGroup}
         onClose={() => setLinkForIndex(null)}
       />
+
+      {/* SUBS-001: swap-exercise sheet (permanent replace; Save persists it). */}
+      <SubstituteSwapSheet
+        visible={swapForIndex != null}
+        mode="editor"
+        originalName={swapForIndex != null ? items[swapForIndex]?.name ?? '' : ''}
+        userSubs={swapSubs}
+        suggested={swapSuggested}
+        suggestedLocked={!user?.is_paid}
+        suggestedEmptyReason={swapReason}
+        loading={swapLoading}
+        onSelect={applySwap}
+        onAddSub={addSwapSub}
+        onRemoveSub={removeSwapSub}
+        allowRoutineScope
+        onUpgrade={() => {
+          // Locked SUGGESTED teaser → plans tab (close both sheets first; the
+          // editor is a fullScreen Modal and would otherwise cover the nav).
+          setSwapForIndex(null);
+          onClose();
+          router.push('/(tabs)/plans');
+        }}
+        onClose={() => setSwapForIndex(null)}
+      />
     </Modal>
   );
 }
@@ -629,15 +808,27 @@ function KebabMenu(props: {
   onRemoveDropsets: () => void;
   onSupersetWith?: () => void;
   onUnlink?: () => void;
+  onSwap?: () => void;
   onClose: () => void;
 }): React.ReactElement {
-  const { hasDropset, grouped, onMakeDropsets, onRemoveDropsets, onSupersetWith, onUnlink, onClose } = props;
+  const { hasDropset, grouped, onMakeDropsets, onRemoveDropsets, onSupersetWith, onUnlink, onSwap, onClose } = props;
   const { t } = useTranslation();
   return (
     <>
       {/* Full-screen catcher so a tap anywhere dismisses the menu. */}
       <Pressable style={styles.menuCatcher} onPress={onClose} accessibilityLabel={t('components:routineEditorSheet.closeMenuAccessibilityLabel')} />
       <View style={styles.menu}>
+        {onSwap ? (
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={onSwap}
+            accessibilityRole="button"
+            accessibilityLabel={t('components:routineEditorSheet.swapExercise')}
+          >
+            <Ionicons name="swap-horizontal" size={16} color={stepperPalette.text} />
+            <Text style={styles.menuItemText}>{t('components:routineEditorSheet.swapExercise')}</Text>
+          </TouchableOpacity>
+        ) : null}
         <TouchableOpacity
           style={styles.menuItem}
           onPress={onMakeDropsets}
@@ -714,10 +905,11 @@ function ExerciseRow(props: {
   onMakeDropsets: () => void;
   onRemoveDropsets: () => void;
   onSupersetWith: () => void;
+  onSwap: () => void;
 }): React.ReactElement {
   const {
     item, isFirst, isLast, menuOpen, onToggleMenu, onRemove, onUpdateSets, onUpdateReps,
-    onMoveUp, onMoveDown, onMakeDropsets, onRemoveDropsets, onSupersetWith,
+    onMoveUp, onMoveDown, onMakeDropsets, onRemoveDropsets, onSupersetWith, onSwap,
   } = props;
   const { t } = useTranslation();
   const hasDropset = !!item.dropset;
@@ -802,6 +994,7 @@ function ExerciseRow(props: {
           onMakeDropsets={onMakeDropsets}
           onRemoveDropsets={onRemoveDropsets}
           onSupersetWith={onSupersetWith}
+          onSwap={onSwap}
           onClose={onToggleMenu}
         />
       ) : null}
@@ -830,11 +1023,13 @@ function GroupCard(props: {
   onMemberUpdateReps: (idx: number, t: string) => void;
   onMemberMakeDropsets: (idx: number) => void;
   onMemberRemoveDropsets: (idx: number) => void;
+  onMemberSwap: (idx: number) => void;
 }): React.ReactElement {
   const {
     letter, indices, members, isFirstBlock, isLastBlock, menuForIndex, onToggleMemberMenu,
     onSetRounds, onUnlink, onMoveGroupUp, onMoveGroupDown, onMemberUp, onMemberDown,
     onMemberRemove, onMemberUpdateReps, onMemberMakeDropsets, onMemberRemoveDropsets,
+    onMemberSwap,
   } = props;
   const rounds = members[0]?.superset_rounds ?? 3;
   const { t } = useTranslation();
@@ -975,6 +1170,7 @@ function GroupCard(props: {
                 onMakeDropsets={() => onMemberMakeDropsets(absIndex)}
                 onRemoveDropsets={() => onMemberRemoveDropsets(absIndex)}
                 onUnlink={onUnlink}
+                onSwap={() => onMemberSwap(absIndex)}
                 onClose={() => onToggleMemberMenu(absIndex)}
               />
             ) : null}

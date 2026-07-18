@@ -195,15 +195,15 @@ function eq(a, b, msg) {
     await runMigrations(db);
     const v2 = db._pragmas.user_version;
     eq(v1, v2, 'version changed on second run:');
-    eq(v1, 16, 'expected version 16:');
+    eq(v1, 17, 'expected version 17:');
   });
 
   // 2. Fresh install reaches the latest version
-  await test('fresh install reaches user_version 16', async () => {
+  await test('fresh install reaches user_version 17', async () => {
     const db = makeStubDb();
     eq(db._pragmas.user_version, 0, 'starts at 0:');
     await runMigrations(db);
-    eq(db._pragmas.user_version, 16, 'should be 16 after migration:');
+    eq(db._pragmas.user_version, 17, 'should be 17 after migration:');
   });
 
   // 3. v2 tables created (10 spot-checked)
@@ -319,7 +319,7 @@ function eq(a, b, msg) {
 
     await runMigrations(db);
 
-    eq(db._pragmas.user_version, 16, 'should reach 16 from a v10 baseline:');
+    eq(db._pragmas.user_version, 17, 'should reach 17 from a v10 baseline:');
     assert(db._tableColumns['sets'].has('note'), 'v10->v11 upgrade missing sets.note');
     assert(db._tableColumns['sets'].has('flags'), 'v10->v11 upgrade missing sets.flags');
     assert(db._createdTables.has('body_measurements'), 'v11->v12 upgrade missing body_measurements');
@@ -383,7 +383,7 @@ function eq(a, b, msg) {
     const db = makeStubDb();
     db._pragmas.user_version = 13;
     await runMigrations(db);
-    eq(db._pragmas.user_version, 16, 'should reach 16 from a v13 baseline:');
+    eq(db._pragmas.user_version, 17, 'should reach 17 from a v13 baseline:');
     assert(db._createdTables.has('badges_earned'), 'v13->v16 upgrade missing badges_earned');
     const cols = db._tableColumns['exercise_prefs'];
     assert(cols && cols.has('autoreg_muted'), 'v13->v16 upgrade missing exercise_prefs.autoreg_muted');
@@ -404,6 +404,34 @@ function eq(a, b, msg) {
     assert(cols.has('steps'), 'daily_health_metrics.steps column missing after v16 migration');
     assert(cols.has('distance_m'), 'daily_health_metrics.distance_m column missing after v16 migration');
     assert(cols.has('exercise_minutes'), 'daily_health_metrics.exercise_minutes column missing after v16 migration');
+  });
+
+  // 3n. SUBS-001: v17 creates the exercise_substitutes table + its source_key
+  // index on a fresh install.
+  await test('fresh install creates exercise_substitutes table + index (v17)', async () => {
+    const db = makeStubDb();
+    await runMigrations(db);
+    assert(db._createdTables.has('exercise_substitutes'), 'table not created: exercise_substitutes');
+    assert(
+      db._executedSql.some((s) => /idx_exercise_substitutes_source/i.test(s)),
+      'v17 exercise_substitutes source_key index statement never executed'
+    );
+  });
+
+  // 3o. SUBS-001: v16->v17 upgrade path — a DB already at user_version 16
+  // applies ONLY v17 and lands the new table (fresh-install AND vN->vN+1
+  // upgrade DoD, same pattern as 3h/3l).
+  await test('v16->v17 upgrade path applies only the new migration', async () => {
+    const db = makeStubDb();
+    db._pragmas.user_version = 16;
+    db._executedSql.length = 0;
+    await runMigrations(db);
+    eq(db._pragmas.user_version, 17, 'should reach 17 from a v16 baseline:');
+    assert(db._createdTables.has('exercise_substitutes'), 'v16->v17 upgrade missing exercise_substitutes');
+    assert(
+      !db._executedSql.some((s) => /CREATE TABLE IF NOT EXISTS badges_earned/i.test(s)),
+      'v16->v17 upgrade re-ran an already-applied migration (badges_earned)'
+    );
   });
 
   // 4. SCHEMA_V2_STATEMENTS shape
@@ -477,8 +505,8 @@ function eq(a, b, msg) {
     eq(BACKUP_SCHEMA_VERSION, 2, 'BACKUP_SCHEMA_VERSION:');
   });
 
-  // 9. BACKUP_TABLES contains all 25 tables
-  await test('BACKUP_TABLES contains all 25 registered tables', () => {
+  // 9. BACKUP_TABLES contains all 26 tables
+  await test('BACKUP_TABLES contains all 26 registered tables', () => {
     const expected = [
       'workouts', 'sets', 'schedule', 'avatar', 'bodyweight', 'exercise_prefs', 'exercise_goals',
       'plans', 'routines', 'streaks', 'streak_overrides', 'daily_health_log', 'daily_health_metrics',
@@ -488,6 +516,7 @@ function eq(a, b, msg) {
       'body_measurements', // v12 (TICKET-130)
       'progress_photos', // v13 (TICKET-133)
       'badges_earned', // v14 (TICKET-143)
+      'exercise_substitutes', // v17 (SUBS-001)
     ];
     eq(BACKUP_TABLES.length, expected.length,
       'BACKUP_TABLES.length ' + BACKUP_TABLES.length + ' expected ' + expected.length + ':');

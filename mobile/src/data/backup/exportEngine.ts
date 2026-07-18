@@ -79,6 +79,8 @@ export const BACKUP_TABLES: string[] = [
   'progress_photos',
   // v14 table (TICKET-143: achievements/badges earned-state ledger)
   'badges_earned',
+  // v17 table (SUBS-001: global "all routines" exercise substitutes)
+  'exercise_substitutes',
 ];
 
 export type Row = Record<string, unknown>;
@@ -179,6 +181,11 @@ const COLUMN_ALLOWLIST: Record<string, Set<string>> = {
   progress_photos: new Set(['id', 'file_name', 'taken_at', 'pose', 'note']),
   // v14 (TICKET-143) - badge earned-state ledger.
   badges_earned: new Set(['badge_id', 'earned_at']),
+  // v17 (SUBS-001) - global "all routines" exercise substitutes.
+  exercise_substitutes: new Set([
+    'id', 'source_key', 'source_exercise_id', 'source_name',
+    'sub_exercise_id', 'sub_name', 'created_at',
+  ]),
 };
 
 /**
@@ -274,6 +281,51 @@ export function canonicalize(doc: ExportDoc): string {
     schemaVersion: doc.schemaVersion,
     tables: doc.tables,
   });
+}
+
+/**
+ * canonicalizeAsync — BYTE-IDENTICAL output to canonicalize(), but yields to the
+ * event loop between row batches so a multi-megabyte export can't freeze the JS
+ * thread (TAB-FREEZE 2026-07-05: the synchronous recursive stringify of the
+ * whole sets/workouts history was blocking tap handlers — the bottom tab bar —
+ * for seconds when the auto-backup fired). Rows themselves are small, so the
+ * per-row stableStringify stays synchronous; we only break BETWEEN rows.
+ *
+ * Determinism contract: this must stay in lockstep with canonicalize() — the
+ * envelope hashing/encryption relies on the canonical form, and the node test
+ * (__tests__/backup-export.test.js) asserts both produce the same string.
+ */
+export async function canonicalizeAsync(
+  doc: ExportDoc,
+  rowsPerSlice = 200,
+): Promise<string> {
+  const yieldToEventLoop = (): Promise<void> =>
+    new Promise((resolve) => setTimeout(resolve, 0));
+
+  // Mirrors stableStringify({format, schemaVersion, tables}): keys of the
+  // wrapper sort alphabetically to format < schemaVersion < tables, and table
+  // names are emitted in sorted order, each table an array of rows.
+  const parts: string[] = [
+    '{"format":', JSON.stringify(doc.format),
+    ',"schemaVersion":', JSON.stringify(doc.schemaVersion),
+    ',"tables":{',
+  ];
+  const names = Object.keys(doc.tables).sort();
+  for (let ti = 0; ti < names.length; ti++) {
+    const name = names[ti]!;
+    if (ti > 0) parts.push(',');
+    parts.push(JSON.stringify(name), ':[');
+    const rows = doc.tables[name] ?? [];
+    for (let i = 0; i < rows.length; i++) {
+      if (i > 0) parts.push(',');
+      parts.push(stableStringify(rows[i]));
+      if ((i + 1) % rowsPerSlice === 0) await yieldToEventLoop();
+    }
+    parts.push(']');
+    await yieldToEventLoop();
+  }
+  parts.push('}}');
+  return parts.join('');
 }
 
 export type ParseResult =

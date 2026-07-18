@@ -6,6 +6,19 @@
 
 import { apiClient } from './client';
 
+/**
+ * SUBS-001: one user-preloaded substitute for a routine exercise (e.g. bench →
+ * DB press). `exercise_id` is a library UUID when known, null for name-only
+ * entries (same convention as RoutineExercise.exercise_id — name is the display
+ * source of truth). Stored per-routine inside RoutineExercise.substitutes;
+ * GLOBAL (all-routines) substitutes live in the on-device
+ * `exercise_substitutes` table instead (src/data/substitutes.ts).
+ */
+export interface SubstituteRef {
+  exercise_id?: string | null;
+  name: string;
+}
+
 export interface RoutineExercise {
   // TICKET-088: optional — template/free-typed exercises have no library UUID.
   exercise_id?: string | null;
@@ -32,6 +45,13 @@ export interface RoutineExercise {
    * null/absent = no dropsets prescribed.
    */
   dropset?: { last_n: number | 'all'; drops?: number; drop_pct?: number } | null;
+  /**
+   * SUBS-001: this slot's preloaded substitute exercises (max 10), shown first
+   * in the swap sheet. Additive + optional — absent ⇒ exactly today's
+   * behaviour. Routine-scoped; the merge with GLOBAL substitutes happens at
+   * read time in the UI (never persisted merged).
+   */
+  substitutes?: SubstituteRef[] | null;
 }
 
 export interface Routine {

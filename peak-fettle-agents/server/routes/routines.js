@@ -19,11 +19,24 @@ const router = express.Router();
 // free-typed entries have no library UUID yet — `name` is the display source of
 // truth and exercise_id links to the library only when known. Requiring a UUID
 // here 400'd every "duplicate a starter split" attempt (it sent exercise_id:'').
+// SUBS-001: one preloaded substitute for a routine exercise (bench → DB press).
+// Bounds mirror the client parseSubstitutes (mobile/src/data/
+// routineExerciseFields.ts) so a value round-trips (client → server → client)
+// unchanged. exercise_id is a library UUID or null — the client nulls non-UUID
+// (catalog-v2) ids before saving (see mobile/src/data/substitutes.ts uuidOrNull).
+const SubstituteSchema = z.object({
+    exercise_id: z.string().uuid().nullable().optional(),
+    name:        z.string().min(1).max(100),
+});
+
 const ExerciseEntrySchema = z.object({
     exercise_id: z.string().uuid().nullable().optional(),
     name:        z.string().min(1).max(100),
     target_sets: z.number().int().min(1).max(20).optional(),
     target_reps: z.string().max(20).optional(), // e.g. "8-12" or "5"
+    // SUBS-001: per-slot preloaded substitutes (additive optional; old clients
+    // unaffected — absent ⇒ exactly today's behaviour).
+    substitutes: z.array(SubstituteSchema).max(10).nullable().optional(),
     // ── S2 supersets & dropsets (additive optional; old clients unaffected) ──
     // Absent ⇒ exactly today's behaviour. Bounds mirror the local parseExercises
     // validators so a value round-trips (client → server → client) without change.

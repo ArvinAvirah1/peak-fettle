@@ -50,9 +50,19 @@ import { rememberExerciseName, rememberExerciseNames } from '../data/exerciseNam
 import { stampLocalRoutineName } from '../data/localWorkouts';
 import { ExercisePicker } from './ExercisePicker';
 import StepperLogger, { LoggedSet } from './StepperLogger';
-// Stage 3 (addendum §4/§5): Pro local-first "machine busy? swap" — region-aware
-// alternatives from the on-device v2 catalog (NO network), rendered in QuickSwapSheet.
-import QuickSwapSheet from '../planGen/components/QuickSwapSheet';
+// Stage 3 (addendum §4/§5) + SUBS-001: the "machine busy? swap" sheet. Now the
+// unified SubstituteSwapSheet — the user's preloaded substitutes (free for all
+// tiers, from the routine JSON + the on-device exercise_substitutes table)
+// listed FIRST, then the Pro region-aware engine candidates (NO network).
+// Session mode: a swap here applies to TODAY only — the saved routine is never
+// touched (founder decision 2026-07-18); permanent swaps live in the editor.
+import { SubstituteSwapSheet, type SwapSelection } from './SubstituteSwapSheet';
+import {
+  mergedSubstitutesFor,
+  addGlobalSubstitute,
+  type ScopedSubstitute,
+  type SubstituteScope,
+} from '../data/substitutes';
 // S1 supersets/dropsets — the pairing sheet + drop-chain bar own their own UI so
 // the StepperLogger insertion stays minimal (big-file hazard pattern).
 import { SupersetPairSheet, type SupersetPairCandidate } from './logger/SupersetPairSheet';
@@ -483,6 +493,9 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
     const [quickSwapConfirmation, setQuickSwapConfirmation] = useState<string | null>(null);
     const [quickSwapCanPermanent, setQuickSwapCanPermanent] = useState(false);
     const [quickSwapOriginal, setQuickSwapOriginal] = useState<{ id: string; name: string } | null>(null);
+    // SUBS-001: the user's preloaded substitutes for the current exercise
+    // (routine-scoped, carried on the session exercise, merged with global).
+    const [quickSwapSubs, setQuickSwapSubs] = useState<ScopedSubstitute[]>([]);
 
     // Smart suggest
     const [smartSuggestion, setSmartSuggestion] = useState<SuggestCandidate | null>(null);
@@ -1465,59 +1478,96 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
       [],
     );
 
-    // Stage 3 (addendum §4): Pro local-first quick-swap. Computes region-aware
-    // alternatives from the on-device v2 catalog — NO network — filtered by the
-    // user's equipment profile + injuries, excluding everything already in today's
-    // session. Opens QuickSwapSheet; selection swaps for TODAY only.
+    // Stage 3 (addendum §4) + SUBS-001: the mid-workout swap. Opens for ALL
+    // tiers now — the user's preloaded substitutes (session exercise's
+    // routine-scoped subs merged with the global on-device table) are a FREE
+    // feature; the region-aware engine candidates stay Pro (free users see the
+    // locked teaser). All on-device — NO network. Selection swaps TODAY only;
+    // the saved routine is never touched from the logger (founder 2026-07-18).
     const handleQuickSwap = useCallback(async () => {
-      if (!user?.is_paid) { setShowPaywall(true); return; }
       const cur = routineSession?.exercises[routineSession.currentIndex];
       if (!cur) return;
       const original = { id: cur.exerciseId || '', name: cur.name };
       setQuickSwapOriginal(original);
       setQuickSwapConfirmation(null);
-      // Load equipment + injuries on-device (local-first; best-effort).
-      let equipment: string[] | null = null;
-      let injuries: string[] | null = null;
+      // User-preloaded substitutes (free for everyone; best-effort).
       try {
-        const prof = await loadLocalProfile();
-        equipment = prof?.equipment_profile ?? null;
-        injuries = prof?.injuries ?? null;
-      } catch { /* no profile → no filter */ }
-      // Exclude everything already in today's session (ids + names).
-      const excludeIds = (routineSession?.exercises ?? []).map((e) => e.exerciseId).filter(Boolean);
-      const excludeNames = (routineSession?.exercises ?? []).map((e) => e.name).filter(Boolean);
-      const result = alternativesForDetailed(
-        { id: cur.exerciseId || null, name: cur.name || null },
-        { equipment, injuries, excludeIds, excludeNames },
-      );
-      setQuickSwapCandidates(result.candidates);
-      setQuickSwapReason(result.reason ?? null);
+        const subs = await mergedSubstitutesFor(
+          { exercise_id: cur.exerciseId || null, name: cur.name },
+          cur.substitutes,
+        );
+        setQuickSwapSubs(subs);
+      } catch { setQuickSwapSubs([]); }
+      if (user?.is_paid) {
+        // Load equipment + injuries on-device (local-first; best-effort).
+        let equipment: string[] | null = null;
+        let injuries: string[] | null = null;
+        try {
+          const prof = await loadLocalProfile();
+          equipment = prof?.equipment_profile ?? null;
+          injuries = prof?.injuries ?? null;
+        } catch { /* no profile → no filter */ }
+        // Exclude everything already in today's session (ids + names).
+        const excludeIds = (routineSession?.exercises ?? []).map((e) => e.exerciseId).filter(Boolean);
+        const excludeNames = (routineSession?.exercises ?? []).map((e) => e.name).filter(Boolean);
+        const result = alternativesForDetailed(
+          { id: cur.exerciseId || null, name: cur.name || null },
+          { equipment, injuries, excludeIds, excludeNames },
+        );
+        setQuickSwapCandidates(result.candidates);
+        setQuickSwapReason(result.reason ?? null);
+      } else {
+        setQuickSwapCandidates([]);
+        setQuickSwapReason(null);
+      }
       // "Never suggest again" only when a single generated plan exists (Stage 2).
       let canPermanent = false;
       try {
         const stored = await loadActivePlan();
         canPermanent = !!stored && stored.kind === 'plan';
       } catch { canPermanent = false; }
-      setQuickSwapCanPermanent(canPermanent);
+      setQuickSwapCanPermanent(!!user?.is_paid && canPermanent);
       setQuickSwapVisible(true);
     }, [user?.is_paid, routineSession]);
 
     const handleQuickSwapSelect = useCallback(
-      (candidate: SwapCandidate) => {
-        void rememberExerciseName(candidate.id, candidate.name);
+      (sel: SwapSelection) => {
+        if (sel.exercise_id) void rememberExerciseName(sel.exercise_id, sel.name);
         setRoutineSession((prev) => {
           if (!prev) return prev;
           const exercises = prev.exercises.map((ex, idx) =>
-            idx === prev.currentIndex ? { ...ex, exerciseId: candidate.id, name: candidate.name } : ex,
+            idx === prev.currentIndex
+              ? { ...ex, exerciseId: sel.exercise_id ?? '', name: sel.name }
+              : ex,
           );
           return { ...prev, exercises };
         });
         haptics.success();
-        setQuickSwapConfirmation(`Swapped to ${candidate.name} for today`);
+        setQuickSwapConfirmation(`Swapped to ${sel.name} for today`);
         setQuickSwapCandidates([]);
+        setQuickSwapSubs([]);
       },
       [],
+    );
+
+    // SUBS-001: add a preloaded substitute from the logger. Session mode always
+    // saves GLOBAL ("all routines") — routine writes are editor-only, so a
+    // mid-workout add can never mutate the saved routine.
+    const handleQuickSwapAddSub = useCallback(
+      (sub: { exercise_id: string | null; name: string }, _scope: SubstituteScope) => {
+        const orig = quickSwapOriginal;
+        if (!orig || !sub.name) return;
+        void addGlobalSubstitute(
+          { exercise_id: orig.id || null, name: orig.name },
+          sub,
+        ).catch(() => undefined);
+        setQuickSwapSubs((prev) =>
+          prev.some((s) => s.name.trim().toLowerCase() === sub.name.trim().toLowerCase())
+            ? prev
+            : [...prev, { exercise_id: sub.exercise_id, name: sub.name, scope: 'global' }],
+        );
+      },
+      [quickSwapOriginal],
     );
 
     const handleQuickSwapNeverSuggest = useCallback(async () => {
@@ -1769,19 +1819,28 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           </Modal>
         )}
 
-        {/* Stage 3: Pro region-aware quick-swap sheet (local-first, no network). */}
-        <QuickSwapSheet
+        {/* Stage 3 + SUBS-001: mid-workout swap sheet (local-first, no network).
+            User substitutes first (free); engine suggestions Pro. TODAY only. */}
+        <SubstituteSwapSheet
           visible={quickSwapVisible}
+          mode="session"
           originalName={quickSwapOriginal?.name ?? t('logger:workoutLoggerHost.thisExerciseFallback')}
-          candidates={quickSwapCandidates}
-          emptyReason={quickSwapReason}
+          userSubs={quickSwapSubs}
+          suggested={quickSwapCandidates}
+          suggestedLocked={!user?.is_paid}
+          suggestedEmptyReason={quickSwapReason}
           confirmation={quickSwapConfirmation}
           canMakePermanent={quickSwapCanPermanent}
           onSelect={handleQuickSwapSelect}
+          onAddSub={handleQuickSwapAddSub}
           onNeverSuggest={handleQuickSwapNeverSuggest}
           onViewDetails={(c) =>
             setSwapDetailTarget({ id: c.id, name: c.name, equipment: c.equipment })
           }
+          onUpgrade={() => {
+            setQuickSwapVisible(false);
+            setShowPaywall(true);
+          }}
           onClose={() => setQuickSwapVisible(false)}
         />
 
@@ -2006,13 +2065,10 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
               restSeconds={restDefault}
               // No "choose alternative" / suggestions when correcting a past
               // session — those mutate the live routine, not history.
-              // Stage 3 (addendum §4): the "machine busy?" swap now uses the
-              // on-device region-aware quick-swap (local-first, no network).
-              onChooseAlternative={
-                historyMode
-                  ? undefined
-                  : user?.is_paid ? handleQuickSwap : (() => setShowPaywall(true))
-              }
+              // Stage 3 + SUBS-001: the swap sheet opens for ALL tiers now
+              // (user substitutes are free; engine suggestions stay Pro-gated
+              // INSIDE the sheet via the locked teaser).
+              onChooseAlternative={historyMode ? undefined : handleQuickSwap}
               // ── S1 supersets: open the pairing sheet / unlink the group. ──
               onSupersetWith={
                 historyMode ? undefined : () => setPairSheetVisible(true)

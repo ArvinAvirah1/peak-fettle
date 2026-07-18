@@ -918,3 +918,48 @@ export const SCHEMA_V16_STATEMENTS: MigrationStatement[] = [
   { type: 'alter_add_column', table: 'daily_health_metrics', column: 'distance_m', definition: 'REAL' },
   { type: 'alter_add_column', table: 'daily_health_metrics', column: 'exercise_minutes', definition: 'INTEGER' },
 ];
+
+// ---------------------------------------------------------------------------
+// v17 statements — SUBS-001: GLOBAL exercise substitutes ("all routines").
+//
+// `exercise_substitutes` holds the user's all-routines substitute mappings
+// ("for bench my subs are DB press + machine press, everywhere"). One row per
+// (source, substitute) pair. Routine-SCOPED substitutes are NOT here — they
+// live inside the routine's exercises JSON (RoutineExercise.substitutes,
+// see src/data/routineExerciseFields.ts); the merge happens at read time in
+// src/data/substitutes.ts.
+//
+// Keying: `source_key` is the NORMALIZED exercise name (planGen/quickSwap
+// normalizeName — lowercase, punctuation stripped) because names are the
+// display source of truth and template/free-typed exercises have no library
+// UUID. `source_exercise_id` is kept alongside for exact-id lookups when the
+// id IS known; a lookup matches on either.
+//
+// Tier policy: device-local for BOTH tiers in v1 (same pattern as
+// progress_photos — no isLocalFirst branch, no REST, no server counterpart
+// table; free path stays zero-network per the local-first invariant). In
+// BACKUP_TABLES so the mappings survive export/import; NOT in migrateToPro
+// (nothing server-side to upload to).
+//
+// CREATE TABLE IF NOT EXISTS — idempotent, no ALTER guard needed. Registered
+// in exportEngine BACKUP_TABLES + migrations.test.js. Added 2026-07-18
+// (SUBS-001).
+export const CREATE_EXERCISE_SUBSTITUTES = `
+CREATE TABLE IF NOT EXISTS exercise_substitutes (
+  id TEXT PRIMARY KEY,
+  source_key TEXT NOT NULL,
+  source_exercise_id TEXT,
+  source_name TEXT NOT NULL,
+  sub_exercise_id TEXT,
+  sub_name TEXT NOT NULL,
+  created_at TEXT
+)`;
+
+export const CREATE_EXERCISE_SUBSTITUTES_SOURCE_IDX = `
+CREATE INDEX IF NOT EXISTS idx_exercise_substitutes_source
+  ON exercise_substitutes(source_key)`;
+
+export const SCHEMA_V17_STATEMENTS: MigrationStatement[] = [
+  CREATE_EXERCISE_SUBSTITUTES,
+  CREATE_EXERCISE_SUBSTITUTES_SOURCE_IDX,
+];

@@ -74,6 +74,13 @@ export interface RoutineSessionExercise {
    * `drops` drops at `dropPct`% each. null/absent = no auto-offer (S1 manual only).
    */
   dropsetPlan?: { lastN: number | 'all'; drops: number; dropPct: number } | null;
+  /**
+   * SUBS-001: the slot's routine-scoped substitutes, carried from the saved
+   * routine so the mid-workout swap sheet can list them WITHOUT re-fetching the
+   * routine. The merge with GLOBAL subs happens at open time in
+   * WorkoutLoggerHost (data/substitutes.ts). Session-only; never written back.
+   */
+  substitutes?: { exercise_id?: string | null; name: string }[] | null;
 }
 
 interface RoutineStripProps {
@@ -134,6 +141,8 @@ export function seedSessionExercise(ex: Routine['exercises'][number]): RoutineSe
     ...(groupId != null ? { groupId } : {}),
     ...(groupId != null && groupRounds != null ? { groupRounds } : {}),
     ...(dropsetPlan ? { dropsetPlan } : {}),
+    // SUBS-001: carry the slot's preloaded substitutes into the session.
+    ...(ex.substitutes && ex.substitutes.length > 0 ? { substitutes: ex.substitutes } : {}),
   };
 }
 

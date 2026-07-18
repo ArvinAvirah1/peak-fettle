@@ -23,9 +23,34 @@
  * =============================================================================
  */
 
-import type { RoutineExercise } from '../api/routines';
+import type { RoutineExercise, SubstituteRef } from '../api/routines';
 
 export type DropsetField = { last_n: number | 'all'; drops?: number; drop_pct?: number };
+
+/**
+ * SUBS-001 — substitutes: an array (max 10) of { exercise_id?, name } refs.
+ * Each entry needs a non-empty name ≤ 100 chars; exercise_id is kept only when
+ * it is a plausible id string (≤ 64 chars), else nulled. A non-array value
+ * drops the whole field. Bounds mirror the server SubstituteSchema
+ * (server/routes/routines.js) so a value that survives here round-trips through
+ * the server Zod strip UNCHANGED.
+ */
+export function parseSubstitutes(v: unknown): SubstituteRef[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out: SubstituteRef[] = [];
+  for (const raw of v) {
+    if (out.length >= 10) break;
+    if (raw == null || typeof raw !== 'object') continue;
+    const o = raw as Record<string, unknown>;
+    if (typeof o.name !== 'string' || o.name.length === 0 || o.name.length > 100) continue;
+    const id =
+      typeof o.exercise_id === 'string' && o.exercise_id.length > 0 && o.exercise_id.length <= 64
+        ? o.exercise_id
+        : null;
+    out.push({ exercise_id: id, name: o.name });
+  }
+  return out.length > 0 ? out : undefined;
+}
 
 /** superset_group: a short, non-empty string (group letter/id), else undefined. */
 export function parseSupersetGroup(v: unknown): string | undefined {
@@ -87,6 +112,8 @@ export function allowlistExercise(e: Record<string, unknown>): RoutineExercise {
   if (rounds !== undefined) base.superset_rounds = rounds;
   const dropset = parseDropset(e.dropset);
   if (dropset !== undefined) base.dropset = dropset;
+  const substitutes = parseSubstitutes(e.substitutes);
+  if (substitutes !== undefined) base.substitutes = substitutes;
   return base;
 }
 
@@ -97,6 +124,12 @@ export function allowlistExercise(e: Record<string, unknown>): RoutineExercise {
  * deduped); two identical ones normalize identically. Matches the server echo
  * (Zod strips unknown keys, jsonb doesn't preserve key order) so the local key
  * equals the server-echo key.
+ *
+ * SUBS-001 note: `substitutes` is DELIBERATELY excluded from this key. Two
+ * routines differing only in their substitute lists deduping together is
+ * acceptable (the kept copy's subs survive), whereas including the field would
+ * make the key sensitive to a server-side strip on older servers → duplicate
+ * routines on Free→Pro migration. Do not add it here.
  */
 export function canonicalizeExercise(e: RoutineExercise): Record<string, unknown> {
   return {
