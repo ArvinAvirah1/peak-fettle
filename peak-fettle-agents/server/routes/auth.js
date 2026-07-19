@@ -362,6 +362,35 @@ const OAuthSchema = z.object({
 
 const PRIVATE_RELAY_RE = /@privaterelay\.appleid\.com$/i;
 
+// Self-provision oauth_identities at boot (2026-07-18): so a plain `git push`
+// (Railway auto-deploy) is the ONLY step needed to enable durable Apple/Google
+// identity linking — no hand-run migration. Idempotent (IF NOT EXISTS),
+// mirrors migrations/20260612_oauth_identities.sql + db/schema.sql exactly.
+// Failure is logged and non-fatal: every route below already degrades on 42P01.
+(async () => {
+    try {
+        await pool.query(`CREATE TABLE IF NOT EXISTS oauth_identities (
+            id           UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+            user_id      UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            provider     TEXT        NOT NULL CHECK (provider IN ('apple', 'google')),
+            provider_sub TEXT        NOT NULL,
+            created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE (provider, provider_sub)
+        )`);
+        await pool.query(
+            `CREATE INDEX IF NOT EXISTS idx_oauth_identities_user
+                 ON oauth_identities (user_id)`);
+        await pool.query(
+            `CREATE INDEX IF NOT EXISTS idx_oauth_identities_provider_sub
+                 ON oauth_identities (provider, provider_sub)`);
+    } catch (err) {
+        console.error(
+            '[peak-fettle-api] oauth_identities self-provision failed (identity linking will degrade):',
+            err.message
+        );
+    }
+})();
+
 /** users row for a linked provider identity, or null (incl. when the
  *  oauth_identities table has not been migrated yet — drift-tolerant). */
 async function findUserByOAuthIdentity(provider, sub) {

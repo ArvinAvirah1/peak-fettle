@@ -94,6 +94,29 @@ async function check(name, fn, shouldThrow) {
     }
   }
 
+  // Zero-config apple audiences (2026-07-18): with NO injected deps.audience,
+  // verifyOAuthIdToken unions APPLE_OAUTH_AUDIENCE with the built-in bundle
+  // ids — a stale single-value env var must not lock out the other app, and
+  // apple must work with the env var entirely unset.
+  const lifeosAudToken = jwt.sign(
+    { sub: 'apple-sub-43', email: 'q1w2e3@privaterelay.appleid.com', email_verified: 'true' },
+    privateKey,
+    { algorithm: 'RS256', keyid: 'test-kid-1', issuer: 'https://appleid.apple.com', audience: 'com.peakfettle.lifeos', expiresIn: '5m' },
+  );
+  process.env.APPLE_OAUTH_AUDIENCE = 'com.peakfettle.app';
+  await check('lifeos aud accepted despite stale single-value APPLE_OAUTH_AUDIENCE', () =>
+    verifyOAuthIdToken('apple', lifeosAudToken, { fetchJwks }), false);
+  delete process.env.APPLE_OAUTH_AUDIENCE;
+  await check('apple verifies with APPLE_OAUTH_AUDIENCE unset (built-in defaults)', () =>
+    verifyOAuthIdToken('apple', lifeosAudToken, { fetchJwks }), false);
+  const foreignAudToken = jwt.sign(
+    { sub: 'x' },
+    privateKey,
+    { algorithm: 'RS256', keyid: 'test-kid-1', issuer: 'https://appleid.apple.com', audience: 'com.evil.other', expiresIn: '5m' },
+  );
+  await check('foreign aud still rejected under default audiences', () =>
+    verifyOAuthIdToken('apple', foreignAudToken, { fetchJwks }), true);
+
   console.log(failures === 0 ? '\nALL OAUTH-VERIFY TESTS PASS' : `\n${failures} TEST(S) FAILED`);
   process.exit(failures === 0 ? 0 : 1);
 })();

@@ -25,6 +25,14 @@ const PROVIDERS = {
     issuer: ['https://appleid.apple.com'],
     jwksUri: 'https://appleid.apple.com/auth/keys',
     audienceEnv: 'APPLE_OAUTH_AUDIENCE',
+    // Zero-config (2026-07-18): both first-party bundle ids are ALWAYS accepted.
+    // Apple id_tokens are verified against Apple's public JWKS — no client
+    // secret exists — so defaulting our own app ids is safe. These are UNIONED
+    // with APPLE_OAUTH_AUDIENCE, so a stale single-value env var (the LifeOS
+    // Apple-sign-in outage) can never lock one of our apps out, and Apple
+    // sign-in works with the env var entirely unset. Google has no defaults:
+    // its audiences are account-specific OAuth client IDs.
+    defaultAudience: ['com.peakfettle.app', 'com.peakfettle.lifeos'],
   },
 };
 
@@ -111,11 +119,26 @@ function parseAudience(raw) {
   return list.length === 1 ? list[0] : list;
 }
 
+/**
+ * Union env-configured audiences with a provider's built-in defaults.
+ * Returns the env value untouched when the provider has no defaults.
+ */
+function withDefaultAudience(envAudience, defaults) {
+  if (!defaults || defaults.length === 0) return envAudience;
+  const list = envAudience == null ? [] : Array.isArray(envAudience) ? envAudience : [envAudience];
+  const merged = [...new Set([...list, ...defaults])];
+  return merged.length === 1 ? merged[0] : merged;
+}
+
 /** Verify a token for a named provider and return normalized identity claims. */
 async function verifyOAuthIdToken(provider, idToken, deps) {
   const cfg = PROVIDERS[provider];
   if (!cfg) throw err('unsupported_provider', 'unsupported_provider', 400);
-  const audience = parseAudience((deps && deps.audience) || process.env[cfg.audienceEnv]);
+  // An injected deps.audience (tests) is used EXACTLY as given; the env path
+  // gets the provider's defaults unioned in (see PROVIDERS.apple).
+  const audience = deps && deps.audience
+    ? parseAudience(deps.audience)
+    : withDefaultAudience(parseAudience(process.env[cfg.audienceEnv]), cfg.defaultAudience);
   const payload = await verifyProviderToken(idToken, {
     issuer: cfg.issuer,
     jwksUri: cfg.jwksUri,
@@ -134,4 +157,4 @@ async function verifyOAuthIdToken(provider, idToken, deps) {
   };
 }
 
-module.exports = { PROVIDERS, verifyProviderToken, verifyOAuthIdToken, jwkToPublicKey, parseAudience };
+module.exports = { PROVIDERS, verifyProviderToken, verifyOAuthIdToken, jwkToPublicKey, parseAudience, withDefaultAudience };
