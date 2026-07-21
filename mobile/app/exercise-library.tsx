@@ -1288,7 +1288,10 @@ export default function ExerciseLibraryScreen(): React.ReactElement {
   // ---------------------------------------------------------------------------
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.bgPrimary }]} edges={['top', 'bottom']}>
+    // 2026-07-21: no 'top' edge — this screen sits under a native-stack header
+    // that already clears the notch; on the New Architecture SafeAreaView pads
+    // the raw window inset regardless of position (double-inset dead band).
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.bgPrimary }]} edges={['bottom']}>
 
       {/* ── Search bar ────────────────────────────────────────────────────── */}
       <View

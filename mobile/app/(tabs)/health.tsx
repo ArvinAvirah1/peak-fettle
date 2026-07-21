@@ -361,7 +361,7 @@ export default function HealthScreen(): React.ReactElement {
   const strokeWidth = 10;
 
   return (
-    <ScreenLayout horizontalPadding={false}>
+    <ScreenLayout horizontalPadding={false} edges={[]}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         refreshControl={

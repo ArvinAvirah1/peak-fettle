@@ -78,7 +78,7 @@ export default function RoutineHistoryScreen(): React.ReactElement {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <ScreenLayout horizontalPadding={false}>
+    <ScreenLayout horizontalPadding={false} edges={['bottom']}>
       <View
         style={[
           styles.heading,

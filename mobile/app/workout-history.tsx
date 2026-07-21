@@ -274,7 +274,7 @@ export default function WorkoutHistoryScreen(): React.ReactElement {
   // Error state
   if (error && allWorkouts.length === 0) {
     return (
-      <ScreenLayout>
+      <ScreenLayout edges={['bottom']}>
         <View style={styles.centered}>
           <Text
             style={{
@@ -295,7 +295,7 @@ export default function WorkoutHistoryScreen(): React.ReactElement {
   // Loading skeleton (first page)
   if (loading) {
     return (
-      <ScreenLayout horizontalPadding={false}>
+      <ScreenLayout horizontalPadding={false} edges={['bottom']}>
         <SkeletonRows />
       </ScreenLayout>
     );
@@ -304,7 +304,7 @@ export default function WorkoutHistoryScreen(): React.ReactElement {
   // Empty state
   if (sections.length === 0) {
     return (
-      <ScreenLayout>
+      <ScreenLayout edges={['bottom']}>
         <View style={styles.centered}>
           <Text
             style={{
@@ -344,7 +344,7 @@ export default function WorkoutHistoryScreen(): React.ReactElement {
 
   // ── Main list ──────────────────────────────────────────────────────────────
   return (
-    <ScreenLayout horizontalPadding={false}>
+    <ScreenLayout horizontalPadding={false} edges={['bottom']}>
       <SectionList
         sections={sections}
         keyExtractor={(item) => item.id}

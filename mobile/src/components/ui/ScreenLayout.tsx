@@ -37,6 +37,7 @@ import {
   ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import type { Edge } from 'react-native-safe-area-context';
 import { useTheme } from '../../theme/ThemeContext';
 
 // ---------------------------------------------------------------------------
@@ -55,6 +56,16 @@ export interface ScreenLayoutProps {
   contentStyle?: ViewStyle;
   /** Additional style overrides for the SafeAreaView root. */
   style?: ViewStyle;
+  /**
+   * Safe-area edges to apply. Defaults to ['top', 'bottom'] (headerless
+   * full-screen pages). On the New Architecture SafeAreaView pads the RAW
+   * window inset regardless of where the view sits on screen, so a screen
+   * rendered under a navigation header/tab bar double-pads (~60pt dead band
+   * below the header — 2026-07-21 fix). Screens under a native-stack header
+   * must pass edges={['bottom']}; tab screens (header above + tab bar below,
+   * both already inset-aware) must pass edges={[]}.
+   */
+  edges?: ReadonlyArray<Edge>;
 }
 
 // ---------------------------------------------------------------------------
@@ -68,6 +79,7 @@ export function ScreenLayout({
   keyboardAvoiding = false,
   contentStyle,
   style,
+  edges = ['top', 'bottom'],
 }: ScreenLayoutProps): React.ReactElement {
   const { theme, spacing } = useTheme();
   // 2026-06-10 aesthetic pass: every screen's content fades in softly on mount
@@ -116,7 +128,7 @@ export function ScreenLayout({
         { backgroundColor: theme.colors.bgPrimary },
         style,
       ]}
-      edges={['top', 'bottom']}
+      edges={edges}
     >
       {/* (2026-07-03 blank-tab fix) The Reanimated `entering` FadeIn here raced
           react-native-screens' native attach on LAZILY-mounted tabs (lazy is

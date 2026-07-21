@@ -1100,7 +1100,7 @@ export default function PlansScreen(): React.ReactElement {
   const templates = plans.filter((p) => p.is_template);
 
   return (
-    <ScreenLayout horizontalPadding={false}>
+    <ScreenLayout horizontalPadding={false} edges={[]}>
     <View style={styles.container}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}

@@ -260,7 +260,7 @@ export default function MeasurementsScreen(): React.ReactElement {
   const unitLabel = isPercent ? '%' : lengthUnit;
 
   return (
-    <ScreenLayout scrollable contentStyle={styles.content}>
+    <ScreenLayout scrollable contentStyle={styles.content} edges={['bottom']}>
       <>
         <Text style={[styles.sub, { color: theme.colors.textSecondary }]}>
           {t('screens2:measurements.subtitle')}

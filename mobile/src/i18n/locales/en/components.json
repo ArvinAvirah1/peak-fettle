@@ -374,6 +374,10 @@
   },
   "routineEditorSheet": {
     "swapExercise": "Swap exercise…",
+    "makeAlternative": "Make alternative…",
+    "makeAlternativeA11y": "Pick an alternative exercise for {{name}}",
+    "altBadge_one": "{{count}} alternative",
+    "altBadge_other": "{{count}} alternatives",
     "swappedTo": "Swapped to {{name}}",
     "allSets": "all sets",
     "lastNSets": "last {{n}}",

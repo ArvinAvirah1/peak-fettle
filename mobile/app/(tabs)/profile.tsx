@@ -1438,7 +1438,7 @@ export default function ProfileScreen(): React.ReactElement {
     // P2-005: ScreenLayout replaces bare ScrollView root — provides SafeAreaView
     // and bgPrimary background. horizontalPadding={false}: scrollContent manages
     // its own 20pt padding so list items fill edge-to-edge.
-    <ScreenLayout scrollable horizontalPadding={false} contentStyle={styles.scrollContent}>
+    <ScreenLayout scrollable horizontalPadding={false} contentStyle={styles.scrollContent} edges={[]}>
       {/* ── A. User info card ── */}
       <UserInfoCard avatar={avatarConfig} onEditAvatar={() => setAvatarEditorVisible(true)} />
 

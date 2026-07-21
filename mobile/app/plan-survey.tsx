@@ -125,7 +125,7 @@ function ProUpsell({ onBack }: { onBack: () => void }): React.ReactElement {
   const { t } = useTranslation();
   const router = useRouter();
   return (
-    <ScreenLayout>
+    <ScreenLayout edges={['bottom']}>
       <ScrollView contentContainerStyle={styles.upsellScroll}>
         <View
           style={[
@@ -385,7 +385,7 @@ function PlanSurveyWizard(): React.ReactElement {
   const unitSuffix = unitPref === 'lbs' ? 'lbs' : 'kg';
 
   return (
-    <ScreenLayout horizontalPadding={false}>
+    <ScreenLayout horizontalPadding={false} edges={['bottom']}>
       <ScrollView
         style={styles.screen}
         contentContainerStyle={styles.container}

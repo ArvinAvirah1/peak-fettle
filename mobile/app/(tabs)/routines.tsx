@@ -34,7 +34,6 @@ import {
   Share,
   Animated as RNAnimated,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import ReanimatedSwipeable from 'react-native-gesture-handler/ReanimatedSwipeable';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -563,7 +562,11 @@ export default function RoutinesPage(): React.ReactElement {
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: c.bgPrimary }]} edges={['top']}>
+    // 2026-07-21: plain View, NOT SafeAreaView. This screen renders under the
+    // tab navigator's header, which already clears the notch; on the New
+    // Architecture SafeAreaView pads the raw window inset regardless of
+    // position, so a top edge here doubled the clearance (~60pt dead band).
+    <View style={[styles.root, { backgroundColor: c.bgPrimary }]}>
       <GestureHandlerRootView style={styles.root}>
         {/* ── Page header — single clear "＋ New" (option 4) ─────────────── */}
         <View style={[styles.pageHeader, { borderBottomColor: c.borderDefault }]}>
@@ -977,7 +980,7 @@ export default function RoutinesPage(): React.ReactElement {
           onSaved={handleScheduleSaved}
         />
       </GestureHandlerRootView>
-    </SafeAreaView>
+    </View>
   );
 }
 

@@ -164,7 +164,7 @@ export default function TrendsScreen(): React.ReactElement {
 
   if (isLoading) {
     return (
-      <ScreenLayout>
+      <ScreenLayout edges={['bottom']}>
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={colors.accentDefault} />
         </View>
@@ -176,7 +176,7 @@ export default function TrendsScreen(): React.ReactElement {
 
   if (error) {
     return (
-      <ScreenLayout>
+      <ScreenLayout edges={['bottom']}>
         <View style={styles.centered}>
           <Text
             style={{
@@ -196,7 +196,7 @@ export default function TrendsScreen(): React.ReactElement {
 
   if (liftEntries.length === 0) {
     return (
-      <ScreenLayout>
+      <ScreenLayout edges={['bottom']}>
         <View style={styles.centered}>
           <Text
             style={{
@@ -226,7 +226,7 @@ export default function TrendsScreen(): React.ReactElement {
   // ── Main ───────────────────────────────────────────────────────────────────
 
   return (
-    <ScreenLayout horizontalPadding={false}>
+    <ScreenLayout horizontalPadding={false} edges={['bottom']}>
       <FlatList
         data={liftEntries}
         keyExtractor={(item) => item.exerciseId}

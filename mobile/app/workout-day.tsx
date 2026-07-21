@@ -884,7 +884,7 @@ export default function WorkoutDayScreen(): React.ReactElement {
 
   if (!date) {
     return (
-      <ScreenLayout>
+      <ScreenLayout edges={['bottom']}>
         <View style={styles.centered}>
           <Text style={{ color: colors.textSecondary, fontSize: fontSize.bodyMd }}>
             {t('screens2:workoutDay.noDateSpecified')}
@@ -901,7 +901,7 @@ export default function WorkoutDayScreen(): React.ReactElement {
   }
 
   return (
-    <ScreenLayout horizontalPadding={false}>
+    <ScreenLayout horizontalPadding={false} edges={['bottom']}>
       {/* ── Date heading + summary ─────────────────────────────────────── */}
       <View
         style={[

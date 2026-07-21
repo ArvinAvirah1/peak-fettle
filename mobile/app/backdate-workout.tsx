@@ -271,7 +271,7 @@ export default function BackdateWorkoutScreen(): React.ReactElement {
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <ScreenLayout scrollable keyboardAvoiding>
+    <ScreenLayout scrollable keyboardAvoiding edges={['bottom']}>
       <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <Text style={[styles.intro, { color: c.textSecondary }]}>
           {t('screens2:backdateWorkout.intro')}

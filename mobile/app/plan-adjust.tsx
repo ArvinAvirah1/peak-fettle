@@ -232,7 +232,7 @@ export default function PlanAdjustScreen(): React.ReactElement {
 
   if (loading) {
     return (
-      <ScreenLayout>
+      <ScreenLayout edges={['bottom']}>
         <View style={styles.centered}>
           <ActivityIndicator size="large" color={c.accentDefault} />
         </View>
@@ -242,7 +242,7 @@ export default function PlanAdjustScreen(): React.ReactElement {
 
   if (!stored || !answers) {
     return (
-      <ScreenLayout>
+      <ScreenLayout edges={['bottom']}>
         <View style={styles.centered}>
           <Text style={[styles.emptyText, { color: c.textSecondary }]}>
             {t('screens2:planAdjust.noActivePlan')}
@@ -256,7 +256,7 @@ export default function PlanAdjustScreen(): React.ReactElement {
   const p = patch;
 
   return (
-    <ScreenLayout horizontalPadding={false}>
+    <ScreenLayout horizontalPadding={false} edges={['bottom']}>
       <ScrollView style={styles.screen} contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <Text style={[styles.header, { color: c.textPrimary }]}>{t('screens2:planAdjust.title')}</Text>
         <Text style={[styles.sub, { color: c.textSecondary }]}>

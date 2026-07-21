@@ -32,7 +32,7 @@ export default function OneRmScreen(): React.ReactElement {
   const oneRm = useMemo(() => estimate1Rm(w, r, formula), [w, r, formula]);
 
   return (
-    <ScreenLayout>
+    <ScreenLayout edges={['bottom']}>
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={[styles.sub, { color: theme.colors.textSecondary }]}>
           {t('screens2:oneRm.subtitle')}

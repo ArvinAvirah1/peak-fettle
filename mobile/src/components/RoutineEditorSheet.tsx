@@ -165,6 +165,9 @@ export default function RoutineEditorSheet({
   // When the picker is opened to ADD a new member into a forming/existing group,
   // this holds the target group id; a normal "+ Add exercise" leaves it null.
   const [pickerTargetGroup, setPickerTargetGroup] = useState<string | null>(null);
+  // "Make alternative" (kebab → ExercisePicker): the item index the picked
+  // exercise becomes a routine-scoped substitute FOR (null = closed).
+  const [altForIndex, setAltForIndex] = useState<number | null>(null);
   // SUBS-001 swap sheet: the item index being swapped (null = closed) + its lists.
   const [swapForIndex, setSwapForIndex] = useState<number | null>(null);
   const [swapSubs, setSwapSubs] = useState<ScopedSubstitute[]>([]);
@@ -181,6 +184,7 @@ export default function RoutineEditorSheet({
     setLinkForIndex(null);
     setPickerTargetGroup(null);
     setSwapForIndex(null);
+    setAltForIndex(null);
   }, [routine]);
 
   const blocks = useMemo(() => toBlocks(items), [items]);
@@ -411,6 +415,38 @@ export default function RoutineEditorSheet({
     setPickerTargetGroup(gid);
     setPickerVisible(true);
   }, [linkForIndex, createGroup, items]);
+
+  // ── Make alternative (kebab → ExercisePicker → routine-scoped substitute) ──
+  /**
+   * One-tap path to preload an alternative for a slot: pick an exercise and it
+   * lands in the slot's substitute list (routine scope), WITHOUT swapping now.
+   * During a workout the swap sheet then offers it first ("machine is busy").
+   * Persisted on Save via the normal full-replace updateRoutine path; the
+   * exercise_id goes through uuidOrNull (server Zod only accepts UUIDs).
+   */
+  const openMakeAlternative = useCallback((index: number) => {
+    setMenuForIndex(null);
+    setAltForIndex(index);
+  }, []);
+
+  const handleAlternativePicked = useCallback((ex: Exercise) => {
+    const idx = altForIndex;
+    setAltForIndex(null);
+    if (idx == null) return;
+    const target = items[idx];
+    if (!target) return;
+    const subKey = normalizeName(ex.name);
+    if (!subKey || subKey === normalizeName(target.name)) return;
+    const entry = { exercise_id: uuidOrNull(ex.id || null), name: ex.name };
+    setItems((prev) =>
+      prev.map((e, i) => {
+        if (i !== idx) return e;
+        const cur = e.substitutes ?? [];
+        if (cur.some((s) => normalizeName(s.name) === subKey)) return e;
+        return { ...e, substitutes: [...cur, entry].slice(0, 10) };
+      }),
+    );
+  }, [altForIndex, items]);
 
   // ── SUBS-001: swap exercise (kebab → SubstituteSwapSheet) ─────────────────
   /**
@@ -681,6 +717,7 @@ export default function RoutineEditorSheet({
                     onRemoveDropsets={() => removeDropsetAt(block.index)}
                     onSupersetWith={() => openLink(block.index)}
                     onSwap={() => void openSwap(block.index)}
+                    onMakeAlternative={() => openMakeAlternative(block.index)}
                   />
                 ) : (
                   <GroupCard
@@ -706,6 +743,7 @@ export default function RoutineEditorSheet({
                     onMemberMakeDropsets={(idx) => openDropset(idx)}
                     onMemberRemoveDropsets={(idx) => removeDropsetAt(idx)}
                     onMemberSwap={(idx) => void openSwap(idx)}
+                    onMemberMakeAlternative={(idx) => openMakeAlternative(idx)}
                   />
                 ),
               )
@@ -750,6 +788,14 @@ export default function RoutineEditorSheet({
           setPickerVisible(false);
           setPickerTargetGroup(null);
         }}
+      />
+
+      {/* "Make alternative" picker — the pick becomes a routine-scoped
+          substitute for the chosen slot (stacked-Modal pattern). */}
+      <ExercisePicker
+        visible={altForIndex != null}
+        onSelect={handleAlternativePicked}
+        onClose={() => setAltForIndex(null)}
       />
 
       {/* Dropset config sheet. */}
@@ -809,9 +855,10 @@ function KebabMenu(props: {
   onSupersetWith?: () => void;
   onUnlink?: () => void;
   onSwap?: () => void;
+  onMakeAlternative?: () => void;
   onClose: () => void;
 }): React.ReactElement {
-  const { hasDropset, grouped, onMakeDropsets, onRemoveDropsets, onSupersetWith, onUnlink, onSwap, onClose } = props;
+  const { hasDropset, grouped, onMakeDropsets, onRemoveDropsets, onSupersetWith, onUnlink, onSwap, onMakeAlternative, onClose } = props;
   const { t } = useTranslation();
   return (
     <>
@@ -827,6 +874,17 @@ function KebabMenu(props: {
           >
             <Ionicons name="swap-horizontal" size={16} color={stepperPalette.text} />
             <Text style={styles.menuItemText}>{t('components:routineEditorSheet.swapExercise')}</Text>
+          </TouchableOpacity>
+        ) : null}
+        {onMakeAlternative ? (
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={onMakeAlternative}
+            accessibilityRole="button"
+            accessibilityLabel={t('components:routineEditorSheet.makeAlternative')}
+          >
+            <Ionicons name="repeat" size={16} color={stepperPalette.text} />
+            <Text style={styles.menuItemText}>{t('components:routineEditorSheet.makeAlternative')}</Text>
           </TouchableOpacity>
         ) : null}
         <TouchableOpacity
@@ -906,13 +964,16 @@ function ExerciseRow(props: {
   onRemoveDropsets: () => void;
   onSupersetWith: () => void;
   onSwap: () => void;
+  onMakeAlternative: () => void;
 }): React.ReactElement {
   const {
     item, isFirst, isLast, menuOpen, onToggleMenu, onRemove, onUpdateSets, onUpdateReps,
     onMoveUp, onMoveDown, onMakeDropsets, onRemoveDropsets, onSupersetWith, onSwap,
+    onMakeAlternative,
   } = props;
   const { t } = useTranslation();
   const hasDropset = !!item.dropset;
+  const altCount = item.substitutes?.length ?? 0;
   return (
     <View style={styles.exRow}>
       <View style={styles.exRowTop}>
@@ -924,6 +985,13 @@ function ExerciseRow(props: {
         <View style={styles.dropsetBadge}>
           <Ionicons name="trending-down" size={12} color={stepperPalette.accent} />
           <Text style={styles.dropsetBadgeText}>{dropsetBadgeLabel(item.dropset, t)}</Text>
+        </View>
+      ) : null}
+
+      {altCount > 0 ? (
+        <View style={styles.dropsetBadge}>
+          <Ionicons name="repeat" size={12} color={stepperPalette.accent} />
+          <Text style={styles.dropsetBadgeText}>{t('components:routineEditorSheet.altBadge', { count: altCount })}</Text>
         </View>
       ) : null}
 
@@ -995,6 +1063,7 @@ function ExerciseRow(props: {
           onRemoveDropsets={onRemoveDropsets}
           onSupersetWith={onSupersetWith}
           onSwap={onSwap}
+          onMakeAlternative={onMakeAlternative}
           onClose={onToggleMenu}
         />
       ) : null}
@@ -1024,12 +1093,13 @@ function GroupCard(props: {
   onMemberMakeDropsets: (idx: number) => void;
   onMemberRemoveDropsets: (idx: number) => void;
   onMemberSwap: (idx: number) => void;
+  onMemberMakeAlternative: (idx: number) => void;
 }): React.ReactElement {
   const {
     letter, indices, members, isFirstBlock, isLastBlock, menuForIndex, onToggleMemberMenu,
     onSetRounds, onUnlink, onMoveGroupUp, onMoveGroupDown, onMemberUp, onMemberDown,
     onMemberRemove, onMemberUpdateReps, onMemberMakeDropsets, onMemberRemoveDropsets,
-    onMemberSwap,
+    onMemberSwap, onMemberMakeAlternative,
   } = props;
   const rounds = members[0]?.superset_rounds ?? 3;
   const { t } = useTranslation();
@@ -1119,6 +1189,13 @@ function GroupCard(props: {
               </View>
             ) : null}
 
+            {(m.substitutes?.length ?? 0) > 0 ? (
+              <View style={styles.dropsetBadge}>
+                <Ionicons name="repeat" size={12} color={stepperPalette.accent} />
+                <Text style={styles.dropsetBadgeText}>{t('components:routineEditorSheet.altBadge', { count: m.substitutes?.length ?? 0 })}</Text>
+              </View>
+            ) : null}
+
             <View style={styles.memberBottom}>
               <View style={styles.memberRepsWrap}>
                 <Text style={styles.targetLabel}>{t('components:routineEditorSheet.repsLabel')}</Text>
@@ -1171,6 +1248,7 @@ function GroupCard(props: {
                 onRemoveDropsets={() => onMemberRemoveDropsets(absIndex)}
                 onUnlink={onUnlink}
                 onSwap={() => onMemberSwap(absIndex)}
+                onMakeAlternative={() => onMemberMakeAlternative(absIndex)}
                 onClose={() => onToggleMemberMenu(absIndex)}
               />
             ) : null}

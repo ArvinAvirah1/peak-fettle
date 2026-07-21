@@ -565,7 +565,7 @@ export default function ProgressScreen(): React.ReactElement {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <ScreenLayout scrollable>
+    <ScreenLayout scrollable edges={['bottom']}>
       {/* ── 1. Consistency score ── */}
       <View style={[styles.consistencyBlock, { marginTop: spacing.s4 }]}>
         {loading ? (

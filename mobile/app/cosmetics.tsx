@@ -597,7 +597,7 @@ export default function CosmeticsScreen(): React.ReactElement {
   const isInitialising = streakLoading || equippedLoading;
 
   return (
-    <ScreenLayout>
+    <ScreenLayout edges={['bottom']}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ padding: spacing.s4, paddingBottom: spacing.s12 }}

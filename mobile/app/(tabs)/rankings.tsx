@@ -826,7 +826,7 @@ export default function RankingsScreen(): React.ReactElement {
   return (
     // P2-005: ScreenLayout replaces the raw View + SafeAreaView.
     // horizontalPadding={false} — scrollContent manages its own padding.
-    <ScreenLayout horizontalPadding={false}>
+    <ScreenLayout horizontalPadding={false} edges={[]}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         refreshControl={

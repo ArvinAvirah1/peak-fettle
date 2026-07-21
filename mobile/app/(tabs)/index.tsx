@@ -787,7 +787,7 @@ export default function HomeScreen(): React.ReactElement {
   const hasTodaySets = todaySets.length > 0;
 
   return (
-    <ScreenLayout horizontalPadding={false}>
+    <ScreenLayout horizontalPadding={false} edges={[]}>
     <ScrollView
       style={styles.container}
       contentContainerStyle={[styles.content, { paddingHorizontal: sp.s5, paddingTop: sp.s6, paddingBottom: sp.s8 }]}

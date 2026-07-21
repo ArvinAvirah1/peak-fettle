@@ -488,7 +488,7 @@ export default function ProgressPhotosScreen(): React.ReactElement {
   const selectedPhoto = photos.find((p) => compareSelection.length === 1 && p.id === compareSelection[0]) ?? null;
 
   return (
-    <ScreenLayout scrollable={false} contentStyle={styles.content}>
+    <ScreenLayout scrollable={false} contentStyle={styles.content} edges={['bottom']}>
       <Text style={[styles.sub, { color: theme.colors.textSecondary }]}>
         {t('screens2:progressPhotos.subtitle')}
       </Text>
