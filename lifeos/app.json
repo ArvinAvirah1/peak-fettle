@@ -56,7 +56,8 @@
         }
       ],
       "./plugins/withFamilyControls",
-      "@bacons/apple-targets"
+      "@bacons/apple-targets",
+      "@sentry/react-native"
     ],
     "experiments": {
       "typedRoutes": false

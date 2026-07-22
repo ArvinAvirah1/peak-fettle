@@ -45,6 +45,7 @@ import {
 import {
   displayToCm,
   cmToInputValue,
+  cmToIn,
   parseLengthInput,
   formatLength,
 } from '../src/constants/units';
@@ -254,7 +255,7 @@ export default function MeasurementsScreen(): React.ReactElement {
 
   const chartValues = useMemo(() => {
     if (isPercent) return history.map((h) => h.value);
-    return history.map((h) => (lengthUnit === 'in' ? h.value / 2.54 : h.value));
+    return history.map((h) => (lengthUnit === 'in' ? cmToIn(h.value) : h.value));
   }, [history, isPercent, lengthUnit]);
 
   const unitLabel = isPercent ? '%' : lengthUnit;

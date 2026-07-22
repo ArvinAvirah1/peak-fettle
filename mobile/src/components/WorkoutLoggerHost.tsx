@@ -991,10 +991,10 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
                   selectedExercise?.name ?? '';
                 const unitLabel = unitPref === 'lbs' ? 'lb' : 'kg';
                 const dispE1rm = unitPref === 'lbs'
-                  ? Math.round(newE1rm * 2.20462 * 10) / 10
+                  ? Math.round(kgToLbs(newE1rm) * 10) / 10
                   : Math.round(newE1rm * 10) / 10;
                 const dispPrior = unitPref === 'lbs'
-                  ? Math.round(priorE1rm * 2.20462 * 10) / 10
+                  ? Math.round(kgToLbs(priorE1rm) * 10) / 10
                   : Math.round(priorE1rm * 10) / 10;
                 setPrToast({
                   exerciseName: exName,

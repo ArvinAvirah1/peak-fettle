@@ -80,7 +80,8 @@
         }
       ],
       "@bacons/apple-targets",
-      "expo-localization"
+      "expo-localization",
+      "@sentry/react-native"
     ],
     "scheme": [
       "peak-fettle",

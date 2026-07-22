@@ -8,6 +8,7 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "lint": "eslint . --ext .ts,.tsx",
+    "invariants": "node ../peak-fettle-agents/server/scripts/invariant-sweep.js",
     "format": "prettier --write '**/*.{ts,tsx,json}'",
     "postinstall": "patch-package"
   },
@@ -19,6 +20,7 @@
     "@powersync/common": "~1.18.0",
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-community/netinfo": "11.4.1",
+    "@sentry/react-native": "~7.2.0",
     "ajv": "^8.20.0",
     "axios": "^1.7.9",
     "buffer": "^6.0.3",

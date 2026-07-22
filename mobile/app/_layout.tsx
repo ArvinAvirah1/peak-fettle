@@ -56,6 +56,7 @@ import { localDb } from '../src/db/localDb'; // warm on-device SQLite once at ro
 import { startPerfMonitor } from '../src/diagnostics/perfMonitor';
 import { parseRoutineShareUrl, importSharedRoutine } from '../src/data/shareLinks'; // TICKET-138
 import { runBadgeEvaluation } from '../src/data/badges/evaluator'; // TICKET-143
+import { initObservability } from '../src/observability/sentry'; // 2026-07-21 crash reporting
 
 // Perf diagnostics (2026-07-02): start at BUNDLE EVAL, before first render, so
 // the boot window - where the free-tier freeze lives - is captured. JS-only
@@ -178,6 +179,17 @@ function RootNavigator(): React.ReactElement {
   useEffect(() => {
     const task = InteractionManager.runAfterInteractions(() => {
       void applyStoredLanguage();
+    });
+    return () => task.cancel();
+  }, []);
+
+  // Crash reporting (2026-07-21): hard no-op until EXPO_PUBLIC_SENTRY_DSN is
+  // set at build time (src/observability/sentry.ts). Sentry.init touches
+  // native TurboModules, so it stays off the fragile boot frame like every
+  // other native call in this file.
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      initObservability();
     });
     return () => task.cancel();
   }, []);

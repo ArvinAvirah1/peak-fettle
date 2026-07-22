@@ -12,7 +12,7 @@
  */
 
 import React, { useEffect } from 'react';
-import { AppState } from 'react-native';
+import { AppState, InteractionManager } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
@@ -25,6 +25,7 @@ import { blocking, isBlockingAvailable } from '../src/native/blocking';
 import { consumePendingRelock } from '../modules/live-activity';
 import { listFocusConfigs } from '../src/data/focus';
 import { startWidgetBridge } from '../src/services/widgetBridge';
+import { initObservability } from '../src/observability/sentry'; // 2026-07-21 crash reporting
 
 function PendingUnlockWatcher(): null {
   const router = useRouter();
@@ -112,6 +113,17 @@ export default function RootLayout(): React.ReactElement {
     // self-guarded) so the first payload build queries an initialised DB. The
     // bridge then re-publishes on watched-table changes (TICKET-116).
     void localDb.init().then(() => startWidgetBridge());
+  }, []);
+
+  // Crash reporting (2026-07-21): hard no-op until EXPO_PUBLIC_SENTRY_DSN is
+  // set at build time (src/observability/sentry.ts). Deferred off the boot
+  // frame — Sentry.init touches native modules, and the sibling app has a
+  // documented iOS-26 boot-frame TurboModule crash class.
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => {
+      initObservability();
+    });
+    return () => task.cancel();
   }, []);
 
   return (

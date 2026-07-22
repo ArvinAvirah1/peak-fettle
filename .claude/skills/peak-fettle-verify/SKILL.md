@@ -16,6 +16,7 @@ A roadmap that says "reviewed manually / no defects remain" is **not** verificat
 
 1. **Parse-sweep the JS/TS surface** with `@babel/parser` (`jsx` + `typescript` plugins) across `mobile/app`, `mobile/src`, AND `peak-fettle-agents/server`. Report every file that fails to parse — not just the first.
 2. **`node --check`** every server `.js` under `peak-fettle-agents/server` and `peak-fettle-agents/cron`.
+2b. **Invariant sweep** (added 2026-07-21): `node peak-fettle-agents/server/scripts/invariant-sweep.js` — fails on (a) value-imports of `api/*` from screens/components outside the audited local-first allowlist, and (b) inlined unit-conversion literals (2.20462 / 2.54 / …) outside `mobile/src/constants/units.ts`. These are the two most-repeated P0 families; the sweep is the structural enforcement CLAUDE.md #1/#2 used to leave to grep discipline.
 3. **Scan for null bytes** (OneDrive injects them after writes — L-026): flag any tracked source file containing a `\0`.
 4. **Recover broken files from git** only after verifying the blob parses: `git show HEAD:<path>` — and if HEAD is itself corrupt (CORRUPT-001), walk `git log --format=%h -- <path>` and parse each blob to find the newest one that compiles.
 5. **Migration cross-check**: for any `RETURNING`/`SELECT` touched this pass, confirm every referenced column exists in an *applied* migration (L-017, L-024). An undeployed column = always-500 on the whole tab.

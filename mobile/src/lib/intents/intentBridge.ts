@@ -67,7 +67,7 @@ import {
   StartRestPlan,
   INTENT_MESSAGES,
 } from './intentHandlers';
-import { UnitSystem } from '../../constants/units';
+import { UnitSystem, kgToLbs } from '../../constants/units';
 import { localDb, genId } from '../../db/localDb';
 import { ensureLocalWorkoutForDay, stampLocalRoutineName } from '../../data/localWorkouts';
 import { rememberExerciseName, getExerciseNameMap } from '../../data/exerciseNames';
@@ -399,7 +399,7 @@ async function dispatchRawAction(raw: RawIntentAction): Promise<IntentDispatchRe
 }
 
 function displayWeight(weightKg: number): string {
-  return ctx.unitPref === 'lbs' ? `${Math.round(weightKg * 2.20462)} lbs` : `${weightKg} kg`;
+  return ctx.unitPref === 'lbs' ? `${Math.round(kgToLbs(weightKg))} lbs` : `${weightKg} kg`;
 }
 
 // ---------------------------------------------------------------------------

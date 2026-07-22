@@ -37,7 +37,7 @@ import { getExerciseProgress, ProgressPoint, ProgressSeries } from '../api/progr
 import { getLocalExerciseProgress } from '../data/localProgress';
 import { isLocalFirst } from '../data/backup/tierPolicy';
 import { useAuth } from '../hooks/useAuth';
-import { formatWeight } from '../constants/units';
+import { formatWeight, kgToLbs } from '../constants/units';
 import { useTheme } from '../theme/ThemeContext';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
@@ -79,7 +79,7 @@ function formatAxisValue(
 ): string {
   if (metric === 'bestReps') return String(Math.round(value));
   if (metric === 'volume') {
-    if (unitPref === 'lbs') return `${Math.round(value * 2.20462)} lbs`;
+    if (unitPref === 'lbs') return `${Math.round(kgToLbs(value))} lbs`;
     return `${Math.round(value)} kg`;
   }
   // e1rm and topWeight — formatWeight expects kg, handles conversion

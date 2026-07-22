@@ -16,3 +16,5 @@ jobs:
         run: npm ci --prefix mobile
       - name: Run parse sweep
         run: node peak-fettle-agents/server/scripts/parse-sweep.js
+      - name: Run invariant sweep (local-first + units)
+        run: node peak-fettle-agents/server/scripts/invariant-sweep.js
