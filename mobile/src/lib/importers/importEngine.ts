@@ -36,7 +36,7 @@
 
 import { localDb, genId } from '../../db/localDb';
 import { rememberExerciseName } from '../../data/exerciseNames';
-import { displayToKg, UnitSystem } from '../../constants/units';
+import { displayToKg, displayToCenti, UnitSystem } from '../../constants/units';
 import { matchExerciseName, MatchCandidate, rirFromRpe } from './nameMapping';
 import { ImportSource, ImportSummary, ParsedImportFile, RawImportedSet } from './types';
 
@@ -98,6 +98,19 @@ export function resolveWeightKg(
 ): number {
   if (source === 'hevy') return weightRaw;
   return displayToKg(weightRaw, unitPref);
+}
+
+/**
+ * The unit the source file's weight values are expressed in — used to store
+ * the fixed-point exact entry (v18 weight_centi/weight_unit) alongside the
+ * canonical kg. Hevy exports kg; Strong exports the user's display unit
+ * (best-signalled by the app's unit_pref, same assumption as resolveWeightKg).
+ */
+export function resolveSourceUnit(
+  source: ImportSource,
+  unitPref: UnitSystem,
+): UnitSystem {
+  return source === 'hevy' ? 'kg' : unitPref;
 }
 
 // ---------------------------------------------------------------------------
@@ -294,6 +307,9 @@ export async function importParsedFile(
           setIndex,
           reps: row.reps,
           weightKg,
+          // Fixed-point exact entry: the file's value × 100 in the file's unit.
+          weightCenti: displayToCenti(row.weightRaw),
+          weightUnit: resolveSourceUnit(parsed.source, opts.unitPref),
           rir,
           loggedAt,
         });
@@ -361,6 +377,10 @@ interface InsertSetArgs {
   setIndex: number;
   reps: number;
   weightKg: number;
+  /** Fixed-point exact entry: file value × 100 in the file's unit (v18). */
+  weightCenti: number;
+  /** Unit the file's weight values are in ('kg' | 'lbs'). */
+  weightUnit: UnitSystem;
   rir: number | null;
   loggedAt: string;
 }
@@ -369,14 +389,15 @@ async function insertSetRow(args: InsertSetArgs): Promise<void> {
   const localId = genId();
   const COLS =
     `(id, server_id, workout_id, user_id, exercise_id, kind, set_index, ` +
-    `reps, weight_raw, weight_kg, rir, duration_sec, distance_m, avg_pace_sec_per_km, ` +
+    `reps, weight_raw, weight_kg, weight_centi, weight_unit, rir, duration_sec, distance_m, avg_pace_sec_per_km, ` +
     `logged_at, synced)`;
   await localDb.execute(
     `INSERT INTO sets ${COLS}
-     VALUES (?, NULL, ?, ?, ?, 'lift', ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, 0)`,
+     VALUES (?, NULL, ?, ?, ?, 'lift', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, 0)`,
     [
       localId, args.workoutId, args.userId, args.exerciseId, args.setIndex,
       args.reps, encodeWeightRaw(args.weightKg), args.weightKg,
+      args.weightCenti, args.weightUnit,
       args.rir, args.loggedAt,
     ],
     { tables: ['sets'] },

@@ -49,6 +49,8 @@ interface SetRow {
   reps: number | null;
   weight_raw: number | null;
   weight_kg: number | null;  // REAL exact kg (v3); preferred over weight_raw
+  weight_centi: number | null; // INTEGER entered value × 100 in entered unit (v18)
+  weight_unit: string | null;  // 'kg' | 'lbs' — unit the entry was typed in (v18)
   rir: number | null;
   duration_sec: number | null;
   distance_m: number | null;
@@ -77,6 +79,8 @@ function rowToSet(row: SetRow): WorkoutSet {
       set_index: row.set_index,
       reps: row.reps ?? 0,
       weight_kg: row.weight_kg != null ? row.weight_kg : (row.weight_raw != null ? row.weight_raw / 8 : 0),
+      weight_centi: row.weight_centi ?? null,
+      weight_unit: row.weight_unit ?? null,
       rir: row.rir,
       logged_at: row.logged_at,
     } as LiftSet;
@@ -176,17 +180,19 @@ export function useWorkout(): UseWorkoutResult {
         const loggedAt = new Date().toISOString();
         const COLS =
           `(id, server_id, workout_id, user_id, exercise_id, kind, set_index, ` +
-          `reps, weight_raw, weight_kg, rir, duration_sec, distance_m, avg_pace_sec_per_km, ` +
+          `reps, weight_raw, weight_kg, weight_centi, weight_unit, rir, duration_sec, distance_m, avg_pace_sec_per_km, ` +
           `logged_at, synced)`;
 
         let newSet: WorkoutSet;
         if (payload.kind === 'lift') {
           await localDb.execute(
-            // weight_kg = exact entered kg (source of truth); weight_raw derived.
+            // weight_centi/weight_unit = EXACT typed entry (v18); weight_kg =
+            // exact kg for computation; weight_raw derived (legacy percentile).
             `INSERT INTO sets ${COLS}
-             VALUES (?, NULL, ?, ?, ?, 'lift', ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, 0)`,
+             VALUES (?, NULL, ?, ?, ?, 'lift', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, 0)`,
             [localId, workout.id, userId, payload.exerciseId, payload.setIndex,
              payload.reps, encodeWeightRaw(payload.weightKg), payload.weightKg,
+             payload.weightCenti ?? null, payload.weightUnit ?? null,
              payload.rir ?? null, loggedAt],
             { tables: ['sets'] }
           );
@@ -194,13 +200,16 @@ export function useWorkout(): UseWorkoutResult {
             id: localId, workout_id: workout.id, user_id: userId,
             exercise_id: payload.exerciseId, kind: 'lift',
             set_index: payload.setIndex, reps: payload.reps,
-            weight_kg: payload.weightKg, rir: payload.rir ?? null,
+            weight_kg: payload.weightKg,
+            weight_centi: payload.weightCenti ?? null,
+            weight_unit: payload.weightUnit ?? null,
+            rir: payload.rir ?? null,
             logged_at: loggedAt,
           } as LiftSet;
         } else {
           await localDb.execute(
             `INSERT INTO sets ${COLS}
-             VALUES (?, NULL, ?, ?, ?, 'cardio', ?, NULL, NULL, NULL, NULL, ?, ?, ?, ?, 0)`,
+             VALUES (?, NULL, ?, ?, ?, 'cardio', ?, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?, ?, ?, 0)`,
             [localId, workout.id, userId, payload.exerciseId, payload.setIndex,
              payload.durationSec, payload.distanceM ?? null,
              payload.avgPaceSecPerKm ?? null, loggedAt],

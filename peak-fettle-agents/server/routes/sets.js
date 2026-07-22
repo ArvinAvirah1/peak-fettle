@@ -91,6 +91,13 @@ const LiftSetSchema = z.object({
     reps: z.number().int().min(1),
     // weight ceiling = max SMALLINT (32767) ÷ 8 = 4095.875 kg
     weightKg: z.number().min(0).max(4095.875),
+    // Fixed-point exact entry (2026-07-21): typed value × 100 in the typed
+    // unit (50 lb → 5000). Ceiling mirrors the kg cap (4095.875 kg ≈ 9029 lb
+    // → 902,900 centi-lb). Stored verbatim when the prod DB has the columns
+    // (migrations/20260721_sets_weight_centi.sql); ignored-but-accepted
+    // otherwise so older prod schemas keep working.
+    weightCenti: z.number().int().min(0).max(1000000).optional(),
+    weightUnit: z.enum(['kg', 'lbs']).optional(),
     // rir range matches DB CHECK: -1 (not recorded), 0 (to failure), 1–10
     rir: z.number().int().min(-1).max(10).optional(),
     note: noteField,
@@ -154,22 +161,36 @@ router.post('/', async (req, res, next) => {
             body.loggedAt ?? null,
         ];
 
+        // Fixed-point exact entry (2026-07-21): stored ONLY when both halves
+        // arrived together — a centi value without its unit is meaningless.
+        const hasExactEntry =
+            body.kind === 'lift' && body.weightCenti != null && body.weightUnit != null;
+        const exactParams = [
+            hasExactEntry ? body.weightCenti : null,
+            hasExactEntry ? body.weightUnit : null,
+        ];
+
         try {
-            // TICKET-129: try the note/flags-aware INSERT first.
+            // Tier 1: full INSERT — weight_centi/weight_unit + note/flags.
             const { rows } = await pool.query(
                 `INSERT INTO sets
                     (workout_id, user_id, exercise_id, kind, set_index,
                      reps, weight_raw, rir,
                      duration_sec, distance_m, avg_pace_sec_per_km,
-                     note, flags, logged_at)
+                     note, flags,
+                     weight_centi, weight_unit,
+                     logged_at)
                  VALUES ($1, $2, $3, $4, $5,
                          $6, $7, $8,
                          $9, $10, $11,
-                         $12, $13, COALESCE($14, now()))
+                         $12, $13,
+                         $14, $15,
+                         COALESCE($16, now()))
                  RETURNING id, workout_id, user_id, exercise_id, kind, set_index,
                            reps, weight_raw, rir,
                            duration_sec, distance_m, avg_pace_sec_per_km,
                            note, flags,
+                           weight_centi, weight_unit,
                            logged_at`,
                 // NOTE (2026-06-01): removed `is_pr` from RETURNING — there is no
                 // is_pr column on `sets` in any migration, so this RETURNING 500'd
@@ -177,34 +198,60 @@ router.post('/', async (req, res, next) => {
                 // is derived client-side in useWorkoutHistory.ts (prIds.has(set.id))
                 // against the exercise_prs table; it is NOT a column on sets and the
                 // client never reads it from this response. See TICKET-068 / L-017.
-                insertParams
+                insertParams.slice(0, 13).concat(exactParams, [body.loggedAt ?? null])
             );
             // Decode weight_raw → weight_kg before returning to client
             return res.status(201).json(normalizeSet(rows[0]));
         } catch (err) {
             // Drift guard (CLAUDE.md §4): a prod DB that hasn't yet run the
-            // note/flags migration 42703s on the new columns — degrade to the
-            // pre-129 INSERT rather than 500ing every set log for every user.
+            // 20260721 weight_centi migration 42703s on the new columns —
+            // degrade to the note/flags INSERT (Tier 2), and a DB that predates
+            // even the note/flags migration degrades again to the pre-129 shape
+            // (Tier 3) rather than 500ing every set log for every user.
             if (!isMissingSchema(err)) throw err;
-            const { rows } = await pool.query(
-                `INSERT INTO sets
-                    (workout_id, user_id, exercise_id, kind, set_index,
-                     reps, weight_raw, rir,
-                     duration_sec, distance_m, avg_pace_sec_per_km,
-                     logged_at)
-                 VALUES ($1, $2, $3, $4, $5,
-                         $6, $7, $8,
-                         $9, $10, $11,
-                         COALESCE($12, now()))
-                 RETURNING id, workout_id, user_id, exercise_id, kind, set_index,
-                           reps, weight_raw, rir,
-                           duration_sec, distance_m, avg_pace_sec_per_km,
-                           logged_at`,
-                // logged_at exists in every deployed schema (it's in RETURNING
-                // above) — only note/flags are drift-guarded out here.
-                insertParams.slice(0, 11).concat([body.loggedAt ?? null])
-            );
-            return res.status(201).json(normalizeSet(rows[0]));
+            try {
+                // Tier 2: note/flags-aware INSERT (pre-weight_centi prod).
+                const { rows } = await pool.query(
+                    `INSERT INTO sets
+                        (workout_id, user_id, exercise_id, kind, set_index,
+                         reps, weight_raw, rir,
+                         duration_sec, distance_m, avg_pace_sec_per_km,
+                         note, flags, logged_at)
+                     VALUES ($1, $2, $3, $4, $5,
+                             $6, $7, $8,
+                             $9, $10, $11,
+                             $12, $13, COALESCE($14, now()))
+                     RETURNING id, workout_id, user_id, exercise_id, kind, set_index,
+                               reps, weight_raw, rir,
+                               duration_sec, distance_m, avg_pace_sec_per_km,
+                               note, flags,
+                               logged_at`,
+                    insertParams
+                );
+                return res.status(201).json(normalizeSet(rows[0]));
+            } catch (err2) {
+                if (!isMissingSchema(err2)) throw err2;
+                // Tier 3: pre-129 INSERT (no note/flags either).
+                const { rows } = await pool.query(
+                    `INSERT INTO sets
+                        (workout_id, user_id, exercise_id, kind, set_index,
+                         reps, weight_raw, rir,
+                         duration_sec, distance_m, avg_pace_sec_per_km,
+                         logged_at)
+                     VALUES ($1, $2, $3, $4, $5,
+                             $6, $7, $8,
+                             $9, $10, $11,
+                             COALESCE($12, now()))
+                     RETURNING id, workout_id, user_id, exercise_id, kind, set_index,
+                               reps, weight_raw, rir,
+                               duration_sec, distance_m, avg_pace_sec_per_km,
+                               logged_at`,
+                    // logged_at exists in every deployed schema (it's in RETURNING
+                    // above) — only note/flags/weight_centi are drift-guarded out.
+                    insertParams.slice(0, 11).concat([body.loggedAt ?? null])
+                );
+                return res.status(201).json(normalizeSet(rows[0]));
+            }
         }
     } catch (err) { next(err); }
 });

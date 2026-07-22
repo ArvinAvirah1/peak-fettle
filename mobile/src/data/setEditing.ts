@@ -31,6 +31,10 @@ export interface LiftSetEdit {
   setIndex: number;
   /** Corrected weight in EXACT kilograms (already unit-converted by the caller). */
   weightKg: number;
+  /** Fixed-point exact entry: typed value × 100 in the typed unit (v18). */
+  weightCenti?: number | null;
+  /** Unit the corrected weight was typed in ('kg' | 'lbs'). */
+  weightUnit?: 'kg' | 'lbs' | null;
   /** Corrected rep count. */
   reps: number;
   /** Corrected RIR, or null/undefined to leave unset. */
@@ -50,8 +54,10 @@ export async function updateLiftSet(
   if (isLocalFirst(user)) {
     await localDb.init();
     await localDb.execute(
-      `UPDATE sets SET weight_kg = ?, weight_raw = ?, reps = ?, rir = ? WHERE id = ?`,
-      [edit.weightKg, encodeWeightRaw(edit.weightKg), edit.reps, edit.rir ?? null, edit.id],
+      `UPDATE sets SET weight_kg = ?, weight_raw = ?, weight_centi = ?, weight_unit = ?, reps = ?, rir = ? WHERE id = ?`,
+      [edit.weightKg, encodeWeightRaw(edit.weightKg),
+       edit.weightCenti ?? null, edit.weightUnit ?? null,
+       edit.reps, edit.rir ?? null, edit.id],
       { tables: ['sets'] },
     );
     return;
@@ -67,6 +73,9 @@ export async function updateLiftSet(
     setIndex: edit.setIndex,
     reps: edit.reps,
     weightKg: edit.weightKg,
+    ...(edit.weightCenti != null && edit.weightUnit != null
+      ? { weightCenti: edit.weightCenti, weightUnit: edit.weightUnit }
+      : {}),
     ...(edit.rir != null ? { rir: edit.rir } : {}),
   });
   await apiDeleteSet(edit.id);

@@ -112,6 +112,14 @@ export interface LiftSet {
   set_index: number;
   reps: number;
   weight_kg: number;
+  /**
+   * Fixed-point exact entry (2026-07-21): the value the user TYPED × 100 in
+   * the unit they typed it (50 lb → 5000, 82.5 kg → 8250). Null on legacy
+   * rows / servers that predate the columns — display falls back to weight_kg.
+   */
+  weight_centi?: number | null;
+  /** Unit the weight_centi entry was typed in ('kg' | 'lbs'). */
+  weight_unit?: string | null;
   /** Reps-in-Reserve. -1 = not recorded, 0 = to failure. */
   rir: number | null;
   /** TICKET-129: free-text note attached to this set. Null if none. */
@@ -154,6 +162,14 @@ export interface LogLiftSetPayload {
   setIndex: number;
   reps: number;
   weightKg: number;
+  /**
+   * Fixed-point exact entry (2026-07-21): typed value × 100 in the typed unit
+   * (displayToCenti). Optional for back-compat; every logging surface should
+   * send it so the entry reads back exactly as typed.
+   */
+  weightCenti?: number;
+  /** Unit the user typed the weight in ('kg' | 'lbs'). */
+  weightUnit?: 'kg' | 'lbs';
   rir?: number;
   /** TICKET-129: optional free-text note (max 500 chars server-side). */
   note?: string;

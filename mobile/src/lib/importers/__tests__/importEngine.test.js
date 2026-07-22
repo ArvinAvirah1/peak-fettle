@@ -93,10 +93,13 @@ function makeFakeLocalDb() {
         return;
       }
       if (norm.startsWith('INSERT INTO sets')) {
-        const [id, workoutId, userId, exerciseId, setIndex, reps, weightRaw, weightKg, rir, loggedAt] = params;
+        // v18: two fixed-point exact-entry params (weight_centi, weight_unit)
+        // sit between weight_kg and rir — mirror insertSetRow's param order.
+        const [id, workoutId, userId, exerciseId, setIndex, reps, weightRaw, weightKg, weightCenti, weightUnit, rir, loggedAt] = params;
         sets.push({
           id, server_id: null, workout_id: workoutId, user_id: userId, exercise_id: exerciseId,
           kind: 'lift', set_index: setIndex, reps, weight_raw: weightRaw, weight_kg: weightKg,
+          weight_centi: weightCenti, weight_unit: weightUnit,
           rir, duration_sec: null, distance_m: null, avg_pace_sec_per_km: null,
           logged_at: loggedAt, synced: 0,
         });

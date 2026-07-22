@@ -46,6 +46,10 @@ export interface BackdateSetEntry {
   exerciseName: string;
   reps: number;
   weightKg: number;
+  /** Fixed-point exact entry: typed value × 100 in the typed unit (v18). */
+  weightCenti?: number | null;
+  /** Unit the weight was typed in ('kg' | 'lbs'). */
+  weightUnit?: 'kg' | 'lbs' | null;
   rir?: number | null;
 }
 
@@ -87,7 +91,7 @@ export function noonIsoForDayKey(dayKey: string): string {
 
 const SET_COLS =
   `(id, server_id, workout_id, user_id, exercise_id, kind, set_index, ` +
-  `reps, weight_raw, weight_kg, rir, duration_sec, distance_m, avg_pace_sec_per_km, ` +
+  `reps, weight_raw, weight_kg, weight_centi, weight_unit, rir, duration_sec, distance_m, avg_pace_sec_per_km, ` +
   `logged_at, synced)`;
 
 // ---------------------------------------------------------------------------
@@ -121,10 +125,11 @@ export async function logBackdatedWorkout(
       const e = entries[i]!;
       await localDb.execute(
         `INSERT INTO sets ${SET_COLS}
-         VALUES (?, NULL, ?, ?, ?, 'lift', ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, 0)`,
+         VALUES (?, NULL, ?, ?, ?, 'lift', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, 0)`,
         [
           genId(), workout.id, userId, e.exerciseId, i,
           e.reps, encodeWeightRaw(e.weightKg), e.weightKg,
+          e.weightCenti ?? null, e.weightUnit ?? null,
           e.rir ?? null, loggedAt,
         ],
         { tables: ['sets'] },
@@ -154,6 +159,9 @@ export async function logBackdatedWorkout(
       setIndex: i,
       reps: e.reps,
       weightKg: e.weightKg,
+      ...(e.weightCenti != null && e.weightUnit != null
+        ? { weightCenti: e.weightCenti, weightUnit: e.weightUnit }
+        : {}),
       ...(e.rir != null && { rir: e.rir }),
       loggedAt,
     };
@@ -165,10 +173,11 @@ export async function logBackdatedWorkout(
       try {
         await localDb.execute(
           `INSERT OR REPLACE INTO sets ${SET_COLS}
-           VALUES (?, ?, ?, ?, ?, 'lift', ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, 1)`,
+           VALUES (?, ?, ?, ?, ?, 'lift', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, 1)`,
           [
             serverSet.id, serverSet.id, workout.id, userId, e.exerciseId, i,
             e.reps, encodeWeightRaw(e.weightKg), e.weightKg,
+            e.weightCenti ?? null, e.weightUnit ?? null,
             e.rir ?? null, loggedAt,
           ],
           { tables: ['sets'] },

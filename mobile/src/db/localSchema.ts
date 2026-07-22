@@ -963,3 +963,29 @@ export const SCHEMA_V17_STATEMENTS: MigrationStatement[] = [
   CREATE_EXERCISE_SUBSTITUTES,
   CREATE_EXERCISE_SUBSTITUTES_SOURCE_IDX,
 ];
+
+// ---------------------------------------------------------------------------
+// v18 statements — fixed-point exact weight entry ("dollars and cents").
+//
+// The founder's rounding fix (2026-07-21): whatever the user types is stored
+// EXACTLY as an integer, immune to float dust and unit round-trips:
+//   • sets.weight_centi INTEGER — entered value × 100 in the ENTERED unit
+//     (50 lb → 5000, 82.5 kg → 8250).
+//   • sets.weight_unit  TEXT    — 'kg' | 'lbs' — the unit the user entered in.
+//
+// weight_kg (v3 exact kg) REMAINS the canonical computational value — 1RM,
+// volume, percentiles, engine, and server sync all still read kg via
+// COALESCE(weight_kg, weight_raw/8.0). centi + unit are the DISPLAY/EDIT
+// source of truth: a lbs user's 186.7 reads back as exactly 186.7 (the old
+// display path quarter-lb-rounded it to 186.75). Conversion happens ONLY in
+// constants/units.ts (displayToCenti to store, centiToKg for the derived kg,
+// formatSetWeight / setWeightToInputValue to read).
+//
+// No backfill: the entry unit of historical rows is unknowable, so legacy rows
+// keep weight_centi NULL and readers fall back to weight_kg (2-decimal exact
+// for every v3+ row). Guarded ALTER ADD COLUMN — same idempotency pattern as
+// v3/v4/v6/v8/v11/v15/v16. Added 2026-07-21.
+export const SCHEMA_V18_STATEMENTS: MigrationStatement[] = [
+  { type: 'alter_add_column', table: 'sets', column: 'weight_centi', definition: 'INTEGER' },
+  { type: 'alter_add_column', table: 'sets', column: 'weight_unit', definition: 'TEXT' },
+];

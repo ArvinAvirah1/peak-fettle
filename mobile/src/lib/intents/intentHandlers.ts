@@ -42,7 +42,7 @@
  *     result with user-facing copy Siri can speak back — never throws.
  */
 
-import { UnitSystem, displayToKg, parseWeightInput } from '../../constants/units';
+import { UnitSystem, displayToKg, displayToCenti, parseWeightInput } from '../../constants/units';
 
 // ---------------------------------------------------------------------------
 // Shared result shape
@@ -99,6 +99,10 @@ export interface LogSetPlan {
   reps: number;
   /** Exact kilograms — already converted via displayToKg(). */
   weightKg: number;
+  /** Fixed-point exact entry: spoken value × 100 in the spoken unit (v18). */
+  weightCenti: number;
+  /** Unit the weight was spoken/typed in ('kg' | 'lbs'). */
+  weightUnit: UnitSystem;
   loggedAt: string; // ISO, derived from deps.now
 }
 
@@ -167,6 +171,8 @@ export function handleLogSetIntent(
       exerciseName: exercise.name,
       reps: Math.round(reps),
       weightKg,
+      weightCenti: displayToCenti(rawWeight),
+      weightUnit: deps.unitPref,
       loggedAt: deps.now.toISOString(),
     },
   };

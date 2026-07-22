@@ -195,15 +195,15 @@ function eq(a, b, msg) {
     await runMigrations(db);
     const v2 = db._pragmas.user_version;
     eq(v1, v2, 'version changed on second run:');
-    eq(v1, 17, 'expected version 17:');
+    eq(v1, 18, 'expected version 18:');
   });
 
   // 2. Fresh install reaches the latest version
-  await test('fresh install reaches user_version 17', async () => {
+  await test('fresh install reaches user_version 18', async () => {
     const db = makeStubDb();
     eq(db._pragmas.user_version, 0, 'starts at 0:');
     await runMigrations(db);
-    eq(db._pragmas.user_version, 17, 'should be 17 after migration:');
+    eq(db._pragmas.user_version, 18, 'should be 18 after migration:');
   });
 
   // 3. v2 tables created (10 spot-checked)
@@ -319,7 +319,7 @@ function eq(a, b, msg) {
 
     await runMigrations(db);
 
-    eq(db._pragmas.user_version, 17, 'should reach 17 from a v10 baseline:');
+    eq(db._pragmas.user_version, 18, 'should reach 18 from a v10 baseline:');
     assert(db._tableColumns['sets'].has('note'), 'v10->v11 upgrade missing sets.note');
     assert(db._tableColumns['sets'].has('flags'), 'v10->v11 upgrade missing sets.flags');
     assert(db._createdTables.has('body_measurements'), 'v11->v12 upgrade missing body_measurements');
@@ -383,7 +383,7 @@ function eq(a, b, msg) {
     const db = makeStubDb();
     db._pragmas.user_version = 13;
     await runMigrations(db);
-    eq(db._pragmas.user_version, 17, 'should reach 17 from a v13 baseline:');
+    eq(db._pragmas.user_version, 18, 'should reach 18 from a v13 baseline:');
     assert(db._createdTables.has('badges_earned'), 'v13->v16 upgrade missing badges_earned');
     const cols = db._tableColumns['exercise_prefs'];
     assert(cols && cols.has('autoreg_muted'), 'v13->v16 upgrade missing exercise_prefs.autoreg_muted');
@@ -426,11 +426,40 @@ function eq(a, b, msg) {
     db._pragmas.user_version = 16;
     db._executedSql.length = 0;
     await runMigrations(db);
-    eq(db._pragmas.user_version, 17, 'should reach 17 from a v16 baseline:');
+    eq(db._pragmas.user_version, 18, 'should reach 18 from a v16 baseline:');
     assert(db._createdTables.has('exercise_substitutes'), 'v16->v17 upgrade missing exercise_substitutes');
     assert(
       !db._executedSql.some((s) => /CREATE TABLE IF NOT EXISTS badges_earned/i.test(s)),
       'v16->v17 upgrade re-ran an already-applied migration (badges_earned)'
+    );
+  });
+
+  // 3p. Fixed-point exact weight entry: v18 guarded ALTERs land
+  // sets.weight_centi + sets.weight_unit on a fresh install.
+  await test('fresh install adds sets.weight_centi and sets.weight_unit (v18)', async () => {
+    const db = makeStubDb();
+    await runMigrations(db);
+    const cols = db._tableColumns['sets'];
+    assert(cols, 'sets has no recorded columns');
+    assert(cols.has('weight_centi'), 'sets.weight_centi column missing after v18 migration');
+    assert(cols.has('weight_unit'), 'sets.weight_unit column missing after v18 migration');
+  });
+
+  // 3q. v17->v18 upgrade path — a DB already at user_version 17 applies ONLY
+  // v18 and lands the two exact-weight columns (fresh-install AND vN->vN+1
+  // upgrade DoD, same pattern as 3h/3l/3o).
+  await test('v17->v18 upgrade path applies only the new migration', async () => {
+    const db = makeStubDb();
+    db._pragmas.user_version = 17;
+    db._executedSql.length = 0;
+    await runMigrations(db);
+    eq(db._pragmas.user_version, 18, 'should reach 18 from a v17 baseline:');
+    const cols = db._tableColumns['sets'];
+    assert(cols && cols.has('weight_centi'), 'v17->v18 upgrade missing sets.weight_centi');
+    assert(cols && cols.has('weight_unit'), 'v17->v18 upgrade missing sets.weight_unit');
+    assert(
+      !db._executedSql.some((s) => /CREATE TABLE IF NOT EXISTS exercise_substitutes/i.test(s)),
+      'v17->v18 upgrade re-ran an already-applied migration (exercise_substitutes)'
     );
   });
 

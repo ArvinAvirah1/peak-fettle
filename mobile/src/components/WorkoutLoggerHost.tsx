@@ -73,7 +73,7 @@ import { loadLocalProfile } from '../data/profile';
 import { useTheme } from '../theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
 import { haptics } from '../utils/haptics';
-import { formatWeight, kgToLbs, roundToNearestQuarterLb, displayToKg, parseWeightInput } from '../constants/units';
+import { formatWeight, kgToLbs, roundToNearestQuarterLb, displayToKg, displayToCenti, parseWeightInput } from '../constants/units';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getRoutine } from '../data/routines';
 import { getRestTimerDefaultSec, getGroupRestMode, GroupRestMode } from '../data/appSettings'; // P1b — device-local rest default; TICKET-144 — grouped-set rest mode
@@ -883,7 +883,8 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
         const rirNum = rir != null && rir.trim() !== '' ? parseInt(rir, 10) : undefined;
         // The stepper sends weight in the user's DISPLAY unit; convert to the
         // exact kg the data layer stores (option 10). kg pref is identity.
-        const weightKg = displayToKg(parseWeightInput(weight) ?? 0, unitPref);
+        const weightDisplay = parseWeightInput(weight) ?? 0;
+        const weightKg = displayToKg(weightDisplay, unitPref);
         try {
           const logged = await logSet({
             kind: 'lift',
@@ -892,6 +893,8 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
             setIndex,
             reps: parseInt(reps, 10) || 0,
             weightKg,
+            weightCenti: displayToCenti(weightDisplay),
+            weightUnit: unitPref,
             ...(rirNum !== undefined && !Number.isNaN(rirNum) ? { rir: rirNum } : {}),
           });
           // S1: remember this row id so a subsequent "+ Drop set" can retro-tag
@@ -1127,6 +1130,8 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
             // user on lbs re-saving 185 stores it as 185 KG (a 2.2x balloon +
             // fake PR). weight_kg is the canonical exact-kg column.
             weightKg: displayToKg(parseWeightInput(weight) ?? 0, unitPref),
+            weightCenti: displayToCenti(parseWeightInput(weight) ?? 0),
+            weightUnit: unitPref,
             ...(rirNum !== undefined && !Number.isNaN(rirNum) ? { rir: rirNum } : {}),
           });
           haptics.success();
@@ -1168,6 +1173,8 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
             // Convert DISPLAY → exact kg (same invariant as the log/edit paths —
             // a user on lbs re-saving 185 must store 83.9 kg, never 185 kg).
             weightKg: displayToKg(parseWeightInput(weight) ?? 0, unitPref),
+            weightCenti: displayToCenti(parseWeightInput(weight) ?? 0),
+            weightUnit: unitPref,
             reps: parseInt(reps, 10) || 0,
             ...(rirNum !== undefined && !Number.isNaN(rirNum) ? { rir: rirNum } : {}),
           });
@@ -2040,7 +2047,9 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
               lastTopSetDisplay={(() => {
                 const ls = (stepperPB ?? exercisePB)?.last_session;
                 if (!ls) return null;
-                const w = unitPref === 'lbs' ? roundToNearestQuarterLb(kgToLbs(ls.weight_kg)) : ls.weight_kg;
+                // 2-decimal round (NOT quarter-lb): reproduces the entered value
+                // exactly — the old 0.25-lb snap displayed 186.7 as 186.75.
+                const w = unitPref === 'lbs' ? Number(kgToLbs(ls.weight_kg).toFixed(2)) : ls.weight_kg;
                 return { weight: w, reps: ls.reps };
               })()}
               repTarget={routineSession.exercises[routineSession.currentIndex]?.targetReps ?? null}

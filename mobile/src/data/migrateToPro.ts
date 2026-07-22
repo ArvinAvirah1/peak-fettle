@@ -115,6 +115,8 @@ interface SetRow {
   set_index: number | null;
   reps: number | null;
   weight_kg: number | null; // exact kg (COALESCE'd in the SELECT)
+  weight_centi: number | null; // fixed-point exact entry (v18), null on legacy rows
+  weight_unit: string | null;  // 'kg' | 'lbs' — unit the entry was typed in
   rir: number | null;
   duration_sec: number | null;
   distance_m: number | null;
@@ -610,6 +612,12 @@ function setPayloadFor(
     setIndex: row.set_index ?? 0,
     reps: row.reps ?? 0,
     weightKg,
+    // v18 fixed-point exact entry — carried to the server so a Pro upgrade
+    // keeps the typed value exact (the server stores it verbatim when its
+    // columns exist; harmless extra fields otherwise).
+    ...(row.weight_centi != null && (row.weight_unit === 'kg' || row.weight_unit === 'lbs')
+      ? { weightCenti: row.weight_centi, weightUnit: row.weight_unit }
+      : {}),
     // rir: -1 means "not recorded" locally; only send a real value.
     ...(row.rir != null && row.rir !== -1 ? { rir: row.rir } : {}),
     ...noteFlags,
@@ -623,6 +631,7 @@ async function uploadSets(
   const rows = await localDb.getAll<SetRow>(
     `SELECT id, workout_id, exercise_id, kind, set_index, reps,
             COALESCE(weight_kg, weight_raw / 8.0) AS weight_kg,
+            weight_centi, weight_unit,
             rir, duration_sec, distance_m, avg_pace_sec_per_km, metrics_json,
             note, flags
        FROM sets

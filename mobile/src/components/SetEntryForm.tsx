@@ -26,7 +26,7 @@ import {
   SafeAreaView,
   Alert,
 } from 'react-native';
-import { displayToKg, formatWeight } from '../constants/units';
+import { displayToKg, displayToCenti, formatWeight } from '../constants/units';
 import { Exercise, WorkoutSet, LogSetPayload } from '../types/api';
 import { PersonalBest } from '../api/sets';
 import { UnitSystem } from '../constants/units';
@@ -178,7 +178,8 @@ export function SetEntryForm({
   // ---------------------------------------------------------------------------
 
   function buildLiftPayload(): LogSetPayload {
-    const weightKg = displayToKg(parseFloat(liftFields.weight), unitPref);
+    const weightDisplay = parseFloat(liftFields.weight);
+    const weightKg = displayToKg(weightDisplay, unitPref);
     const reps = parseInt(liftFields.reps, 10);
     const rir =
       liftFields.rir.trim() === '' ? undefined : parseInt(liftFields.rir, 10);
@@ -189,6 +190,8 @@ export function SetEntryForm({
       setIndex: currentSetIndex,
       reps,
       weightKg,
+      weightCenti: displayToCenti(weightDisplay),
+      weightUnit: unitPref,
       ...(rir !== undefined ? { rir } : {}),
     };
   }

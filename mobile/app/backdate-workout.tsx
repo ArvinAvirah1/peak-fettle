@@ -45,6 +45,7 @@ import {
 } from '../src/data/backdateWorkout';
 import {
   displayToKg,
+  displayToCenti,
   parseWeightInput,
   UnitSystem,
 } from '../src/constants/units';
@@ -234,6 +235,8 @@ export default function BackdateWorkoutScreen(): React.ReactElement {
           exerciseName: ex.name,
           reps,
           weightKg: displayToKg(weightDisplay, unitPref),
+          weightCenti: displayToCenti(weightDisplay),
+          weightUnit: unitPref,
         });
       }
     }

@@ -7021,3 +7021,29 @@ ALTER TABLE group_weekly_signals
     ADD COLUMN IF NOT EXISTS opted_in        BOOLEAN DEFAULT false,
     ADD COLUMN IF NOT EXISTS total_volume_kg NUMERIC,
     ADD COLUMN IF NOT EXISTS streak_weeks    SMALLINT;
+
+
+-- ===========================================================================
+-- FOLD (2026-07-21) — SOURCE: migrations/20260721_sets_weight_centi.sql
+-- Fixed-point exact weight entry: weight_centi = typed value × 100 in the
+-- TYPED unit (50 lb → 5000); weight_unit = 'kg' | 'lbs'. Display/edit source
+-- of truth on clients; weight_raw (kg×8) stays the computational column.
+-- routes/sets.js degrades to the pre-centi INSERT on 42703 until this runs.
+-- All statements idempotent — safe to re-run (the whole-file "remake" rule).
+-- ===========================================================================
+
+ALTER TABLE sets ADD COLUMN IF NOT EXISTS weight_centi INTEGER;
+ALTER TABLE sets ADD COLUMN IF NOT EXISTS weight_unit  TEXT;
+DO $$ BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint
+         WHERE conname = 'sets_weight_unit_check'
+           AND conrelid = 'public.sets'::regclass
+    ) THEN
+        ALTER TABLE sets
+            ADD CONSTRAINT sets_weight_unit_check
+            CHECK (weight_unit IS NULL OR weight_unit IN ('kg', 'lbs'))
+            NOT VALID;
+        ALTER TABLE sets VALIDATE CONSTRAINT sets_weight_unit_check;
+    END IF;
+END $$;

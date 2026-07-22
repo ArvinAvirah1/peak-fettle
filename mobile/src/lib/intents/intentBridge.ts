@@ -277,14 +277,15 @@ async function applyLogSetPlan(plan: LogSetPlan): Promise<void> {
   const localId = genId();
   const COLS =
     `(id, server_id, workout_id, user_id, exercise_id, kind, set_index, ` +
-    `reps, weight_raw, weight_kg, rir, duration_sec, distance_m, avg_pace_sec_per_km, ` +
+    `reps, weight_raw, weight_kg, weight_centi, weight_unit, rir, duration_sec, distance_m, avg_pace_sec_per_km, ` +
     `logged_at, synced)`;
   await localDb.execute(
     `INSERT INTO sets ${COLS}
-     VALUES (?, NULL, ?, ?, ?, 'lift', ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, 0)`,
+     VALUES (?, NULL, ?, ?, ?, 'lift', ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, ?, 0)`,
     [
       localId, workout.id, ctx.userId, plan.exerciseId, setIndex,
       plan.reps, encodeWeightRaw(plan.weightKg), plan.weightKg,
+      plan.weightCenti ?? null, plan.weightUnit ?? null,
       plan.loggedAt,
     ],
     { tables: ['sets'] },

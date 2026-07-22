@@ -115,6 +115,7 @@ const COLUMN_ALLOWLIST: Record<string, Set<string>> = {
     'weight_kg', // v3
     'metrics_json', // v6
     'note', 'flags', // v11 (TICKET-129: per-set notes + flags)
+    'weight_centi', 'weight_unit', // v18 (fixed-point exact weight entry)
   ]),
   schedule: new Set(['id', 'mode', 'data', 'position', 'updated_at']),
   avatar: new Set(['id', 'data', 'updated_at']),

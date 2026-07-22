@@ -63,6 +63,8 @@ import MuscleMap from '../src/components/MuscleMap';
 import { muscleGroupsForRoutine } from '../src/data/muscleRegions';
 import {
   formatWeight,
+  formatSetWeight,
+  setWeightToInputValue,
   kgToInputValue,
 } from '../src/constants/units';
 import { UnitSystem } from '../src/constants/units';
@@ -95,6 +97,8 @@ interface ApiSet {
   // Lift fields
   weight_raw?: number; // SMALLINT — divide by 8 to get kg
   weight_kg?: number;  // exact kg (local v3) — preferred for edit prefill
+  weight_centi?: number | null; // fixed-point exact entry: typed value × 100 (v18)
+  weight_unit?: string | null;  // 'kg' | 'lbs' — unit the entry was typed in (v18)
   reps?: number;
   rir?: number | null;
   set_index?: number;
@@ -289,6 +293,8 @@ interface LocalSetRow {
   reps: number | null;
   weight_raw: number | null;
   weight_kg: number | null;
+  weight_centi: number | null;
+  weight_unit: string | null;
   rir: number | null;
   duration_sec: number | null;
   distance_m: number | null;
@@ -357,6 +363,9 @@ async function fetchLocalDayData(date: string): Promise<DayData> {
     // Exact kg, preferred by the edit prefill so the user re-edits the value
     // they actually typed (not a kg×8-rounded approximation).
     weight_kg: r.weight_kg != null ? r.weight_kg : (r.weight_raw != null ? r.weight_raw / 8 : undefined),
+    // v18 fixed-point exact entry — display/edit source of truth when present.
+    weight_centi: r.weight_centi ?? null,
+    weight_unit: r.weight_unit ?? null,
     reps: r.reps ?? 0,
     rir: r.rir,
     set_index: r.set_index,
@@ -527,7 +536,13 @@ accessibilityLabel={hasAnnotation ? t('screens2:workoutDay.editSetNoteA11y') : t
   const reps = set.reps ?? 0;
   const weightKg = setKg(set);
   const e1rmKg = computeE1rm(weightKg, reps);
-  const weightDisplay = formatWeight(weightKg, unitPref, 1);
+  // Exact entered value when the row carries the v18 fixed-point entry;
+  // 2-decimal-exact kg fallback otherwise (never the old 0.25-lb snap).
+  const weightDisplay = formatSetWeight(
+    { weight_kg: weightKg, weight_centi: set.weight_centi, weight_unit: set.weight_unit },
+    unitPref,
+    1,
+  );
   const e1rmDisplay = formatWeight(e1rmKg, unitPref, 0);
   // TICKET-128: same stored set.rir, labeled per the effort-display setting
   // ("RIR 2" / "RPE 8" / "to failure" / "RPE ≤ 5") — null when RIR was never
@@ -755,7 +770,11 @@ export default function WorkoutDayScreen(): React.ReactElement {
             id: s.id,
             workoutId: s.workout_id,
             setIndex: s.set_index ?? 0,
-            weightDisplay: kgToInputValue(kg, unitPref),
+            // Prefill the EXACT typed value when the row carries it (v18).
+            weightDisplay: setWeightToInputValue(
+              { weight_kg: kg, weight_centi: s.weight_centi, weight_unit: s.weight_unit },
+              unitPref,
+            ),
             reps: String(s.reps ?? 0),
             rir: s.rir != null ? String(s.rir) : undefined,
           };

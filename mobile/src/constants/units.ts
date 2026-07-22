@@ -5,8 +5,11 @@
  * object and persisted by the server. The UI reads this from AuthContext
  * and converts display values using the helpers below.
  *
- * Source of truth: always store weights in kilograms internally (matching
- * the server's weight_kg column). Convert to lbs only at render time.
+ * Source of truth (2026-07-21): set weights store the EXACT entered value as
+ * fixed-point integer centi units (`weight_centi` = value × 100 in the entered
+ * unit, + `weight_unit`) alongside canonical kilograms (`weight_kg`, used for
+ * all computation and sync). Display/edit prefers the exact entry; kg is the
+ * fallback for legacy rows. Convert only via the helpers below.
  */
 
 export type UnitSystem = 'kg' | 'lbs';
@@ -35,11 +38,12 @@ export function lbsToKg(lbs: number): number {
 /**
  * Round a lbs value to the nearest quarter pound (0.25 lb).
  *
- * Band-aid for weight_raw fixed-point precision loss:
- *   45 lbs → kg → SMALLINT (kg×8) → kg → lbs = 44.919 lbs
- * Rounding to the nearest 0.25 lb restores standard plate values.
- * (Standard plates land on quarter-pound boundaries after any lbs↔kg
- * round-trip through the kg×8 encoding used by weight_raw.)
+ * DEPRECATED for display (2026-07-21): this was a band-aid for the old
+ * weight_raw (kg×8) fixed-point encoding, but once weights were stored as
+ * exact kg it CORRUPTED displayed values — an entered 186.7 lb rendered as
+ * 186.75 lb. Display paths now show the exact entry (see weight_centi /
+ * formatWeight's 2-decimal rounding). Keep only for plate-increment stepping
+ * where snapping to quarter-pound plate math is genuinely wanted.
  */
 export function roundToNearestQuarterLb(lbs: number): number {
   return Math.round(lbs * 4) / 4;
@@ -47,14 +51,16 @@ export function roundToNearestQuarterLb(lbs: number): number {
 
 /**
  * Format a weight for display given the user's unit preference.
- * @param weightKg - Weight in kilograms (server-side value)
+ * @param weightKg - Weight in kilograms (canonical stored value)
  * @param unitPref - The user's preferred unit system
  * @param decimals - Number of decimal places (default 1)
  * @returns Formatted string e.g. "100.0 kg" or "220.5 lbs"
  *
- * When unitPref is 'lbs', the value is rounded to the nearest 0.25 lb
- * before formatting to correct precision loss from the kg×8 fixed-point
- * encoding in weight_raw (SMALLINT).
+ * When unitPref is 'lbs', the converted value is rounded to 2 decimals (0.01
+ * lb) before formatting — this absorbs float dust from the kg round-trip while
+ * reproducing the entered value exactly. (The old nearest-0.25-lb rounding is
+ * GONE: it displayed 186.7 lb entries as 186.75 lb. Prefer formatWeightEntry
+ * when the exact centi entry is available.)
  */
 export function formatWeight(
   weightKg: number,
@@ -62,10 +68,112 @@ export function formatWeight(
   decimals = 1
 ): string {
   if (unitPref === 'lbs') {
-    const lbs = roundToNearestQuarterLb(kgToLbs(weightKg));
+    const lbs = Number(kgToLbs(weightKg).toFixed(2));
     return `${lbs.toFixed(decimals)} lbs`;
   }
   return `${weightKg.toFixed(decimals)} kg`;
+}
+
+// ---------------------------------------------------------------------------
+// Fixed-point exact weight entry ("dollars and cents", 2026-07-21)
+//
+// Whatever the user types is stored EXACTLY as an integer: weight_centi =
+// entered value × 100 in the ENTERED unit (50 lb → 5000, 82.5 kg → 8250),
+// paired with weight_unit ('kg' | 'lbs'). Integers can't pick up float dust
+// through storage/serialization, and recording the entry unit means a lbs
+// user's 186.7 always reads back as 186.7 — no kg round-trip involved.
+// weight_kg stays the canonical value for all computation (1RM, volume,
+// percentiles, server sync); centi + unit are the display/edit source of truth.
+// ---------------------------------------------------------------------------
+
+/** Convert a typed display value to fixed-point centi units (value × 100). */
+export function displayToCenti(displayValue: number): number {
+  return Math.round(displayValue * 100);
+}
+
+/** Convert a stored centi entry to canonical kilograms (for computation). */
+export function centiToKg(centi: number, unit: UnitSystem): number {
+  const value = centi / 100;
+  return unit === 'lbs' ? lbsToKg(value) : value;
+}
+
+/**
+ * Convert a stored centi entry to a display-unit number. Exact (no float
+ * involvement at all) when the stored unit matches the viewer's unit pref;
+ * cross-unit views convert and round to 2 decimals.
+ */
+export function centiToDisplayValue(
+  centi: number,
+  storedUnit: UnitSystem,
+  unitPref: UnitSystem
+): number {
+  const value = centi / 100;
+  if (storedUnit === unitPref) return value;
+  const converted = unitPref === 'lbs' ? kgToLbs(value) : lbsToKg(value);
+  return Number(converted.toFixed(2));
+}
+
+/**
+ * Format an exact centi entry for display, trimming trailing zeros so the
+ * value reads back exactly as typed ("186.7 lbs", "82.5 kg", "50 lbs").
+ */
+export function formatWeightEntry(
+  centi: number,
+  storedUnit: UnitSystem,
+  unitPref: UnitSystem
+): string {
+  const value = centiToDisplayValue(centi, storedUnit, unitPref);
+  return `${String(value)} ${unitPref === 'lbs' ? 'lbs' : 'kg'}`;
+}
+
+/**
+ * Row shape shared by anything that carries a set weight: canonical kg plus
+ * the optional exact fixed-point entry (null on legacy rows / server rows
+ * that predate the columns).
+ */
+export interface ExactWeightFields {
+  weight_kg: number;
+  weight_centi?: number | null;
+  weight_unit?: string | null;
+}
+
+function exactEntryOf(row: ExactWeightFields): { centi: number; unit: UnitSystem } | null {
+  if (
+    row.weight_centi != null &&
+    Number.isFinite(row.weight_centi) &&
+    (row.weight_unit === 'kg' || row.weight_unit === 'lbs')
+  ) {
+    return { centi: row.weight_centi, unit: row.weight_unit };
+  }
+  return null;
+}
+
+/**
+ * Preferred set-weight formatter: shows the EXACT entered value when the row
+ * carries the fixed-point entry, otherwise falls back to the canonical-kg
+ * formatWeight (2-decimal rounded — still entry-exact for v3+ rows).
+ */
+export function formatSetWeight(
+  row: ExactWeightFields,
+  unitPref: UnitSystem,
+  decimals = 1
+): string {
+  const exact = exactEntryOf(row);
+  if (exact) return formatWeightEntry(exact.centi, exact.unit, unitPref);
+  return formatWeight(row.weight_kg, unitPref, decimals);
+}
+
+/**
+ * Preferred edit-prefill: returns the EXACT entered value as a clean editable
+ * string when available, otherwise falls back to kgToInputValue.
+ */
+export function setWeightToInputValue(
+  row: ExactWeightFields,
+  unitPref: UnitSystem
+): string {
+  const exact = exactEntryOf(row);
+  if (exact) return String(centiToDisplayValue(exact.centi, exact.unit, unitPref));
+  return kgToInputValue(row.weight_kg, unitPref);
 }
 
 /**
