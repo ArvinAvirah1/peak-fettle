@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Peak Fettle — Set-Logging Layout Options (structural, TICKET-057)</title>
+<style>
+  :root{
+    --bg:#0b1622; --frame:#0a121c; --card:#13212f; --field:#0a121c;
+    --accent:#2dd4bf; --accent-ink:#06231f; --text:#e8eef2; --muted:#7d8b99;
+    --line:rgba(255,255,255,.10); --accent-soft:rgba(45,212,191,.14); --accent-line:rgba(45,212,191,.40);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:#1c1f24;color:var(--text);padding:28px 18px 60px;}
+  .head{max-width:1160px;margin:0 auto 26px;}
+  .head h1{font-size:22px;font-weight:600;margin:0 0 6px;}
+  .head p{font-size:14px;line-height:1.6;color:#aab4c0;margin:0;max-width:820px;}
+  .grid{max-width:1160px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:30px;}
+  .col{display:flex;flex-direction:column;align-items:center;gap:11px;}
+  .opt-name{font-size:15px;font-weight:600;}
+  .opt-desc{font-size:12.5px;line-height:1.5;color:#9aa6b2;text-align:center;min-height:62px;max-width:330px;}
+  .phone{width:330px;border-radius:30px;padding:11px;background:var(--frame);border:1px solid rgba(255,255,255,.13);box-shadow:0 10px 40px rgba(0,0,0,.35);}
+  .screen{height:560px;border-radius:22px;background:var(--bg);padding:15px 13px;overflow:hidden;display:flex;flex-direction:column;}
+  .row{display:flex;align-items:center;}
+  .between{justify-content:space-between;}
+  .hdr-title{font-size:17px;font-weight:700;}
+  .hdr-sub{font-size:11px;color:var(--muted);}
+  .streak{font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-soft);border-radius:999px;padding:4px 9px;}
+  .chip{border-radius:999px;padding:5px 11px;font-size:11px;font-weight:600;border:1px solid var(--line);color:#c3ccd5;background:rgba(255,255,255,.04);white-space:nowrap;}
+  .chip.on{background:var(--accent-soft);color:var(--accent);border-color:var(--accent-line);}
+  .card{border-radius:15px;background:var(--card);border:1px solid var(--line);padding:12px;}
+  .card.sel{border-color:var(--accent-line);}
+  .ex{font-size:14px;font-weight:700;}
+  .pb{font-size:11px;font-weight:600;color:var(--accent);}
+  .lab{font-size:10px;font-weight:700;letter-spacing:.03em;color:var(--muted);}
+  .field{border-radius:11px;background:var(--field);border:1px solid var(--line);padding:9px;font-size:14px;font-weight:700;text-align:center;}
+  .cta{border-radius:12px;background:var(--accent);color:var(--accent-ink);text-align:center;font-weight:700;padding:11px;font-size:14px;}
+  .ghost{border-radius:12px;border:1px solid var(--accent-line);color:var(--accent);text-align:center;font-weight:700;padding:10px;font-size:13px;background:transparent;}
+  .exrow{border-radius:12px;background:rgba(255,255,255,.03);border:1px solid var(--line);padding:9px 11px;}
+  .tick{width:18px;height:18px;border-radius:6px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--accent);}
+  .tick.done{background:var(--accent-soft);border-color:var(--accent-line);}
+  .seclab{font-size:11px;font-weight:700;color:#5f6f7d;letter-spacing:.03em;}
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--line);}
+  .dot.on{background:var(--accent);}
+  .tile{border-radius:14px;background:var(--card);border:1px solid var(--line);padding:11px;display:flex;flex-direction:column;gap:4px;justify-content:center;}
+  .tile.acc{background:var(--accent-soft);border-color:var(--accent-line);}
+  .tile-h{font-size:12.5px;font-weight:700;}
+  .tile-s{font-size:10px;color:var(--muted);}
+  .scrollfade{position:relative;}
+  .grow{flex:1;}
+  .small{font-size:10px;color:var(--muted);}
+</style>
+</head>
+<body>
+  <div class="head">
+    <h1>Peak Fettle — set-logging layout options (structure only)</h1>
+    <p>Six different ways to organise the same screen. Colour is held constant on purpose — the variable here is <em>structure</em>: where routines/splits live, how you reach a specific exercise, where the PB/rep-range context sits, and where the primary "Log set" action lands. Every layout keeps the three non-negotiables: routines &amp; PPL/Upper-Lower splits one tap away, PB-on-select context, and a full-width primary action. Pick a structure (or combine) for TICKET-057.</p>
+  </div>
+
+  <div class="grid">
+
+    <!-- 1. STACKED SCROLL -->
+    <div class="col">
+      <div class="opt-name">1 · Stacked scroll</div>
+      <div class="opt-desc">The classic single column: everything stacks top-to-bottom and you scroll. Familiar, zero learning curve — closest to today.</div>
+      <div class="phone"><div class="screen">
+        <div class="row between" style="margin-bottom:12px;"><div><div class="hdr-title">Today's workout</div><div class="hdr-sub">Mon May 25 · Push day</div></div><div class="streak">6 wk</div></div>
+        <div class="seclab" style="margin-bottom:6px;">QUICK START</div>
+        <div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:12px;"><span class="chip on">My Push A</span><span class="chip">PPL</span><span class="chip">Upper / Lower</span></div>
+        <div class="card sel" style="margin-bottom:11px;"><div class="row between" style="margin-bottom:6px;"><span class="ex">Bench Press</span></div><div class="pb">PB 102.5kg × 5 · aim 5–8 reps</div></div>
+        <div class="row" style="gap:9px;margin-bottom:11px;"><div class="grow"><div class="lab" style="margin-bottom:5px;">WEIGHT (KG)</div><div class="field">100</div></div><div class="grow"><div class="lab" style="margin-bottom:5px;">REPS</div><div class="field">6</div></div></div>
+        <div class="cta" style="margin-bottom:14px;">Log set</div>
+        <div class="seclab" style="margin-bottom:6px;">RECENT SETS</div>
+        <div class="row between exrow" style="margin-bottom:6px;"><span style="font-size:12px;font-weight:600;">Bench Press</span><span class="small">100kg × 6</span></div>
+        <div class="row between exrow"><span style="font-size:12px;font-weight:600;">Bench Press</span><span class="small">100kg × 6</span></div>
+      </div></div>
+    </div>
+
+    <!-- 2. STICKY BOTTOM LOGGER -->
+    <div class="col">
+      <div class="opt-name">2 · Sticky bottom logger</div>
+      <div class="opt-desc">The routine list scrolls in the body; the weight/reps + Log set live in a fixed dock pinned to the bottom — always thumb-reachable, no scrolling to log.</div>
+      <div class="phone"><div class="screen" style="padding-bottom:0;">
+        <div class="row between" style="margin-bottom:12px;"><div><div class="hdr-title">Push A</div><div class="hdr-sub">2 of 5 done · 🔥 6 wk</div></div><span class="chip">Switch</span></div>
+        <div class="grow" style="overflow:hidden;display:flex;flex-direction:column;gap:7px;">
+          <div class="row exrow between"><div class="row" style="gap:9px;"><span class="tick done">✓</span><span style="font-size:12.5px;font-weight:600;">Bench Press</span></div><span class="small">3 sets</span></div>
+          <div class="row exrow between"><div class="row" style="gap:9px;"><span class="tick done">✓</span><span style="font-size:12.5px;font-weight:600;">Incline DB</span></div><span class="small">2 sets</span></div>
+          <div class="row exrow between" style="border-color:var(--accent-line);"><div class="row" style="gap:9px;"><span class="tick"></span><span style="font-size:12.5px;font-weight:700;color:var(--accent);">Cable Fly</span></div><span class="small">selected</span></div>
+          <div class="row exrow between"><div class="row" style="gap:9px;"><span class="tick"></span><span style="font-size:12.5px;font-weight:600;">Shoulder Press</span></div><span class="small">—</span></div>
+          <div class="row exrow between"><div class="row" style="gap:9px;"><span class="tick"></span><span style="font-size:12.5px;font-weight:600;">Triceps Pushdown</span></div><span class="small">—</span></div>
+        </div>
+        <div style="margin:0 -13px;padding:11px 13px 15px;background:var(--card);border-top:1px solid var(--accent-line);">
+          <div class="row between" style="margin-bottom:8px;"><span class="ex" style="font-size:13px;">Cable Fly</span><span class="pb">PB 25kg × 12</span></div>
+          <div class="row" style="gap:8px;"><div class="field grow">25</div><div class="field grow">12</div><div class="cta" style="flex:1.2;">Log</div></div>
+        </div>
+      </div></div>
+    </div>
+
+    <!-- 3. MASTER-DETAIL RAIL -->
+    <div class="col">
+      <div class="opt-name">3 · Exercise rail + detail</div>
+      <div class="opt-desc">A horizontal rail of the routine's exercises sits up top (with per-exercise set counts); tap any to load it into the detail logger below. Master–detail, jump anywhere.</div>
+      <div class="phone"><div class="screen">
+        <div class="row between" style="margin-bottom:11px;"><div><div class="hdr-title">Today's workout</div><div class="hdr-sub">Push A · 🔥 6 wk</div></div></div>
+        <div class="seclab" style="margin-bottom:6px;">EXERCISES</div>
+        <div class="row" style="gap:6px;overflow:hidden;margin-bottom:13px;"><span class="chip on">Bench ✓3</span><span class="chip">Incline ✓2</span><span class="chip">Fly</span><span class="chip">Press</span></div>
+        <div class="card sel grow" style="display:flex;flex-direction:column;">
+          <div class="row between" style="margin-bottom:8px;"><span class="ex" style="font-size:16px;">Bench Press</span><span class="chip on" style="font-size:10px;">set 4</span></div>
+          <div class="pb" style="margin-bottom:14px;">PB 102.5kg × 5 · last 100kg × 6 · aim 5–8</div>
+          <div class="row" style="gap:9px;margin-bottom:12px;"><div class="grow"><div class="lab" style="margin-bottom:5px;">WEIGHT</div><div class="field">102.5</div></div><div class="grow"><div class="lab" style="margin-bottom:5px;">REPS</div><div class="field">5</div></div></div>
+          <div class="cta" style="margin-bottom:9px;">Log set</div>
+          <div class="row between"><span class="small">Next: Cable Fly</span><span class="small" style="color:var(--accent);">Skip →</span></div>
+        </div>
+      </div></div>
+    </div>
+
+    <!-- 4. FOCUS STEPPER -->
+    <div class="col">
+      <div class="opt-name">4 · Focus stepper</div>
+      <div class="opt-desc">One exercise at a time, full-screen. Big PB callout, big number fields, progress dots, and a "next exercise" advance. Distraction-free, gym-glove friendly.</div>
+      <div class="phone"><div class="screen" style="align-items:center;text-align:center;">
+        <div class="row between" style="width:100%;margin-bottom:18px;"><span class="small">Push A</span><div class="row" style="gap:5px;"><span class="dot on"></span><span class="dot on"></span><span class="dot on"></span><span class="dot"></span><span class="dot"></span></div><span class="small">3 / 5</span></div>
+        <div class="small" style="margin-bottom:4px;">EXERCISE 3 OF 5</div>
+        <div style="font-size:26px;font-weight:700;margin-bottom:14px;">Cable Fly</div>
+        <div class="card" style="width:100%;margin-bottom:18px;padding:14px;"><div class="pb" style="font-size:13px;">PB 25kg × 12</div><div class="small" style="margin-top:3px;">aim for 10–15 reps this set</div></div>
+        <div class="row" style="gap:12px;width:100%;margin-bottom:18px;"><div class="grow"><div class="lab" style="margin-bottom:6px;">WEIGHT</div><div class="field" style="font-size:24px;padding:14px;">25</div></div><div class="grow"><div class="lab" style="margin-bottom:6px;">REPS</div><div class="field" style="font-size:24px;padding:14px;">12</div></div></div>
+        <div class="cta" style="width:100%;margin-bottom:9px;">Log set</div>
+        <div class="ghost" style="width:100%;">Next exercise →</div>
+      </div></div>
+    </div>
+
+    <!-- 5. INLINE ACCORDION -->
+    <div class="col">
+      <div class="opt-name">5 · Inline accordion list</div>
+      <div class="opt-desc">The routine is one list; tapping an exercise expands it in place to reveal its fields and PB — log without ever leaving the list or opening a modal. Collapses when done.</div>
+      <div class="phone"><div class="screen">
+        <div class="row between" style="margin-bottom:12px;"><div><div class="hdr-title">Push A</div><div class="hdr-sub">Mon May 25 · 🔥 6 wk</div></div><span class="chip">Splits</span></div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          <div class="row exrow between"><div class="row" style="gap:9px;"><span class="tick done">✓</span><span style="font-size:12.5px;font-weight:600;">Bench Press</span></div><span class="small">100kg × 6 · 3 sets</span></div>
+          <div class="card sel">
+            <div class="row between" style="margin-bottom:8px;"><span class="ex" style="font-size:13px;">Incline DB Press</span><span class="pb">PB 34kg × 8</span></div>
+            <div class="row" style="gap:8px;"><div class="field grow">32</div><div class="field grow">8</div><div class="cta" style="flex:1.1;">Log</div></div>
+            <div class="small" style="margin-top:7px;">aim 8–10 reps to beat your last set</div>
+          </div>
+          <div class="row exrow between"><div class="row" style="gap:9px;"><span class="tick"></span><span style="font-size:12.5px;font-weight:600;">Cable Fly</span></div><span class="small">3 × 12 · last 25kg</span></div>
+          <div class="row exrow between"><div class="row" style="gap:9px;"><span class="tick"></span><span style="font-size:12.5px;font-weight:600;">Shoulder Press</span></div><span class="small">3 × 8</span></div>
+          <div class="row exrow between"><div class="row" style="gap:9px;"><span class="tick"></span><span style="font-size:12.5px;font-weight:600;">Triceps Pushdown</span></div><span class="small">3 × 12</span></div>
+        </div>
+      </div></div>
+    </div>
+
+    <!-- 6. HUB / TILE GRID -->
+    <div class="col">
+      <div class="opt-name">6 · Hub tiles</div>
+      <div class="opt-desc">A modular home that branches into actions: continue a routine, quick-log a one-off, see today's sets, your PB, your tier, or log a rest day. Logging is a tap-in, not the default surface.</div>
+      <div class="phone"><div class="screen">
+        <div class="row between" style="margin-bottom:14px;"><div><div class="hdr-title">Today</div><div class="hdr-sub">Mon May 25 · 🔥 6 wk</div></div></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;grid-auto-rows:1fr;flex:1;">
+          <div class="tile acc" style="grid-column:span 2;"><div class="tile-h" style="color:var(--accent);">▶ Continue · Push A</div><div class="tile-s" style="color:var(--accent);">2 of 5 exercises done — tap to resume</div></div>
+          <div class="tile"><div class="tile-h">＋ Quick log</div><div class="tile-s">one-off set, any exercise</div></div>
+          <div class="tile"><div class="tile-h">Splits</div><div class="tile-s">PPL · Upper / Lower</div></div>
+          <div class="tile"><div class="tile-h">Today · 6 sets</div><div class="tile-s">2 PRs this session</div></div>
+          <div class="tile"><div class="tile-h">Diamond</div><div class="tile-s">Top 5% · 6 to Champ</div></div>
+          <div class="tile" style="grid-column:span 2;"><div class="tile-h">Rest day</div><div class="tile-s">log a rest day — keeps your streak</div></div>
+        </div>
+      </div></div>
+    </div>
+
+  </div>
+</body>
+</html>

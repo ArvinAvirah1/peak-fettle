@@ -1,0 +1,670 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Peak Fettle — Routines redesign options</title>
+<style>
+:root{--ink:#16202E;--ink2:#52617A;--ink3:#8B97AC;--line:#E2E7EF;--bg:#F7F9FC;--card:#FFFFFF;--teal:#0E9E76;--tealbg:#E3F6EF;--warn:#B4541B;--warnbg:#FBEFE6;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;line-height:1.6}
+.wrap{max-width:1000px;margin:0 auto;padding:48px 28px 80px}
+h1{font-size:30px;font-weight:600;margin:0 0 6px}
+.lede{color:var(--ink2);font-size:17px;max-width:680px;margin:0 0 8px}
+.meta{color:var(--ink3);font-size:13px;margin-bottom:36px}
+.legend{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:var(--ink2);margin-bottom:40px;padding:14px 18px;background:var(--card);border:1px solid var(--line);border-radius:12px}
+.legend b{color:var(--ink)}
+.opt{display:grid;grid-template-columns:300px 1fr;gap:28px;align-items:start;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px;margin-bottom:24px}
+.opt-figs{display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;justify-content:center}
+.optnum{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:var(--tealbg);color:var(--teal);font-weight:600;font-size:14px;flex:0 0 30px}
+.opt-head{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.opt-head h2{font-size:20px;font-weight:600;margin:0}
+.tag{font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;letter-spacing:.3px}
+.tag-p0{background:#FBE6E6;color:#B42323}.tag-p1{background:#FBEFE6;color:#B4541B}.tag-p2{background:#EAF1FB;color:#2D5B9E}.tag-add{background:#E3F6EF;color:#0E9E76}
+.opt p{margin:0 0 10px;font-size:15px;color:var(--ink)}
+.opt .why{color:var(--ink2);font-size:14px}
+.kv{font-size:13px;color:var(--ink3);margin-top:8px}
+.kv b{color:var(--ink2);font-weight:600}
+.figcap{font-size:11px;color:var(--ink3);text-align:center;margin-top:6px;text-transform:uppercase;letter-spacing:.6px}
+.ph{width:200px;background:#0A0F1A;border:5px solid #1C2433;border-radius:26px;overflow:hidden;font-size:12px}
+.ph.sm{width:188px}
+.ph-sb{height:24px;display:flex;align-items:center;justify-content:space-between;padding:7px 14px 0;font-size:10px;color:#E6EAF2;font-weight:500}
+.ph-hd{display:flex;align-items:center;gap:7px;padding:9px 12px;border-bottom:.5px solid #1C2433}
+.ph-hd .t{color:#E6EAF2;font-size:12px;font-weight:500;flex:1}
+.ph-bd{padding:11px 12px 14px;min-height:150px}
+.mut{color:#7C8699}.tealtx{color:#16C79A}.white{color:#E6EAF2}
+.card{background:#111A2B;border:.5px solid #1F2A3D;border-radius:10px;padding:9px 11px;margin-bottom:8px}
+.big{color:#E6EAF2;font-size:22px;font-weight:500;font-variant-numeric:tabular-nums}
+.pill{display:inline-block;background:#0F3D33;color:#3FE0B5;font-size:9px;font-weight:500;padding:2px 8px;border-radius:14px}
+.cap{color:#6B7486;font-size:9px;letter-spacing:1px;font-weight:600;margin:0 0 6px}
+.bar{height:4px;background:#1F2A3D;border-radius:3px;overflow:hidden;margin:5px 0}.bar>span{display:block;height:100%;background:#16C79A}
+.cta{background:#16C79A;color:#04221B;text-align:center;font-weight:600;font-size:13px;padding:10px;border-radius:10px}
+.cta2{border:.5px solid #2A3850;color:#C5CCDA;text-align:center;font-weight:500;font-size:12px;padding:9px;border-radius:9px}
+.chip{display:inline-block;background:#111A2B;border:.5px solid #1F2A3D;color:#C5CCDA;font-size:10px;padding:5px 9px;border-radius:8px;margin:0 4px 4px 0}
+.chip.on{border-color:#16C79A;color:#3FE0B5}
+.rowcard{background:#111A2B;border:.5px solid #1F2A3D;border-radius:10px;padding:9px 11px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+.toast{background:#1A2336;border:.5px solid #2A3850;border-radius:9px;padding:8px 10px;color:#E6EAF2;font-size:11px;display:flex;justify-content:space-between;align-items:center}
+.swipe{display:flex;gap:0;border-radius:10px;overflow:hidden}.swipe .act{background:#16C79A;color:#04221B;display:flex;align-items:center;padding:0 10px;font-size:10px;font-weight:600}.swipe .act.del{background:#B23A3A;color:#FBE6E6}
+.handle{color:#5A6577;font-size:14px}
+</style></head><body><div class="wrap">
+
+<h1>Routines redesign — 14 options</h1>
+<p class="lede">Routines and starter splits are central to the app and are currently broken on a new account. Each option is independent — approve, cut, or defer any. "Before" panels show current behaviour; "After" shows the proposal.</p>
+<p class="meta">Peak Fettle · UI decision doc · 2026-06-12 · surface 2 of 3 (Routines)</p>
+<div class="legend"><span><b>Tags:</b></span><span><span class="tag tag-p0">P0</span> fixes a broken/blocking issue</span><span><span class="tag tag-p1">P1</span> fixes a real defect</span><span><span class="tag tag-p2">P2</span> UX quality</span><span><span class="tag tag-add">NEW</span> additive feature</span></div>
+
+<!-- Option 1 -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>●●●</span></div>
+        <div class="ph-hd"><span class="t">PPL — Push A</span></div>
+        <div class="ph-bd">
+          <div style="color:#3FE0B5;font-size:10px;text-align:center;padding:28px 0 0;opacity:.5">No exercises in this session</div>
+          <div style="height:12px"></div>
+          <div class="cta" style="opacity:.4;font-size:11px">Use this split</div>
+        </div>
+      </div>
+      <div class="figcap">Before — empty sheet</div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>●●●</span></div>
+        <div class="ph-hd"><span class="t">PPL — Push A</span><span class="tealtx" style="font-size:10px">3 days</span></div>
+        <div class="ph-bd">
+          <div class="cap">EXERCISES — DAY 1</div>
+          <div class="rowcard" style="margin-bottom:5px"><span class="white" style="font-size:11px">Bench press</span><span class="mut" style="font-size:10px">4 × 5</span></div>
+          <div class="rowcard" style="margin-bottom:5px"><span class="white" style="font-size:11px">OHP</span><span class="mut" style="font-size:10px">3 × 8</span></div>
+          <div class="rowcard" style="margin-bottom:5px"><span class="white" style="font-size:11px">Incline DB press</span><span class="mut" style="font-size:10px">3 × 10</span></div>
+          <div style="height:6px"></div>
+          <div class="cta" style="font-size:11px">Use this split</div>
+        </div>
+      </div>
+      <div class="figcap">After — real preview</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">1</span><h2>Working starter-split preview</h2><span class="tag tag-p0">P0</span></div>
+    <p>Fix the data-unwrap bug so tapping a starter split opens a real exercise preview with a "Use this" CTA.</p>
+    <p class="why"><b>The problem:</b> Tapping any starter split sheet showed "No exercises in this session" — a mismatch between how the template API wraps its exercise array and how the UI reads it (<code>gettemplate-unwrap-mismatch</code>). First-run users see empty screens on every split. <b>The change:</b> Unwrap the correct key on the template response; render exercise rows grouped by day; surface a primary "Use this split" CTA. No exercises are lost — they were present in the response but never read.</p>
+    <p class="kv"><b>Addresses:</b> gettemplate-unwrap-mismatch · <b>Effort:</b> S · <b>Risk:</b> low</p>
+  </div>
+</div>
+
+<!-- Option 2 -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>●●●</span></div>
+        <div class="ph-hd"><span class="t">Routines</span></div>
+        <div class="ph-bd">
+          <div class="cap">STARTER SPLITS</div>
+          <div style="display:flex;gap:5px;flex-wrap:wrap;padding-bottom:6px">
+            <span class="chip">PPL</span>
+            <span class="chip">5/3/1</span>
+            <span class="chip">Full body</span>
+            <span class="chip">Upper/Lower</span>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">Before — bare pills</div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>●●●</span></div>
+        <div class="ph-hd"><span class="t">Routines</span></div>
+        <div class="ph-bd">
+          <div class="cap">STARTER SPLITS</div>
+          <div class="card" style="margin-bottom:6px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span class="white" style="font-size:12px;font-weight:600">PPL</span>
+              <span class="pill">Hypertrophy</span>
+            </div>
+            <div class="mut" style="font-size:9px;margin-top:3px">3 days · 9 exercises per day</div>
+            <div style="margin-top:5px;display:flex;gap:4px">
+              <span style="background:#0F2A22;color:#3FE0B5;font-size:9px;padding:2px 6px;border-radius:6px">Push</span>
+              <span style="background:#0F2A22;color:#3FE0B5;font-size:9px;padding:2px 6px;border-radius:6px">Pull</span>
+              <span style="background:#0F2A22;color:#3FE0B5;font-size:9px;padding:2px 6px;border-radius:6px">Legs</span>
+            </div>
+          </div>
+          <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span class="white" style="font-size:12px;font-weight:600">5/3/1</span>
+              <span class="pill">Strength</span>
+            </div>
+            <div class="mut" style="font-size:9px;margin-top:3px">4 days · 5 exercises per day</div>
+            <div style="margin-top:5px;display:flex;gap:4px">
+              <span style="background:#0F2A22;color:#3FE0B5;font-size:9px;padding:2px 6px;border-radius:6px">Squat</span>
+              <span style="background:#0F2A22;color:#3FE0B5;font-size:9px;padding:2px 6px;border-radius:6px">Press</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">After — info-rich cards</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">2</span><h2>Splits as cards, not pills</h2><span class="tag tag-p2">P2</span></div>
+    <p>Replace bare text pills with preview cards that surface day count, exercise count, and focus tags.</p>
+    <p class="why"><b>The problem:</b> Pill labels like "PPL" or "5/3/1" mean nothing to a new user who doesn't already know what they are. There's no way to compare splits without tapping each one. <b>The change:</b> Render each starter split as a small card with the programme name, a goal pill (Strength / Hypertrophy), day count, exercises-per-day, and up to three focus-area tags. Users scan instead of tapping blind.</p>
+    <p class="kv"><b>Addresses:</b> starter-split discoverability · <b>Effort:</b> S · <b>Risk:</b> low</p>
+  </div>
+</div>
+
+<!-- Option 3 -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>●●●</span></div>
+        <div class="ph-hd"><span class="t">Routines</span><span class="tealtx" style="font-size:18px;cursor:pointer">+</span></div>
+        <div class="ph-bd">
+          <div class="cap">YOURS</div>
+          <div style="color:#3C4558;font-size:11px;padding:10px 0">No routines yet.</div>
+        </div>
+      </div>
+      <div class="figcap">Before — flat gray text</div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>●●●</span></div>
+        <div class="ph-hd"><span class="t">Routines</span><span class="tealtx" style="font-size:18px">+</span></div>
+        <div class="ph-bd">
+          <div class="cap">YOURS</div>
+          <div class="card" style="text-align:center;padding:16px 10px">
+            <div style="font-size:22px;margin-bottom:6px">🏋️</div>
+            <div class="white" style="font-size:12px;font-weight:600;margin-bottom:4px">No routines yet</div>
+            <div class="mut" style="font-size:10px;margin-bottom:12px">Build a programme or start from a template below.</div>
+            <div class="cta" style="font-size:11px;margin-bottom:6px">+ Build your first routine</div>
+            <div class="mut" style="font-size:10px">or duplicate a starter split ↓</div>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">After — actionable empty state</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">3</span><h2>Real empty state with CTA</h2><span class="tag tag-p2">P2</span></div>
+    <p>Replace the flat "No routines yet" text with an illustrated empty state that tells users exactly what to do next.</p>
+    <p class="why"><b>The problem:</b> The current empty state is a single gray sentence. New users stop here — they don't know whether to tap "+", look below, or go somewhere else. <b>The change:</b> A contained card with a short heading, one-line instruction, a primary "Build your first routine" CTA button, and a secondary hint pointing at starter splits below the fold. Keeps the "+ New" tap target in the header for users who know what they want.</p>
+    <p class="kv"><b>Addresses:</b> new-user activation · <b>Effort:</b> S · <b>Risk:</b> low</p>
+  </div>
+</div>
+
+<!-- Option 4 -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>●●●</span></div>
+        <div class="ph-hd"><span class="t">Routines</span><span class="tealtx" style="font-size:10px">+ New</span></div>
+        <div class="ph-bd">
+          <div class="cap">YOURS</div>
+          <div class="card" style="border-color:#16C79A44">
+            <div class="white" style="font-size:11px;font-weight:600">Create schedule</div>
+            <div class="mut" style="font-size:9px;margin-top:2px">Set your training week</div>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">Before — two competing CTAs</div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>●●●</span></div>
+        <div class="ph-hd"><span class="t">Routines</span><span style="background:#16C79A;color:#04221B;font-size:10px;font-weight:600;padding:3px 10px;border-radius:8px">+ New</span></div>
+        <div class="ph-bd">
+          <div class="cap">YOURS</div>
+          <div class="mut" style="font-size:9px;padding:4px 0 8px">Tap + New to create a routine. Scheduling is in each routine's detail view.</div>
+        </div>
+      </div>
+      <div class="figcap">After — single primary action</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">4</span><h2>Single clear "+ New" action</h2><span class="tag tag-p2">P2</span></div>
+    <p>Remove the inline "Create schedule" card; make "+ New" the only primary CTA on the list screen.</p>
+    <p class="why"><b>The problem:</b> The list screen shows both a "+ New" button in the header and a tappable "Create schedule" card in the list body. Two creation paths at the same level confuse new users about what to tap first. <b>The change:</b> Remove the inline card. Surface the schedule flow inside the routine detail view (e.g. an "Edit schedule" row). The header "+ New" button is the sole entry point; its filled background makes it visually distinct from the title.</p>
+    <p class="kv"><b>Addresses:</b> competing-CTA confusion · <b>Effort:</b> S · <b>Risk:</b> low</p>
+  </div>
+</div>
+
+<!-- Option 5 -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>●●●</span></div>
+        <div class="ph-hd"><span class="t">Routines</span></div>
+        <div class="ph-bd">
+          <div class="cap">YOURS</div>
+          <div class="rowcard">
+            <span class="white" style="font-size:11px">Push A</span>
+            <span class="mut" style="font-size:10px">›</span>
+          </div>
+          <div class="rowcard">
+            <span class="white" style="font-size:11px">Pull A</span>
+            <span class="mut" style="font-size:10px">›</span>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">Before — sparse rows</div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>●●●</span></div>
+        <div class="ph-hd"><span class="t">Routines</span></div>
+        <div class="ph-bd">
+          <div class="cap">YOURS</div>
+          <div class="card" style="margin-bottom:6px">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start">
+              <span class="white" style="font-size:12px;font-weight:600">Push A</span>
+              <div style="display:flex;gap:3px">
+                <span style="background:#162238;color:#8B97AC;font-size:9px;padding:2px 5px;border-radius:4px">M</span>
+                <span style="background:#162238;color:#8B97AC;font-size:9px;padding:2px 5px;border-radius:4px">W</span>
+                <span style="background:#162238;color:#8B97AC;font-size:9px;padding:2px 5px;border-radius:4px">F</span>
+              </div>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-top:4px">
+              <span class="mut" style="font-size:10px">6 exercises</span>
+              <span class="mut" style="font-size:10px">Last: 2d ago</span>
+            </div>
+            <div class="bar" style="margin-top:7px"><span style="width:70%"></span></div>
+          </div>
+          <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start">
+              <span class="white" style="font-size:12px;font-weight:600">Pull A</span>
+              <div style="display:flex;gap:3px">
+                <span style="background:#162238;color:#8B97AC;font-size:9px;padding:2px 5px;border-radius:4px">T</span>
+                <span style="background:#162238;color:#8B97AC;font-size:9px;padding:2px 5px;border-radius:4px">Th</span>
+              </div>
+            </div>
+            <div style="display:flex;justify-content:space-between;margin-top:4px">
+              <span class="mut" style="font-size:10px">7 exercises</span>
+              <span class="mut" style="font-size:10px">Last: 1d ago</span>
+            </div>
+            <div class="bar" style="margin-top:7px"><span style="width:45%"></span></div>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">After — rich cards</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">5</span><h2>Rich routine cards</h2><span class="tag tag-p2">P2</span></div>
+    <p>Upgrade each routine row to a card showing name, scheduled days, exercise count, last-performed date, and a completion progress bar.</p>
+    <p class="why"><b>The problem:</b> Current rows show only the routine name and a "›" chevron. Users can't see at a glance when they last trained, what days it's scheduled, or how much of the programme they've completed. <b>The change:</b> Cards show day badges (M / T / W…), exercise count, "Last: Xd ago", and a thin bar reflecting weekly consistency (sessions done / sessions scheduled this week). All data already exists in the local DB — this is purely a rendering change.</p>
+    <p class="kv"><b>Addresses:</b> routine-list information density · <b>Effort:</b> S · <b>Risk:</b> low</p>
+  </div>
+</div>
+
+<!-- Option 6 -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>●●●</span></div>
+        <div class="ph-hd"><span class="t">PPL</span></div>
+        <div class="ph-bd">
+          <div style="color:#B23A3A;font-size:10px;text-align:center;padding:20px 0">Error saving routine.<br/><span class="mut">400 Bad Request</span></div>
+          <div class="cta2" style="margin-top:8px;font-size:10px">Retry</div>
+        </div>
+      </div>
+      <div class="figcap">Before — 400 error</div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>●●●</span></div>
+        <div class="ph-hd"><span class="t">Routines</span></div>
+        <div class="ph-bd">
+          <div class="cap">YOURS</div>
+          <div class="toast" style="margin-bottom:8px">
+            <span>Copied to Yours</span>
+            <span class="tealtx" style="font-size:10px">Rename ›</span>
+          </div>
+          <div class="card" style="border-color:#16C79A55">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <input style="background:transparent;border:none;border-bottom:.5px solid #16C79A;color:#E6EAF2;font-size:12px;font-weight:600;width:110px;outline:none" value="PPL (copy)" />
+              <span class="tealtx" style="font-size:10px">Save</span>
+            </div>
+            <div class="mut" style="font-size:9px;margin-top:4px">3 days · 9 exercises</div>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">After — toast + rename</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">6</span><h2>Duplicate = tap + toast + rename</h2><span class="tag tag-p0">P0</span></div>
+    <p>Fix the 400 error when duplicating a starter split; add a "Copied to Yours" toast and an inline rename field so users can personalise immediately.</p>
+    <p class="why"><b>The problem:</b> Duplicating a starter split produced a <code>400 Bad Request</code> because the copy was sent with an empty or null UUID (<code>save-as-routine-empty-uuid-400</code>). Users hit an error on the one CTA that should be the fastest path to a working routine. <b>The change:</b> Generate a valid UUID client-side before the API call. On success: animate the new card into the "Yours" section with a toast banner containing a "Rename ›" affordance. The rename field is inline — no navigation required.</p>
+    <p class="kv"><b>Addresses:</b> save-as-routine-empty-uuid-400 · <b>Effort:</b> S · <b>Risk:</b> low</p>
+  </div>
+</div>
+
+<!-- Option 7 -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>●●●</span></div>
+        <div class="ph-hd"><span class="t">Routines</span></div>
+        <div class="ph-bd">
+          <div class="cap">YOURS</div>
+          <div class="swipe">
+            <div style="flex:1;background:#111A2B;border:.5px solid #1F2A3D;padding:9px 11px">
+              <div class="white" style="font-size:11px;font-weight:600">Push A</div>
+              <div class="mut" style="font-size:10px">6 exercises · 2d ago</div>
+            </div>
+            <div class="act">Dupl.</div>
+            <div class="act" style="background:#2A3850;color:#C5CCDA">Edit</div>
+            <div class="act del">Del</div>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">After — swipe actions</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">7</span><h2>Swipe actions on routine rows</h2><span class="tag tag-add">NEW</span></div>
+    <p>Add a swipe-left gesture on each routine card that reveals Duplicate, Edit, and Delete actions.</p>
+    <p class="why"><b>The problem:</b> There is currently no quick action surface on routine rows. To delete or duplicate a routine users must navigate into it and hunt for a menu — or there is no path at all. <b>The change:</b> Swipe left reveals three action buttons: "Duplicate" (teal), "Edit" (neutral), and "Delete" (red, with a confirmation step before execution). This follows standard iOS/RN swipe-to-action conventions. Delete shows an "Are you sure?" confirm sheet before committing.</p>
+    <p class="kv"><b>Addresses:</b> power-user quick actions · <b>Effort:</b> M · <b>Risk:</b> low</p>
+  </div>
+</div>
+
+<!-- Option 8 -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>●●●</span></div>
+        <div style="height:20px;background:#0A0F1A"></div>
+        <div class="ph-hd" style="border-top:.5px solid #B23A3A">
+          <span class="t" style="font-size:10px">Edit routine</span>
+          <span style="color:#B23A3A;font-size:9px">← under status bar</span>
+        </div>
+        <div class="ph-bd" style="padding-bottom:40px">
+          <div class="card" style="margin-bottom:5px"><span class="white" style="font-size:11px">Bench press</span></div>
+          <div class="card" style="margin-bottom:5px"><span class="white" style="font-size:11px">OHP</span></div>
+          <div class="cta" style="margin-top:12px;opacity:.4;font-size:11px">Save</div>
+        </div>
+      </div>
+      <div class="figcap">Before — header under status bar</div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>●●●</span></div>
+        <div class="ph-hd" style="margin-top:2px">
+          <span style="color:#7C8699;font-size:18px">←</span>
+          <span class="t">Edit routine</span>
+        </div>
+        <div class="ph-bd" style="padding-bottom:0">
+          <div class="card" style="margin-bottom:5px"><span class="white" style="font-size:11px">Bench press</span></div>
+          <div class="card" style="margin-bottom:5px"><span class="white" style="font-size:11px">OHP</span></div>
+          <div class="card"><span class="white" style="font-size:11px">Incline DB</span></div>
+        </div>
+        <div style="background:#111A2B;border-top:.5px solid #1F2A3D;padding:10px 12px">
+          <div class="cta" style="font-size:11px">Save routine</div>
+        </div>
+      </div>
+      <div class="figcap">After — safe-area + sticky save</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">8</span><h2>Editor safe-area and sticky save</h2><span class="tag tag-p2">P2</span></div>
+    <p>Wrap the routine editor in <code>SafeAreaView</code> and pin the Save button to a sticky footer above the home indicator.</p>
+    <p class="why"><b>The problem:</b> The editor sheet header overlaps the device status bar on notched iPhones and Android fullscreen devices (<code>android-fullscreen-routine-editor</code>). The Save button is also at the bottom of the scroll, invisible until users scroll past all exercises. <b>The change:</b> Add <code>SafeAreaView</code> (or <code>useSafeAreaInsets</code>) around the sheet header; extract Save into a fixed footer bar with the correct bottom inset. The list scrolls freely; Save is always reachable.</p>
+    <p class="kv"><b>Addresses:</b> android-fullscreen-routine-editor · <b>Effort:</b> S · <b>Risk:</b> low</p>
+  </div>
+</div>
+
+<!-- Option 9 -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>●●●</span></div>
+        <div class="ph-hd"><span class="t">Edit routine</span></div>
+        <div class="ph-bd">
+          <div class="cap">EXERCISES</div>
+          <div class="rowcard" style="margin-bottom:5px">
+            <span class="handle">⠿</span>
+            <span class="white" style="font-size:11px;flex:1;padding-left:8px">Bench press</span>
+            <span class="mut" style="font-size:10px">4 × 5</span>
+          </div>
+          <div class="rowcard" style="margin-bottom:5px;border-color:#16C79A;background:#0F2118">
+            <span class="handle" style="color:#16C79A">⠿</span>
+            <span class="tealtx" style="font-size:11px;flex:1;padding-left:8px">OHP</span>
+            <span class="mut" style="font-size:10px">3 × 8</span>
+          </div>
+          <div class="rowcard">
+            <span class="handle">⠿</span>
+            <span class="white" style="font-size:11px;flex:1;padding-left:8px">Deadlift</span>
+            <span class="mut" style="font-size:10px">3 × 5</span>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">After — drag handles</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">9</span><h2>Drag-to-reorder exercises</h2><span class="tag tag-add">NEW</span></div>
+    <p>Add a drag handle (<code>⠿</code>) to each exercise row in the editor so users can reorder their programme by feel.</p>
+    <p class="why"><b>The problem:</b> Exercise order is fixed once added. Changing it requires removing and re-adding exercises manually, which also loses set/rep data. <b>The change:</b> Render a braille-dot handle on the leading edge of each row. Long-press (or press the handle) activates drag mode: the lifted row highlights in teal, others shift to make room. On release the new index is committed to local state; Save persists to DB. Use React Native's <code>DraggableFlatList</code> or the RN Reanimated drag utility already used elsewhere in the app.</p>
+    <p class="kv"><b>Addresses:</b> exercise reorder UX · <b>Effort:</b> M · <b>Risk:</b> low</p>
+  </div>
+</div>
+
+<!-- Option 10 -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>●●●</span></div>
+        <div class="ph-hd"><span class="t">Edit routine</span></div>
+        <div class="ph-bd">
+          <div class="cap">EXERCISES</div>
+          <div class="rowcard" style="margin-bottom:5px"><span class="white" style="font-size:11px">Bench press</span></div>
+          <div class="rowcard" style="margin-bottom:5px"><span class="white" style="font-size:11px">OHP</span></div>
+          <div class="cta2" style="margin-top:6px;font-size:11px">+ Add exercise</div>
+          <div style="height:8px"></div>
+          <div class="cap">EXERCISE PICKER</div>
+          <div class="rowcard" style="margin-bottom:3px"><span class="white" style="font-size:11px">Incline DB press</span><span class="tealtx" style="font-size:10px">+</span></div>
+          <div class="rowcard" style="margin-bottom:3px"><span class="white" style="font-size:11px">Lateral raises</span><span class="tealtx" style="font-size:10px">+</span></div>
+        </div>
+      </div>
+      <div class="figcap">After — inline picker sheet</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">10</span><h2>Inline exercise add</h2><span class="tag tag-add">NEW</span></div>
+    <p>Open the exercise picker as an inline bottom sheet within the editor rather than navigating away to a separate screen.</p>
+    <p class="why"><b>The problem:</b> Tapping "Add exercise" currently pushes a new screen, losing the editing context and requiring a back-navigation. On slow connections the push animation can make it feel like the tap didn't register. <b>The change:</b> Present <code>ExercisePicker</code> as a half-height bottom sheet that slides up over the editor. Tapping an exercise adds it to the list and dismisses the sheet without leaving the editor context. Users can add multiple exercises in sequence by tapping "+" on each row before dismissing. Integrates with the existing sheet system already used for the workout logger.</p>
+    <p class="kv"><b>Addresses:</b> exercise-add context loss · <b>Effort:</b> M · <b>Risk:</b> low</p>
+  </div>
+</div>
+
+<!-- Option 11 -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>●●●</span></div>
+        <div class="ph-hd"><span class="t">Edit routine</span></div>
+        <div class="ph-bd">
+          <div style="color:#B23A3A;font-size:10px;text-align:center;padding:20px 0 10px">Saving failed.<br/><span class="mut">Server unavailable</span></div>
+          <div class="cta2" style="font-size:10px">Retry</div>
+        </div>
+      </div>
+      <div class="figcap">Before — server-only failure</div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>●●●</span></div>
+        <div class="ph-hd"><span class="t">Edit routine</span></div>
+        <div class="ph-bd">
+          <div class="cap">EXERCISES</div>
+          <div class="rowcard" style="margin-bottom:5px"><span class="white" style="font-size:11px">Bench press</span></div>
+          <div class="rowcard" style="margin-bottom:5px"><span class="white" style="font-size:11px">OHP</span></div>
+          <div style="height:10px"></div>
+          <div class="toast">
+            <span>Saved on-device</span>
+            <span class="pill">Local</span>
+          </div>
+          <div class="mut" style="font-size:9px;text-align:center;margin-top:6px">Syncs when online</div>
+        </div>
+      </div>
+      <div class="figcap">After — local-first save</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">11</span><h2>Local-first instant save</h2><span class="tag tag-p1">P1</span></div>
+    <p>Save routines to the local SQLite DB immediately; sync to the server in the background. Free users never see a save failure.</p>
+    <p class="why"><b>The problem:</b> Routines save via a server REST call (<code>routines-templates-never-local</code>). Free users hit save errors when the server rejects the request or the device is offline. The routine is lost. <b>The change:</b> Write to the local PowerSync DB first (which is instant and always succeeds). Show a "Saved on-device" toast. The sync engine pushes to the server when the user is on a paid plan and has connectivity. This matches the local-first architecture already used for workouts and the decision logged in TICKET-094.</p>
+    <p class="kv"><b>Addresses:</b> routines-templates-never-local · <b>Effort:</b> M · <b>Risk:</b> med (sync conflict logic needed)</p>
+  </div>
+</div>
+
+<!-- Option 12 -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>●●●</span></div>
+        <div class="ph-hd"><span class="t">Routines</span></div>
+        <div class="ph-bd">
+          <div style="color:#3FE0B5;font-size:10px;font-weight:700;margin-bottom:6px;letter-spacing:0">YOUR ROUTINES</div>
+          <div class="rowcard" style="margin-bottom:5px"><span class="white" style="font-size:11px">Push A</span></div>
+          <div style="color:#6B7486;font-size:13px;font-weight:400;margin:10px 0 4px">Starter splits</div>
+          <div class="rowcard"><span class="white" style="font-size:11px">PPL</span></div>
+        </div>
+      </div>
+      <div class="figcap">Before — inconsistent headers</div>
+    </div>
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>●●●</span></div>
+        <div class="ph-hd"><span class="t">Routines</span></div>
+        <div class="ph-bd">
+          <div class="cap">YOURS</div>
+          <div class="rowcard" style="margin-bottom:5px"><span class="white" style="font-size:11px">Push A</span></div>
+          <div style="height:8px"></div>
+          <div class="cap">STARTER SPLITS</div>
+          <div class="rowcard"><span class="white" style="font-size:11px">PPL</span></div>
+        </div>
+      </div>
+      <div class="figcap">After — consistent .cap headers</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">12</span><h2>Shared section grammar</h2><span class="tag tag-p2">P2</span></div>
+    <p>Standardise section headings across the Routines screen: one <code>.cap</code> style (9 px, all-caps, letter-spaced, muted) for both "Yours" and "Starter splits".</p>
+    <p class="why"><b>The problem:</b> "Yours" currently uses a teal bold label at 10 px and "Starter splits" uses a gray 13 px mixed-case label. They look like two different apps were glued together. <b>The change:</b> Apply the shared <code>.cap</code> class (used everywhere else in the app — workout logger, plan cards, profile sections) to both headings. Also harmonise the vertical spacing above each section to 8 px. A three-line CSS change with no logic risk.</p>
+    <p class="kv"><b>Addresses:</b> section-header inconsistency · <b>Effort:</b> S · <b>Risk:</b> low</p>
+  </div>
+</div>
+
+<!-- Option 13 -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>●●●</span></div>
+        <div class="ph-hd"><span class="t">Routines</span></div>
+        <div class="ph-bd">
+          <div class="cap">YOURS</div>
+          <div class="card" style="margin-bottom:6px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span class="white" style="font-size:12px;font-weight:600">Push A</span>
+              <span class="pill">Mon · Thu</span>
+            </div>
+            <div class="mut" style="font-size:10px;margin-top:3px">6 exercises</div>
+          </div>
+          <div class="card">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span class="white" style="font-size:12px;font-weight:600">Pull A</span>
+              <span style="background:#1A2336;border:.5px solid #2A3850;color:#52617A;font-size:9px;padding:2px 8px;border-radius:14px">No schedule</span>
+            </div>
+            <div class="mut" style="font-size:10px;margin-top:3px">7 exercises</div>
+          </div>
+        </div>
+      </div>
+      <div class="figcap">After — schedule chip on card</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">13</span><h2>Per-routine schedule chip</h2><span class="tag tag-add">NEW</span></div>
+    <p>Show a teal "Mon · Thu" chip on each routine card; tap it to open the schedule editor inline without entering the full routine.</p>
+    <p class="why"><b>The problem:</b> There's no way to see a routine's scheduled days from the list view. Users must open the routine, scroll to a schedule section (if it exists), and navigate back. Routines with no schedule show nothing — indistinguishable from an unscheduled routine vs. one where scheduling simply hasn't been discovered. <b>The change:</b> Read the routine's <code>scheduled_days</code> field; render a teal pill with abbreviated day names if set, or a dimmed "No schedule" pill if not. Tapping either opens a compact day-picker sheet. The change is read-only for list rendering; the schedule editor already exists.</p>
+    <p class="kv"><b>Addresses:</b> schedule visibility on card · <b>Effort:</b> S · <b>Risk:</b> low</p>
+  </div>
+</div>
+
+<!-- Option 14 -->
+<div class="opt">
+  <div class="opt-figs">
+    <div>
+      <div class="ph">
+        <div class="ph-sb"><span>9:41</span><span>●●●</span></div>
+        <div class="ph-hd"><span class="t">Routines</span></div>
+        <div class="ph-bd">
+          <div class="cap">FILTER</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px">
+            <span class="chip on">All</span>
+            <span class="chip">Strength</span>
+            <span class="chip">Hypertrophy</span>
+            <span class="chip">PPL</span>
+            <span class="chip">Full body</span>
+          </div>
+          <div class="cap">STARTER SPLITS</div>
+          <div class="rowcard" style="margin-bottom:5px"><span class="white" style="font-size:11px">PPL — 3 days</span></div>
+          <div class="rowcard" style="margin-bottom:5px"><span class="white" style="font-size:11px">GZCLP — 4 days</span></div>
+          <div class="rowcard"><span class="white" style="font-size:11px">Full body — 3 days</span></div>
+        </div>
+      </div>
+      <div class="figcap">After — filter chips</div>
+    </div>
+  </div>
+  <div>
+    <div class="opt-head"><span class="optnum">14</span><h2>Search/filter by goal</h2><span class="tag tag-add">NEW</span></div>
+    <p>Add a horizontal filter-chip row above the starter splits section so users can narrow by training goal (Strength, Hypertrophy, PPL, Full body).</p>
+    <p class="why"><b>The problem:</b> As the starter-split library grows, the list becomes unmanageable without any filtering. A new user who knows they want a "full-body programme" has to read every pill/card to find it. <b>The change:</b> Render a scrollable chip row with goal tags pulled from the template metadata (the <code>goal</code> field on each template). "All" is selected by default and shows everything. Selecting a chip filters the list client-side — no network call. If a template has no <code>goal</code> tag it always appears (safe fallback). Works well paired with option 2 (card layout) but is independent of it.</p>
+    <p class="kv"><b>Addresses:</b> starter-split discoverability at scale · <b>Effort:</b> S · <b>Risk:</b> low</p>
+  </div>
+</div>
+
+<!-- Final recommendation -->
+<div style="background:var(--card);border:2px solid var(--teal);border-radius:16px;padding:28px;margin-bottom:24px">
+  <div class="opt-head" style="margin-bottom:14px">
+    <span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:var(--tealbg);color:var(--teal);font-weight:600;font-size:14px;flex:0 0 30px">★</span>
+    <h2 style="font-size:20px;font-weight:600;margin:0">Recommended build order</h2>
+  </div>
+  <p style="font-size:15px;color:var(--ink);margin:0 0 14px">The founder's reported symptoms — "premade routines don't work" and "can't save a routine" — both map to confirmed P0/P1 bugs, not missing features. Fix those first before any visual work.</p>
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px">
+    <div style="background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px">
+      <div style="font-size:11px;font-weight:700;color:var(--teal);letter-spacing:.8px;text-transform:uppercase;margin-bottom:8px">Sprint 1 — stop the bleeding</div>
+      <div style="font-size:14px;color:var(--ink);margin-bottom:4px"><b>Option 1</b> — fix starter-split preview (P0)</div>
+      <div style="font-size:14px;color:var(--ink);margin-bottom:4px"><b>Option 6</b> — fix duplicate 400 error (P0)</div>
+      <div style="font-size:14px;color:var(--ink);margin-bottom:10px"><b>Option 11</b> — local-first save (P1)</div>
+      <div style="font-size:12px;color:var(--ink2)">These three mean a brand-new account can find a split, copy it, and save it — the complete new-user flow that is currently broken end-to-end.</div>
+    </div>
+    <div style="background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px">
+      <div style="font-size:11px;font-weight:700;color:#2D5B9E;letter-spacing:.8px;text-transform:uppercase;margin-bottom:8px">Sprint 2 — visual cohesion</div>
+      <div style="font-size:14px;color:var(--ink);margin-bottom:4px"><b>Option 3</b> — empty state CTA</div>
+      <div style="font-size:14px;color:var(--ink);margin-bottom:4px"><b>Option 4</b> — single "+ New"</div>
+      <div style="font-size:14px;color:var(--ink);margin-bottom:4px"><b>Option 5</b> — rich routine cards</div>
+      <div style="font-size:14px;color:var(--ink);margin-bottom:4px"><b>Option 8</b> — safe-area + sticky save</div>
+      <div style="font-size:14px;color:var(--ink);margin-bottom:10px"><b>Option 12</b> — shared section headers</div>
+      <div style="font-size:12px;color:var(--ink2)">Option 2 (split cards) pairs well here and can be batched with option 5. All are S-effort and low-risk — ship together in one PR.</div>
+    </div>
+    <div style="background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:16px">
+      <div style="font-size:11px;font-weight:700;color:var(--ink2);letter-spacing:.8px;text-transform:uppercase;margin-bottom:8px">Sprint 3 — power-user additions</div>
+      <div style="font-size:14px;color:var(--ink);margin-bottom:4px"><b>Option 7</b> — swipe actions</div>
+      <div style="font-size:14px;color:var(--ink);margin-bottom:4px"><b>Option 9</b> — drag to reorder</div>
+      <div style="font-size:14px;color:var(--ink);margin-bottom:4px"><b>Option 10</b> — inline exercise add</div>
+      <div style="font-size:14px;color:var(--ink);margin-bottom:4px"><b>Option 13</b> — schedule chip</div>
+      <div style="font-size:14px;color:var(--ink);margin-bottom:10px"><b>Option 14</b> — goal filter</div>
+      <div style="font-size:12px;color:var(--ink2)">Defer until Sprint 1 + 2 are live. These add real power but they're additive — no user is blocked without them. Option 14 pairs with option 2 for maximum impact.</div>
+    </div>
+  </div>
+</div>
+
+</div></body></html>

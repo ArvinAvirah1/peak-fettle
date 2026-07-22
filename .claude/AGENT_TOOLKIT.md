@@ -46,7 +46,7 @@ The golden rule still wins: **no tool replaces the mandatory parse-sweep + `node
 ### Authoring / design / research
 - **skill-creator** -- formalize our SOPs into skills (done: verify + commit; next candidates: "EAS pre-build check", "migration safety check"). Drop an SOP in and let it package the skill.
 - **frontend-design** -- set-logging visual polish (TICKET-057), tier-ladder UI (TICKET-053), the new companion app UI, and `marketing-site/`. Pairs with the already-available `theme-factory`.
-- **exa + firecrawl** -- research stack for `workout_research/` (strength-curve / percentile literature) and competitor analysis. Exa finds the best sources semantically; firecrawl extracts clean content. Both need API keys.
+- **exa + firecrawl** -- research stack for `docs/archive/workout_research/` (strength-curve / percentile literature) and competitor analysis. Exa finds the best sources semantically; firecrawl extracts clean content. Both need API keys.
 - **higgsfield** -- generate marketing/app-store imagery, logo variant explorations (see `logos/`, `Peak Fettle logos.html`), companion-app illustration. Connect via Settings -> Connectors (no API key).
 - **legal** -- draft/refresh privacy policy, ToS, and -- critically -- the **mental-health disclaimers + crisis-resource copy** for the companion app. Not legal advice; a human reviews before publishing.
 - **buildpartner.ai** -- optional `/bp:expert-advice` for product/marketing/launch calls.

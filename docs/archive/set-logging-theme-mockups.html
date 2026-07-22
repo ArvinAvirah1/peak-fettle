@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Peak Fettle — Set-Logging Theme Mockups (TICKET-057)</title>
+<style>
+  :root { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #1c1f24; color: #e8eef2; padding: 28px 18px 56px; }
+  .page-head { max-width: 1080px; margin: 0 auto 26px; }
+  .page-head h1 { font-size: 22px; font-weight: 600; margin: 0 0 6px; }
+  .page-head p { font-size: 14px; line-height: 1.6; color: #aab4c0; margin: 0; max-width: 760px; }
+  .grid { max-width: 1080px; margin: 0 auto; display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 26px; }
+  .col { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .opt-name { font-size: 15px; font-weight: 600; }
+  .opt-desc { font-size: 12.5px; line-height: 1.5; color: #9aa6b2; text-align: center; min-height: 54px; max-width: 320px; }
+  /* phone frame */
+  .phone { width: 320px; border-radius: 30px; padding: 12px; border: 1px solid rgba(255,255,255,.14); box-shadow: 0 10px 40px rgba(0,0,0,.35); }
+  .screen { border-radius: 22px; overflow: hidden; padding: 16px 14px 18px; }
+  .row { display: flex; align-items: center; }
+  .between { justify-content: space-between; }
+  .stat-title { font-size: 18px; font-weight: 700; }
+  .sub { font-size: 11.5px; }
+  .pill { border-radius: 999px; padding: 4px 11px; font-size: 11px; font-weight: 600; }
+  .chip { border-radius: 12px; padding: 7px 12px; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
+  .card { border-radius: 16px; padding: 13px 14px; }
+  .label { font-size: 11px; font-weight: 600; letter-spacing: .02em; }
+  .field { border-radius: 12px; padding: 10px 12px; font-size: 14px; font-weight: 600; }
+  .cta { border-radius: 14px; padding: 13px; text-align: center; font-size: 15px; font-weight: 700; }
+  .sectlabel { font-size: 12.5px; font-weight: 700; }
+  .tier { border-radius: 14px; padding: 11px 13px; display: flex; align-items: center; gap: 11px; }
+  .tier-emblem { width: 34px; height: 34px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 800; }
+  .pb { font-size: 11.5px; font-weight: 600; }
+  .flame { font-size: 12px; font-weight: 700; }
+  .mini { font-size: 10.5px; }
+</style>
+</head>
+<body>
+  <div class="page-head">
+    <h1>Peak Fettle — set-logging theme options</h1>
+    <p>Three directions for the cleaner/more-exciting set-logging screen (TICKET-057). Same layout in all three: routines + starter splits stay one tap away at the top, the selected exercise shows its PB and a suggested rep range, and the primary "Log set" action is always full-width. Pick A, B, or C — or mix. Colours shown here become design tokens (light + dark) in <code>theme/tokens.ts</code>.</p>
+  </div>
+
+  <div class="grid">
+
+    <!-- OPTION A — Midnight Turf -->
+    <div class="col">
+      <div class="opt-name">Option A — Midnight Turf</div>
+      <div class="opt-desc">The current deep-navy + turquoise, tightened. Lowest-risk evolution of today's look — brighter accent on primary actions and PRs.</div>
+      <div class="phone" style="background:#0a121c;">
+        <div class="screen" style="background:#0b1622;">
+          <div class="row between" style="margin-bottom:14px;">
+            <div>
+              <div class="stat-title" style="color:#e8eef2;">Today's workout</div>
+              <div class="sub" style="color:#7d8b99;">Mon, May 25 · Push day</div>
+            </div>
+            <div class="flame" style="color:#2dd4bf;">🔥 6</div>
+          </div>
+
+          <div class="row" style="gap:7px;flex-wrap:wrap;margin-bottom:13px;">
+            <span class="sectlabel" style="color:#5f6f7d;width:100%;margin-bottom:3px;">QUICK START</span>
+            <span class="chip" style="background:rgba(45,212,191,.14);color:#2dd4bf;border:1px solid rgba(45,212,191,.45);">★ My Push A</span>
+            <span class="chip" style="background:rgba(255,255,255,.05);color:#c3ccd5;border:1px solid rgba(255,255,255,.10);">PPL</span>
+            <span class="chip" style="background:rgba(255,255,255,.05);color:#c3ccd5;border:1px solid rgba(255,255,255,.10);">Upper / Lower</span>
+          </div>
+
+          <div class="card" style="background:#13212f;border:1px solid rgba(45,212,191,.30);margin-bottom:11px;">
+            <div class="row between" style="margin-bottom:8px;">
+              <div style="font-size:14px;font-weight:700;color:#e8eef2;">Bench Press</div>
+              <span class="pill" style="background:rgba(255,206,0,.16);color:#ffce3a;">PR target</span>
+            </div>
+            <div class="pb" style="color:#2dd4bf;">PB 102.5 kg × 5 · aim 5–8 reps to beat it</div>
+          </div>
+
+          <div class="row" style="gap:9px;margin-bottom:11px;">
+            <div style="flex:1;">
+              <div class="label" style="color:#7d8b99;margin-bottom:5px;">WEIGHT (KG)</div>
+              <div class="field" style="background:#0a121c;border:1px solid rgba(255,255,255,.10);color:#e8eef2;">100</div>
+            </div>
+            <div style="flex:1;">
+              <div class="label" style="color:#7d8b99;margin-bottom:5px;">REPS</div>
+              <div class="field" style="background:#0a121c;border:1px solid rgba(255,255,255,.10);color:#e8eef2;">6</div>
+            </div>
+          </div>
+
+          <div class="cta" style="background:#2dd4bf;color:#06231f;margin-bottom:13px;">Log set</div>
+
+          <div class="tier" style="background:#13212f;border:1px solid rgba(255,255,255,.07);">
+            <div class="tier-emblem" style="background:rgba(110,168,255,.18);color:#8fb6ff;">◆</div>
+            <div style="flex:1;">
+              <div style="font-size:13px;font-weight:700;color:#e8eef2;">Diamond · Top 5%</div>
+              <div class="mini" style="color:#7d8b99;">Overall strength · 6 pts to Champ</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- OPTION B — Summit -->
+    <div class="col">
+      <div class="opt-name">Option B — Summit</div>
+      <div class="opt-desc">Cooler slate base with an energetic lime/teal accent and a bolder PR + streak celebration. More "exciting", still dark-first.</div>
+      <div class="phone" style="background:#0a0f1c;">
+        <div class="screen" style="background:#0f172a;">
+          <div class="row between" style="margin-bottom:14px;">
+            <div>
+              <div class="stat-title" style="color:#f1f5f9;">Today's workout</div>
+              <div class="sub" style="color:#7889a3;">Mon, May 25 · Push day</div>
+            </div>
+            <div class="flame" style="background:rgba(163,230,53,.16);color:#bef264;border-radius:999px;padding:4px 9px;">🔥 6 wk</div>
+          </div>
+
+          <div class="row" style="gap:7px;flex-wrap:wrap;margin-bottom:13px;">
+            <span class="sectlabel" style="color:#5c6b85;width:100%;margin-bottom:3px;">QUICK START</span>
+            <span class="chip" style="background:rgba(163,230,53,.16);color:#bef264;border:1px solid rgba(163,230,53,.40);">★ My Push A</span>
+            <span class="chip" style="background:rgba(52,211,153,.13);color:#5eead4;border:1px solid rgba(52,211,153,.30);">PPL</span>
+            <span class="chip" style="background:rgba(255,255,255,.05);color:#aebbcd;border:1px solid rgba(255,255,255,.10);">Upper / Lower</span>
+          </div>
+
+          <div class="card" style="background:#1a2436;border:1px solid rgba(163,230,53,.32);margin-bottom:11px;">
+            <div class="row between" style="margin-bottom:8px;">
+              <div style="font-size:14px;font-weight:700;color:#f1f5f9;">Bench Press</div>
+              <span class="pill" style="background:rgba(163,230,53,.18);color:#bef264;">PR target</span>
+            </div>
+            <div class="pb" style="color:#5eead4;">PB 102.5 kg × 5 · aim 5–8 reps to beat it</div>
+          </div>
+
+          <div class="row" style="gap:9px;margin-bottom:11px;">
+            <div style="flex:1;">
+              <div class="label" style="color:#7889a3;margin-bottom:5px;">WEIGHT (KG)</div>
+              <div class="field" style="background:#0a0f1c;border:1px solid rgba(255,255,255,.10);color:#f1f5f9;">100</div>
+            </div>
+            <div style="flex:1;">
+              <div class="label" style="color:#7889a3;margin-bottom:5px;">REPS</div>
+              <div class="field" style="background:#0a0f1c;border:1px solid rgba(255,255,255,.10);color:#f1f5f9;">6</div>
+            </div>
+          </div>
+
+          <div class="cta" style="background:#a3e635;color:#1a2e05;margin-bottom:13px;">Log set</div>
+
+          <div class="tier" style="background:#1a2436;border:1px solid rgba(255,255,255,.07);">
+            <div class="tier-emblem" style="background:rgba(110,168,255,.20);color:#93c5fd;">◆</div>
+            <div style="flex:1;">
+              <div style="font-size:13px;font-weight:700;color:#f1f5f9;">Diamond · Top 5%</div>
+              <div class="mini" style="color:#7889a3;">Overall strength · 6 pts to Champ</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- OPTION C — Daybreak -->
+    <div class="col">
+      <div class="opt-name">Option C — Daybreak</div>
+      <div class="opt-desc">A light-mode-leaning option with high-contrast cards and a warm accent — for lifters training in bright gyms.</div>
+      <div class="phone" style="background:#dfe5ec;">
+        <div class="screen" style="background:#f5f7fa;">
+          <div class="row between" style="margin-bottom:14px;">
+            <div>
+              <div class="stat-title" style="color:#0f1722;">Today's workout</div>
+              <div class="sub" style="color:#5d6b7a;">Mon, May 25 · Push day</div>
+            </div>
+            <div class="flame" style="background:#fff2e6;color:#d9551c;border-radius:999px;padding:4px 9px;">🔥 6</div>
+          </div>
+
+          <div class="row" style="gap:7px;flex-wrap:wrap;margin-bottom:13px;">
+            <span class="sectlabel" style="color:#8493a3;width:100%;margin-bottom:3px;">QUICK START</span>
+            <span class="chip" style="background:#d7f5f1;color:#0a6e68;border:1px solid #9ad9d3;">★ My Push A</span>
+            <span class="chip" style="background:#fff;color:#33424f;border:1px solid #d3dbe3;">PPL</span>
+            <span class="chip" style="background:#fff;color:#33424f;border:1px solid #d3dbe3;">Upper / Lower</span>
+          </div>
+
+          <div class="card" style="background:#fff;border:1px solid #d3dbe3;margin-bottom:11px;">
+            <div class="row between" style="margin-bottom:8px;">
+              <div style="font-size:14px;font-weight:700;color:#0f1722;">Bench Press</div>
+              <span class="pill" style="background:#fff1cc;color:#a06b00;">PR target</span>
+            </div>
+            <div class="pb" style="color:#0a6e68;">PB 102.5 kg × 5 · aim 5–8 reps to beat it</div>
+          </div>
+
+          <div class="row" style="gap:9px;margin-bottom:11px;">
+            <div style="flex:1;">
+              <div class="label" style="color:#5d6b7a;margin-bottom:5px;">WEIGHT (KG)</div>
+              <div class="field" style="background:#fff;border:1px solid #d3dbe3;color:#0f1722;">100</div>
+            </div>
+            <div style="flex:1;">
+              <div class="label" style="color:#5d6b7a;margin-bottom:5px;">REPS</div>
+              <div class="field" style="background:#fff;border:1px solid #d3dbe3;color:#0f1722;">6</div>
+            </div>
+          </div>
+
+          <div class="cta" style="background:#0ea5a4;color:#fff;margin-bottom:13px;">Log set</div>
+
+          <div class="tier" style="background:#fff;border:1px solid #d3dbe3;">
+            <div class="tier-emblem" style="background:#e6efff;color:#2563c9;">◆</div>
+            <div style="flex:1;">
+              <div style="font-size:13px;font-weight:700;color:#0f1722;">Diamond · Top 5%</div>
+              <div class="mini" style="color:#5d6b7a;">Overall strength · 6 pts to Champ</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>

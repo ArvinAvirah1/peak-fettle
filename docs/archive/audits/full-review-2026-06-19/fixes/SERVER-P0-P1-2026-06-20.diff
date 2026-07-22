@@ -1,0 +1,645 @@
+diff --git a/peak-fettle-agents/server/cron/cleanup-orphaned-auth.js b/peak-fettle-agents/server/cron/cleanup-orphaned-auth.js
+index d8af0a1..266a3e4 100644
+--- a/peak-fettle-agents/server/cron/cleanup-orphaned-auth.js
++++ b/peak-fettle-agents/server/cron/cleanup-orphaned-auth.js
+@@ -65,6 +65,18 @@ async function run() {
+         for (const orphan of orphans) {
+             const { auth_uid } = orphan;
+ 
++            // SRV-AUTH-05: never delete a Supabase auth record whose users row
++            // still exists — a bad orphan insert must not destroy a live account.
++            const { rows: liveRows } = await client.query(
++                `SELECT 1 FROM users WHERE id = $1`,
++                [auth_uid]
++            );
++            if (liveRows.length > 0) {
++                console.warn(`[cleanup-orphaned-auth] SKIP auth_uid=${auth_uid}: users row still present — leaving resolved_at NULL for manual review`);
++                failed++;
++                continue;
++            }
++
+             // Attempt to delete the Supabase auth record.
+             const { error } = await supabaseAdmin.auth.admin.deleteUser(auth_uid);
+ 
+diff --git a/peak-fettle-agents/server/cron/percentile.js b/peak-fettle-agents/server/cron/percentile.js
+index 77831fc..17b5d58 100644
+--- a/peak-fettle-agents/server/cron/percentile.js
++++ b/peak-fettle-agents/server/cron/percentile.js
+@@ -190,6 +190,7 @@ function nearestWeightClass(weightKg) {
+ 
+ module.exports = { run, ageBand, yearsBand, nearestWeightClass };
+ 
+-if (require.main === module) {
+-    run();
+-}
++// SRV-ENGINE-04: the direct-invocation guard is at the TOP of this file (it logs
++// DISABLED and exits before reaching here). run() is exported for tests ONLY and
++// must never be scheduled — it writes to the deprecated user_percentile_rankings
++// table (percentiles are computed on-device now, SPEC_094A).
+diff --git a/peak-fettle-agents/server/cron/push-dispatcher.js b/peak-fettle-agents/server/cron/push-dispatcher.js
+index 9a883ee..396664d 100644
+--- a/peak-fettle-agents/server/cron/push-dispatcher.js
++++ b/peak-fettle-agents/server/cron/push-dispatcher.js
+@@ -326,10 +326,15 @@ if (require.main === module) {
+     run()
+         .then((stats) => {
+             console.log('[push-dispatcher] completed:', stats);
+-            process.exit(0);
+         })
+         .catch((err) => {
+             console.error('[push-dispatcher] fatal error:', err);
+-            process.exit(1);
++            process.exitCode = 1;
++        })
++        // SRV-ENGINE-03: drain the pool so the process exits cleanly instead of
++        // relying on process.exit(0) (which truncates in-flight logging and would
++        // hang if run() were ever invoked by a shared, long-lived runner).
++        .finally(async () => {
++            await pool.end().catch(() => {});
+         });
+ }
+diff --git a/peak-fettle-agents/server/middleware/errorHandler.js b/peak-fettle-agents/server/middleware/errorHandler.js
+index d73da85..0d0dbaa 100644
+--- a/peak-fettle-agents/server/middleware/errorHandler.js
++++ b/peak-fettle-agents/server/middleware/errorHandler.js
+@@ -3,11 +3,19 @@
+ 
+ function errorHandler(err, _req, res, _next) {
+     if (err && err.name === 'ZodError') {
+-        return res.status(400).json({ error: 'validation_failed', details: err.issues });
++        // SRV-AUTH-04: do not leak the request schema (field paths, lengths,
++        // received values) to the client.
++        return res.status(400).json({ error: 'validation_failed' });
+     }
+     if (err && err.code === '23505') { // pg unique violation
+         return res.status(409).json({ error: 'conflict' });
+     }
++    // SRV-AUTH-06: schema drift (missing table/column) on a route that did not
++    // catch it locally — label it so it is distinguishable from a real bug.
++    if (err && (err.code === '42P01' || err.code === '42703')) {
++        console.warn('[schema-drift]', err.code, err.message);
++        return res.status(500).json({ error: 'schema_drift' });
++    }
+ 
+     // Log unknown errors for Sentry once it's wired
+     console.error('[unhandled]', err);
+diff --git a/peak-fettle-agents/server/routes/auth.js b/peak-fettle-agents/server/routes/auth.js
+index 0ea711e..3029581 100644
+--- a/peak-fettle-agents/server/routes/auth.js
++++ b/peak-fettle-agents/server/routes/auth.js
+@@ -234,7 +234,7 @@ router.post('/refresh', async (req, res, next) => {
+         if (!refreshToken) return res.status(400).json({ error: 'missing_refresh_token' });
+ 
+         // Verify JWT signature and type before hitting the DB.
+-        const payload = jwt.verify(refreshToken, process.env.JWT_SECRET);
++        const payload = jwt.verify(refreshToken, process.env.JWT_SECRET, { algorithms: ['HS256'] }); // SRV-AUTH-03
+         if (payload.type !== 'refresh') {
+             return res.status(401).json({ error: 'invalid_token' });
+         }
+@@ -361,6 +361,13 @@ router.post('/oauth', async (req, res, next) => {
+         const email = (claims.email || '').toLowerCase();
+         if (!email) return res.status(400).json({ error: 'provider_no_email' });
+ 
++        // SRV-AUTH-02: never find-or-create on an UNVERIFIED provider email. An
++        // attacker holding a token whose email is unverified could otherwise take
++        // over an existing account that owns that same email address.
++        if (!claims.emailVerified) {
++            return res.status(401).json({ error: 'provider_email_not_verified' });
++        }
++
+         // Find-or-create by verified email. NOTE: a dedicated oauth_identities
+         // table mapping provider `sub` -> account is the proper long-term store
+         // (and the account-linking follow-up that TICKET-099 scopes OUT). That
+diff --git a/peak-fettle-agents/server/routes/cosmetics.js b/peak-fettle-agents/server/routes/cosmetics.js
+index d7aa71b..4fd4fe2 100644
+--- a/peak-fettle-agents/server/routes/cosmetics.js
++++ b/peak-fettle-agents/server/routes/cosmetics.js
+@@ -37,6 +37,7 @@
+ const express = require('express');
+ const { z }   = require('zod');
+ const { pool } = require('../db');
++const { requirePaid } = require('../middleware/requirePaid'); // SOCIAL-01
+ 
+ const router = express.Router();
+ 
+@@ -83,6 +84,7 @@ router.get('/owned', async (req, res, next) => {
+         const { rows } = await pool.query(
+             `SELECT ci.id, ci.name, ci.description, ci.category, ci.rarity,
+                     ci.price_credits, ci.is_default, ci.metadata, ci.sort_order,
++                    (NOT ci.is_default) AS requires_pro, -- SOCIAL-06: server-authoritative lock signal
+                     CASE WHEN ci.is_default THEN TRUE
+                          ELSE (uc.item_id IS NOT NULL)
+                     END AS owned,
+@@ -156,7 +158,7 @@ router.get('/equipped', async (req, res, next) => {
+ //   2. item must exist, be active, and match the slot's category.
+ //   3. item must be owned by the caller OR be a default item.
+ // ---------------------------------------------------------------------------
+-router.put('/equipped/:slot', async (req, res, next) => {
++router.put('/equipped/:slot', requirePaid, async (req, res, next) => { // SOCIAL-01: Pro-gate equip
+     try {
+         const { slot } = z.object({
+             slot: z.enum(VALID_SLOTS),
+@@ -321,6 +323,7 @@ router.get('/', async (req, res, next) => {
+         const { rows } = await pool.query(
+             `SELECT ci.id, ci.name, ci.description, ci.category, ci.rarity,
+                     ci.price_credits, ci.is_default, ci.metadata, ci.sort_order,
++                    (NOT ci.is_default) AS requires_pro, -- SOCIAL-06: server-authoritative lock signal
+                     -- owned: true if the caller has this item OR it is a default
+                     CASE WHEN ci.is_default THEN TRUE
+                          ELSE (uc.item_id IS NOT NULL)
+@@ -355,7 +358,7 @@ router.get('/', async (req, res, next) => {
+ //
+ // Idempotency: attempting to purchase an already-owned item returns 409.
+ // ---------------------------------------------------------------------------
+-router.post('/:id/purchase', async (req, res, next) => {
++router.post('/:id/purchase', requirePaid, async (req, res, next) => { // SOCIAL-01: Pro-gate purchase
+     try {
+         const { id: itemId } = z.object({ id: z.string().uuid() }).parse(req.params);
+         const userId = req.user.id;
+@@ -454,6 +457,7 @@ router.get('/:id', async (req, res, next) => {
+         const { rows } = await pool.query(
+             `SELECT ci.id, ci.name, ci.description, ci.category, ci.rarity,
+                     ci.price_credits, ci.is_default, ci.metadata, ci.sort_order,
++                    (NOT ci.is_default) AS requires_pro, -- SOCIAL-06: server-authoritative lock signal
+                     ci.created_at,
+                     CASE WHEN ci.is_default THEN TRUE
+                          ELSE (uc.item_id IS NOT NULL)
+diff --git a/peak-fettle-agents/server/routes/csvImport.js b/peak-fettle-agents/server/routes/csvImport.js
+index b62a866..38e0088 100644
+--- a/peak-fettle-agents/server/routes/csvImport.js
++++ b/peak-fettle-agents/server/routes/csvImport.js
+@@ -179,13 +179,15 @@ router.post('/', upload.single('file'), async (req, res, next) => {
+     let existingSet = new Set();
+     try {
+         const { rows: existing } = await pool.query(
++            // SRV-DATA-02: dedup on the activity day_key (the calendar day the
++            // workout happened), not created_at (server insert time).
+             `SELECT
+-               created_at::date::text  AS day,
++               day_key::text  AS day,
+                duration_seconds
+              FROM workouts
+              WHERE user_id      = $1
+                AND session_type = 'cardio_import'
+-               AND created_at::date = ANY($2::date[])`,
++               AND day_key = ANY($2::date[])`,
+             [userId, candidateDates]
+         );
+         for (const ex of existing) {
+@@ -214,7 +216,10 @@ router.post('/', upload.single('file'), async (req, res, next) => {
+     // user_id is factored out as $1.  Per-row columns (6 each) are laid out
+     // sequentially: base = 2 + i * 6 for row i.
+     // CSV-002: activity_type is included in every INSERT.
+-    const PER_ROW_COLS = 6; // activity_type, duration_seconds, distance_m, avg_pace, source, logged_at
++    // SRV-DATA-01: day_key (DATE NOT NULL on workouts) MUST be supplied or every
++    // INSERT hits 23502 and the whole import rolls back. Bind it from the parsed
++    // activity date (same value the dedup above keys on).
++    const PER_ROW_COLS = 7; // activity_type, duration_seconds, distance_m, avg_pace, source, logged_at, day_key
+     const bindValues  = [userId];
+     const placeholders = toInsert.map((p, i) => {
+         const base = 2 + i * PER_ROW_COLS;
+@@ -225,8 +230,9 @@ router.post('/', upload.single('file'), async (req, res, next) => {
+             p.avg_pace_sec_per_km,
+             p.source,
+             p.logged_at,
++            p.logged_at.split('T')[0], // day_key (activity calendar day)
+         );
+-        return `($1, 'cardio_import', $${base}, $${base+1}, $${base+2}, $${base+3}, $${base+4}, $${base+5}::timestamptz)`;
++        return `($1, 'cardio_import', $${base}, $${base+1}, $${base+2}, $${base+3}, $${base+4}, $${base+5}::timestamptz, $${base+6}::date)`;
+     });
+ 
+     const client = await pool.connect();
+@@ -235,7 +241,7 @@ router.post('/', upload.single('file'), async (req, res, next) => {
+         await client.query(
+             `INSERT INTO workouts
+                (user_id, session_type, activity_type, duration_seconds,
+-                distance_m, avg_pace_sec_per_km, source, created_at)
++                distance_m, avg_pace_sec_per_km, source, created_at, day_key)
+              VALUES ${placeholders.join(', ')}`,
+             bindValues
+         );
+diff --git a/peak-fettle-agents/server/routes/groups.js b/peak-fettle-agents/server/routes/groups.js
+index 32df491..adb937d 100644
+--- a/peak-fettle-agents/server/routes/groups.js
++++ b/peak-fettle-agents/server/routes/groups.js
+@@ -45,6 +45,21 @@ const groupsRouter  = express.Router();
+ const creditsRouter = express.Router();
+ const goalsRouter   = express.Router();
+ 
++// SOCIAL-03 (2026-06-20): validate :id and :userId as UUIDs once for every
++// groupsRouter route, so a malformed id returns 400 instead of a 22P02 -> 500.
++groupsRouter.param('id', (req, res, next, val) => {
++    if (!z.string().uuid().safeParse(val).success) {
++        return res.status(400).json({ error: 'invalid_group_id' });
++    }
++    return next();
++});
++groupsRouter.param('userId', (req, res, next, val) => {
++    if (!z.string().uuid().safeParse(val).success) {
++        return res.status(400).json({ error: 'invalid_user_id' });
++    }
++    return next();
++});
++
+ // ---------------------------------------------------------------------------
+ // Constants (§10 proposed defaults — change here + in cron if recalibrated)
+ // ---------------------------------------------------------------------------
+@@ -120,6 +135,10 @@ async function executeJoin(res, group, joiningUserId) {
+     try {
+         await client.query('BEGIN');
+ 
++        // SOCIAL-07: lock the group row so concurrent joins to the same group
++        // serialize and cannot race past size_cap between the COUNT and INSERT.
++        await client.query(`SELECT 1 FROM groups WHERE id = $1 FOR UPDATE`, [group.id]);
++
+         // §3 decision 5: concurrent group cap
+         const { rows: capRows } = await client.query(
+             `SELECT COUNT(*) AS cnt
+@@ -200,31 +219,9 @@ async function executeJoin(res, group, joiningUserId) {
+     }
+ }
+ 
+-/**
+- * If the group admin just left, auto-transfer admin to the longest-tenured
+- * remaining active member.
+- */
+-async function handleAdminLeave(groupId, leavingUserId) {
+-    const { rows: adminCheck } = await pool.query(
+-        `SELECT id FROM groups WHERE id = $1 AND admin_user_id = $2`,
+-        [groupId, leavingUserId]
+-    );
+-    if (adminCheck.length === 0) return; // caller was not admin — nothing to do
+-
+-    const { rows: nextAdmin } = await pool.query(
+-        `SELECT user_id FROM group_memberships
+-         WHERE group_id = $1 AND status = 'active'
+-         ORDER BY joined_at ASC
+-         LIMIT 1`,
+-        [groupId]
+-    );
+-    if (nextAdmin.length === 0) return; // no remaining members
+-
+-    await pool.query(
+-        `UPDATE groups SET admin_user_id = $1, updated_at = NOW() WHERE id = $2`,
+-        [nextAdmin[0].user_id, groupId]
+-    );
+-}
++// handleAdminLeave() was removed (SOCIAL-02): the admin hand-off is now done
++// atomically inside the /leave and /:id/members/:userId transactions below,
++// via a single conditional UPDATE that re-reads remaining members under lock.
+ 
+ // ---------------------------------------------------------------------------
+ // Validation schemas
+@@ -446,6 +443,16 @@ groupsRouter.post('/:id/transfer-admin', async (req, res, next) => {
+             newAdminUserId: z.string().uuid(),
+         }).parse(req.body);
+ 
++        // SOCIAL-04: verify the caller is the admin FIRST so a non-admin cannot
++        // probe whether an arbitrary userId is a member (400-vs-404 oracle).
++        const { rows: adminRows } = await pool.query(
++            `SELECT 1 FROM groups WHERE id = $1 AND admin_user_id = $2`,
++            [req.params.id, req.user.id]
++        );
++        if (adminRows.length === 0) {
++            return res.status(404).json({ error: 'group_not_found_or_not_admin' });
++        }
++
+         // New admin must be an active member
+         const { rows: memberRows } = await pool.query(
+             `SELECT 1 FROM group_memberships
+@@ -585,7 +592,21 @@ groupsRouter.delete('/:id/members/:userId', async (req, res, next) => {
+ 
+         // If the kicked member was admin (shouldn't happen — can't kick yourself —
+         // but guard anyway), transfer admin to next member.
+-        await handleAdminLeave(groupId, targetId);
++        // SOCIAL-02: race-free, single-statement guard. A kicked member is never
++        // the admin (you cannot kick yourself, and the caller is verified admin
++        // above), so this is defensive and normally a no-op.
++        await pool.query(
++            `UPDATE groups g
++                SET admin_user_id = (
++                        SELECT m.user_id FROM group_memberships m
++                         WHERE m.group_id = g.id AND m.status = 'active'
++                         ORDER BY m.joined_at ASC LIMIT 1),
++                    updated_at = NOW()
++              WHERE g.id = $1 AND g.admin_user_id = $2
++                AND EXISTS (SELECT 1 FROM group_memberships m2
++                            WHERE m2.group_id = g.id AND m2.status = 'active')`,
++            [groupId, targetId]
++        );
+ 
+         res.json({ kicked: true, cooldown_until: rows[0].kick_cooldown_until });
+     } catch (err) { next(err); }
+@@ -597,8 +618,11 @@ groupsRouter.delete('/:id/members/:userId', async (req, res, next) => {
+ // If the leaver was admin, auto-transfer to longest-tenured remaining member.
+ // ---------------------------------------------------------------------------
+ groupsRouter.post('/:id/leave', async (req, res, next) => {
++    const client = await pool.connect();
+     try {
+-        const { rows } = await pool.query(
++        await client.query('BEGIN');
++
++        const { rows } = await client.query(
+             `UPDATE group_memberships
+              SET status  = 'left',
+                  left_at = NOW()
+@@ -607,14 +631,35 @@ groupsRouter.post('/:id/leave', async (req, res, next) => {
+             [req.params.id, req.user.id]
+         );
+         if (rows.length === 0) {
++            await client.query('ROLLBACK');
+             return res.status(404).json({ error: 'not_an_active_member' });
+         }
+ 
+-        // Transfer admin if the leaver held the role
+-        await handleAdminLeave(req.params.id, req.user.id);
++        // SOCIAL-02: atomic admin hand-off in the SAME tx. Only fires if the
++        // leaver was the admin AND an active member remains; the subquery picks
++        // the longest-tenured remaining active member under the same snapshot,
++        // so concurrent leaves can't strand admin on a departed user.
++        await client.query(
++            `UPDATE groups g
++                SET admin_user_id = (
++                        SELECT m.user_id FROM group_memberships m
++                         WHERE m.group_id = g.id AND m.status = 'active'
++                         ORDER BY m.joined_at ASC LIMIT 1),
++                    updated_at = NOW()
++              WHERE g.id = $1 AND g.admin_user_id = $2
++                AND EXISTS (SELECT 1 FROM group_memberships m2
++                            WHERE m2.group_id = g.id AND m2.status = 'active')`,
++            [req.params.id, req.user.id]
++        );
+ 
++        await client.query('COMMIT');
+         res.json({ left: true });
+-    } catch (err) { next(err); }
++    } catch (err) {
++        try { await client.query('ROLLBACK'); } catch (_) { /* already aborted */ }
++        return next(err);
++    } finally {
++        client.release();
++    }
+ });
+ 
+ // ---------------------------------------------------------------------------
+@@ -625,8 +670,12 @@ groupsRouter.get('/:id/history', async (req, res, next) => {
+     try {
+         // Caller must be a current or past member to see history
+         const { rows: memberCheck } = await pool.query(
++            // SOCIAL-05: kicked members lose history access; only current
++            // ('active') or voluntarily-departed ('left') members may read it.
++            // [FOUNDER: confirm — spec said "current or past member".]
+             `SELECT 1 FROM group_memberships
+-             WHERE group_id = $1 AND user_id = $2`,
++             WHERE group_id = $1 AND user_id = $2
++               AND status IN ('active', 'left')`,
+             [req.params.id, req.user.id]
+         );
+         if (memberCheck.length === 0) {
+diff --git a/peak-fettle-agents/server/routes/healthMetrics.js b/peak-fettle-agents/server/routes/healthMetrics.js
+index d615d67..b907681 100644
+--- a/peak-fettle-agents/server/routes/healthMetrics.js
++++ b/peak-fettle-agents/server/routes/healthMetrics.js
+@@ -40,7 +40,8 @@ const UpsertMetricsSchema = z.object({
+ // ---------------------------------------------------------------------------
+ router.get('/', async (req, res, next) => {
+     try {
+-        const days = Math.min(parseInt(req.query.days ?? '30', 10) || 30, 365);
++        // SRV-USER-04: clamp to >=1 so a negative ?days can't become a future date.
++        const days = Math.max(1, Math.min(parseInt(req.query.days ?? '30', 10) || 30, 365));
+ 
+         const { rows } = await pool.query(
+             `SELECT metric_id, date, resting_hr_bpm, hrv_ms, sleep_hours,
+diff --git a/peak-fettle-agents/server/routes/percentile.js b/peak-fettle-agents/server/routes/percentile.js
+index b229bf9..802336e 100644
+--- a/peak-fettle-agents/server/routes/percentile.js
++++ b/peak-fettle-agents/server/routes/percentile.js
+@@ -328,7 +328,15 @@ router.post('/confirm-1rm', async (req, res, next) => {
+             confirmed_at: rows[0].confirmed_at,
+             message:      'Confirmed. Your ranking will update on the next weekly run.',
+         });
+-    } catch (err) { next(err); }
++    } catch (err) {
++        // SRV-PLANS-04: user_confirmed_1rm is deprecated and may be absent on a
++        // drifted prod DB — degrade gracefully instead of 500 (the on-device
++        // model is the source of truth; this row is a best-effort ranking hint).
++        if (isMissingSchema(err)) {
++            return res.status(200).json({ degraded: true, message: 'Confirmation accepted; server ranking store unavailable.' });
++        }
++        return next(err);
++    }
+ });
+ 
+ module.exports = router;
+diff --git a/peak-fettle-agents/server/routes/plans.js b/peak-fettle-agents/server/routes/plans.js
+index b81234c..08c6de8 100644
+--- a/peak-fettle-agents/server/routes/plans.js
++++ b/peak-fettle-agents/server/routes/plans.js
+@@ -466,6 +466,21 @@ router.post('/generate', async (req, res, next) => {
+ // ---------------------------------------------------------------------------
+ router.post('/:id/regenerate', async (req, res, next) => {
+     try {
++        // SRV-PLANS-03: explicit paid gate — don't rely solely on the
++        // router.handle('/generate') delegation re-checking it (fragile if the
++        // internal dispatch is ever refactored).
++        const { rows: paidRows } = await pool.query(
++            `SELECT (tier = 'paid') AS is_paid FROM users WHERE id = $1`,
++            [req.user.id]
++        );
++        if (!paidRows[0]?.is_paid) {
++            return res.status(403).json({
++                error:   'paid_tier_required',
++                message: 'Training Engine plans are a paid-tier feature. ' +
++                         'Upgrade to Peak Fettle Pro to unlock personalised training.',
++            });
++        }
++
+         // Verify ownership.
+         const { rows: ownerRows } = await pool.query(
+             `SELECT id FROM plans WHERE id = $1 AND user_id = $2 AND is_ai_generated = FALSE`,
+@@ -486,7 +501,9 @@ router.post('/:id/regenerate', async (req, res, next) => {
+         // Throttle check.
+         const { rows: throttleRows } = await pool.query(
+             `SELECT COUNT(*) AS cnt FROM plans
+-             WHERE user_id = $1 AND created_at >= CURRENT_DATE`,
++             WHERE user_id = $1
++               AND name LIKE 'Training Engine Plan%' -- SRV-PLANS-05: scope to engine plans
++               AND created_at >= CURRENT_DATE`,
+             [req.user.id]
+         );
+         if (parseInt(throttleRows[0]?.cnt ?? 0, 10) >= 20) {
+diff --git a/peak-fettle-agents/server/routes/sets.js b/peak-fettle-agents/server/routes/sets.js
+index 6f8746d..7922d63 100644
+--- a/peak-fettle-agents/server/routes/sets.js
++++ b/peak-fettle-agents/server/routes/sets.js
+@@ -221,6 +221,12 @@ router.get('/personal-best/:exerciseId', async (req, res, next) => {
+     try {
+         const { exerciseId } = req.params;
+ 
++        // SRV-DATA-03: reject a non-UUID :exerciseId before it hits the UUID cast
++        // ($2) and 22P02-500s; return the same empty shape as "never logged".
++        if (!z.string().uuid().safeParse(exerciseId).success) {
++            return res.json({ all_time_best: null, last_session: null });
++        }
++
+         // All-time best: highest Epley e1rm across all sets for this exercise.
+         const atbResult = await pool.query(
+             `SELECT
+diff --git a/peak-fettle-agents/server/routes/user.js b/peak-fettle-agents/server/routes/user.js
+index 9d95fce..4dd8f05 100644
+--- a/peak-fettle-agents/server/routes/user.js
++++ b/peak-fettle-agents/server/routes/user.js
+@@ -16,12 +16,70 @@
+ // "you can take your data and leave" commitment.
+ 
+ const express = require('express');
++const crypto = require('crypto');
+ const rateLimit = require('express-rate-limit');
+ const { pool } = require('../db');
+ const { supabaseAdmin } = require('../lib/supabaseAdmin');
+ 
+ const router = express.Router();
+ 
++// SRV-USER-01 (P0, 2026-06-20): tier mutations must not be callable with a
++// user's own JWT. requireServiceSecret blocks /upgrade unless the caller
++// presents the server-to-server TIER_SERVICE_SECRET (a future payment webhook
++// or admin tool). Secure-by-default: if the env secret is unset, the route is
++// closed (403). This prevents a free user self-promoting to tier='paid'.
++function requireServiceSecret(req, res, next) {
++    const secret = process.env.TIER_SERVICE_SECRET || '';
++    const provided = req.get('x-service-secret') || '';
++    const ok =
++        secret.length > 0 &&
++        provided.length === secret.length &&
++        crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(secret));
++    if (!ok) {
++        return res.status(403).json({
++            error: 'tier_change_forbidden',
++            message: 'Tier changes require server-side authorization.',
++        });
++    }
++    return next();
++}
++
++// SRV-USER-02 (P0, 2026-06-20): drift-tolerant delete inside the account
++// deletion transaction. Postgres aborts the ENTIRE transaction on any statement
++// error, so an absent/deprecated satellite table (e.g. user_percentile_rankings
++// on a drifted prod DB) would roll back the whole GDPR deletion and 500. Wrap
++// each satellite delete in a SAVEPOINT and ROLLBACK TO SAVEPOINT on 42P01/42703
++// so only that one statement is undone and the deletion still completes.
++async function delGuarded(client, sp, sql, params) {
++    await client.query(`SAVEPOINT ${sp}`);
++    try {
++        await client.query(sql, params);
++        await client.query(`RELEASE SAVEPOINT ${sp}`);
++    } catch (e) {
++        if (e && (e.code === '42P01' || e.code === '42703')) {
++            await client.query(`ROLLBACK TO SAVEPOINT ${sp}`);
++            console.warn('[account-delete] skipped absent relation (%s) at %s', e.code, sp);
++        } else {
++            throw e;
++        }
++    }
++}
++
++// SRV-USER-05 (P2, 2026-06-20): drift-tolerant read for the GDPR data-export.
++// An optional/deprecated satellite table absent on a drifted prod DB must not
++// 500 the whole export — degrade that one category to empty rows.
++async function safeQuery(sql, params) {
++    try {
++        return await pool.query(sql, params);
++    } catch (e) {
++        if (e && (e.code === '42P01' || e.code === '42703')) {
++            console.warn('[data-export] skipped absent relation (%s)', e.code);
++            return { rows: [] };
++        }
++        throw e;
++    }
++}
++
+ // PATCH /profile helpers (Task 3, 2026-06-19) -------------------------------
+ // DRIFTABLE_PROFILE_COLUMNS: optional survey columns a drifted prod DB may not
+ // have yet. If the profile UPDATE hits 42703/42P01 we drop these and retry.
+@@ -170,19 +228,19 @@ router.get('/data-export', exportLimiter, async (req, res, next) => {
+                  ORDER BY created_at DESC`,
+                 [uid]
+             ),
+-            pool.query(
++            safeQuery(
+                 `SELECT constraint_type, custom_note, created_at
+                  FROM user_constraints WHERE user_id = $1`,
+                 [uid]
+             ),
+-            pool.query(
++            safeQuery(
+                 `SELECT date, resting_hr_bpm, hrv_ms, sleep_hours,
+                         active_kcal, source
+                  FROM daily_health_metrics WHERE user_id = $1
+                  ORDER BY date DESC`,
+                 [uid]
+             ),
+-            pool.query(
++            safeQuery(
+                 // streak-col-mismatch fix (2026-06-14): actual column names per schema are
+                 // current_streak_days, longest_streak_days, last_session_date.
+                 `SELECT current_streak_days, longest_streak_days, last_session_date
+@@ -260,14 +318,18 @@ router.delete('/account', deleteLimiter, async (req, res, next) => {
+         try {
+             await client.query('BEGIN');
+ 
+-            await client.query(`DELETE FROM sets       WHERE workout_id IN (SELECT id FROM workouts WHERE user_id = $1)`, [uid]);
+-            await client.query(`DELETE FROM workouts             WHERE user_id = $1`, [uid]);
+-            await client.query(`DELETE FROM plans                WHERE user_id = $1`, [uid]);
+-            await client.query(`DELETE FROM user_constraints     WHERE user_id = $1`, [uid]);
+-            await client.query(`DELETE FROM daily_health_metrics WHERE user_id = $1`, [uid]);
+-            await client.query(`DELETE FROM user_percentile_rankings WHERE user_id = $1`, [uid]);
+-            await client.query(`DELETE FROM refresh_tokens        WHERE user_id = $1`, [uid]);
+-            await client.query(`DELETE FROM streaks               WHERE user_id = $1`, [uid]);
++            // Satellite rows: guard each with a SAVEPOINT so an absent/deprecated
++            // table on a drifted prod DB degrades (skip) instead of aborting the
++            // whole GDPR deletion (SRV-USER-02).
++            await delGuarded(client, 'sp_sets',        `DELETE FROM sets       WHERE workout_id IN (SELECT id FROM workouts WHERE user_id = $1)`, [uid]);
++            await delGuarded(client, 'sp_workouts',    `DELETE FROM workouts             WHERE user_id = $1`, [uid]);
++            await delGuarded(client, 'sp_plans',       `DELETE FROM plans                WHERE user_id = $1`, [uid]);
++            await delGuarded(client, 'sp_constraints', `DELETE FROM user_constraints     WHERE user_id = $1`, [uid]);
++            await delGuarded(client, 'sp_health',      `DELETE FROM daily_health_metrics WHERE user_id = $1`, [uid]);
++            await delGuarded(client, 'sp_percentile',  `DELETE FROM user_percentile_rankings WHERE user_id = $1`, [uid]);
++            await delGuarded(client, 'sp_refresh',     `DELETE FROM refresh_tokens        WHERE user_id = $1`, [uid]);
++            await delGuarded(client, 'sp_streaks',     `DELETE FROM streaks               WHERE user_id = $1`, [uid]);
++            // The core users row MUST delete for the account to be gone — not guarded.
+             await client.query(`DELETE FROM users                 WHERE id      = $1`, [uid]);
+ 
+             await client.query('COMMIT');
+@@ -496,7 +558,7 @@ router.patch('/profile', async (req, res, next) => {
+         }
+ 
+         if (experience_level !== undefined) {
+-            if (typeof experience_level !== 'string' || experience_level.length > 50) {
++            if (typeof experience_level !== 'string' || experience_level.trim().length < 1 || experience_level.length > 50) {
+                 return res.status(400).json({
+                     error: 'invalid_experience_level',
+                     message: 'experience_level must be a string of ≤50 characters.',
+@@ -845,12 +907,12 @@ router.get('/export', exportLimiter, async (req, res, next) => {
+                  ORDER BY created_at DESC`,
+                 [uid]
+             ),
+-            pool.query(
++            safeQuery(
+                 `SELECT constraint_type, custom_note, created_at
+                  FROM user_constraints WHERE user_id = $1`,
+                 [uid]
+             ),
+-            pool.query(
++            safeQuery(
+                 `SELECT date, resting_hr_bpm, hrv_ms, sleep_hours, active_kcal, source
+                  FROM daily_health_metrics WHERE user_id = $1
+                  ORDER BY date DESC`,
+@@ -1056,7 +1118,7 @@ async function setTier(req, res, next, nextTier) {
+ }
+ 
+ // POST /user/upgrade — set tier='paid'. Idempotent. Does NOT touch comp_pro.
+-router.post('/upgrade', (req, res, next) => setTier(req, res, next, 'paid'));
++router.post('/upgrade', requireServiceSecret, (req, res, next) => setTier(req, res, next, 'paid'));
+ 
+ // POST /user/downgrade — set tier='free'. Idempotent. KEEPS all server data
+ // (no DELETE); Free mode is local-first and simply stops touching the server.

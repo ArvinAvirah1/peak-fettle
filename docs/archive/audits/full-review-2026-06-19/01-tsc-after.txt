@@ -1,0 +1,106 @@
+app/(auth)/login.tsx(90,22): error TS2345: Argument of type '"/(tabs)/"' is not assignable to parameter of type '"/groups" | "/health-metrics" | "/plans" | "/routines" | "/templates" | RelativePathString | ExternalPathString | "/cosmetics" | ... 109 more ... | { ...; }'.
+app/(tabs)/index.tsx(468,38): error TS2532: Object is possibly 'undefined'.
+app/(tabs)/index.tsx(626,29): error TS2769: No overload matches this call.
+  Overload 1 of 4, '(value: string | number | Date): Date', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string | number | Date'.
+      Type 'undefined' is not assignable to type 'string | number | Date'.
+  Overload 2 of 4, '(value: string | number): Date', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string | number'.
+      Type 'undefined' is not assignable to type 'string | number'.
+app/(tabs)/index.tsx(627,29): error TS2769: No overload matches this call.
+  Overload 1 of 4, '(value: string | number | Date): Date', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string | number | Date'.
+      Type 'undefined' is not assignable to type 'string | number | Date'.
+  Overload 2 of 4, '(value: string | number): Date', gave the following error.
+    Argument of type 'string | undefined' is not assignable to parameter of type 'string | number'.
+      Type 'undefined' is not assignable to type 'string | number'.
+app/(tabs)/profile.tsx(1149,40): error TS2345: Argument of type '"/training-survey"' is not assignable to parameter of type '"/groups" | "/health-metrics" | "/plans" | "/routines" | "/templates" | RelativePathString | ExternalPathString | "/cosmetics" | ... 109 more ... | { ...; }'.
+app/(tabs)/profile.tsx(1166,40): error TS2345: Argument of type '"/insights"' is not assignable to parameter of type '"/groups" | "/health-metrics" | "/plans" | "/routines" | "/templates" | RelativePathString | ExternalPathString | "/cosmetics" | ... 109 more ... | { ...; }'.
+app/(tabs)/profile.tsx(1183,40): error TS2345: Argument of type '"/data-export"' is not assignable to parameter of type '"/groups" | "/health-metrics" | "/plans" | "/routines" | "/templates" | RelativePathString | ExternalPathString | "/cosmetics" | ... 109 more ... | { ...; }'.
+app/(tabs)/profile.tsx(1388,40): error TS2345: Argument of type '"/trends"' is not assignable to parameter of type '"/groups" | "/health-metrics" | "/plans" | "/routines" | "/templates" | RelativePathString | ExternalPathString | "/cosmetics" | ... 109 more ... | { ...; }'.
+app/(tabs)/rankings.tsx(608,10): error TS2532: Object is possibly 'undefined'.
+app/(tabs)/rankings.tsx(608,28): error TS2532: Object is possibly 'undefined'.
+app/(tabs)/rankings.tsx(611,36): error TS2345: Argument of type 'number | undefined' is not assignable to parameter of type 'number'.
+  Type 'undefined' is not assignable to type 'number'.
+app/data-export.tsx(205,21): error TS2345: Argument of type '"/recovery-code"' is not assignable to parameter of type '"/groups" | "/health-metrics" | "/plans" | "/routines" | "/templates" | RelativePathString | ExternalPathString | "/cosmetics" | ... 109 more ... | { ...; }'.
+app/data-export.tsx(433,71): error TS2345: Argument of type 'Value | undefined' is not assignable to parameter of type 'Value'.
+  Type 'undefined' is not assignable to type 'Value'.
+app/data-export.tsx(460,71): error TS2345: Argument of type 'Value | undefined' is not assignable to parameter of type 'Value'.
+  Type 'undefined' is not assignable to type 'Value'.
+app/data-export.tsx(526,71): error TS2345: Argument of type 'Value | undefined' is not assignable to parameter of type 'Value'.
+  Type 'undefined' is not assignable to type 'Value'.
+app/data-export.tsx(569,71): error TS2345: Argument of type 'Value | undefined' is not assignable to parameter of type 'Value'.
+  Type 'undefined' is not assignable to type 'Value'.
+app/data-export.tsx(666,71): error TS2345: Argument of type 'Value | undefined' is not assignable to parameter of type 'Value'.
+  Type 'undefined' is not assignable to type 'Value'.
+app/group-detail.tsx(78,10): error TS2532: Object is possibly 'undefined'.
+app/group-detail.tsx(750,30): error TS2345: Argument of type '"/(tabs)/"' is not assignable to parameter of type '"/groups" | "/health-metrics" | "/plans" | "/routines" | "/templates" | RelativePathString | ExternalPathString | "/cosmetics" | ... 109 more ... | { ...; }'.
+app/health-metrics.tsx(50,22): error TS2345: Argument of type 'number | undefined' is not assignable to parameter of type 'number'.
+  Type 'undefined' is not assignable to type 'number'.
+app/health-metrics.tsx(50,28): error TS18048: 'month' is possibly 'undefined'.
+app/index.tsx(44,20): error TS2322: Type '"/(auth)/login" | "/(tabs)/"' is not assignable to type '"/groups" | "/health-metrics" | "/plans" | "/routines" | "/templates" | RelativePathString | ExternalPathString | "/cosmetics" | ... 109 more ... | { ...; }'.
+  Type '"/(tabs)/"' is not assignable to type '"/groups" | "/health-metrics" | "/plans" | "/routines" | "/templates" | RelativePathString | ExternalPathString | "/cosmetics" | ... 109 more ... | { ...; }'. Did you mean '"/(tabs)"'?
+app/insights.tsx(280,73): error TS2345: Argument of type 'Value | undefined' is not assignable to parameter of type 'Value'.
+  Type 'undefined' is not assignable to type 'Value'.
+app/insights.tsx(335,73): error TS2345: Argument of type 'Value | undefined' is not assignable to parameter of type 'Value'.
+  Type 'undefined' is not assignable to type 'Value'.
+app/insights.tsx(343,74): error TS2345: Argument of type 'Value | undefined' is not assignable to parameter of type 'Value'.
+  Type 'undefined' is not assignable to type 'Value'.
+app/insights.tsx(358,73): error TS2345: Argument of type 'Value | undefined' is not assignable to parameter of type 'Value'.
+  Type 'undefined' is not assignable to type 'Value'.
+app/onboarding.tsx(439,24): error TS2345: Argument of type '"/(tabs)/"' is not assignable to parameter of type '"/groups" | "/health-metrics" | "/plans" | "/routines" | "/templates" | RelativePathString | ExternalPathString | "/cosmetics" | ... 109 more ... | { ...; }'.
+app/onboarding.tsx(455,22): error TS2345: Argument of type '"/(tabs)/"' is not assignable to parameter of type '"/groups" | "/health-metrics" | "/plans" | "/routines" | "/templates" | RelativePathString | ExternalPathString | "/cosmetics" | ... 109 more ... | { ...; }'.
+app/recovery-code.tsx(179,22): error TS2339: Property 'card' does not exist on type '{ content: { paddingTop: number; }; title: {}; warningBanner: {}; codeCard: {}; btn: {}; checkRow: { flexDirection: "row"; alignItems: "center"; }; checkbox: {}; }'.
+app/recovery-code.tsx(238,71): error TS2345: Argument of type 'Value | undefined' is not assignable to parameter of type 'Value'.
+  Type 'undefined' is not assignable to type 'Value'.
+app/recovery-code.tsx(264,71): error TS2345: Argument of type 'Value | undefined' is not assignable to parameter of type 'Value'.
+  Type 'undefined' is not assignable to type 'Value'.
+app/recovery-code.tsx(299,53): error TS2345: Argument of type 'Value | undefined' is not assignable to parameter of type 'Value'.
+  Type 'undefined' is not assignable to type 'Value'.
+app/recovery-code.tsx(343,71): error TS2345: Argument of type 'Value | undefined' is not assignable to parameter of type 'Value'.
+  Type 'undefined' is not assignable to type 'Value'.
+app/splash.tsx(34,28): error TS2345: Argument of type '"/(tabs)/"' is not assignable to parameter of type '"/groups" | "/health-metrics" | "/plans" | "/routines" | "/templates" | RelativePathString | ExternalPathString | "/cosmetics" | ... 109 more ... | { ...; }'.
+app/splash.tsx(38,26): error TS2345: Argument of type '"/(tabs)/"' is not assignable to parameter of type '"/groups" | "/health-metrics" | "/plans" | "/routines" | "/templates" | RelativePathString | ExternalPathString | "/cosmetics" | ... 109 more ... | { ...; }'.
+app/templates.tsx(341,23): error TS18048: 'firstSession' is possibly 'undefined'.
+app/templates.tsx(342,20): error TS18048: 'firstSession' is possibly 'undefined'.
+app/templates.tsx(414,13): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+app/workout-day.tsx(142,22): error TS2345: Argument of type 'number | undefined' is not assignable to parameter of type 'number'.
+  Type 'undefined' is not assignable to type 'number'.
+app/workout-day.tsx(142,28): error TS18048: 'month' is possibly 'undefined'.
+app/workout-day.tsx(923,28): error TS2532: Object is possibly 'undefined'.
+app/workout-history.tsx(70,19): error TS2345: Argument of type 'number | undefined' is not assignable to parameter of type 'number'.
+  Type 'undefined' is not assignable to type 'number'.
+app/workout-history.tsx(70,25): error TS18048: 'month' is possibly 'undefined'.
+src/components/RoutineEditorSheet.tsx(98,8): error TS2322: Type 'RoutineExercise | undefined' is not assignable to type 'RoutineExercise'.
+  Type 'undefined' is not assignable to type 'RoutineExercise'.
+src/components/RoutineEditorSheet.tsx(98,25): error TS2322: Type 'RoutineExercise | undefined' is not assignable to type 'RoutineExercise'.
+  Type 'undefined' is not assignable to type 'RoutineExercise'.
+src/components/RoutineEditorSheet.tsx(107,8): error TS2322: Type 'RoutineExercise | undefined' is not assignable to type 'RoutineExercise'.
+  Type 'undefined' is not assignable to type 'RoutineExercise'.
+src/components/RoutineEditorSheet.tsx(107,21): error TS2322: Type 'RoutineExercise | undefined' is not assignable to type 'RoutineExercise'.
+  Type 'undefined' is not assignable to type 'RoutineExercise'.
+src/components/RoutineStrip.tsx(77,5): error TS2322: Type '{ exerciseId: string | null | undefined; name: string; targetSets: number | undefined; targetReps: string | undefined; loggedSetCount: number; done: false; }[]' is not assignable to type 'RoutineSessionExercise[]'.
+  Type '{ exerciseId: string | null | undefined; name: string; targetSets: number | undefined; targetReps: string | undefined; loggedSetCount: number; done: false; }' is not assignable to type 'RoutineSessionExercise'.
+    Types of property 'exerciseId' are incompatible.
+      Type 'string | null | undefined' is not assignable to type 'string'.
+        Type 'undefined' is not assignable to type 'string'.
+src/components/RoutineStrip.tsx(264,7): error TS2345: Argument of type '{ name: string; sets: number | undefined; reps: string | undefined; exercise_id: string | null | undefined; }[]' is not assignable to parameter of type 'SetStateAction<SheetExercise[]>'.
+  Type '{ name: string; sets: number | undefined; reps: string | undefined; exercise_id: string | null | undefined; }[]' is not assignable to type 'SheetExercise[]'.
+    Type '{ name: string; sets: number | undefined; reps: string | undefined; exercise_id: string | null | undefined; }' is not assignable to type 'SheetExercise'.
+      Types of property 'exercise_id' are incompatible.
+        Type 'string | null | undefined' is not assignable to type 'string | undefined'.
+          Type 'null' is not assignable to type 'string | undefined'.
+src/components/WorkoutLoggerHost.tsx(477,15): error TS2322: Type '{ exerciseId: string | null | undefined; name: string; targetSets: number | undefined; targetReps: string | undefined; loggedSetCount: number; done: false; category: "lift" | "cardio" | "sport" | "mobility" | undefined; }[]' is not assignable to type 'RoutineSessionExercise[]'.
+  Type '{ exerciseId: string | null | undefined; name: string; targetSets: number | undefined; targetReps: string | undefined; loggedSetCount: number; done: false; category: RoutineSessionExercise["category"] | undefined; }' is not assignable to type 'RoutineSessionExercise'.
+    Types of property 'exerciseId' are incompatible.
+      Type 'string | null | undefined' is not assignable to type 'string'.
+        Type 'undefined' is not assignable to type 'string'.
+src/context/AuthContext.tsx(482,26): error TS2345: Argument of type '"/(tabs)/"' is not assignable to parameter of type '"/groups" | "/health-metrics" | "/plans" | "/routines" | "/templates" | RelativePathString | ExternalPathString | "/cosmetics" | ... 109 more ... | { ...; }'.
+src/context/AuthContext.tsx(493,24): error TS2345: Argument of type '"/(tabs)/"' is not assignable to parameter of type '"/groups" | "/health-metrics" | "/plans" | "/routines" | "/templates" | RelativePathString | ExternalPathString | "/cosmetics" | ... 109 more ... | { ...; }'.
+src/context/AuthContext.tsx(552,24): error TS2345: Argument of type '"/(tabs)/"' is not assignable to parameter of type '"/groups" | "/health-metrics" | "/plans" | "/routines" | "/templates" | RelativePathString | ExternalPathString | "/cosmetics" | ... 109 more ... | { ...; }'.
+src/context/AuthContext.tsx(563,22): error TS2345: Argument of type '"/splash" | "/(tabs)/"' is not assignable to parameter of type '"/groups" | "/health-metrics" | "/plans" | "/routines" | "/templates" | RelativePathString | ExternalPathString | "/cosmetics" | ... 109 more ... | { ...; }'.
+  Type '"/(tabs)/"' is not assignable to type '"/groups" | "/health-metrics" | "/plans" | "/routines" | "/templates" | RelativePathString | ExternalPathString | "/cosmetics" | ... 109 more ... | { ...; }'. Did you mean '"/(tabs)"'?
+src/db/connector.ts(96,52): error TS2554: Expected 1 arguments, but got 0.
+src/lib/insightsLocal.ts(250,19): error TS2532: Object is possibly 'undefined'.
+src/lib/insightsLocal.ts(272,23): error TS2532: Object is possibly 'undefined'.

@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Peak Fettle mountain logo.
+    Two overlapping peaks rising out of a horizon line.
+    The taller right peak carries a turquoise snow cap.
+    Reads cleanly from 16px favicon up to full-screen splash.
+
+    Palette (matches qml/Theme.qml):
+        bg-black     #06080F
+        navy-deep    #0A1A33
+        navy-mid     #122E5C
+        turquoise    #2DD4BF
+        turquoise-hi #5EEAD4
+-->
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 256 256"
+     width="256" height="256"
+     role="img"
+     aria-label="Peak Fettle mountain logo">
+
+    <defs>
+        <!-- Subtle vertical gradient on the back (left) mountain. -->
+        <linearGradient id="backPeakFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"  stop-color="#122E5C"/>
+            <stop offset="100%" stop-color="#0A1A33"/>
+        </linearGradient>
+
+        <!-- Brighter gradient on the front (right) mountain so it feels closer. -->
+        <linearGradient id="frontPeakFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"  stop-color="#1E4F8C"/>
+            <stop offset="100%" stop-color="#0F2447"/>
+        </linearGradient>
+
+        <!-- Turquoise snow-cap gradient on the highest peak. -->
+        <linearGradient id="snowCap" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"  stop-color="#5EEAD4"/>
+            <stop offset="100%" stop-color="#2DD4BF"/>
+        </linearGradient>
+    </defs>
+
+    <!-- Soft circular backdrop so the logo sits well on light or dark UI. -->
+    <circle cx="128" cy="128" r="124" fill="#06080F"/>
+    <circle cx="128" cy="128" r="124" fill="none" stroke="#2DD4BF" stroke-width="3" stroke-opacity="0.55"/>
+
+    <!-- Back (smaller) mountain. -->
+    <polygon points="36,196 100,90 164,196"
+             fill="url(#backPeakFill)"/>
+
+    <!-- Front (taller) mountain - the hero shape. -->
+    <polygon points="92,196 168,60 220,196"
+             fill="url(#frontPeakFill)"/>
+
+    <!-- Turquoise snow cap on the front peak. The 'V' notch gives it that
+         clean Peak-Fettle accent and reads as an upward arrow. -->
+    <polygon points="168,60 152,90 168,82 184,90"
+             fill="url(#snowCap)"/>
+
+    <!-- Horizon ground line - thin turquoise stroke under the peaks. -->
+    <line x1="32" y1="196" x2="224" y2="196"
+          stroke="#2DD4BF" stroke-width="3" stroke-linecap="round"/>
+
+    <!-- Tiny altitude tick on the front peak's slope - micro detail that
+         hints at "tracking progress upward". -->
+    <line x1="180" y1="120" x2="190" y2="120"
+          stroke="#5EEAD4" stroke-width="2" stroke-linecap="round" opacity="0.85"/>
+    <line x1="190" y1="150" x2="200" y2="150"
+          stroke="#5EEAD4" stroke-width="2" stroke-linecap="round" opacity="0.65"/>
+    <line x1="200" y1="180" x2="210" y2="180"
+          stroke="#5EEAD4" stroke-width="2" stroke-linecap="round" opacity="0.45"/>
+</svg>
