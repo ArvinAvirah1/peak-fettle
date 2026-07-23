@@ -36,7 +36,7 @@ import {
   Modal,
   Alert,
 } from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import Animated, { ZoomIn, FadeInDown, useReducedMotion } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../src/hooks/useAuth';
@@ -385,7 +385,7 @@ function StatCard({ label, value }: { label: string; value: string }): React.Rea
 export default function HomeScreen(): React.ReactElement {
   const router = useRouter();
   const { user } = useAuth();
-  const { sets: todaySets, isLoading: todayLoadingRaw } = useWorkout();
+  const { sets: todaySets, isLoading: todayLoadingRaw, refetch: refetchToday } = useWorkout();
   const { history, streak: historyStreak, isLoading: historyLoadingRaw, refetch } = useWorkoutHistory();
   const { theme, fontSize, fontWeight, radius, spacing: sp } = useTheme();
   const { t } = useTranslation();
@@ -672,9 +672,37 @@ export default function HomeScreen(): React.ReactElement {
 
   const handleRefresh = async (): Promise<void> => {
     setRefreshing(true);
-    await Promise.all([refetch(), loadPlan()]);
+    // refetchToday was missing here — pull-to-refresh updated history but left
+    // the Today card at its mount-time snapshot (home-staleness fix 2026-07-22).
+    await Promise.all([refetch(), refetchToday(), loadPlan()]);
     setRefreshing(false);
   };
+
+  // Home-staleness fix (2026-07-22): reload when the tab regains focus (e.g.
+  // after editing routines or logging from another screen). Free-tier live
+  // updates ride the localDb table watch inside the hooks; this focus pass is
+  // what keeps PRO (REST-read) data fresh too. Throttled so tab-hopping doesn't
+  // spam reloads.
+  const lastFocusRefetchRef = useRef(0);
+  useFocusEffect(
+    useCallback(() => {
+      const now = Date.now();
+      if (now - lastFocusRefetchRef.current < 5000) return;
+      lastFocusRefetchRef.current = now;
+      void refetch();
+      void refetchToday();
+    }, [refetch, refetchToday])
+  );
+
+  // After "Finish workout" (share card dismissed), pull everything fresh so
+  // Recent Activity / Today / streak reflect the session immediately — for BOTH
+  // tiers (the table watch only covers local-first writes).
+  const handleLoggerFinish = useCallback(() => {
+    lastFocusRefetchRef.current = Date.now();
+    void refetch();
+    void refetchToday();
+    void loadPlan();
+  }, [refetch, refetchToday, loadPlan]);
 
   // ── TICKET-084: Route params → open logger ────────────────────────────────
   const params = useLocalSearchParams<{
@@ -1369,7 +1397,9 @@ export default function HomeScreen(): React.ReactElement {
     </ScrollView>
 
     {/* ── TICKET-084: WorkoutLoggerHost — always-mounted overlay ── */}
-    <WorkoutLoggerHost ref={loggerRef} />
+    {/* onFinish: we're already on Home, so replace the default
+        router.replace('/(tabs)') with a data refresh (staleness fix). */}
+    <WorkoutLoggerHost ref={loggerRef} onFinish={handleLoggerFinish} />
 
     </ScreenLayout>
   );

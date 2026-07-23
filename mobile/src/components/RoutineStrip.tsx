@@ -12,8 +12,8 @@
  * Auto-collapses once the caller signals a set has been logged (hasLoggedSets).
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'expo-router';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useRouter, useFocusEffect } from 'expo-router';
 import {
   View,
   Text,
@@ -27,6 +27,8 @@ import { spacing, radius, fontSize, fontWeight } from '../theme/tokens';
 import { Routine } from '../api/routines';
 import { listRoutines } from '../data/routines';
 import { useAuth } from '../hooks/useAuth';
+import { useTableChange } from '../hooks/useTableChange';
+import { isLocalFirst } from '../data/backup/tierPolicy';
 import type { WorkoutTemplate } from '../api/templates';
 import { getStarterSplits } from '../data/starterSplits';
 import { TemplateDetailSheet, SheetExercise } from './TemplateDetailSheet';
@@ -299,7 +301,7 @@ export function RoutineStrip({
     return () => clearTimeout(t);
   }, []);
 
-  useEffect(() => {
+  const reloadRoutines = useCallback(() => {
     // Tier-branched: free/local-first users read the on-device `routines` table
     // (no REST round-trip on Home startup); Pro users hit the server. Fixes the
     // startup delay where every free Home open waited on GET /routines.
@@ -307,11 +309,31 @@ export function RoutineStrip({
       .then(setRoutines)
       .catch((err: unknown) => { console.warn('[PF] RoutineStrip/listRoutines:', err instanceof Error ? err.message : String(err)); })
       .finally(() => setLoadingRoutines(false));
+  }, [user]);
+
+  useEffect(() => {
+    reloadRoutines();
     // Starter splits are bundled on-device — instant, offline-safe, no GET
     // /templates round-trip (the old #1 Home startup-lag source).
     setTemplates(getStarterSplits().filter((t) => t.is_featured).slice(0, 6));
     setLoadingTemplates(false);
-  }, [user]);
+  }, [reloadRoutines]);
+
+  // Home-staleness fix (2026-07-22): "My Routines" showed "No routines yet"
+  // until an app restart after creating/editing a routine, because this strip
+  // only loaded on mount. Free tier: react to local `routines` writes. Both
+  // tiers: reload when the Home tab regains focus (covers Pro REST reads after
+  // editing on the Routines tab), throttled against tab-hopping.
+  useTableChange(['routines'], reloadRoutines, { enabled: isLocalFirst(user) });
+  const lastFocusReloadRef = useRef(0);
+  useFocusEffect(
+    useCallback(() => {
+      const now = Date.now();
+      if (now - lastFocusReloadRef.current < 5000) return;
+      lastFocusReloadRef.current = now;
+      reloadRoutines();
+    }, [reloadRoutines])
+  );
 
   // Sheet state
   const [sheetVisible, setSheetVisible] = useState(false);

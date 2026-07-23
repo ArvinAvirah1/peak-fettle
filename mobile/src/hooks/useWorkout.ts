@@ -12,6 +12,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from './useAuth';
+import { useTableChange } from './useTableChange';
 import { isLocalFirst } from '../data/backup/tierPolicy';
 import { localDb, genId } from '../db/localDb';
 import { ensureLocalWorkoutForDay } from '../data/localWorkouts';
@@ -169,6 +170,17 @@ export function useWorkout(): UseWorkoutResult {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Home-staleness fix (2026-07-22): the always-mounted WorkoutLoggerHost logs
+  // sets through its own usePowerSyncLog instance, so THIS hook's state never
+  // saw them — the Today card stayed at its mount-time snapshot ("No sets
+  // logged yet" after a full workout). React to local sets/workouts writes.
+  // Local-first only: a Pro reload here would be a REST call per logged set;
+  // Pro refreshes on screen focus / workout finish instead.
+  useTableChange(['sets', 'workouts'], () => void load(), {
+    enabled: localFirst,
+    debounceMs: 400,
+  });
 
   // ── logSet ─────────────────────────────────────────────────────────────────
 

@@ -47,6 +47,8 @@ import {
   mergedSubstitutesFor,
   addGlobalSubstitute,
   removeGlobalSubstitute,
+  routinesContainingExercise,
+  addSubstituteToRoutines,
   uuidOrNull,
   ScopedSubstitute,
   SubstituteScope,
@@ -429,6 +431,54 @@ export default function RoutineEditorSheet({
     setAltForIndex(index);
   }, []);
 
+  /**
+   * Founder request (2026-07-22): after preloading an alternative for a slot,
+   * offer to mirror it into every OTHER routine that contains the same exercise
+   * (e.g. Shoulder Press in Push A AND Push B). Only routines still MISSING the
+   * alternative are offered. The other routines save immediately (they are not
+   * part of this editor's draft); the current routine's copy still lands on
+   * "Save routine" as before. Best-effort — a failure never blocks the editor.
+   */
+  const offerCrossRoutineAlternative = useCallback(
+    async (sourceName: string, entry: { exercise_id: string | null; name: string }) => {
+      if (!routine) return;
+      const subKey = normalizeName(entry.name);
+      const others = (await routinesContainingExercise(user, sourceName)).filter(
+        (r) =>
+          r.id !== routine.id &&
+          (r.exercises ?? []).some(
+            (e) =>
+              normalizeName(e.name) === normalizeName(sourceName) &&
+              !(e.substitutes ?? []).some((s) => normalizeName(s.name) === subKey),
+          ),
+      );
+      if (others.length === 0) return;
+      // Let the picker/sheet Modal finish dismissing first — an Alert presented
+      // while a Modal is mid-dismiss can be swallowed on iOS.
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      const names = others.map((r) => r.name).join(', ');
+      Alert.alert(
+        t('components:routineEditorSheet.altAlsoAddTitle'),
+        t('components:routineEditorSheet.altAlsoAddMessage', {
+          original: sourceName,
+          sub: entry.name,
+          routines: names,
+        }),
+        [
+          {
+            text:
+              others.length === 1
+                ? t('components:routineEditorSheet.altAlsoAddConfirmOne', { name: others[0]!.name })
+                : t('components:routineEditorSheet.altAlsoAddConfirmMany', { n: others.length }),
+            onPress: () => void addSubstituteToRoutines(user, others, sourceName, entry),
+          },
+          { text: t('components:routineEditorSheet.altJustThisRoutine'), style: 'cancel' },
+        ],
+      );
+    },
+    [routine, user, t],
+  );
+
   const handleAlternativePicked = useCallback((ex: Exercise) => {
     const idx = altForIndex;
     setAltForIndex(null);
@@ -446,7 +496,9 @@ export default function RoutineEditorSheet({
         return { ...e, substitutes: [...cur, entry].slice(0, 10) };
       }),
     );
-  }, [altForIndex, items]);
+    // Cross-routine offer (only fires when another routine still lacks it).
+    void offerCrossRoutineAlternative(target.name, entry);
+  }, [altForIndex, items, offerCrossRoutineAlternative]);
 
   // ── SUBS-001: swap exercise (kebab → SubstituteSwapSheet) ─────────────────
   /**
@@ -540,6 +592,8 @@ export default function RoutineEditorSheet({
           return { ...e, substitutes: [...cur, entry].slice(0, 10) };
         }),
       );
+      // Cross-routine offer (only fires when another routine still lacks it).
+      void offerCrossRoutineAlternative(it.name, entry);
     } else {
       void addGlobalSubstitute(
         { exercise_id: it.exercise_id ?? null, name: it.name },
@@ -552,7 +606,7 @@ export default function RoutineEditorSheet({
         ? prev
         : [...prev, { ...entry, scope }],
     );
-  }, [swapForIndex, items]);
+  }, [swapForIndex, items, offerCrossRoutineAlternative]);
 
   /** Remove a substitute from the sheet (routes by its scope). */
   const removeSwapSub = useCallback((sub: ScopedSubstitute) => {
@@ -946,6 +1000,51 @@ function KebabButton(props: { onPress: () => void; label: string }): React.React
   );
 }
 
+// ── Expandable alternatives badge (founder request 2026-07-22) ────────────────
+// Tapping "N alternatives" expands the badge into a horizontally-scrollable
+// chip row listing the slot's saved substitutes; tap again to collapse.
+function AltBadge({
+  name,
+  subs,
+}: {
+  name: string;
+  subs: { exercise_id?: string | null; name: string }[];
+}): React.ReactElement {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  return (
+    <View>
+      <TouchableOpacity
+        style={styles.dropsetBadge}
+        onPress={() => setOpen((v) => !v)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={t('components:routineEditorSheet.altBadgeA11y', { count: subs.length, name })}
+      >
+        <Ionicons name="repeat" size={12} color={stepperPalette.accent} />
+        <Text style={styles.dropsetBadgeText}>
+          {t('components:routineEditorSheet.altBadge', { count: subs.length })}
+        </Text>
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={12} color={stepperPalette.accent} />
+      </TouchableOpacity>
+      {open ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.altChipsRow}
+          contentContainerStyle={styles.altChipsContent}
+        >
+          {subs.map((s, i) => (
+            <View key={`${s.name}-${i}`} style={styles.altChip}>
+              <Text style={styles.altChipText} numberOfLines={1}>{s.name}</Text>
+            </View>
+          ))}
+        </ScrollView>
+      ) : null}
+    </View>
+  );
+}
+
 // ── Ungrouped exercise row ────────────────────────────────────────────────────
 
 function ExerciseRow(props: {
@@ -988,12 +1087,7 @@ function ExerciseRow(props: {
         </View>
       ) : null}
 
-      {altCount > 0 ? (
-        <View style={styles.dropsetBadge}>
-          <Ionicons name="repeat" size={12} color={stepperPalette.accent} />
-          <Text style={styles.dropsetBadgeText}>{t('components:routineEditorSheet.altBadge', { count: altCount })}</Text>
-        </View>
-      ) : null}
+      {altCount > 0 ? <AltBadge name={item.name} subs={item.substitutes ?? []} /> : null}
 
       <View style={styles.exRowBottom}>
         <View style={styles.targetGroup}>
@@ -1190,10 +1284,7 @@ function GroupCard(props: {
             ) : null}
 
             {(m.substitutes?.length ?? 0) > 0 ? (
-              <View style={styles.dropsetBadge}>
-                <Ionicons name="repeat" size={12} color={stepperPalette.accent} />
-                <Text style={styles.dropsetBadgeText}>{t('components:routineEditorSheet.altBadge', { count: m.substitutes?.length ?? 0 })}</Text>
-              </View>
+              <AltBadge name={m.name} subs={m.substitutes ?? []} />
             ) : null}
 
             <View style={styles.memberBottom}>
@@ -1391,6 +1482,19 @@ const styles = StyleSheet.create({
     marginBottom: spacing.s3,
   },
   dropsetBadgeText: { fontFamily: fontFamily.semiBold, fontSize: fontSize.caption, color: stepperPalette.accent },
+  // Expanded alternatives chip row (AltBadge)
+  altChipsRow: { marginBottom: spacing.s3 },
+  altChipsContent: { gap: spacing.s2, paddingRight: spacing.s3 },
+  altChip: {
+    backgroundColor: stepperPalette.frame,
+    borderWidth: 1,
+    borderColor: stepperPalette.line,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.s2,
+    paddingVertical: 4,
+    maxWidth: 180,
+  },
+  altChipText: { fontFamily: fontFamily.semiBold, fontSize: fontSize.caption, color: stepperPalette.text },
   // Kebab menu
   menuCatcher: {
     position: 'absolute',

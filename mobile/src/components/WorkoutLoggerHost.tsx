@@ -60,13 +60,15 @@ import { SubstituteSwapSheet, type SwapSelection } from './SubstituteSwapSheet';
 import {
   mergedSubstitutesFor,
   addGlobalSubstitute,
+  routinesContainingExercise,
+  addSubstituteToRoutines,
   type ScopedSubstitute,
   type SubstituteScope,
 } from '../data/substitutes';
 // S1 supersets/dropsets — the pairing sheet + drop-chain bar own their own UI so
 // the StepperLogger insertion stays minimal (big-file hazard pattern).
 import { SupersetPairSheet, type SupersetPairCandidate } from './logger/SupersetPairSheet';
-import { alternativesForDetailed, type SwapCandidate } from '../planGen/quickSwap';
+import { alternativesForDetailed, normalizeName, type SwapCandidate } from '../planGen/quickSwap';
 import { excludeExercisePermanently } from '../planGen/quickSwapPersist';
 import { loadActivePlan } from '../planGen/planStore';
 import { loadLocalProfile } from '../data/profile';
@@ -75,7 +77,7 @@ import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
 import { haptics } from '../utils/haptics';
 import { formatWeight, kgToLbs, roundToNearestQuarterLb, displayToKg, displayToCenti, parseWeightInput } from '../constants/units';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getRoutine } from '../data/routines';
+import { getRoutine, type Routine } from '../data/routines';
 import { getRestTimerDefaultSec, getGroupRestMode, GroupRestMode } from '../data/appSettings'; // P1b — device-local rest default; TICKET-144 — grouped-set rest mode
 import { updateLiftSet } from '../data/setEditing'; // P1c — in-place edit of a past set
 import { markRoutineCompleted } from '../data/schedule'; // TICKET-097
@@ -1537,9 +1539,108 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
       setQuickSwapVisible(true);
     }, [user?.is_paid, routineSession]);
 
+    // Founder flow (2026-07-22): after a mid-workout swap to something that
+    // ISN'T already a saved alternative, offer to persist it — to this routine,
+    // to every routine containing the original exercise (e.g. Shoulder Press in
+    // Push A AND Push B), or (no routine matches) to the global on-device list.
+    // The swap itself stays TODAY-only either way; this only maintains the
+    // substitute lists, so the 2026-07-18 "the logger never rewrites the saved
+    // routine's exercises" decision is untouched.
+    const promptSaveAlternative = useCallback(
+      async (
+        original: { id: string; name: string },
+        sub: { exercise_id: string | null; name: string },
+      ) => {
+        const routineId =
+          routineSession?.source === 'routine' ? routineSession.routineId : undefined;
+        const matches = await routinesContainingExercise(user, original.name);
+        const current = routineId ? matches.find((r) => r.id === routineId) : undefined;
+        const source = { exercise_id: original.id || null, name: original.name };
+
+        const persist = async (routines: Routine[], globalFallback: boolean): Promise<void> => {
+          try {
+            if (routines.length > 0) {
+              const res = await addSubstituteToRoutines(user, routines, original.name, sub);
+              // attempted 0 = already saved everywhere (silent no-op); a real
+              // attempt that saved nowhere is a failure worth surfacing.
+              if (res.attempted > 0 && res.updated === 0) throw new Error('save failed');
+            }
+            if (globalFallback) await addGlobalSubstitute(source, sub);
+            haptics.light();
+          } catch {
+            Alert.alert(
+              t('logger:workoutLoggerHost.couldNotSaveTitle'),
+              t('logger:workoutLoggerHost.swapStillApplies'),
+            );
+          }
+        };
+
+        // Let the swap sheet finish its dismiss animation first — an Alert
+        // presented while a Modal is mid-dismiss can be swallowed on iOS.
+        await new Promise((resolve) => setTimeout(resolve, 400));
+
+        const title = t('logger:workoutLoggerHost.swappedForTodayTitle');
+        const message = t('logger:workoutLoggerHost.saveAlternativePrompt', {
+          sub: sub.name,
+          original: original.name,
+        });
+        const notNow = {
+          text: t('logger:workoutLoggerHost.saveAlternativeNotNow'),
+          style: 'cancel' as const,
+        };
+
+        if (current && matches.length > 1) {
+          Alert.alert(title, message, [
+            {
+              text: t('logger:workoutLoggerHost.saveAlternativeThisRoutine'),
+              onPress: () => void persist([current], false),
+            },
+            {
+              text: t('logger:workoutLoggerHost.saveAlternativeAllRoutines', { n: matches.length }),
+              onPress: () => void persist(matches, false),
+            },
+            notNow,
+          ]);
+        } else if (matches.length === 1) {
+          Alert.alert(title, message, [
+            {
+              text: t('logger:workoutLoggerHost.saveAlternativeSave'),
+              onPress: () => void persist(matches, false),
+            },
+            notNow,
+          ]);
+        } else if (matches.length > 1) {
+          // Session didn't come from a routine, but several routines carry the
+          // exercise — the only sensible single action is "all of them".
+          Alert.alert(title, message, [
+            {
+              text: t('logger:workoutLoggerHost.saveAlternativeAllRoutines', { n: matches.length }),
+              onPress: () => void persist(matches, false),
+            },
+            notNow,
+          ]);
+        } else {
+          // No saved routine contains this exercise (free session / template) —
+          // offer the device-wide substitute list instead.
+          Alert.alert(title, message, [
+            {
+              text: t('logger:workoutLoggerHost.saveAlternativeSaveGlobal'),
+              onPress: () => void persist([], true),
+            },
+            notNow,
+          ]);
+        }
+      },
+      [routineSession, user, t],
+    );
+
     const handleQuickSwapSelect = useCallback(
       (sel: SwapSelection) => {
         if (sel.exercise_id) void rememberExerciseName(sel.exercise_id, sel.name);
+        const original = quickSwapOriginal;
+        const alreadySub = quickSwapSubs.some(
+          (s) => normalizeName(s.name) === normalizeName(sel.name),
+        );
         setRoutineSession((prev) => {
           if (!prev) return prev;
           const exercises = prev.exercises.map((ex, idx) =>
@@ -1550,11 +1651,27 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           return { ...prev, exercises };
         });
         haptics.success();
-        setQuickSwapConfirmation(`Swapped to ${sel.name} for today`);
+        // Founder-reported glitch (2026-07-22): the sheet used to stay open
+        // with freshly-CLEARED lists — "No substitutes saved for this exercise
+        // yet" right after tapping one, which read as the feature breaking.
+        // Close it instead; the save-as-alternative prompt below doubles as the
+        // swap confirmation for non-substitute picks.
+        setQuickSwapVisible(false);
+        setQuickSwapConfirmation(null);
         setQuickSwapCandidates([]);
         setQuickSwapSubs([]);
+        if (
+          original &&
+          !alreadySub &&
+          normalizeName(original.name) !== normalizeName(sel.name)
+        ) {
+          void promptSaveAlternative(original, {
+            exercise_id: sel.exercise_id ?? null,
+            name: sel.name,
+          });
+        }
       },
-      [],
+      [quickSwapOriginal, quickSwapSubs, promptSaveAlternative],
     );
 
     // SUBS-001: add a preloaded substitute from the logger. Session mode always

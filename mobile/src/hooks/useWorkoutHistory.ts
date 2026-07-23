@@ -16,6 +16,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from './useAuth';
+import { useTableChange } from './useTableChange';
 import { isLocalFirst } from '../data/backup/tierPolicy';
 import { localDb } from '../db/localDb';
 import { getWorkouts } from '../api/workouts';
@@ -336,6 +337,16 @@ export function useWorkoutHistory(): UseWorkoutHistoryResult {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Home-staleness fix (2026-07-22): history/streak/Recent Activity read a
+  // mount-time snapshot while the logger host writes sets through its own hook
+  // instance — a finished workout never appeared until an app restart. React to
+  // local sets/workouts writes. Local-first only (a Pro reload is a REST fan-out
+  // per workout; Pro refreshes on screen focus / workout finish instead).
+  useTableChange(['sets', 'workouts'], () => void load(), {
+    enabled: localFirst,
+    debounceMs: 900,
+  });
 
   return { history, streak, exerciseNames, isLoading, error, refetch: load };
 }

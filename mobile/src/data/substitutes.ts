@@ -25,7 +25,9 @@
 
 import { localDb, genId } from '../db/localDb';
 import { normalizeName } from '../planGen/quickSwap';
-import type { SubstituteRef } from '../api/routines';
+import type { SubstituteRef, Routine } from '../api/routines';
+import { listRoutines, updateRoutine } from './routines';
+import type { TierUser } from './backup/tierPolicy';
 
 export type SubstituteScope = 'routine' | 'global';
 
@@ -191,4 +193,74 @@ export async function mergedSubstitutesFor(
 export function uuidOrNull(id: string | null | undefined): string | null {
   if (!id) return null;
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? id : null;
+}
+
+// ---------------------------------------------------------------------------
+// Cross-routine alternatives (founder request 2026-07-22)
+// ---------------------------------------------------------------------------
+
+/**
+ * All routines that contain an exercise whose NORMALIZED name matches
+ * `exerciseName` (e.g. "Shoulder Press" appears in both Push A and Push B).
+ * Tier-branched via listRoutines. Best-effort: [] on any error.
+ */
+export async function routinesContainingExercise(
+  user: TierUser | null | undefined,
+  exerciseName: string,
+): Promise<Routine[]> {
+  const key = normalizeName(exerciseName || '');
+  if (!key) return [];
+  try {
+    const all = await listRoutines(user);
+    return all.filter((r) =>
+      (r.exercises ?? []).some((e) => normalizeName(e.name) === key),
+    );
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Append `sub` to the substitute list of EVERY slot named `exerciseName`
+ * (normalized match) in each given routine. Dedupes by normalized name, skips
+ * the self-pair, respects the max-10 cap, and guards exercise_id with
+ * uuidOrNull (server Zod). Each routine saves independently (best-effort).
+ *
+ * @returns attempted = routines that actually needed the change (dups/caps are
+ *          NOT attempts); updated = routines whose save succeeded. Callers
+ *          should treat attempted 0 as a silent no-op, and updated 0 with
+ *          attempted > 0 as a save failure.
+ */
+export async function addSubstituteToRoutines(
+  user: TierUser | null | undefined,
+  routines: Routine[],
+  exerciseName: string,
+  sub: SubstituteRef,
+): Promise<{ updated: number; attempted: number }> {
+  const key = normalizeName(exerciseName || '');
+  const subKey = normalizeName(sub.name || '');
+  if (!key || !subKey || key === subKey) return { updated: 0, attempted: 0 };
+  const entry: SubstituteRef = { exercise_id: uuidOrNull(sub.exercise_id), name: sub.name };
+  let updated = 0;
+  let attempted = 0;
+  for (const r of routines) {
+    let changed = false;
+    const exercises = (r.exercises ?? []).map((e) => {
+      if (normalizeName(e.name) !== key) return e;
+      const cur = e.substitutes ?? [];
+      if (cur.some((s) => normalizeName(s.name) === subKey)) return e;
+      if (cur.length >= 10) return e;
+      changed = true;
+      return { ...e, substitutes: [...cur, entry].slice(0, 10) };
+    });
+    if (!changed) continue;
+    attempted++;
+    try {
+      await updateRoutine(user, r.id, { name: r.name, exercises });
+      updated++;
+    } catch {
+      // best-effort — a failed routine save must not block the others
+    }
+  }
+  return { updated, attempted };
 }
