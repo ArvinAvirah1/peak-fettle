@@ -90,7 +90,7 @@ export default function HeroLedger() {
                 <p className={styles.deck}>
                     Every set you log becomes an estimated 1RM, a 0–1000 strength score, and an
                     honest percentile against people actually like you. Log long enough and the
-                    ledger fills with people you used to be — all of them weaker than you.
+                    ledger fills with people you used to be.
                 </p>
                 <div className={styles.actions}>
                     <WaitlistForm variant="inline" />

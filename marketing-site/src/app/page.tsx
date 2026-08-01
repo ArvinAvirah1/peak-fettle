@@ -252,27 +252,7 @@ export default function Home() {
                 </div>
             </section>
 
-            {/* ── 08 · The word — a dictionary leaf ──────────────────────── */}
-            <section className={styles.paper} aria-label="What is fettle">
-                <div className={`container ${styles.paperInner}`}>
-                    <span className={styles.paperRule} aria-hidden="true" />
-                    <span className={styles.paperNo}>No. 26</span>
-                    <Reveal className={styles.defWrap}>
-                        <h2 className={styles.defWord}>fettle</h2>
-                        <p className={styles.defMeta}>/ˈfɛt(ə)l/ · noun · from Old English <em>fetel</em>, a belt or girdle</p>
-                        <p className={styles.defSense}>
-                            The condition you arrive in. The shape you choose to be in.
-                        </p>
-                        <p className={styles.defEtym}>
-                            To be in fine fettle is to be ready, prepared, equal to what comes next.
-                            Consistency is the engine: even a five-minute session keeps the habit
-                            alive. Every set you log is one notch tighter.
-                        </p>
-                    </Reveal>
-                </div>
-            </section>
-
-            {/* ── 09 · Two editions — pricing ────────────────────────────── */}
+            {/* ── 08 · Two editions — pricing ────────────────────────────── */}
             <section className={`${styles.pricing} section`} aria-label="Pricing">
                 <div className="container">
                     <Reveal className={styles.sectionHead} as="header">
