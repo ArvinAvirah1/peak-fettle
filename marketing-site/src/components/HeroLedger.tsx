@@ -74,9 +74,13 @@ export default function HeroLedger() {
                     Peak Fettle — a training ledger · strength, measured honestly
                 </p>
                 <h1 className={styles.headline}>
-                    <span className={styles.line1}>Train at peak.</span>
-                    <span className={styles.line2}>
-                        <em className={styles.measured}>Measured.</em>
+                    <span className={styles.line1}>fettle</span>
+                    <span className={styles.defEntry}>
+                        /ˈfɛt(ə)l/ · <i>noun</i> — the condition or state you&rsquo;re in;
+                        readiness of body and health.
+                    </span>
+                    <span className={styles.payoffRow}>
+                        <em className={styles.payoff}>Peak Fettle: actualizing your potential.</em>
                         <span className={styles.baseline} aria-hidden="true">
                             <i className={styles.baselineRule} />
                             <b className={styles.baselineLabel}>107.5 kg — wk 26</b>

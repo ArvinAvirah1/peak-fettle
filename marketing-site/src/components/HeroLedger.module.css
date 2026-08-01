@@ -41,6 +41,29 @@
     color: var(--accent);
 }
 
+/* Dictionary-entry hero: small mono definition under the word, bold payoff below. */
+.defEntry {
+    display: block;
+    margin-top: 1rem;
+    font-family: var(--mono);
+    font-size: clamp(.82rem, 1.3vw, 1.02rem);
+    font-weight: 400;
+    letter-spacing: .02em;
+    line-height: 1.55;
+    color: var(--muted);
+    max-width: 52ch;
+}
+.defEntry i { font-style: italic; }
+.payoffRow { display: flex; align-items: baseline; gap: 1.4rem; margin-top: 1.15rem; }
+.payoff {
+    font-style: italic;
+    font-weight: 700;
+    font-size: clamp(1.55rem, 3.4vw, 2.8rem);
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    color: var(--accent);
+}
+
 /* The baseline rule: runs from the period to the right viewport edge.
    Negative margin cancels the container padding so it truly bleeds. */
 .baseline {

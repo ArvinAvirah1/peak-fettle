@@ -5,7 +5,7 @@ import { ImageResponse } from 'next/og';
 // later by adding /public/og.png and referencing it in metadata if preferred.
 
 export const runtime = 'edge';
-export const alt = 'Peak Fettle — Train at peak. Measured.';
+export const alt = 'Peak Fettle — actualizing your potential.';
 export const size = { width: 1200, height: 630 };
 export const contentType = 'image/png';
 
@@ -39,11 +39,14 @@ export default function OpengraphImage() {
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
-                    <div style={{ fontSize: 82, fontWeight: 700, lineHeight: 1.02, letterSpacing: -2 }}>
-                        Train at peak.
+                    <div style={{ fontSize: 96, fontWeight: 700, lineHeight: 1.02, letterSpacing: -2 }}>
+                        fettle
                     </div>
-                    <div style={{ fontSize: 82, fontWeight: 700, lineHeight: 1.02, letterSpacing: -2, color: '#2DD4BF' }}>
-                        Measured every rep.
+                    <div style={{ fontSize: 30, lineHeight: 1.3, color: '#98ACC4', marginTop: 10 }}>
+                        /ˈfɛt(ə)l/ · noun — the condition or state you&rsquo;re in; readiness of body and health.
+                    </div>
+                    <div style={{ fontSize: 58, fontWeight: 700, lineHeight: 1.05, letterSpacing: -1, color: '#2DD4BF', marginTop: 22 }}>
+                        Peak Fettle: actualizing your potential.
                     </div>
                 </div>
 

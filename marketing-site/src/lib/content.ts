@@ -48,6 +48,28 @@ export const FEATURES: Feature[] = [
             'Log a barbell session and a 5K in the same workout. Graphs adapt — splits and pace for ' +
             'cardio, estimated 1RM and score for strength. Every discipline in one place.',
     },
+    {
+        icon: 'lock',
+        title: 'Yours, on your phone',
+        body:
+            'The free tier is local-first: every set lives in an on-device database and works fully ' +
+            'offline — no account round-trips, no server required. Upgrade to Pro and your training ' +
+            'syncs across devices. Your data, your call.',
+    },
+    {
+        icon: 'shield',
+        title: 'Exact numbers, forever',
+        body:
+            'Type 82.5 kg and the ledger keeps 82.5 kg — exactly. Fixed-point storage means no ' +
+            'rounding drift and no “186.75 lb” surprises, whether you think in kilos or pounds.',
+    },
+    {
+        icon: 'adjust',
+        title: 'Plugged into your day',
+        body:
+            'Apple Health and Health Connect sync heart rate, sleep, and body weight in; finished ' +
+            'workouts write back. A home-screen widget and a live rest-timer keep sessions moving.',
+    },
 ];
 
 export const DISCIPLINES = [
@@ -60,8 +82,9 @@ export const FAQS: Faq[] = [
     {
         q: 'Is Peak Fettle free?',
         a: 'Yes. The free tier includes full progress tracking, competitive percentile rankings, and a ' +
-           'library of proven starter templates (Push/Pull/Legs, Upper/Lower). The paid tier unlocks ' +
-           'fully personalized, AI-generated plans that adapt to your logged performance.',
+           'library of proven starter templates (Push/Pull/Legs, Upper/Lower) — and it is local-first: ' +
+           'everything is stored on your phone and works fully offline. The paid tier unlocks fully ' +
+           'personalized, AI-generated plans that adapt to your logged performance, plus cross-device sync.',
     },
     {
         q: 'How is my strength score calculated?',
@@ -96,8 +119,10 @@ export const FAQS: Faq[] = [
     },
     {
         q: 'Which devices are supported?',
-        a: 'iOS and Android. Wearable integration (Apple Watch, Garmin, and more) is on the roadmap; at ' +
-           'launch, stats are entered manually or through the in-app session logger.',
+        a: 'iOS first, with Android to follow. Apple Health and Health Connect integration is built in: ' +
+           'heart rate, sleep, and body weight sync into the app, and finished workouts write back to ' +
+           'Apple Health. iOS also gets a home-screen widget and a Live Activity rest-timer. Deeper ' +
+           'wearable support (Apple Watch, Garmin) is in active development.',
     },
     {
         q: 'Is Peak Fettle a substitute for medical or coaching advice?',
@@ -132,6 +157,8 @@ export const PLANS: Plan[] = [
             'Starter templates (PPL, Upper/Lower)',
             'Habit streaks with make-up windows',
             'Lift + cardio in one log',
+            'Local-first: works fully offline',
+            'Apple Health & Health Connect sync',
         ],
     },
     {
@@ -148,6 +175,8 @@ export const PLANS: Plan[] = [
             'Editable: swap exercises, shift days',
             'Feasibility-checked body-comp goals',
             'Multi-discipline programming',
+            'Cross-device sync & backup',
+            'Monthly, or one yearly payment (save about a third)',
             'Priority support',
         ],
     },
