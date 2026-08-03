@@ -28,6 +28,7 @@ export const SITE = {
 /** Primary navigation — shared by the desktop bar, mobile menu, and footer. */
 export const NAV_LINKS = [
     { href: '/features', label: 'Features' },
+    { href: '/compare', label: 'Compare' },
     { href: '/pricing', label: 'Pricing' },
     { href: '/about', label: 'About' },
 ] as const;
@@ -35,6 +36,7 @@ export const NAV_LINKS = [
 export const FOOTER_LINKS = {
     Product: [
         { href: '/features', label: 'Features' },
+        { href: '/compare', label: 'Compare' },
         { href: '/pricing', label: 'Pricing' },
         { href: '/#notify', label: 'Get notified' },
     ],

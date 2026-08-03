@@ -1,0 +1,209 @@
+/* /compare — comparison table + differentiators.
+   Gold budget: exactly 3 uses on this page — the three differentiator card
+   kickers (.diffKicker). Table "gold" cells inherit accent, not sash, to keep
+   the budget honest. */
+
+/* ---------------------------------------------------------------- */
+/* Differentiators                                                   */
+/* ---------------------------------------------------------------- */
+
+.diffs {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.25rem;
+    padding-block: clamp(2rem, 4vw, 3.5rem);
+}
+
+@media (max-width: 900px) {
+    .diffs { grid-template-columns: 1fr; }
+}
+
+.diffCard {
+    padding: 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+/* Gold use 1–3: one kicker per differentiator card. */
+.diffKicker {
+    font-family: var(--mono);
+    font-size: 0.78rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--sash);
+}
+
+.diffTitle {
+    font-family: var(--display);
+    font-size: clamp(1.2rem, 2vw, 1.45rem);
+    font-weight: 550;
+    line-height: 1.25;
+    color: var(--text-strong);
+}
+
+.diffBody {
+    color: var(--muted);
+    font-size: 0.95rem;
+    line-height: 1.6;
+}
+
+/* ---------------------------------------------------------------- */
+/* Comparison table                                                  */
+/* ---------------------------------------------------------------- */
+
+.tableLede { margin-bottom: 1.5rem; }
+
+.tableWrap {
+    overflow-x: auto;
+    border: 1px solid var(--line-hair);
+    border-radius: var(--r-lg);
+    background: var(--surface);
+    -webkit-overflow-scrolling: touch;
+}
+
+.table {
+    width: 100%;
+    min-width: 1080px;
+    border-collapse: collapse;
+    font-size: 0.88rem;
+    line-height: 1.45;
+}
+
+.colHead {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted-2);
+    text-align: left;
+    padding: 0.9rem 1rem;
+    border-bottom: 1px solid var(--line-hair);
+    white-space: nowrap;
+}
+
+.rowName {
+    font-family: var(--display);
+    font-size: 1rem;
+    font-weight: 550;
+    color: var(--text-strong);
+    text-align: left;
+    padding: 0.9rem 1rem;
+    border-bottom: 1px solid var(--line-hair);
+    white-space: nowrap;
+    vertical-align: top;
+}
+
+.cell {
+    padding: 0.9rem 1rem;
+    border-bottom: 1px solid var(--line-hair);
+    color: var(--text);
+    vertical-align: top;
+    max-width: 240px;
+}
+
+.cellGood { color: var(--text); }
+.cellGood::before {
+    content: '▲ ';
+    color: var(--accent);
+    font-size: 0.7em;
+}
+
+.cellLimited { color: var(--muted-2); }
+
+/* Differentiator cells stay in the teal accent family (gold lives in the
+   cards above — 3-use budget). */
+.cellGold {
+    color: var(--accent-hi);
+    font-weight: 600;
+}
+.cellGold::before { content: '▲ '; color: var(--accent); font-size: 0.7em; }
+
+.selfRow {
+    background: linear-gradient(90deg, rgba(45, 212, 191, 0.07), rgba(45, 212, 191, 0.02));
+}
+.selfRow .rowName { color: var(--accent-hi); }
+
+.methodology {
+    margin-top: 1rem;
+    max-width: 72ch;
+}
+
+/* ---------------------------------------------------------------- */
+/* Different-category band                                           */
+/* ---------------------------------------------------------------- */
+
+.catGrid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.25rem;
+    margin-top: 1.75rem;
+}
+
+@media (max-width: 760px) {
+    .catGrid { grid-template-columns: 1fr; }
+}
+
+.catCard {
+    padding: 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
+}
+
+.catHead {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.catPrice {
+    font-family: var(--mono);
+    font-size: 0.8rem;
+    color: var(--muted);
+    white-space: nowrap;
+}
+
+.catWhat { color: var(--text); font-size: 0.95rem; }
+.catWhy { color: var(--muted); font-size: 0.9rem; line-height: 1.6; }
+
+/* ---------------------------------------------------------------- */
+/* Switching                                                         */
+/* ---------------------------------------------------------------- */
+
+.switchCard {
+    padding: clamp(1.75rem, 4vw, 3rem);
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.switchLede { max-width: 62ch; }
+
+.switchList {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin: 0.5rem 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.switchList li {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    color: var(--text);
+    font-size: 0.95rem;
+}
+
+.switchList li :global(svg) { color: var(--accent); flex-shrink: 0; }
+
+.switchCta {
+    display: flex;
+    gap: 0.9rem;
+    margin-top: 1rem;
+    flex-wrap: wrap;
+}
