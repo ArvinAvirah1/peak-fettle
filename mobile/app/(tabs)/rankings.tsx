@@ -336,11 +336,15 @@ function localPercentiles(
     return { lens1: null, lens2a: null };
   }
   // Profile stores 'MALE'/'FEMALE'/'UNDISCLOSED' (onboarding), not 'M'/'F' —
-  // normalize the same way TierLadderCard does or every real user gets null.
-  const s = (sex ?? '').trim().toLowerCase();
-  const modelSex: ModelSex | null =
-    s === 'm' || s === 'male' ? 'M' : s === 'f' || s === 'female' ? 'F' : null;
-  if (!modelSex) return { lens1: null, lens2a: null };
+  // normalize like TierLadderCard does. UNDISCLOSED (or any other value) is
+  // passed through raw: both model entry points take SexInput and apply the
+  // D5 50/50 M/F mixture for unrecognized sexes, so undisclosed users still
+  // get a percentile instead of a permanent pending pill. Only a completely
+  // absent sex bails out.
+  if (sex == null) return { lens1: null, lens2a: null };
+  const s = sex.trim().toLowerCase();
+  const modelSex: ModelSex | string =
+    s === 'm' || s === 'male' ? 'M' : s === 'f' || s === 'female' ? 'F' : sex;
 
   const lens2a = computeRankedPercentile(modelLift, modelSex, e1rm, bwKg);
   const lens1 = computePercentile(modelLift, modelSex, e1rm, bwKg, experienceLevel, ageBand);

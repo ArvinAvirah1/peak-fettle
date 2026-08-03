@@ -41,8 +41,10 @@ export function usePercentile(): UsePercentileResult {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchRankings = useCallback(async () => {
-    setIsLoading(true);
+  const fetchRankings = useCallback(async (opts?: { silent?: boolean }) => {
+    // silent: watch-triggered reloads swap fresh rows in without re-skeletoning
+    // the mounted screen.
+    if (!opts?.silent) setIsLoading(true);
     setError(null);
     try {
       if (!localFirst) {
@@ -77,8 +79,13 @@ export function usePercentile(): UsePercentileResult {
   }, [fetchRankings]);
 
   // Newly logged sets recompute the rank without a manual pull-to-refresh.
-  // Local writes only fire these notifications, so this stays network-free.
-  useTableChange(['sets'], () => void fetchRankings(), { debounceMs: 900 });
+  // Gated to local-first: table notifications only fire for LOCAL writes, and
+  // for Pro users an ungated watch would turn every set burst into a REST call
+  // (Pro refreshes on focus/pull instead, per the app-wide pattern).
+  useTableChange(['sets'], () => void fetchRankings({ silent: true }), {
+    enabled: localFirst,
+    debounceMs: 900,
+  });
 
   return {
     response,

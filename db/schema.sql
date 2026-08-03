@@ -11,10 +11,11 @@
 --   After this, run db/seed_supplemental.sql if present.
 --
 -- IDEMPOTENCY / RE-RUN
---   Designed for a single fresh-project run. Most blocks are idempotent
---   (CREATE ... IF NOT EXISTS / CREATE OR REPLACE / ADD COLUMN IF NOT EXISTS).
---   A handful of CREATE POLICY statements are NOT guarded and will error on a
---   second run — that is expected for a fresh-project bootstrap.
+--   Fully idempotent as of 2026-08-02: every CREATE TABLE/INDEX uses
+--   IF NOT EXISTS, every trigger and policy is preceded by a DROP ... IF
+--   EXISTS guard, and functions use CREATE OR REPLACE. Re-running this file
+--   top-to-bottom against an existing database is the safe "sync prod to
+--   source of truth" operation (CLAUDE.md invariant #4).
 --
 -- KNOWN DRIFT PRESERVED AS-IS (do NOT "clean" without the owning ticket)
 --   * Percentile engine: this file contains the FULL applied chain
@@ -64,7 +65,7 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 -- ---------------------------------------------------------------------------
 -- USERS — auth + profile + cohort demographics
 -- ---------------------------------------------------------------------------
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email           TEXT UNIQUE NOT NULL,
     password_hash   TEXT NOT NULL,
@@ -89,12 +90,12 @@ CREATE TABLE users (
     deleted_at      TIMESTAMPTZ
 );
 
-CREATE INDEX idx_users_email ON users(email) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE deleted_at IS NULL;
 
 -- ---------------------------------------------------------------------------
 -- EXERCISES — global library (not user-scoped)
 -- ---------------------------------------------------------------------------
-CREATE TABLE exercises (
+CREATE TABLE IF NOT EXISTS exercises (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     -- N-15: cap at 100 chars to match the Qt-side logSetAt() guard. Names
     -- longer than this are almost certainly a paste error or overflow risk.
@@ -105,24 +106,24 @@ CREATE TABLE exercises (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_exercises_name_trgm ON exercises USING gin (name gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_exercises_name_trgm ON exercises USING gin (name gin_trgm_ops);
 -- ^ enable pg_trgm in Supabase before this runs; falls back gracefully if missing
 -- (Supabase has pg_trgm available — confirm CREATE EXTENSION pg_trgm in project)
 
 -- Aliases / synonyms — backs TICKET-007 search
-CREATE TABLE exercise_aliases (
+CREATE TABLE IF NOT EXISTS exercise_aliases (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     exercise_id     UUID NOT NULL REFERENCES exercises(id) ON DELETE CASCADE,
     alias           TEXT NOT NULL,
     UNIQUE (exercise_id, alias)
 );
 
-CREATE INDEX idx_exercise_aliases_alias ON exercise_aliases(alias);
+CREATE INDEX IF NOT EXISTS idx_exercise_aliases_alias ON exercise_aliases(alias);
 
 -- ---------------------------------------------------------------------------
 -- WORKOUTS — a workout = one calendar day (per dev-lead rule)
 -- ---------------------------------------------------------------------------
-CREATE TABLE workouts (
+CREATE TABLE IF NOT EXISTS workouts (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     day_key         DATE NOT NULL,                  -- canonical grouping key
@@ -133,12 +134,12 @@ CREATE TABLE workouts (
     UNIQUE (user_id, day_key)
 );
 
-CREATE INDEX idx_workouts_user_day ON workouts(user_id, day_key DESC);
+CREATE INDEX IF NOT EXISTS idx_workouts_user_day ON workouts(user_id, day_key DESC);
 
 -- ---------------------------------------------------------------------------
 -- SETS — handles both lift and cardio (per TICKET-010 contract)
 -- ---------------------------------------------------------------------------
-CREATE TABLE sets (
+CREATE TABLE IF NOT EXISTS sets (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     workout_id          UUID NOT NULL REFERENCES workouts(id) ON DELETE CASCADE,
     user_id             UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -167,14 +168,14 @@ CREATE TABLE sets (
     )
 );
 
-CREATE INDEX idx_sets_user_logged ON sets(user_id, logged_at DESC);
-CREATE INDEX idx_sets_workout ON sets(workout_id, set_index);
-CREATE INDEX idx_sets_exercise ON sets(exercise_id);
+CREATE INDEX IF NOT EXISTS idx_sets_user_logged ON sets(user_id, logged_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sets_workout ON sets(workout_id, set_index);
+CREATE INDEX IF NOT EXISTS idx_sets_exercise ON sets(exercise_id);
 
 -- ---------------------------------------------------------------------------
 -- PLANS — AI-generated and template plans
 -- ---------------------------------------------------------------------------
-CREATE TABLE plans (
+CREATE TABLE IF NOT EXISTS plans (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id         UUID REFERENCES users(id) ON DELETE CASCADE, -- NULL for global templates
     name            TEXT NOT NULL,
@@ -186,13 +187,13 @@ CREATE TABLE plans (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX idx_plans_user ON plans(user_id) WHERE user_id IS NOT NULL;
-CREATE INDEX idx_plans_template ON plans(is_template) WHERE is_template = TRUE;
+CREATE INDEX IF NOT EXISTS idx_plans_user ON plans(user_id) WHERE user_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_plans_template ON plans(is_template) WHERE is_template = TRUE;
 
 -- ---------------------------------------------------------------------------
 -- STREAKS — one row per user, daily aggregation; events table for audit
 -- ---------------------------------------------------------------------------
-CREATE TABLE streaks (
+CREATE TABLE IF NOT EXISTS streaks (
     user_id             UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     current_streak_days INTEGER NOT NULL DEFAULT 0,
     longest_streak_days INTEGER NOT NULL DEFAULT 0,
@@ -202,7 +203,7 @@ CREATE TABLE streaks (
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE streak_overrides (
+CREATE TABLE IF NOT EXISTS streak_overrides (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     override_date   DATE NOT NULL,
@@ -215,7 +216,7 @@ CREATE TABLE streak_overrides (
 -- ---------------------------------------------------------------------------
 -- PERCENTILE_VECTORS — batch-computed weekly, never real-time
 -- ---------------------------------------------------------------------------
-CREATE TABLE percentile_vectors (
+CREATE TABLE IF NOT EXISTS percentile_vectors (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     exercise_id     UUID NOT NULL REFERENCES exercises(id),
     sex             TEXT NOT NULL CHECK (sex IN ('M','F','X')),
@@ -230,7 +231,7 @@ CREATE TABLE percentile_vectors (
     UNIQUE (exercise_id, sex, age_band, weight_class_kg, years_band)
 );
 
-CREATE INDEX idx_percentile_lookup
+CREATE INDEX IF NOT EXISTS idx_percentile_lookup
     ON percentile_vectors(exercise_id, sex, age_band, weight_class_kg, years_band);
 
 -- ---------------------------------------------------------------------------
@@ -255,27 +256,36 @@ ALTER TABLE streaks             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE streak_overrides    ENABLE ROW LEVEL SECURITY;
 
 -- Users: only see / edit own row
+DROP POLICY IF EXISTS "users_self_only" ON users;
 CREATE POLICY "users_self_only" ON users
     FOR ALL USING (auth.uid() = id);
 
+DROP POLICY IF EXISTS "workouts_self_only" ON workouts;
 CREATE POLICY "workouts_self_only" ON workouts
     FOR ALL USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "sets_self_only" ON sets;
 CREATE POLICY "sets_self_only" ON sets
     FOR ALL USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "plans_self_or_template" ON plans;
 CREATE POLICY "plans_self_or_template" ON plans
     FOR SELECT USING (auth.uid() = user_id OR is_template = TRUE);
+DROP POLICY IF EXISTS "plans_write_self" ON plans;
 CREATE POLICY "plans_write_self" ON plans
     FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "plans_update_self" ON plans;
 CREATE POLICY "plans_update_self" ON plans
     FOR UPDATE USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "plans_delete_self" ON plans;
 CREATE POLICY "plans_delete_self" ON plans
     FOR DELETE USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "streaks_self_only" ON streaks;
 CREATE POLICY "streaks_self_only" ON streaks
     FOR ALL USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "streak_overrides_self_only" ON streak_overrides;
 CREATE POLICY "streak_overrides_self_only" ON streak_overrides
     FOR ALL USING (auth.uid() = user_id);
 
@@ -295,9 +305,13 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_users_updated ON users;
 CREATE TRIGGER trg_users_updated            BEFORE UPDATE ON users     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+DROP TRIGGER IF EXISTS trg_workouts_updated ON workouts;
 CREATE TRIGGER trg_workouts_updated         BEFORE UPDATE ON workouts  FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+DROP TRIGGER IF EXISTS trg_plans_updated ON plans;
 CREATE TRIGGER trg_plans_updated            BEFORE UPDATE ON plans     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+DROP TRIGGER IF EXISTS trg_streaks_updated ON streaks;
 CREATE TRIGGER trg_streaks_updated          BEFORE UPDATE ON streaks   FOR EACH ROW EXECUTE FUNCTION set_updated_at();
 -- N-09: daily_health_log trigger lives in 20260430_add_daily_health_log.sql (deduplicated)
 
@@ -2756,18 +2770,22 @@ COMMENT ON COLUMN user_percentile_rankings.is_estimated IS
 ALTER TABLE user_confirmed_1rm ENABLE ROW LEVEL SECURITY;
 
 -- Users may only read their own confirmed values
+DROP POLICY IF EXISTS ucr_select ON user_confirmed_1rm;
 CREATE POLICY ucr_select ON user_confirmed_1rm
     FOR SELECT USING (user_id = auth.uid());
 
 -- Users may only insert for themselves
+DROP POLICY IF EXISTS ucr_insert ON user_confirmed_1rm;
 CREATE POLICY ucr_insert ON user_confirmed_1rm
     FOR INSERT WITH CHECK (user_id = auth.uid());
 
 -- Users may update their own values
+DROP POLICY IF EXISTS ucr_update ON user_confirmed_1rm;
 CREATE POLICY ucr_update ON user_confirmed_1rm
     FOR UPDATE USING (user_id = auth.uid());
 
 -- Users may delete their own values (e.g. "reset to Epley")
+DROP POLICY IF EXISTS ucr_delete ON user_confirmed_1rm;
 CREATE POLICY ucr_delete ON user_confirmed_1rm
     FOR DELETE USING (user_id = auth.uid());
 
@@ -3622,6 +3640,7 @@ CREATE INDEX IF NOT EXISTS idx_user_cosmetics_user
 ALTER TABLE user_cosmetics ENABLE ROW LEVEL SECURITY;
 
 -- Users can only see their own inventory.
+DROP POLICY IF EXISTS "user_cosmetics_self_select" ON user_cosmetics;
 CREATE POLICY "user_cosmetics_self_select" ON user_cosmetics
     FOR SELECT USING (auth.uid() = user_id);
 
@@ -3652,10 +3671,12 @@ CREATE INDEX IF NOT EXISTS idx_user_equipped_user
 ALTER TABLE user_equipped_cosmetics ENABLE ROW LEVEL SECURITY;
 
 -- Anyone can read a user's equipped cosmetics (needed for group roster display).
+DROP POLICY IF EXISTS "user_equipped_public_read" ON user_equipped_cosmetics;
 CREATE POLICY "user_equipped_public_read" ON user_equipped_cosmetics
     FOR SELECT USING (TRUE);
 
 -- Only the owning user can change their own loadout.
+DROP POLICY IF EXISTS "user_equipped_self_write" ON user_equipped_cosmetics;
 CREATE POLICY "user_equipped_self_write" ON user_equipped_cosmetics
     FOR ALL USING (auth.uid() = user_id)
     WITH CHECK (auth.uid() = user_id);
@@ -4026,10 +4047,12 @@ CREATE TABLE IF NOT EXISTS user_weekly_goals (
 
 ALTER TABLE user_weekly_goals ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "user_weekly_goals_self_only" ON user_weekly_goals;
 CREATE POLICY "user_weekly_goals_self_only" ON user_weekly_goals
     FOR ALL USING (auth.uid() = user_id)
     WITH CHECK (auth.uid() = user_id);
 
+DROP TRIGGER IF EXISTS trg_user_weekly_goals_updated ON user_weekly_goals;
 CREATE TRIGGER trg_user_weekly_goals_updated
     BEFORE UPDATE ON user_weekly_goals
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -4070,14 +4093,17 @@ ALTER TABLE groups ENABLE ROW LEVEL SECURITY;
 -- Postgres validates the reference immediately at CREATE POLICY time.
 
 -- Only the admin can update group metadata (name, invite_token).
+DROP POLICY IF EXISTS "groups_admin_update" ON groups;
 CREATE POLICY "groups_admin_update" ON groups
     FOR UPDATE USING (auth.uid() = admin_user_id);
 
 -- Group creation is done by the creating user; INSERT allowed when caller = admin.
 -- (Application code enforces the eligibility gate and group-cap before the INSERT.)
+DROP POLICY IF EXISTS "groups_insert_by_creator" ON groups;
 CREATE POLICY "groups_insert_by_creator" ON groups
     FOR INSERT WITH CHECK (auth.uid() = admin_user_id);
 
+DROP TRIGGER IF EXISTS trg_groups_updated ON groups;
 CREATE TRIGGER trg_groups_updated
     BEFORE UPDATE ON groups
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -4118,6 +4144,7 @@ CREATE INDEX IF NOT EXISTS idx_group_memberships_user
 ALTER TABLE group_memberships ENABLE ROW LEVEL SECURITY;
 
 -- Members can see all memberships (active + past) in groups they belong to.
+DROP POLICY IF EXISTS "memberships_visible_to_group_members" ON group_memberships;
 CREATE POLICY "memberships_visible_to_group_members" ON group_memberships
     FOR SELECT USING (
         EXISTS (
@@ -4129,10 +4156,12 @@ CREATE POLICY "memberships_visible_to_group_members" ON group_memberships
     );
 
 -- A user can insert their own membership row (when joining via API).
+DROP POLICY IF EXISTS "memberships_self_insert" ON group_memberships;
 CREATE POLICY "memberships_self_insert" ON group_memberships
     FOR INSERT WITH CHECK (auth.uid() = user_id);
 
 -- A member can update their own row (to leave); admin can update any row in their groups.
+DROP POLICY IF EXISTS "memberships_self_or_admin_update" ON group_memberships;
 CREATE POLICY "memberships_self_or_admin_update" ON group_memberships
     FOR UPDATE USING (
         auth.uid() = user_id
@@ -4145,6 +4174,7 @@ CREATE POLICY "memberships_self_or_admin_update" ON group_memberships
 
 -- Deferred: groups SELECT policy that cross-references group_memberships.
 -- Must appear after group_memberships is created (circular FK dependency).
+DROP POLICY IF EXISTS "groups_visible_to_members" ON groups;
 CREATE POLICY "groups_visible_to_members" ON groups
     FOR SELECT USING (
         EXISTS (
@@ -4179,6 +4209,7 @@ CREATE INDEX IF NOT EXISTS idx_group_week_evals_group
 ALTER TABLE group_week_evaluations ENABLE ROW LEVEL SECURITY;
 
 -- Current and past members can read evaluation history.
+DROP POLICY IF EXISTS "evaluations_visible_to_members" ON group_week_evaluations;
 CREATE POLICY "evaluations_visible_to_members" ON group_week_evaluations
     FOR SELECT USING (
         EXISTS (
@@ -4216,6 +4247,7 @@ CREATE INDEX IF NOT EXISTS idx_credit_ledger_user_created
 ALTER TABLE credit_ledger ENABLE ROW LEVEL SECURITY;
 
 -- Users can only read their own ledger.
+DROP POLICY IF EXISTS "credit_ledger_self_select" ON credit_ledger;
 CREATE POLICY "credit_ledger_self_select" ON credit_ledger
     FOR SELECT USING (auth.uid() = user_id);
 
@@ -5160,6 +5192,7 @@ CREATE INDEX IF NOT EXISTS idx_notification_queue_user_pending
 
 -- RLS: users can read their own notifications; server uses service role to insert
 ALTER TABLE notification_queue ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "users_read_own_notifications" ON notification_queue;
 CREATE POLICY "users_read_own_notifications"
     ON notification_queue FOR SELECT
     USING (auth.uid() = user_id);
@@ -5229,8 +5262,11 @@ ALTER TABLE workout_templates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE template_sessions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE template_exercises ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "public_read_templates" ON workout_templates;
 CREATE POLICY "public_read_templates" ON workout_templates FOR SELECT USING (true);
+DROP POLICY IF EXISTS "public_read_sessions" ON template_sessions;
 CREATE POLICY "public_read_sessions" ON template_sessions FOR SELECT USING (true);
+DROP POLICY IF EXISTS "public_read_exercises" ON template_exercises;
 CREATE POLICY "public_read_exercises" ON template_exercises FOR SELECT USING (true);
 
 -- ---------------------------------------------------------------------------
@@ -5704,6 +5740,7 @@ CREATE INDEX IF NOT EXISTS idx_routines_user ON routines(user_id);
 -- RLS (Supabase)
 ALTER TABLE routines ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS routines_user_policy ON routines;
 CREATE POLICY routines_user_policy ON routines
     FOR ALL USING (auth.uid() = user_id);
 
@@ -6821,6 +6858,7 @@ CREATE INDEX IF NOT EXISTS idx_lifeos_activity_days_user
 -- RLS (repo convention: every per-user table) — review finding 2026-06-12.
 ALTER TABLE lifeos_activity_days ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "lifeos_activity_days_self_only" ON lifeos_activity_days;
 CREATE POLICY "lifeos_activity_days_self_only" ON lifeos_activity_days
     FOR ALL USING (auth.uid() = user_id);
 
@@ -6864,6 +6902,7 @@ ALTER TABLE lifeos_partner_summaries ENABLE ROW LEVEL SECURITY;
 
 -- Self-only for any Supabase-context access; the server's pg pool scopes by
 -- user_id (writes) / code (the public read) explicitly.
+DROP POLICY IF EXISTS "lifeos_partner_summaries_self_only" ON lifeos_partner_summaries;
 CREATE POLICY "lifeos_partner_summaries_self_only" ON lifeos_partner_summaries
     FOR ALL USING (auth.uid() = user_id);
 
