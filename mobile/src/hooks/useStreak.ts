@@ -27,6 +27,7 @@ import { isoWeekKey, daysAgo, toDateKey } from '../utils/dateHelpers';
 import { useAuth } from './useAuth';
 import { isLocalFirst } from '../data/backup/tierPolicy';
 import { localDb } from '../db/localDb';
+import { useTableChange } from './useTableChange';
 
 /**
  * Returns the current week-streak given a list of workouts.
@@ -215,6 +216,15 @@ export function useLocalStreak(
     if (!localFirst) return;
     loadLocal();
   }, [localFirst, loadLocal]);
+
+  // The badge previously loaded once on mount and was excluded from every
+  // refresh path (focus refetch, pull-to-refresh, logger finish) — a free
+  // user's first workout of the week never moved the streak until an app
+  // restart. Local workout writes now recompute it directly.
+  useTableChange(['workouts'], () => void loadLocal(), {
+    enabled: localFirst,
+    debounceMs: 900,
+  });
 
   if (!localFirst) {
     return { streak: proStreak, isLoading: proLoading };

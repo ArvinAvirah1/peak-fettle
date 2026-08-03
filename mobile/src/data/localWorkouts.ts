@@ -56,6 +56,14 @@ function rowToWorkout(row: WorkoutRow): Workout {
  */
 async function adoptLegacyRows(dayKey: string, userId: string): Promise<void> {
   if (!userId) return;
+  // Read-first guard: this runs on every load (including table-change reloads),
+  // so skip the write entirely when there is nothing to adopt.
+  const legacy = await localDb.getFirst<{ n: number }>(
+    `SELECT 1 AS n FROM workouts
+      WHERE day_key = ? AND (user_id IS NULL OR user_id = '') LIMIT 1`,
+    [dayKey],
+  );
+  if (!legacy) return;
   await localDb.execute(
     `UPDATE workouts SET user_id = ?
       WHERE day_key = ? AND (user_id IS NULL OR user_id = '')`,
@@ -75,6 +83,13 @@ export async function ensureLocalWorkoutForDay(
 ): Promise<Workout | null> {
   await localDb.init();
   await adoptLegacyRows(dayKey, userId);
+  // Fast path: the row almost always exists already (this runs on every
+  // reload) — return it without touching the write path.
+  const existing = await localDb.getFirst<WorkoutRow>(
+    'SELECT * FROM workouts WHERE day_key = ? AND user_id = ? ORDER BY created_at ASC LIMIT 1',
+    [dayKey, userId],
+  );
+  if (existing) return rowToWorkout(existing);
   const now = new Date().toISOString();
   // Atomic: only inserts when no row already exists for this day + user. Two
   // racing callers can both run this; the second sees the first's row and

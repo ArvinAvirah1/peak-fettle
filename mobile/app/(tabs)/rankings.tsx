@@ -335,7 +335,11 @@ function localPercentiles(
   if (!modelLift || !bwKg || bwKg <= 0 || !e1rm || e1rm <= 0) {
     return { lens1: null, lens2a: null };
   }
-  const modelSex = sex === 'M' || sex === 'F' ? (sex as ModelSex) : null;
+  // Profile stores 'MALE'/'FEMALE'/'UNDISCLOSED' (onboarding), not 'M'/'F' —
+  // normalize the same way TierLadderCard does or every real user gets null.
+  const s = (sex ?? '').trim().toLowerCase();
+  const modelSex: ModelSex | null =
+    s === 'm' || s === 'male' ? 'M' : s === 'f' || s === 'female' ? 'F' : null;
   if (!modelSex) return { lens1: null, lens2a: null };
 
   const lens2a = computeRankedPercentile(modelLift, modelSex, e1rm, bwKg);
@@ -812,9 +816,35 @@ export default function RankingsScreen(): React.ReactElement {
   );
 
   const rankings = response?.rankings ?? [];
+  // `||` not `??` — the local-first response carries cohort_note: '' and must
+  // fall back to the default copy.
   const cohortNote =
-    response?.cohort_note ??
-    t('tabs:rankings.cohortNoteDefault');
+    response?.cohort_note || t('tabs:rankings.cohortNoteDefault');
+
+  // On-device percentiles per lift, computed once and shared by the hero,
+  // overall, and per-lift cards. `displayPercentile` prefers the on-device
+  // experience-adjusted value (Lens 1) and falls back to the server field
+  // (null since the 2026-06-12 server-pipeline drop) then Lens 2a.
+  const enriched = rankings.map((ranking) => {
+    const lp = localPercentiles(
+      ranking,
+      latestBw?.weight_kg ?? user?.weight_class_kg,
+      user?.sex,
+      user?.experience_level,
+      user?.age_band,
+    );
+    return {
+      ranking,
+      lens1: lp.lens1,
+      lens2a: lp.lens2a,
+      displayPercentile: lp.lens1 ?? ranking.percentile ?? lp.lens2a ?? null,
+    };
+  });
+  // Hero + Overall consume `percentile` directly — hand them the display value.
+  const summaryRankings = enriched.map((e) => ({
+    ...e.ranking,
+    percentile: e.displayPercentile,
+  }));
 
   // Option B: lifts whose ranking used an Epley estimate (for the banner)
   const estimatedLiftNames = !use1rmConfirmation
@@ -907,6 +937,14 @@ export default function RankingsScreen(): React.ReactElement {
           </View>
         ) : null}
 
+        {/* Weekly bodyweight check-in — feeds the tier gate (founder 2026-06-10).
+            Rendered OUTSIDE the rankings.length gate: bodyweight is a hard input
+            for every on-device percentile, so the prompt that unblocks the model
+            must be reachable even before any competition lift is logged. */}
+        {!isLoading && !error ? (
+          <BodyweightPromptCard unitPref={(user?.unit_pref ?? 'kg') as 'kg' | 'lbs'} />
+        ) : null}
+
         {/* Empty state */}
         {!isLoading && !error && rankings.length === 0 ? (
           <EmptyState />
@@ -915,8 +953,6 @@ export default function RankingsScreen(): React.ReactElement {
         {/* Rankings list */}
         {!isLoading && !error && rankings.length > 0 ? (
           <>
-            {/* Weekly bodyweight check-in — feeds the tier gate (founder 2026-06-10) */}
-            <BodyweightPromptCard unitPref={(user?.unit_pref ?? 'kg') as 'kg' | 'lbs'} />
             {/* Tier ladder headline — on-device v3 model (TICKET-093 / Q2).
                 Uses the real weekly-median weight; locked when it's stale. */}
             <TierLadderCard
@@ -925,10 +961,11 @@ export default function RankingsScreen(): React.ReactElement {
               bodyweightKg={latestBw?.weight_kg ?? user?.weight_class_kg ?? null}
               bodyweightFresh={freshForTier}
             />
-            {/* Hero card — highest-percentile lift (P0-006 / Spec §6.7) */}
-            <PercentileRankHeroCard rankings={rankings} />
+            {/* Hero card — highest-percentile lift (P0-006 / Spec §6.7).
+                summaryRankings carries the on-device display percentile. */}
+            <PercentileRankHeroCard rankings={summaryRankings} />
           <View style={styles.listContainer}>
-            {rankings.map((ranking, i) => (
+            {enriched.map(({ ranking, lens1, lens2a }, i) => (
               <Reanimated.View
                 key={ranking.lift_id}
                 entering={
@@ -944,16 +981,8 @@ export default function RankingsScreen(): React.ReactElement {
                   primaryDiscipline={user?.primary_discipline ?? null}
                   showWilks={showWilks}
                   onConfirmRequest={handleConfirmRequest}
-                  {...(() => {
-                    const lp = localPercentiles(
-                      ranking,
-                      latestBw?.weight_kg ?? user?.weight_class_kg,
-                      user?.sex,
-                      user?.experience_level,
-                      user?.age_band,
-                    );
-                    return { localLens1: lp.lens1, localLens2a: lp.lens2a };
-                  })()}
+                  localLens1={lens1}
+                  localLens2a={lens2a}
                 />
               </Reanimated.View>
             ))}
@@ -961,7 +990,7 @@ export default function RankingsScreen(): React.ReactElement {
 
           {/* Median overall percentile card — only shown once ≥10 different exercises are logged */}
           {rankings.length >= 10 ? (
-            <OverallPercentileCard rankings={rankings} />
+            <OverallPercentileCard rankings={summaryRankings} />
           ) : (
             <View style={[styles.medianHint, { backgroundColor: theme.colors.bgSecondary, borderColor: theme.colors.borderDefault }]}>
               <Text style={[styles.medianHintText, { color: theme.colors.textTertiary }]}>

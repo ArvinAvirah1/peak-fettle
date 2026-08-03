@@ -40,6 +40,20 @@ export function useTableChange(
     const token = makeWatchToken();
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    // Max-wait backstop: a sustained notification cadence faster than
+    // debounceMs would reset the trailing timer forever and the reload would
+    // never fire (this starved Home's 900ms history watcher when a write loop
+    // notified ~every 450ms). The maxWait timer arms on the first notification
+    // of a burst and is NOT reset by later ones, guaranteeing a reload within
+    // 2× debounceMs of the first change.
+    let maxWaitTimer: ReturnType<typeof setTimeout> | null = null;
+    const fire = () => {
+      if (timer) clearTimeout(timer);
+      if (maxWaitTimer) clearTimeout(maxWaitTimer);
+      timer = null;
+      maxWaitTimer = null;
+      if (!cancelled) onChangeRef.current();
+    };
 
     void (async () => {
       try {
@@ -55,9 +69,10 @@ export function useTableChange(
             continue;
           }
           if (timer) clearTimeout(timer);
-          timer = setTimeout(() => {
-            if (!cancelled) onChangeRef.current();
-          }, debounceMs);
+          timer = setTimeout(fire, debounceMs);
+          if (!maxWaitTimer) {
+            maxWaitTimer = setTimeout(fire, debounceMs * 2);
+          }
         }
       } catch {
         // watch() throws when the generator is torn down — expected.
@@ -68,6 +83,7 @@ export function useTableChange(
       cancelled = true;
       token.cancel();
       if (timer) clearTimeout(timer);
+      if (maxWaitTimer) clearTimeout(maxWaitTimer);
     };
   }, [tablesKey, enabled, debounceMs]);
 }

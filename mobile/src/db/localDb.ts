@@ -232,10 +232,20 @@ export const localDb = {
     opts?: { tables?: string[] }
   ): Promise<void> {
     await ensureInit();
-    await getHandle().runAsync(sql, params as SQLite.SQLiteBindValue[]);
-    const tables = opts?.tables ?? parseAffectedTables(sql);
-    if (tables.length > 0) {
-      localDb.notify(tables);
+    const result = await getHandle().runAsync(
+      sql,
+      params as SQLite.SQLiteBindValue[]
+    );
+    // Only wake watchers when rows actually changed — a no-op UPDATE or
+    // INSERT…WHERE NOT EXISTS that matched nothing must not notify, or hooks
+    // whose reload path issues idempotent writes (ensureLocalWorkoutForDay)
+    // re-trigger themselves in a permanent notify→reload→notify loop that
+    // starves longer-debounce watchers (Home history/streak staleness, 2026-08).
+    if (result.changes > 0) {
+      const tables = opts?.tables ?? parseAffectedTables(sql);
+      if (tables.length > 0) {
+        localDb.notify(tables);
+      }
     }
   },
 
