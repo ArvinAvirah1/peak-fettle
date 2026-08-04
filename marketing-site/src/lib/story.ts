@@ -15,15 +15,31 @@
 // programmed deload, one PR, then slow grinding. Nobody posts the plateau.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { weightValue, type Unit } from './units';
+
 export type StoryWeek = {
     wk: number;
     /** estimated one-rep max, bench press, kg (Epley from logged working sets) */
     e1rm: number;
     /** 0–1000 strength score at that week */
     score: number;
-    /** editorial annotation, lowercase mono voice (only on landmark weeks) */
-    note?: string;
+    /**
+     * Editorial annotation, lowercase mono voice (only on landmark weeks).
+     *
+     * A plain string is unit-free and reads the same either way. Where the beat
+     * names a weight it is written twice, because the landmarks are round
+     * numbers in one unit and meaningless in the other: "first time past 100"
+     * is a kilo milestone, and its pound equivalent is passing 225, not 229.3.
+     * The digits still trace to `e1rm` — only the framing is hand-set.
+     */
+    note?: string | Record<Unit, string>;
 };
+
+/** The annotation for a week, in the reader's unit. */
+export function noteFor(week: StoryWeek, unit: Unit): string | undefined {
+    if (!week.note) return undefined;
+    return typeof week.note === 'string' ? week.note : week.note[unit];
+}
 
 export const LIFTER = {
     initials: 'A.R.',
@@ -34,7 +50,7 @@ export const LIFTER = {
 
 /** The one dataset. Bench press e1RM (kg) + strength score, weeks 1–26. */
 export const STORY: StoryWeek[] = [
-    { wk: 1,  e1rm: 84.0,  score: 612, note: 'wk 01 — return to the bar · e1RM 84.0 kg' },
+    { wk: 1,  e1rm: 84.0,  score: 612, note: { kg: 'wk 01 — return to the bar · e1RM 84.0 kg', lb: 'wk 01 — return to the bar · e1RM 185.2 lb' } },
     { wk: 2,  e1rm: 86.5,  score: 618 },
     { wk: 3,  e1rm: 88.0,  score: 622 },
     { wk: 4,  e1rm: 90.5,  score: 627 },
@@ -52,14 +68,14 @@ export const STORY: StoryWeek[] = [
     { wk: 16, e1rm: 98.0,  score: 650 },
     { wk: 17, e1rm: 100.0, score: 655 },
     { wk: 18, e1rm: 101.5, score: 659 },
-    { wk: 19, e1rm: 104.0, score: 665, note: 'wk 19 — 104.0 kg. first time past 100.' },
+    { wk: 19, e1rm: 104.0, score: 665, note: { kg: 'wk 19 — 104.0 kg. first time past 100.', lb: 'wk 19 — 229.3 lb. first time past 225.' } },
     { wk: 20, e1rm: 103.5, score: 666 },
     { wk: 21, e1rm: 104.5, score: 668 },
     { wk: 22, e1rm: 105.0, score: 670 },
     { wk: 23, e1rm: 104.5, score: 671, note: 'wk 23 — two sessions missed. make-up window kept the streak.' },
     { wk: 24, e1rm: 105.5, score: 673 },
     { wk: 25, e1rm: 106.0, score: 675 },
-    { wk: 26, e1rm: 107.5, score: 678, note: 'wk 26 — e1RM 107.5 kg · score 612 → 678' },
+    { wk: 26, e1rm: 107.5, score: 678, note: { kg: 'wk 26 — e1RM 107.5 kg · score 612 → 678', lb: 'wk 26 — e1RM 237.0 lb · score 612 → 678' } },
 ];
 
 /** Derived landmarks — single place so sections can never disagree. */
@@ -156,8 +172,10 @@ export function areaPath(frame: ChartFrame, weeks: StoryWeek[] = STORY): string 
 }
 
 /** Fixed-slot readout strings (mono): no layout shift as the scrub moves. */
-export function readout(week: StoryWeek): string {
+export function readout(week: StoryWeek, unit: Unit = 'kg'): string {
     const wk = String(week.wk).padStart(2, '0');
-    const kg = week.e1rm.toFixed(1).padStart(5, ' '); // figure space pad
-    return `WK ${wk} · E1RM ${kg} KG · SCORE ${week.score}`;
+    // Both units sit in five characters across the story's range
+    // (84.0-107.5 kg / 185.2-237.0 lb), so the slot width never changes.
+    const kg = weightValue(week.e1rm, unit).padStart(5, ' '); // figure space pad
+    return `WK ${wk} · E1RM ${kg} ${unit.toUpperCase()} · SCORE ${week.score}`;
 }

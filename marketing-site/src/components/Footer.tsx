@@ -1,9 +1,13 @@
 import Link from 'next/link';
 import { SITE, FOOTER_LINKS } from '@/lib/site';
+import { LANDMARKS } from '@/lib/story';
+import { weightValue } from '@/lib/units';
+import { getUnit } from '@/lib/unitServer';
 import Logo from './Logo';
 import styles from './Footer.module.css';
 
 export default function Footer() {
+    const unit = getUnit();
     const year = 2026; // static to keep the page deterministic / cache-friendly
     return (
         <footer className={styles.footer}>
@@ -42,7 +46,7 @@ export default function Footer() {
                 </div>
 
                 <p className={styles.ledgerStamp}>
-                    26 wks · +23.5 kg e1rm · 1 plateau · 1 deload · 1 pr
+                    26 wks · +{weightValue(LANDMARKS.gainKg, unit)} {unit} e1rm · 1 plateau · 1 deload · 1 pr
                 </p>
 
                 <div className={styles.bottom}>

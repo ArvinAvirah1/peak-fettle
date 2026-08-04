@@ -12,9 +12,11 @@ import Link from 'next/link';
 import WaitlistForm from './WaitlistForm';
 import EchoField from './EchoField';
 import { STORY, LANDMARKS, HERO_FRAME, readout } from './heroChartGeometry';
+import { noteFor } from '@/lib/story';
+import { weight, weightValue, type Unit } from '@/lib/units';
 import styles from './HeroLedger.module.css';
 
-export default function HeroLedger() {
+export default function HeroLedger({ unit = 'kg' }: { unit?: Unit }) {
     // Parked on the PR until the visitor takes the controls.
     const [wkIndex, setWkIndex] = useState(LANDMARKS.pr.wk - 1);
     const [touched, setTouched] = useState(false);
@@ -23,6 +25,7 @@ export default function HeroLedger() {
 
     const week = STORY[wkIndex];
     const F = HERO_FRAME;
+    const yTicks = F.yTicks(unit);
 
     const pct = {
         x: (wk: number) => `${((F.left + ((wk - 1) / 25) * (F.width - F.left - F.right)) / F.width * 100).toFixed(3)}%`,
@@ -83,7 +86,7 @@ export default function HeroLedger() {
                         <em className={styles.payoff}>Peak Fettle: actualizing your potential.</em>
                         <span className={styles.baseline} aria-hidden="true">
                             <i className={styles.baselineRule} />
-                            <b className={styles.baselineLabel}>107.5 kg — wk 26</b>
+                            <b className={styles.baselineLabel}>{weight(LANDMARKS.end.e1rm, unit)} — wk 26</b>
                         </span>
                     </span>
                 </h1>
@@ -105,7 +108,7 @@ export default function HeroLedger() {
             <div className={styles.chartWrap}>
                 <div className={`container ${styles.readoutRow}`}>
                     <output className={styles.readout} aria-hidden="true">
-                        {readout(week)}
+                        {readout(week, unit)}
                     </output>
                     <span className={styles.readoutHint}>
                         {touched ? ' ' : 'drag or use arrow keys'}
@@ -121,7 +124,7 @@ export default function HeroLedger() {
                     aria-valuemin={1}
                     aria-valuemax={26}
                     aria-valuenow={week.wk}
-                    aria-valuetext={`Week ${week.wk}: estimated 1RM ${week.e1rm.toFixed(1)} kilograms, strength score ${week.score}`}
+                    aria-valuetext={`Week ${week.wk}: estimated 1RM ${weightValue(week.e1rm, unit)} ${unit === 'lb' ? 'pounds' : 'kilograms'}, strength score ${week.score}`}
                     onPointerMove={onPointerMove}
                     onPointerDown={(e) => snapToPointer(e.clientX)}
                     onKeyDown={onKeyDown}
@@ -139,12 +142,12 @@ export default function HeroLedger() {
                                 <stop offset="100%" stopColor="#0E5C55" stopOpacity="0" />
                             </linearGradient>
                         </defs>
-                        {F.yTicks.map((v) => (
+                        {yTicks.map((t) => (
                             <line
-                                key={v}
+                                key={t.label}
                                 className={styles.gridline}
                                 x1={F.left} x2={F.width - F.right}
-                                y1={F.yPx(v)} y2={F.yPx(v)}
+                                y1={F.yPx(t.kg)} y2={F.yPx(t.kg)}
                                 vectorEffect="non-scaling-stroke"
                             />
                         ))}
@@ -158,9 +161,9 @@ export default function HeroLedger() {
                     </svg>
 
                     {/* annotation layer — HTML, so type never stretches */}
-                    {F.yTicks.map((v) => (
-                        <span key={v} className={styles.yLabel} style={{ top: pct.y(v) }}>
-                            {v} kg
+                    {yTicks.map((t) => (
+                        <span key={t.label} className={styles.yLabel} style={{ top: pct.y(t.kg) }}>
+                            {t.label}
                         </span>
                     ))}
                     {F.xTicks.map((wk) => (
@@ -192,7 +195,7 @@ export default function HeroLedger() {
 
                     {/* editorial annotations */}
                     <span className={`${styles.note} ${styles.noteStart}`} style={{ left: pct.x(1), top: pct.y(84) }}>
-                        wk 01 — return to the bar · e1RM 84.0 kg
+                        {noteFor(LANDMARKS.start, unit)}
                     </span>
                     <span className={`${styles.note} ${styles.notePlateau}`} style={{ left: pct.x(11), top: pct.y(97) }}>
                         wks 09–13 — the plateau. nobody posts this part.
@@ -201,10 +204,10 @@ export default function HeroLedger() {
                         wk 14 — deload, on purpose
                     </span>
                     <span className={`${styles.note} ${styles.notePr}`} style={{ left: pct.x(19), top: pct.y(104) }}>
-                        wk 19 — 104.0 kg. first time past 100.
+                        {noteFor(LANDMARKS.pr, unit)}
                     </span>
                     <span className={`${styles.note} ${styles.noteEnd}`} style={{ left: pct.x(26), top: pct.y(107.5) }}>
-                        wk 26 — e1RM 107.5 kg<br />score 612 → 678
+                        wk 26 — e1RM {weight(LANDMARKS.end.e1rm, unit)}<br />score 612 → 678
                     </span>
 
                     {/* crosshair */}

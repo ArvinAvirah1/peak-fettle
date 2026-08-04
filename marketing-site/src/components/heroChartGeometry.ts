@@ -10,6 +10,7 @@ import {
     yAt,
     type ChartFrame,
 } from '@/lib/story';
+import { yTicksFor } from '@/lib/units';
 
 const frame: ChartFrame = {
     width: 1440,
@@ -26,8 +27,14 @@ const frame: ChartFrame = {
 
 export const HERO_FRAME = {
     ...frame,
-    /** labeled gridlines only — no graph-paper noise */
-    yTicks: [80, 90, 100, 110] as number[],
+    /**
+     * Labeled gridlines only — no graph-paper noise.
+     *
+     * The y domain stays in kilograms whatever the reader's unit; `yTicksFor`
+     * hands back round numbers in their unit, each carrying the kilogram value
+     * it plots at, so the two axes share one scale.
+     */
+    yTicks: yTicksFor,
     /** wk 14 is told by its annotation; a 13+14 tick pair would crowd */
     xTicks: [1, 6, 13, 19, 26] as number[],
     dotWeeks: [1, 13, 14, 19, 26] as number[],

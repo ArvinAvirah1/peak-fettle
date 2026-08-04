@@ -13,6 +13,7 @@ import {
     yAt,
     type ChartFrame,
 } from '@/lib/story';
+import { weightValue, type Unit } from '@/lib/units';
 import styles from './Figures.module.css';
 
 /** Gaussian curve path for cohort distributions (pure, deterministic). */
@@ -42,17 +43,21 @@ const ord = (n: number) => {
 
 /* ─── Fig. 01 — Estimate: one logged set becomes an e1RM ─────────────────── */
 
-export function FigEstimate() {
+export function FigEstimate({ unit = 'kg' }: { unit?: Unit }) {
+    const w = weightValue(METHOD_SET.weightKg, unit, unit === 'lb' ? 1 : 0);
+    const e = weightValue(METHOD_SET.e1rm, unit);
     return (
         <svg viewBox="0 0 360 210" className={styles.fig} role="img"
-            aria-label={`A logged set of ${METHOD_SET.weightKg} kilograms for ${METHOD_SET.reps} reps becomes an estimated one-rep max of ${METHOD_SET.e1rm} kilograms`}>
+            aria-label={`A logged set of ${w} ${unit === 'lb' ? 'pounds' : 'kilograms'} for ${METHOD_SET.reps} reps becomes an estimated one-rep max of ${e} ${unit === 'lb' ? 'pounds' : 'kilograms'}`}>
             <rect x="22" y="42" width="138" height="60" rx="6" className={styles.panel} />
             <text x="38" y="66" className={styles.tinyMuted}>SET 01 — BENCH</text>
-            <text x="38" y="90" className={styles.monoStrong}>{METHOD_SET.weightKg} kg × {METHOD_SET.reps}</text>
+            <text x="38" y="90" className={styles.monoStrong}>{w} {unit} × {METHOD_SET.reps}</text>
             <path d="M160 72 H 232 V 128" className={styles.leader} />
             <text x="244" y="116" className={styles.tinyMuted}>e1RM</text>
-            <text x="244" y="142" className={styles.accentBig}>{METHOD_SET.e1rm.toFixed(1)} kg</text>
-            <text x="22" y="192" className={styles.formula}>epley — w × (1 + r/30) · 72 × 7/6 = 84.0</text>
+            <text x="244" y="142" className={styles.accentBig}>{e} {unit}</text>
+            {/* Epley is unit-agnostic, so the worked example is shown in the
+                reader's own unit — the identity holds either way. */}
+            <text x="22" y="192" className={styles.formula}>epley — w × (1 + r/30) · {w} × 7/6 = {e}</text>
         </svg>
     );
 }

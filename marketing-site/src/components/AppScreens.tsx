@@ -8,6 +8,7 @@
 // constitution in story.ts).
 
 import { STORY, PLATE_WEEK, PLATE_SETS, PLATE_PERCENTILE, LIFTER, STREAK_DAYS } from '@/lib/story';
+import { weightTrim, weightValue, type Unit } from '@/lib/units';
 
 const W = 390;
 const H = 844;
@@ -27,9 +28,9 @@ const MUT = '#94A3B8';
 const CARD = '#0F1629';
 const SUB = '#151D35';
 
-const fmtKg = (v: number) => (Number.isInteger(v) ? `${v} kg` : `${v.toFixed(1)} kg`);
+const fmtKg = (v: number, unit: Unit) => weightTrim(v, unit);
 
-export function ScreenLog() {
+export function ScreenLog({ unit = 'kg' }: { unit?: Unit }) {
     return (
         <Frame>
             <text x="24" y="92" fill={MUT} fontSize="14" fontFamily="sans-serif">Week 6 · Push day</text>
@@ -38,7 +39,7 @@ export function ScreenLog() {
                 <g key={i} transform={`translate(24 ${150 + i * 76})`}>
                     <rect width="342" height="62" rx="14" fill={CARD} />
                     <text x="20" y="38" fill={MUT} fontSize="15" fontFamily="sans-serif">Set {i + 1}</text>
-                    <text x="110" y="38" fill={TXT} fontSize="18" fontWeight="600" fontFamily="sans-serif">{fmtKg(s.weightKg)}</text>
+                    <text x="110" y="38" fill={TXT} fontSize="18" fontWeight="600" fontFamily="sans-serif">{fmtKg(s.weightKg, unit)}</text>
                     <text x="220" y="38" fill={MUT} fontSize="16" fontFamily="sans-serif">× {s.reps}</text>
                     {s.pr && (
                         <g transform="translate(270 16)">
@@ -110,7 +111,7 @@ export function ScreenRank() {
     );
 }
 
-export function ScreenScore() {
+export function ScreenScore({ unit = 'kg' }: { unit?: Unit }) {
     // The in-app trend chart draws the page's own dataset, weeks 1–6 —
     // the essay's line continues inside the product.
     const crop = STORY.slice(0, 6);
@@ -139,7 +140,7 @@ export function ScreenScore() {
 
             <polyline points={pts} fill="none" stroke={A} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
             <text x="24" y="498" fill={MUT} fontSize="14" fontFamily="sans-serif">
-                +{(PLATE_WEEK.e1rm - STORY[0].e1rm).toFixed(1)} kg over six weeks
+                +{weightValue(PLATE_WEEK.e1rm - STORY[0].e1rm, unit)} {unit} over six weeks
             </text>
 
             <g transform="translate(24 520)">

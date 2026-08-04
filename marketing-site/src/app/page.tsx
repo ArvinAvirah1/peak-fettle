@@ -18,7 +18,9 @@ import {
 } from '@/components/Figures';
 import { FEATURES, DISCIPLINES, FAQS, PLANS } from '@/lib/content';
 import { SITE, ASSETS } from '@/lib/site';
-import { LANDMARKS, PLATE_WEEK } from '@/lib/story';
+import { LANDMARKS, PLATE_WEEK, METHOD_SET, noteFor } from '@/lib/story';
+import { weightValue } from '@/lib/units';
+import { getUnit } from '@/lib/unitServer';
 import styles from './page.module.css';
 
 const softwareSchema = {
@@ -56,13 +58,16 @@ const PLATES = [
 ] as const;
 
 export default function Home() {
+    // Pounds for US readers, kilos for everyone else — resolved from the
+    // request so the first paint is already in the reader's unit.
+    const unit = getUnit();
     return (
         <>
             <JsonLd data={[softwareSchema, faqSchema]} />
             <Spine />
 
             {/* ── 01 · The cover ─────────────────────────────────────────── */}
-            <HeroLedger />
+            <HeroLedger unit={unit} />
 
             {/* ── 02 · The method — how a set becomes a number ───────────── */}
             <section id="method" className={`${styles.method} section`} aria-label="How your strength score works">
@@ -81,12 +86,13 @@ export default function Home() {
                     <ol className={styles.figGrid} role="list">
                         <Reveal as="li" delay={1} className={styles.figItem}>
                             <p className={styles.figKicker}>fig. 01 — estimate</p>
-                            <FigEstimate />
+                            <FigEstimate unit={unit} />
                             <h3 className={styles.figTitle}>Estimate</h3>
                             <p className={styles.figBody}>
                                 From reps and weight we estimate a one-rep max for every lift using
                                 established strength formulas — no maxing out required. A.R.&rsquo;s
-                                72&nbsp;kg × 5 opens the ledger at 84.0.
+                                {' '}{weightValue(METHOD_SET.weightKg, unit, unit === 'lb' ? 1 : 0)}&nbsp;{unit} ×{' '}
+                                {METHOD_SET.reps} opens the ledger at {weightValue(METHOD_SET.e1rm, unit)}.
                             </p>
                         </Reveal>
                         <Reveal as="li" delay={2} className={styles.figItem}>
@@ -125,15 +131,15 @@ export default function Home() {
                         <h2 className="h2">Your training, made legible.</h2>
                         <p className="lede">
                             Eight weeks in, the fast start is on the page: e1RM{' '}
-                            {PLATE_WEEK.e1rm.toFixed(1)}&nbsp;kg by week six. Every screen earns its
+                            {weightValue(PLATE_WEEK.e1rm, unit)}&nbsp;{unit} by week six. Every screen earns its
                             place — log fast, read honest numbers, watch the climb.
                         </p>
                     </Reveal>
 
                     <div className={styles.phones}>
                         {[
-                            <DeviceMockup key="log" src={ASSETS.screens ? '/screens/log.png' : undefined} alt="Logging a bench press workout in Peak Fettle" fallback={<ScreenLog />} />,
-                            <DeviceMockup key="score" src={ASSETS.screens ? '/screens/score.png' : undefined} alt="The 0 to 1000 strength score screen" fallback={<ScreenScore />} />,
+                            <DeviceMockup key="log" src={ASSETS.screens ? '/screens/log.png' : undefined} alt="Logging a bench press workout in Peak Fettle" fallback={<ScreenLog unit={unit} />} />,
+                            <DeviceMockup key="score" src={ASSETS.screens ? '/screens/score.png' : undefined} alt="The 0 to 1000 strength score screen" fallback={<ScreenScore unit={unit} />} />,
                             <DeviceMockup key="rank" src={ASSETS.screens ? '/screens/rank.png' : undefined} alt="Percentile ranking against a matched cohort" fallback={<ScreenRank />} />,
                         ].map((mockup, i) => (
                             <Reveal key={PLATES[i].num} delay={((i % 3) + 1) as 1 | 2 | 3} className={styles[`phone${'ABC'[i]}` as 'phoneA' | 'phoneB' | 'phoneC']}>
@@ -224,7 +230,7 @@ export default function Home() {
                         </ul>
                         <p className={styles.prNote}>
                             <span className={styles.prTick} aria-hidden="true" />
-                            wk 19 — 104.0 kg. first time past 100.
+                            {noteFor(LANDMARKS.pr, unit)}
                         </p>
                     </Reveal>
                     <Reveal delay={2} className={styles.fairnessFig}>
