@@ -8,6 +8,16 @@
 
 ## OPEN — P0
 
+### AUTH-01 · Signup/login collapse every failure into one generic message (verified on-device + against prod)
+`app/(auth)/register.tsx:216-229` `extractErrorMessage` handles only HTTP 409 / `data.error === 'email_taken'` and `data.message`. Everything else → `t('tabs:register.genericError')` ("Something went wrong. Please try again."). Two failure classes hit this:
+1. **Server validation.** Prod returns exactly `{"error":"validation_failed"}` — no `message`, no `details` (verified live: bad email → `validation_failed`; 5-char password → `validation_failed`). `data.error` is only ever compared against the literal `'email_taken'`, so `validation_failed` falls through.
+2. **Network failure.** An offline/unreachable-server axios error has no `response` object at all, so it takes the same generic path. Reproduced on-device: a build pointing at an unreachable API showed the identical message with no hint that connectivity was the problem.
+
+`app/(auth)/login.tsx` shares the shape. Client-side `validate()` (`register.tsx:78`) does pre-check email format and password length, so this only bites on server-rejected or offline cases — offline being the common one for a beta user on a train.
+**Fix (two-sided):**
+- Client: branch `if (!axiosErr.response)` → connection-error copy ("Can't reach Peak Fettle — check your connection"); map `data.error` values (`validation_failed`, `email_taken`, …) to specific copy; render `data.details` field issues against the matching input.
+- Server: include the Zod `issues` it already has as `details` on the 400, so the client can point at the offending field.
+
 ### UI-103 · 1RM confirm sheet is kg-only
 `app/(tabs)/rankings.tsx` — `formatKg` at :112, seed :143/:165, `parseFloat` treated as kg :181/:200, `<= 1000` cap :201, hardcoded "kg" label :265. lbs users must mentally convert or store wrong 1RM.
 **Fix:** seed with `kgToInputValue`, parse with `parseWeightInput`, store via `displayToKg`, validate cap against kg post-conversion.
@@ -196,8 +206,21 @@ No watch→SQLite write path; `watchBridge.ts:26` documents `transferUserInfo` u
 
 ## Suggested execution order
 
-1. **Batch A (P0):** UI-103, UI-105, WATCH-01 (crash), WATCH-02 — small, disjoint.
+1. **Batch A (P0):** AUTH-01, UI-103, UI-105, WATCH-01 (crash), WATCH-02 — small, disjoint.
 2. **Batch B (P1):** UI-107/108 (local-first), UI-109/110/111/113 (widget), UI-114/115, WATCH-03…08.
 3. **Batch C (P2/P3):** rest (incl. WATCH-09…20, NEW-01…05).
 
 DoD per batch: `peak-fettle-verify` parse-sweep + `tsc --noEmit` delta; push (EAS builds from `origin/main`).
+
+---
+
+## Local simulator build notes (2026-08-04, macOS + Xcode 26.5 / iOS 26.5 sim)
+
+Getting this repo onto an iPhone simulator needed four workarounds. None is an app bug, but all four cost time:
+
+1. **`EXPO_PUBLIC_API_URL` must be set at bundle time.** `src/api/client.ts:32` defaults to `http://localhost:3001` when the env var is unset, so a plain `xcodebuild` produces an app that cannot reach the API — every auth call fails as a network error (this is what surfaced AUTH-01). Export `EXPO_PUBLIC_API_URL=https://peak-fettle-production.up.railway.app` before building; only `eas.json` sets it today.
+2. **Sentry fails the bundle phase without credentials.** "Bundle React Native code and images" exits non-zero via `sentry-cli`. Export `SENTRY_DISABLE_AUTO_UPLOAD=true` (or `SENTRY_ALLOW_FAILURE=true`) for local builds.
+3. **`fmt` pod does not compile under Xcode 26 clang.** `Pods/fmt/include/fmt/format-inl.h` fails with "call to consteval function … is not a constant expression" on `FMT_STRING`. Workaround: force `FMT_USE_CONSTEVAL 0` in `Pods/fmt/include/fmt/base.h` post-`pod install`. Worth a `post_install` hook in the Podfile so it survives re-installs.
+4. **watchOS platform is required to build the iOS scheme.** With the watch target embedded, `xcodebuild` refuses outright: "This scheme builds an embedded Apple Watch app. watchOS 26.5 must be installed." Run `xcodebuild -downloadPlatform watchOS` first.
+
+Also: building with derived data inside an iCloud/OneDrive-synced folder makes `CodeSign` fail on the widget appex with "resource fork, Finder information, or similar detritus not allowed" (sync xattrs). Use a derived-data path outside the synced tree.
