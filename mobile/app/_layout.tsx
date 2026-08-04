@@ -57,6 +57,9 @@ import { startPerfMonitor } from '../src/diagnostics/perfMonitor';
 import { parseRoutineShareUrl, importSharedRoutine } from '../src/data/shareLinks'; // TICKET-138
 import { runBadgeEvaluation } from '../src/data/badges/evaluator'; // TICKET-143
 import { initObservability } from '../src/observability/sentry'; // 2026-07-21 crash reporting
+// 2026-08-01 RevenueCat billing — same deferred-boot pattern as the bridges
+// above; iOS-only and inert when the native SDK isn't compiled in.
+import { configurePurchases, syncPurchasesIdentity } from '../src/services/purchases';
 
 // Perf diagnostics (2026-07-02): start at BUNDLE EVAL, before first render, so
 // the boot window - where the free-tier freeze lives - is captured. JS-only
@@ -193,6 +196,21 @@ function RootNavigator(): React.ReactElement {
     });
     return () => task.cancel();
   }, []);
+
+  // RevenueCat billing (2026-08-01): configure the SDK once and keep its
+  // identity in lockstep with the session (logIn(user.id) when authenticated,
+  // logOut on sign-out) — the SAME users.id UUID the server webhook maps
+  // app_user_id back onto. Purchases.configure touches native TurboModules,
+  // so it stays off the fragile iOS-26 boot frame like every other native
+  // call here (CLAUDE.md #5: fire-and-forget, never blocks cold start).
+  useEffect(() => {
+    if (isLoading) return;
+    const task = InteractionManager.runAfterInteractions(() => {
+      configurePurchases();
+      syncPurchasesIdentity(user?.id ?? null);
+    });
+    return () => task.cancel();
+  }, [isLoading, user?.id]);
 
   // TICKET-140 Stage A: push the today's-workout mirror to a paired Apple
   // Watch. iOS-only, deferred off the boot frame, and a no-op when the
@@ -348,6 +366,7 @@ function RootNavigator(): React.ReactElement {
         <Stack.Screen name="cosmetics" options={{ title: 'Achievements & Shop', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="plan-survey" options={{ title: 'Plan builder', headerShown: true, gestureEnabled: true }} />
         <Stack.Screen name="plan-adjust" options={{ title: 'Request changes', headerShown: true, gestureEnabled: true }} />
+        <Stack.Screen name="paywall" options={{ title: 'Peak Fettle Pro', headerShown: true, gestureEnabled: true }} />
       </Stack>
       </TourProvider>
     </>

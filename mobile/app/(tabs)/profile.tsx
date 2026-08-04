@@ -67,6 +67,7 @@ import { useTheme } from '../../src/theme/ThemeContext';
 import { ThemeSelectorModal } from '../../src/components/ThemeSelector';
 import { fontSize, fontWeight, spacing, radius } from '../../src/theme/tokens';
 import { haptics } from '../../src/utils/haptics';
+import { purchasesAvailable } from '../../src/services/purchases';
 import { ScreenLayout, PFInput } from '../../src/components/ui';
 import { defaultUnitForLocale } from '../../src/constants/locale';
 import { useReduceMotion } from '../../src/hooks/useReduceMotion';
@@ -389,6 +390,7 @@ function UserInfoCard({ avatar, onEditAvatar }: { avatar: AvatarConfig | null; o
   const { user, updateUser, upgradeToPro, downgradeToFree } = useAuth();
   const { theme } = useTheme();
   const { t } = useTranslation();
+  const router = useRouter();
 
   const isPro = !!user?.is_paid;
 
@@ -443,6 +445,17 @@ function UserInfoCard({ avatar, onEditAvatar }: { avatar: AvatarConfig | null; o
 
   const handleUpgrade = useCallback(async () => {
     if (isUpgrading || isPro) return;
+    // RevenueCat billing (2026-08-01): when this build ships the StoreKit SDK,
+    // Pro is bought on the /paywall screen (which finalizes via
+    // AuthContext.completeProPurchase — same migrate-first safe order). The
+    // legacy free toggle below remains ONLY for builds without the SDK
+    // (Android/dev) and works solely while the server keeps the beta
+    // ALLOW_CLIENT_TIER_TOGGLE escape hatch open (SRV-USER-01).
+    if (purchasesAvailable()) {
+      haptics.light();
+      router.push('/paywall' as never); // typed-routes lag (pre-existing pattern)
+      return;
+    }
     haptics.medium();
     setIsUpgrading(true);
     setUpgradeProgress({ done: 0, total: 0 });
@@ -478,7 +491,7 @@ function UserInfoCard({ avatar, onEditAvatar }: { avatar: AvatarConfig | null; o
       setIsUpgrading(false);
       setUpgradeProgress(null);
     }
-  }, [isUpgrading, isPro, upgradeToPro]);
+  }, [isUpgrading, isPro, upgradeToPro, router]);
 
   const handleDowngrade = useCallback(() => {
     if (isUpgrading || !isPro) return;

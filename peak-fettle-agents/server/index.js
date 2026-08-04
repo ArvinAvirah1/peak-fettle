@@ -31,6 +31,7 @@ const backupRoutes       = require('./routes/backup');         // TICKET-094-B �
 const lifeosRoutes       = require('./routes/lifeos');         // LIFEOS TICKET-111
 const partnerRoutes      = require('./routes/partner');        // LIFEOS TICKET-121 (public, code-based)
 const { routineShareRouter, shareRouter } = require('./routes/shareLinks'); // TICKET-138
+const { webhookRouter: revenuecatWebhookRouter, purchasesRouter } = require('./routes/revenuecat'); // RevenueCat billing 2026-08-01
 const { errorHandler } = require('./middleware/errorHandler');
 const { requireAuth }  = require('./middleware/requireAuth');
 
@@ -183,6 +184,14 @@ app.use('/lifeos', requireAuth, lifeosRoutes); // LIFEOS TICKET-111 — entitlem
 // LIFEOS TICKET-121 — PUBLIC partner view (NO requireAuth; the code is the
 // capability). Hard rate-limited; returns only the opaque summary string.
 app.use('/partner', partnerLimiter, partnerRoutes);
+
+// RevenueCat billing (2026-08-01):
+//   /revenuecat/webhook is PUBLIC on purpose — RevenueCat's servers call it,
+//   authenticated by the REVENUECAT_WEBHOOK_AUTH shared secret checked inside
+//   the route (Authorization header). /purchases/sync is a normal authed
+//   client endpoint (post-purchase tier reconciliation).
+app.use('/revenuecat', revenuecatWebhookRouter);
+app.use('/purchases', requireAuth, purchasesRouter);
 
 // PL-2: CSV import (Garmin / Strava) — auth required
 app.use('/import', requireAuth, csvImportRoutes);

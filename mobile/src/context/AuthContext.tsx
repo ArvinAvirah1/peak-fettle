@@ -78,6 +78,7 @@ import { setAuthHandlers, isDefinitiveAuthFailure } from '../api/client';
 import { setAccessToken as setPowerSyncToken } from '../db/connector';
 import * as AuthApi from '../api/auth';
 import { upgradeToProRequest, downgradeToFreeRequest } from '../api/billing';
+import { syncPurchases } from '../api/purchases';
 import { migrateLocalDataToServer, MigrationOutcome } from '../data/migrateToPro';
 import { clearAllLocalPersonalData } from '../data/localReset';
 import { User } from '../types/api';
@@ -187,6 +188,24 @@ export interface AuthContextValue {
    *         "tap to resume" that re-calls this (the ledger skips finished rows).
    */
   upgradeToPro: (onProgress?: (done: number, total: number) => void) => Promise<MigrationOutcome>;
+  /**
+   * RevenueCat billing (2026-08-01) — finalize a successful StoreKit
+   * purchase/restore of the "PeakFettle Pro" entitlement.
+   *
+   * Same SAFE-ORDERING as upgradeToPro (upload first, flip in-session LAST),
+   * but the SERVER tier flip goes through POST /purchases/sync (verified
+   * against RevenueCat / converged by the webhook) instead of POST
+   * /user/upgrade, which is closed behind TIER_SERVICE_SECRET in production
+   * (SRV-USER-01). The client flips is_paid=true from the on-device StoreKit
+   * entitlement even if the server couldn't verify yet — the RevenueCat
+   * webhook converges users.tier within seconds.
+   *
+   * Call ONLY after the SDK confirms the entitlement is active.
+   * @throws on a transient upload failure — re-call to resume (ledger-safe).
+   */
+  completeProPurchase: (
+    onProgress?: (done: number, total: number) => void,
+  ) => Promise<MigrationOutcome>;
   /**
    * Phase 6 — downgrade the current user to Free.
    *
@@ -657,6 +676,59 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
   );
 
   // ---------------------------------------------------------------------------
+  // completeProPurchase() — RevenueCat billing finalizer (2026-08-01)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Finalize a successful StoreKit purchase/restore. Mirrors upgradeToPro's
+   * load-bearing order (upload → server flip → in-session flip → sync start),
+   * with the server flip via POST /purchases/sync (RevenueCat-verified) since
+   * /user/upgrade is closed behind TIER_SERVICE_SECRET once real billing is
+   * live. See the AuthContextValue docs above.
+   */
+  const completeProPurchase = useCallback(
+    async (
+      onProgress?: (done: number, total: number) => void,
+    ): Promise<MigrationOutcome> => {
+      if (!user) throw new Error('completeProPurchase: no authenticated user');
+
+      // Fast path: already Pro in-session — just (re)authorise sync.
+      if (user.is_paid) {
+        setPowerSyncToken(accessTokenRef.current);
+        return { uploaded: 0, skipped: 0, failed: 0, errors: [] };
+      }
+
+      // 1. Upload on-device data FIRST (idempotent + resumable; throws on a
+      //    transient failure so the paywall can offer "tap to resume"). The
+      //    RevenueCat webhook may have already flipped the SERVER tier, but the
+      //    app still reads local-first until step 3 flips is_paid in-session,
+      //    so a mid-upload crash never strands the user on empty server data.
+      const result = await migrateLocalDataToServer(onProgress);
+
+      // 2. Reconcile the server tier. Best-effort: the purchase is already
+      //    PAID (StoreKit) and the webhook independently converges users.tier,
+      //    so a transient failure here must not strand a paying customer.
+      let updated: Partial<User> = {};
+      try {
+        updated = await syncPurchases();
+      } catch {
+        // Webhook remains the source of truth; proceed with the local flip.
+      }
+
+      // 3. Flip Pro in-session + persist. Forced is_paid/tier: the on-device
+      //    StoreKit entitlement is the proof-of-purchase even when the server
+      //    couldn't verify yet (no secret key / webhook latency).
+      updateUser({ ...updated, is_paid: true, tier: 'paid' });
+
+      // 4. Start sync LAST (safe no-op if already authorised).
+      setPowerSyncToken(accessTokenRef.current);
+
+      return result;
+    },
+    [user, updateUser],
+  );
+
+  // ---------------------------------------------------------------------------
   // downgradeToFree() — Phase 6 Pro→Free (server data KEPT, never deleted)
   // ---------------------------------------------------------------------------
 
@@ -712,6 +784,7 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
       logout,
       updateUser,
       upgradeToPro,
+      completeProPurchase,
       downgradeToFree,
     }),
     [
@@ -724,6 +797,7 @@ export function AuthProvider({ children }: AuthProviderProps): React.ReactElemen
       logout,
       updateUser,
       upgradeToPro,
+      completeProPurchase,
       downgradeToFree,
     ],
   );
