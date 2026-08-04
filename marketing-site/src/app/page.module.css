@@ -74,6 +74,12 @@
 @media (max-width: 720px) {
     .phones { flex-direction: column; align-items: center; gap: 2.5rem; }
     .phoneA, .phoneC { padding-top: 0; }
+    /* The mockup casts `0 20px 60px rgba(0,0,0,.5)` — a shadow offset 20px
+       *down*. At the default 1.1rem the caption sits ~18px under the frame,
+       i.e. directly in the densest part of that shadow, and the muted caption
+       colour disappears into it: on a phone the line reads as cut off by the
+       image above. Clear the shadow's offset before the text starts. */
+    .plateCaption { margin-top: 2.5rem; }
 }
 
 /* ── 04 · Features ledger ────────────────────────────────────────────── */
