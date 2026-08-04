@@ -39,7 +39,7 @@ import { useTranslation } from 'react-i18next';
 import { ScreenLayout } from '../src/components/ui';
 import { Ionicons } from '../src/components/Icon';
 import { useTheme } from '../src/theme/ThemeContext';
-import { fontWeight } from '../src/theme/tokens';
+import { fontWeight, spacing } from '../src/theme/tokens';
 import { useAuth } from '../src/hooks/useAuth';
 import { usePurchases } from '../src/hooks/usePurchases';
 import type { RCPackage } from '../src/services/purchases';
@@ -432,7 +432,7 @@ export default function PaywallScreen(): React.ReactElement {
 
 const styles = StyleSheet.create({
   content: {
-    paddingTop: 24,
+    paddingTop: spacing.s6, // NEW-03: token instead of magic 24
   },
   featureRow: {
     flexDirection: 'row',

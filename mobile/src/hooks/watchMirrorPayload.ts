@@ -14,7 +14,7 @@
  * See useWatchMirror.ts for the full architecture/data-source doc comment.
  */
 
-import { formatWeight, type UnitSystem } from '../constants/units';
+import { formatSetWeight, type UnitSystem } from '../constants/units';
 
 // ---------------------------------------------------------------------------
 // Payload v1 (versioned envelope -- mirrors
@@ -27,7 +27,7 @@ export interface WatchExerciseMirror {
   sets: number;
   /** "8-12" or "5" -- routines already store this as a display-ready string. */
   repsLabel: string;
-  /** Formatted via constants/units.ts formatWeight (e.g. "60.0 kg" / "135 lbs"), or null when there's no weight target (e.g. bodyweight / never logged). */
+  /** Formatted via constants/units.ts formatSetWeight (exact entry preferred, kg fallback -- e.g. "60.0 kg" / "135 lbs"), or null when there's no weight target (e.g. bodyweight / never logged). */
   weightLabel: string | null;
   /** True once logged sets for this exercise (today) meet/exceed its target. */
   done: boolean;
@@ -54,6 +54,12 @@ export interface WatchExerciseInput {
    *  weight target; this is sourced from the caller's best-effort resolution,
    *  e.g. the exercise's last-logged weight today -- null renders no weight label). */
   targetWeightKg: number | null;
+  /** v18 EXACT fixed-point entry (typed value x 100 in the typed unit) from the
+   *  same set row as targetWeightKg -- null on legacy rows; display prefers it
+   *  over the kg round-trip (weight exact-entry invariant, CLAUDE.md #2). */
+  targetWeightCenti?: number | null;
+  /** Unit the exact entry was typed in ('kg' | 'lbs'), null when absent. */
+  targetWeightUnit?: string | null;
   /** Count of sets already logged today for this exercise (0 if none). */
   loggedSetCount: number;
 }
@@ -76,9 +82,20 @@ export function buildWatchMirrorPayload(input: BuildWatchMirrorInput, now: Date)
 
   const exercises: WatchExerciseMirror[] = input.today.exercises.map((ex) => {
     const repsLabel = ex.targetReps && ex.targetReps.trim() !== '' ? ex.targetReps.trim() : '-';
+    // WATCH-07: formatSetWeight prefers the exact fixed-point entry
+    // (weight_centi/weight_unit) and falls back to the canonical kg --
+    // never re-derive display text from the kg round-trip when the exact
+    // typed value is available (weight exact-entry invariant).
     const weightLabel =
       ex.targetWeightKg != null && Number.isFinite(ex.targetWeightKg)
-        ? formatWeight(ex.targetWeightKg, input.unitPref)
+        ? formatSetWeight(
+            {
+              weight_kg: ex.targetWeightKg,
+              weight_centi: ex.targetWeightCenti ?? null,
+              weight_unit: ex.targetWeightUnit ?? null,
+            },
+            input.unitPref,
+          )
         : null;
     const targetSets = Math.max(0, ex.targetSets || 0);
     const done = targetSets > 0 && ex.loggedSetCount >= targetSets;

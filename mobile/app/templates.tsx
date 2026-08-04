@@ -738,7 +738,7 @@ label={levelLabel(t, l)}
               backgroundColor: colors.bgSecondary,
               borderTopLeftRadius: radius.lg,
               borderTopRightRadius: radius.lg,
-              paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+              paddingBottom: Math.max(insets.bottom, spacing.s5),
             },
           ]}
         >
@@ -859,7 +859,7 @@ label={levelLabel(t, l)}
               backgroundColor: colors.bgSecondary,
               borderTopLeftRadius: radius.lg,
               borderTopRightRadius: radius.lg,
-              paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+              paddingBottom: Math.max(insets.bottom, spacing.s5),
             },
           ]}
         >
@@ -939,7 +939,7 @@ accessibilityLabel={t('screens2:templates.startDayA11y', { name: day.name })}
               backgroundColor: colors.bgSecondary,
               borderTopLeftRadius: radius.lg,
               borderTopRightRadius: radius.lg,
-              paddingBottom: Platform.OS === 'ios' ? 40 : 24,
+              paddingBottom: Math.max(insets.bottom, spacing.s5),
             },
           ]}
         >

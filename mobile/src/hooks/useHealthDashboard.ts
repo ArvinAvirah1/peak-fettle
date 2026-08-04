@@ -15,6 +15,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from './useAuth';
 import { localDb } from '../db/localDb';
+import { toDateKey } from '../utils/dateHelpers';
 import {
   isHealthKitAvailable,
   requestHealthKitPermissions,
@@ -138,7 +139,7 @@ export function useHealthDashboard(): UseHealthDashboardResult {
       await localDb.init();
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - 14);
-      const isoStr = cutoff.toISOString().slice(0, 10);
+      const isoStr = toDateKey(cutoff); // local day key, not UTC
 
       const rows = await localDb
         .getAll<HealthDayRow>(
@@ -259,7 +260,7 @@ export function useHealthDashboard(): UseHealthDashboardResult {
   const weeklyProgress = useMemo(() => {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - 7);
-    const cutoffKey = cutoff.toISOString().slice(0, 10);
+    const cutoffKey = toDateKey(cutoff); // local day key, not UTC
     const window = days.filter((d) => d.date >= cutoffKey);
 
     const sum = (vals: (number | null)[]): number =>

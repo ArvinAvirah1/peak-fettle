@@ -56,9 +56,12 @@ struct Palette {
     let ink: Color
 
     init(_ t: ThemeColors?) {
-        bg = pfColor(t?.bg, "#0A0E1A")
+        // UI-113: fall back to the target's declared asset colours
+        // ($widgetBackground / $accent, expo-target.config.js) before the
+        // hard-coded Deep Ocean hexes — same pattern as the live-activity target.
+        bg = Color(hexString: t?.bg) ?? Color("$widgetBackground")
         tile = pfColor(t?.tile, "#151D35")
-        accent = pfColor(t?.accent, "#00D4C8")
+        accent = Color(hexString: t?.accent) ?? Color("$accent")
         text = pfColor(t?.text, "#FFFFFF")
         muted = pfColor(t?.muted, "#94A3B8")
         warn = pfColor(t?.warn, "#F59E0B")
@@ -110,11 +113,32 @@ func loadPayload() -> WidgetPayload? {
     return try? JSONDecoder().decode(WidgetPayload.self, from: data)
 }
 
+// MARK: - Staleness (UI-110)
+
+/// Parses the payload's `updatedAt` (JS `toISOString()` — internet date-time
+/// with fractional seconds).
+private let updatedAtFormatter: ISO8601DateFormatter = {
+    let f = ISO8601DateFormatter()
+    f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    return f
+}()
+
+/// UI-110: payloads older than ~2 days render dimmed — the app hasn't been
+/// opened to rewrite the App Group payload, so the stats are likely stale.
+private let staleAfterInterval: TimeInterval = 2 * 24 * 60 * 60
+
+private func isStalePayload(_ updatedAt: String?, at date: Date) -> Bool {
+    guard let s = updatedAt, let updated = updatedAtFormatter.date(from: s) else { return false }
+    return date.timeIntervalSince(updated) > staleAfterInterval
+}
+
 // MARK: - Timeline entry
 
 struct PFEntry: TimelineEntry {
     let date: Date
     let hasData: Bool
+    /// UI-110: payload written more than ~2 days before this entry's date.
+    let isStale: Bool
     let nextName: String?
     let whenLabel: String
     let isRest: Bool
@@ -154,10 +178,23 @@ private func nextMidnight(after now: Date = Date()) -> Date {
     ) ?? now.addingTimeInterval(6 * 60 * 60)
 }
 
+/// UI-109: entry dates for a week of timeline — now + the next 7 local
+/// midnights. WidgetKit may defer an `.after` reload for hours; pre-rendered
+/// midnight entries keep "Today/Tomorrow" correct even when it does.
+private func timelineDates(from now: Date = Date()) -> [Date] {
+    var dates: [Date] = [now]
+    var cursor = now
+    for _ in 0..<7 {
+        cursor = nextMidnight(after: cursor)
+        dates.append(cursor)
+    }
+    return dates
+}
+
 func makeEntry(for date: Date) -> PFEntry {
     guard let p = loadPayload() else {
         return PFEntry(
-            date: date, hasData: false, nextName: nil, whenLabel: "Open the app",
+            date: date, hasData: false, isStale: false, nextName: nil, whenLabel: "Open the app",
             isRest: false, prsThisWeek: 0, goalsThisWeek: 0, goalsActive: 0,
             daysThisWeek: 0, weeklyGoal: 3,
             trainedDays: Array(repeating: false, count: 7),
@@ -196,6 +233,7 @@ func makeEntry(for date: Date) -> PFEntry {
     return PFEntry(
         date: date,
         hasData: true,
+        isStale: isStalePayload(p.updatedAt, at: date),
         nextName: nextName,
         whenLabel: whenLabel,
         isRest: isRest,
@@ -226,18 +264,35 @@ struct PFProvider: TimelineProvider {
     }
 
     func getTimeline(in context: Context, completion: @escaping (Timeline<PFEntry>) -> Void) {
-        let entry = makeEntry(for: Date())
-        completion(Timeline(entries: [entry], policy: .after(nextMidnight())))
+        // UI-109: now + next 7 local midnights, refresh after the last one.
+        let dates = timelineDates()
+        let entries = dates.map { makeEntry(for: $0) }
+        completion(Timeline(entries: entries, policy: .after(dates.last ?? nextMidnight())))
     }
 }
 
 // MARK: - Background helpers
 
+/// UI-113: container background that yields to the system in iOS 18
+/// accented (tinted home screen) mode — the system supplies its own
+/// material there, and an opaque theme colour underneath it muddies the tint.
+struct PFWidgetBackground: View {
+    @Environment(\.widgetRenderingMode) private var renderingMode
+    let pal: Palette
+    var body: some View {
+        if renderingMode == .accented {
+            Color.clear
+        } else {
+            pal.bg
+        }
+    }
+}
+
 extension View {
     @ViewBuilder
     func pfBackground(_ pal: Palette) -> some View {
         if #available(iOSApplicationExtension 17.0, *) {
-            self.containerBackground(pal.bg, for: .widget)
+            self.containerBackground(for: .widget) { PFWidgetBackground(pal: pal) }
         } else {
             self.background(pal.bg)
         }
@@ -263,6 +318,7 @@ struct SplitBlock: View {
             Text(entry.whenLabel.uppercased())
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundColor(entry.pal.muted)
+                .widgetAccentable() // UI-113: tinted in iOS 18 accented mode
             Text(entry.isRest ? "Rest day" : (entry.nextName ?? "No split set"))
                 .font(.system(size: size, weight: .bold))
                 .foregroundColor(entry.isRest ? entry.pal.muted : entry.pal.text)
@@ -281,6 +337,7 @@ struct MiniStat: View {
         VStack(alignment: .leading, spacing: 1) {
             Text(value).font(.system(size: 20, weight: .bold))
                 .foregroundColor(accent ? pal.accent : pal.text)
+                .widgetAccentable(accent) // UI-113
             Text(label).font(.system(size: 11)).foregroundColor(pal.muted).lineLimit(2)
         }
     }
@@ -295,6 +352,7 @@ struct StatTile: View {
         VStack(alignment: .leading, spacing: 3) {
             Text(value).font(.system(size: 19, weight: .bold))
                 .foregroundColor(accent ? pal.accent : pal.text)
+                .widgetAccentable(accent) // UI-113
             Text(label).font(.system(size: 11)).foregroundColor(pal.muted).lineLimit(1)
                 .minimumScaleFactor(0.8)
         }
@@ -328,8 +386,10 @@ struct WeekDots: View {
         let scheduled = i < entry.scheduledDays.count && entry.scheduledDays[i]
         if i == today {
             Circle().strokeBorder(entry.pal.accent, lineWidth: 2).frame(width: 11, height: 11)
+                .widgetAccentable() // UI-113
         } else if trained {
             Circle().fill(entry.pal.accent).frame(width: 10, height: 10)
+                .widgetAccentable() // UI-113
         } else if scheduled {
             Circle().strokeBorder(entry.pal.muted.opacity(0.6), lineWidth: 1.5).frame(width: 10, height: 10)
         } else {
@@ -353,6 +413,7 @@ struct DaysSquare: View {
                 .trim(from: 0, to: progress)
                 .stroke(entry.pal.accent, style: StrokeStyle(lineWidth: 9, lineCap: .round))
                 .padding(5)
+                .widgetAccentable() // UI-113
             VStack(spacing: 2) {
                 Text("\(entry.daysThisWeek)/\(entry.weeklyGoal)")
                     .font(.system(size: 30, weight: .bold)).foregroundColor(entry.pal.text)
@@ -386,6 +447,7 @@ struct QuickActionChip: View {
             .padding(.vertical, 7)
             .padding(.horizontal, 11)
             .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(pal.accent))
+            .widgetAccentable() // UI-113
     }
 }
 
@@ -436,6 +498,50 @@ struct QuickActionsRow: View {
     }
 }
 
+// MARK: - Empty state (UI-120)
+
+/// Rendered when no payload has ever been written (fresh install) or the
+/// stored JSON fails to decode — instead of a misleading all-zeros dashboard.
+struct NoDataView: View {
+    let entry: PFEntry
+    let family: WidgetFamily
+
+    var body: some View {
+        switch family {
+        case .accessoryInline:
+            Label("Open Peak Fettle", systemImage: "dumbbell.fill")
+        case .accessoryCircular:
+            ZStack {
+                AccessoryWidgetBackground()
+                Image(systemName: "dumbbell.fill").font(.system(size: 16))
+            }
+            .pfAccessoryBackground()
+        case .accessoryRectangular:
+            VStack(alignment: .leading, spacing: 2) {
+                Text("PEAK FETTLE").font(.system(size: 11, weight: .semibold)).opacity(0.7)
+                Text("Open the app to get started")
+                    .font(.system(size: 13, weight: .semibold)).lineLimit(2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .pfAccessoryBackground()
+        default:
+            VStack(spacing: 5) {
+                Image(systemName: "dumbbell.fill")
+                    .font(.system(size: 24)).foregroundColor(entry.pal.accent)
+                    .widgetAccentable() // UI-113
+                Text("No data yet")
+                    .font(.system(size: 14, weight: .bold)).foregroundColor(entry.pal.text)
+                Text("Open Peak Fettle to get started")
+                    .font(.system(size: 11)).foregroundColor(entry.pal.muted)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding()
+            .pfBackground(entry.pal)
+        }
+    }
+}
+
 // MARK: - Today widget
 
 struct TodaySmall: View {
@@ -447,6 +553,7 @@ struct TodaySmall: View {
             Text("\(entry.prsThisWeek) PR\(entry.prsThisWeek == 1 ? "" : "s") · \(entry.goalsThisWeek) goal\(entry.goalsThisWeek == 1 ? "" : "s")")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundColor(entry.pal.accent)
+                .widgetAccentable() // UI-113
                 .lineLimit(1).minimumScaleFactor(0.8)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -554,15 +661,21 @@ struct TodayEntryView: View {
     let entry: PFEntry
     var body: some View {
         Group {
-            switch family {
-            case .accessoryRectangular: TodayRectangular(entry: entry)
-            case .accessoryInline: TodayInline(entry: entry)
-            case .systemLarge: TodayLarge(entry: entry)
-            case .systemMedium: TodayMedium(entry: entry)
-            default: TodaySmall(entry: entry)
+            if !entry.hasData {
+                NoDataView(entry: entry, family: family) // UI-120
+            } else {
+                switch family {
+                case .accessoryRectangular: TodayRectangular(entry: entry)
+                case .accessoryInline: TodayInline(entry: entry)
+                case .systemLarge: TodayLarge(entry: entry)
+                case .systemMedium: TodayMedium(entry: entry)
+                default: TodaySmall(entry: entry)
+                }
             }
         }
-        .widgetURL(URL(string: "peak-fettle://"))
+        .opacity(entry.isStale ? 0.55 : 1) // UI-110: dim week-old data
+        // UI-129: land on the home logging hub (where "Start workout" lives).
+        .widgetURL(URL(string: "peak-fettle:///(tabs)"))
     }
 }
 
@@ -651,14 +764,20 @@ struct WeekEntryView: View {
     let entry: PFEntry
     var body: some View {
         Group {
-            switch family {
-            case .accessoryCircular: WeekCircular(entry: entry)
-            case .systemLarge: WeekLarge(entry: entry)
-            case .systemMedium: WeekMedium(entry: entry)
-            default: WeekSmall(entry: entry)
+            if !entry.hasData {
+                NoDataView(entry: entry, family: family) // UI-120
+            } else {
+                switch family {
+                case .accessoryCircular: WeekCircular(entry: entry)
+                case .systemLarge: WeekLarge(entry: entry)
+                case .systemMedium: WeekMedium(entry: entry)
+                default: WeekSmall(entry: entry)
+                }
             }
         }
-        .widgetURL(URL(string: "peak-fettle://"))
+        .opacity(entry.isStale ? 0.55 : 1) // UI-110: dim week-old data
+        // UI-129: weekly stats → the insights screen.
+        .widgetURL(URL(string: "peak-fettle://insights"))
     }
 }
 
@@ -670,6 +789,7 @@ struct StreakSmall: View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text("\(entry.streakWeeks)").font(.system(size: 46, weight: .bold)).foregroundColor(entry.pal.accent)
+                    .widgetAccentable() // UI-113
                 Image(systemName: "flame.fill").font(.system(size: 20)).foregroundColor(entry.pal.warn)
             }
             Text("week streak").font(.system(size: 13, weight: .semibold)).foregroundColor(entry.pal.text)
@@ -689,6 +809,7 @@ struct StreakMedium: View {
                 Image(systemName: "flame.fill").font(.system(size: 26)).foregroundColor(entry.pal.warn)
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text("\(entry.streakWeeks)").font(.system(size: 30, weight: .bold)).foregroundColor(entry.pal.accent)
+                        .widgetAccentable() // UI-113
                     Text("week streak").font(.system(size: 15, weight: .semibold)).foregroundColor(entry.pal.text)
                 }
             }
@@ -729,13 +850,19 @@ struct StreakEntryView: View {
     let entry: PFEntry
     var body: some View {
         Group {
-            switch family {
-            case .accessoryCircular: StreakCircular(entry: entry)
-            case .systemMedium: StreakMedium(entry: entry)
-            default: StreakSmall(entry: entry)
+            if !entry.hasData {
+                NoDataView(entry: entry, family: family) // UI-120
+            } else {
+                switch family {
+                case .accessoryCircular: StreakCircular(entry: entry)
+                case .systemMedium: StreakMedium(entry: entry)
+                default: StreakSmall(entry: entry)
+                }
             }
         }
-        .widgetURL(URL(string: "peak-fettle://"))
+        .opacity(entry.isStale ? 0.55 : 1) // UI-110: dim week-old data
+        // UI-129: streak → the session log (the consistency record).
+        .widgetURL(URL(string: "peak-fettle://workout-history"))
     }
 }
 
@@ -796,8 +923,10 @@ struct PFConfigProvider: AppIntentTimelineProvider {
         PFConfigEntry(date: Date(), data: makeEntry(for: Date()), config: configuration)
     }
     func timeline(for configuration: PFConfigIntent, in context: Context) async -> Timeline<PFConfigEntry> {
-        let entry = PFConfigEntry(date: Date(), data: makeEntry(for: Date()), config: configuration)
-        return Timeline(entries: [entry], policy: .after(nextMidnight()))
+        // UI-109: now + next 7 local midnights, refresh after the last one.
+        let dates = timelineDates()
+        let entries = dates.map { PFConfigEntry(date: $0, data: makeEntry(for: $0), config: configuration) }
+        return Timeline(entries: entries, policy: .after(dates.last ?? nextMidnight()))
     }
 }
 
@@ -824,6 +953,7 @@ struct MetricTile: View {
         return VStack(alignment: .leading, spacing: 3) {
             Text(v.0).font(.system(size: 18, weight: .bold))
                 .foregroundColor(v.2 ? entry.pal.accent : entry.pal.text)
+                .widgetAccentable(v.2) // UI-113
                 .lineLimit(1).minimumScaleFactor(0.6)
             Text(v.1).font(.system(size: 11)).foregroundColor(entry.pal.muted).lineLimit(1).minimumScaleFactor(0.8)
         }
@@ -841,27 +971,33 @@ struct CustomEntryView: View {
         let e = entry.data
         let c = entry.config
         Group {
-            switch family {
-            case .systemLarge:
-                VStack(spacing: 9) {
-                    HStack(spacing: 9) { MetricTile(metric: c.slot1, entry: e); MetricTile(metric: c.slot2, entry: e) }
-                    HStack(spacing: 9) { MetricTile(metric: c.slot3, entry: e); MetricTile(metric: c.slot4, entry: e) }
-                    HStack(spacing: 9) { MetricTile(metric: c.slot5, entry: e); MetricTile(metric: c.slot6, entry: e) }
-                }
-                .padding().pfBackground(e.pal)
-            case .systemMedium:
-                HStack(spacing: 9) {
-                    MetricTile(metric: c.slot1, entry: e)
-                    MetricTile(metric: c.slot2, entry: e)
-                    MetricTile(metric: c.slot3, entry: e)
-                }
-                .padding().pfBackground(e.pal)
-            default:
-                MetricTile(metric: c.slot1, entry: e)
+            if !e.hasData {
+                NoDataView(entry: e, family: family) // UI-120
+            } else {
+                switch family {
+                case .systemLarge:
+                    VStack(spacing: 9) {
+                        HStack(spacing: 9) { MetricTile(metric: c.slot1, entry: e); MetricTile(metric: c.slot2, entry: e) }
+                        HStack(spacing: 9) { MetricTile(metric: c.slot3, entry: e); MetricTile(metric: c.slot4, entry: e) }
+                        HStack(spacing: 9) { MetricTile(metric: c.slot5, entry: e); MetricTile(metric: c.slot6, entry: e) }
+                    }
                     .padding().pfBackground(e.pal)
+                case .systemMedium:
+                    HStack(spacing: 9) {
+                        MetricTile(metric: c.slot1, entry: e)
+                        MetricTile(metric: c.slot2, entry: e)
+                        MetricTile(metric: c.slot3, entry: e)
+                    }
+                    .padding().pfBackground(e.pal)
+                default:
+                    MetricTile(metric: c.slot1, entry: e)
+                        .padding().pfBackground(e.pal)
+                }
             }
         }
-        .widgetURL(URL(string: "peak-fettle://"))
+        .opacity(e.isStale ? 0.55 : 1) // UI-110: dim week-old data
+        // UI-129: custom stat grid → the insights screen.
+        .widgetURL(URL(string: "peak-fettle://insights"))
     }
 }
 

@@ -152,9 +152,12 @@ public class LiveActivityModule: Module {
 
             if let finalJson = finalPayloadJson, let payload = decodePayload(finalJson) {
                 let state = contentState(from: payload)
+                // WATCH-13: `.default` leaves the finished card on the Lock
+                // Screen for up to 4 hours; keep the "Rest complete" state
+                // visible briefly, then auto-dismiss.
                 await activity.end(
                     ActivityContent(state: state, staleDate: nil),
-                    dismissalPolicy: .default
+                    dismissalPolicy: .after(Date().addingTimeInterval(30))
                 )
             } else {
                 await activity.end(nil, dismissalPolicy: .immediate)

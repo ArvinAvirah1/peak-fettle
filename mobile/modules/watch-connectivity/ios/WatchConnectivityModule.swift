@@ -52,15 +52,10 @@ public class WatchConnectivityModule: Module {
 
         AsyncFunction("updateApplicationContext") { (payloadJson: String) -> Void in
             guard WCSession.isSupported() else { return }
-            let session = WCSession.default
-            guard session.activationState == .activated else { return }
-            do {
-                try session.updateApplicationContext(["payload": payloadJson])
-            } catch {
-                // Best-effort, mirrors the JS facade's try/caught discipline --
-                // a failed push just means the watch shows stale data until the
-                // next successful applicationContext update.
-            }
+            // WATCH-08: routed through the session host so a push that arrives
+            // before activation completes is cached and flushed on activation
+            // instead of being silently dropped (JS pushes once, never retries).
+            WatchSessionHost.shared.pushApplicationContext(payloadJson)
         }
     }
 }
@@ -79,6 +74,30 @@ private final class WatchSessionHost: NSObject, WCSessionDelegate {
     private weak var emitter: WatchConnectivityModule?
     private var activated = false
 
+    /// WATCH-08: last payload pushed before the session finished activating.
+    /// JS pushes once on mirror rebuild and never retries, so a push that
+    /// lands during the (async) activation window would otherwise be dropped
+    /// until the next data change. Cached here and flushed on activation.
+    private var pendingPayloadJson: String?
+
+    /// Pushes the mirror payload via applicationContext, caching it if the
+    /// session hasn't activated yet (flushed in activationDidCompleteWith).
+    func pushApplicationContext(_ payloadJson: String) {
+        guard WCSession.isSupported() else { return }
+        let session = WCSession.default
+        guard session.activationState == .activated else {
+            pendingPayloadJson = payloadJson
+            return
+        }
+        do {
+            try session.updateApplicationContext(["payload": payloadJson])
+        } catch {
+            // Best-effort, mirrors the JS facade's try/caught discipline --
+            // a failed push just means the watch shows stale data until the
+            // next successful applicationContext update.
+        }
+    }
+
     func activate(emitter: WatchConnectivityModule) {
         self.emitter = emitter
         guard WCSession.isSupported() else { return }
@@ -95,6 +114,14 @@ private final class WatchSessionHost: NSObject, WCSessionDelegate {
         // No JS-visible side effect required on activation itself -- the watch
         // side initiates the refresh handshake (sendMessage {type:'refresh'})
         // once ITS session activates, which arrives via didReceiveMessage below.
+        // WATCH-08: flush any payload that was pushed before activation completed.
+        guard activationState == .activated, let json = pendingPayloadJson else { return }
+        pendingPayloadJson = nil
+        do {
+            try session.updateApplicationContext(["payload": json])
+        } catch {
+            // Best-effort -- same discipline as pushApplicationContext.
+        }
     }
 
     func sessionDidBecomeInactive(_ session: WCSession) {}
@@ -119,6 +146,13 @@ private final class WatchSessionHost: NSObject, WCSessionDelegate {
     // on-activate {type:'refresh'} handshake; forwarded verbatim as JSON.
     func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
         emit(message)
+    }
+
+    // transferUserInfo -- the watch's QUEUED refresh path (WATCH-09): used when
+    // the phone app isn't reachable at watch launch. WatchConnectivity delivers
+    // it once this process runs; forwarded verbatim like didReceiveMessage.
+    func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any] = [:]) {
+        emit(userInfo)
     }
 
     // sendMessage variant with a reply handler -- Stage A has no watch->phone

@@ -33,6 +33,7 @@ import { Stack, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, View, StyleSheet, Text, ScrollView, InteractionManager, Alert } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as Linking from 'expo-linking';
 
 import { AuthProvider } from '../src/context/AuthContext';
@@ -405,15 +406,20 @@ export default function RootLayout(): React.ReactElement {
     // (swipeable routine rows, drag-to-reorder, swipe-between-exercises) has a
     // valid root ancestor — without it those components crash on render.
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <BootErrorBoundary>
-        <ThemeProvider onThemeChange={syncThemeToServerIfPro}>
-          <AuthProvider>
-            <PowerSyncProvider>
-              <RootNavigator />
-            </PowerSyncProvider>
-          </AuthProvider>
-        </ThemeProvider>
-      </BootErrorBoundary>
+      {/* UI-114: explicit SafeAreaProvider so useSafeAreaInsets() has a
+          guaranteed provider everywhere — including inside <Modal>, where
+          RN-core SafeAreaView reports zero insets (CLAUDE.md rule 3). */}
+      <SafeAreaProvider>
+        <BootErrorBoundary>
+          <ThemeProvider onThemeChange={syncThemeToServerIfPro}>
+            <AuthProvider>
+              <PowerSyncProvider>
+                <RootNavigator />
+              </PowerSyncProvider>
+            </AuthProvider>
+          </ThemeProvider>
+        </BootErrorBoundary>
+      </SafeAreaProvider>
     </GestureHandlerRootView>
   );
 }

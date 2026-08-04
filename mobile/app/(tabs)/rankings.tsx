@@ -75,6 +75,12 @@ import { GlossaryTerm } from '../../src/components/Tooltip';
 import { useReduceMotion } from '../../src/hooks/useReduceMotion';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTranslation } from 'react-i18next';
+import {
+  kgToInputValue,
+  parseWeightInput,
+  displayToKg,
+  UnitSystem,
+} from '../../src/constants/units';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -108,10 +114,12 @@ function percentileColorToken(percentile: number, theme: any): string {
 // Sub-components
 // ---------------------------------------------------------------------------
 
-/** Formats a kg value for display: rounds to 1 decimal, removes trailing .0 */
-function formatKg(kg: number): string {
-  const rounded = Math.round(kg * 10) / 10;
-  return rounded % 1 === 0 ? String(Math.round(rounded)) : rounded.toFixed(1);
+/**
+ * UI-103: formats a canonical-kg value in the user's preferred unit with the
+ * unit suffix, trimming trailing zeros ("120 kg", "264.55 lbs").
+ */
+function formatEstimate(kg: number, unitPref: UnitSystem): string {
+  return `${kgToInputValue(kg, unitPref)} ${unitPref === 'lbs' ? 'lbs' : 'kg'}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -125,6 +133,8 @@ interface ConfirmSheetProps {
   visible: boolean;
   liftName: string;
   epleyEstimateKg: number | null | undefined;
+  /** UI-103: input is seeded/parsed in the user's preferred unit; storage stays kg. */
+  unitPref: UnitSystem;
   onConfirm: (confirmedKg: number) => Promise<void>;
   onClose: () => void;
 }
@@ -133,6 +143,7 @@ function ConfirmSheet({
   visible,
   liftName,
   epleyEstimateKg,
+  unitPref,
   onConfirm,
   onClose,
 }: ConfirmSheetProps): React.ReactElement {
@@ -140,7 +151,7 @@ function ConfirmSheet({
   const { t } = useTranslation();
   const reduceMotion = useReduceMotion();
   const defaultValue =
-    epleyEstimateKg != null ? formatKg(epleyEstimateKg) : '';
+    epleyEstimateKg != null ? kgToInputValue(epleyEstimateKg, unitPref) : '';
   const [inputValue, setInputValue] = useState(defaultValue);
   const [isSaving, setIsSaving] = useState(false);
   const [savedOk, setSavedOk] = useState(false);
@@ -162,7 +173,7 @@ function ConfirmSheet({
   // Reset state + trigger spring animation when the sheet opens for a new lift
   useEffect(() => {
     if (visible) {
-      setInputValue(epleyEstimateKg != null ? formatKg(epleyEstimateKg) : '');
+      setInputValue(epleyEstimateKg != null ? kgToInputValue(epleyEstimateKg, unitPref) : '');
       setIsSaving(false);
       setSavedOk(false);
       // Animate in: reset to bottom, then spring to 0
@@ -171,14 +182,17 @@ function ConfirmSheet({
         ? 0
         : withSpring(0, { damping: 22, stiffness: 220 });
     }
-  }, [visible, epleyEstimateKg, reduceMotion]);
+  }, [visible, epleyEstimateKg, unitPref, reduceMotion]);
 
   const sheetAnimStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.value }],
   }));
 
   const handleConfirm = useCallback(async () => {
-    const kg = parseFloat(inputValue.replace(',', '.'));
+    // UI-103: parse in the display unit, convert to canonical kg for storage.
+    const displayValue = parseWeightInput(inputValue);
+    if (displayValue == null || displayValue <= 0) return;
+    const kg = displayToKg(displayValue, unitPref);
     if (!Number.isFinite(kg) || kg <= 0) return;
     setIsSaving(true);
     try {
@@ -194,10 +208,14 @@ function ConfirmSheet({
       haptics.error(); // E-006: save failure
       setIsSaving(false);
     }
-  }, [inputValue, onConfirm, onClose]);
+  }, [inputValue, unitPref, onConfirm, onClose]);
 
   const isValid = (() => {
-    const kg = parseFloat(inputValue.replace(',', '.'));
+    // UI-103: cap validated in kg AFTER conversion so lbs entries get the
+    // same canonical 1000 kg ceiling.
+    const displayValue = parseWeightInput(inputValue);
+    if (displayValue == null || displayValue <= 0) return false;
+    const kg = displayToKg(displayValue, unitPref);
     return Number.isFinite(kg) && kg > 0 && kg <= 1000;
   })();
 
@@ -245,7 +263,7 @@ function ConfirmSheet({
 
               {epleyEstimateKg != null && (
                 <Text style={[confirmSheetStyles.estimate, { color: theme.colors.textSecondary }]}>
-                  {t('tabs:rankings.ourEstimate', { kg: formatKg(epleyEstimateKg) })}
+                  {t('tabs:rankings.ourEstimateWeight', { weight: formatEstimate(epleyEstimateKg, unitPref) })}
                 </Text>
               )}
 
@@ -259,10 +277,10 @@ function ConfirmSheet({
                     placeholder={t('tabs:rankings.kgPlaceholder')}
                     returnKeyType="done"
                     onSubmitEditing={isValid ? handleConfirm : undefined}
-                    accessibilityLabel={t('tabs:rankings.confirmedMaxLabel')}
+                    accessibilityLabel={t('tabs:rankings.confirmedMaxLabelUnit', { unit: unitPref === 'lbs' ? 'lbs' : 'kg' })}
                   />
                 </View>
-                <Text style={[confirmSheetStyles.kgLabel, { color: theme.colors.textTertiary }]}>kg</Text>
+                <Text style={[confirmSheetStyles.kgLabel, { color: theme.colors.textTertiary }]}>{unitPref === 'lbs' ? 'lbs' : 'kg'}</Text>
               </View>
 
               <TouchableOpacity
@@ -405,6 +423,7 @@ function RankingCard({
   locallyConfirmed,
   primaryDiscipline,
   showWilks,
+  unitPref,
   onConfirmRequest,
   localLens1,
   localLens2a,
@@ -414,6 +433,8 @@ function RankingCard({
   locallyConfirmed: boolean;
   primaryDiscipline?: string | null;
   showWilks: boolean;
+  /** UI-103: display unit for the estimated-max CTA copy. */
+  unitPref: UnitSystem;
   onConfirmRequest: (ranking: PercentileRanking) => void;
   /** Agent N: on-device Lens 1 (experience-adjusted). Falls back to server value when null. */
   localLens1: number | null;
@@ -460,7 +481,7 @@ function RankingCard({
             <Text style={[styles.confirmCtaTitle, { color: theme.colors.accentHover }]}>{t('tabs:rankings.confirmYourMax')}</Text>
             <Text style={[styles.confirmCtaBody, { color: theme.colors.textTertiary }]}>
               {ranking.epley_estimate_kg != null
-                ? t('tabs:rankings.confirmEstimateBody', { kg: formatKg(ranking.epley_estimate_kg) })
+                ? t('tabs:rankings.confirmEstimateBodyWeight', { weight: formatEstimate(ranking.epley_estimate_kg, unitPref) })
                 : t('tabs:rankings.tapToConfirm')}
             </Text>
           </View>
@@ -744,6 +765,8 @@ export default function RankingsScreen(): React.ReactElement {
 
   const use1rmConfirmation = user?.use_1rm_confirmation ?? false;
   const showWilks = user?.show_wilks ?? false;
+  // UI-103: 1RM confirm sheet displays/parses in the user's preferred unit.
+  const unitPref = (user?.unit_pref ?? 'kg') as UnitSystem;
 
   const handleToggleWilks = useCallback(async () => {
     const next = !showWilks;
@@ -984,6 +1007,7 @@ export default function RankingsScreen(): React.ReactElement {
                   locallyConfirmed={confirmedThisSession.has(ranking.lift_id) || ranking.confirmed_1rm_kg != null}
                   primaryDiscipline={user?.primary_discipline ?? null}
                   showWilks={showWilks}
+                  unitPref={unitPref}
                   onConfirmRequest={handleConfirmRequest}
                   localLens1={lens1}
                   localLens2a={lens2a}
@@ -1012,6 +1036,7 @@ export default function RankingsScreen(): React.ReactElement {
           visible={confirmingRanking !== null}
           liftName={liftIdToName(confirmingRanking.lift_id)}
           epleyEstimateKg={confirmingRanking.epley_estimate_kg}
+          unitPref={unitPref}
           onConfirm={handleConfirm}
           onClose={() => setConfirmingRanking(null)}
         />

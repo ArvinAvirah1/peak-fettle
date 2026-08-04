@@ -60,7 +60,7 @@ import { getPercentile } from '../../src/api/percentile';
 import { logRestDay, undoRestDay } from '../../src/api/workouts';
 import { isLocalFirst } from '../../src/data/backup/tierPolicy';
 import { loadLocalProfile } from '../../src/data/profile';
-import { ensureExerciseCatalogCached } from '../../src/data/exerciseNames';
+import { ensureExerciseCatalogCached, getExerciseNameMap } from '../../src/data/exerciseNames';
 import { getRoutineFolders, RoutineFolder } from '../../src/data/routineHistory';
 import { localDb, genId } from '../../src/db/localDb';
 import { BrandLogo } from '../../src/components/BrandLogo'; // TICKET-063
@@ -76,6 +76,8 @@ import {
 // TICKET-095: welcome tour auto-start + anchor.
 import { useTour, useTourAnchor } from '../../src/components/tour/WelcomeTour';
 import { useTranslation } from 'react-i18next';
+// UI-106: home-indicator-aware bottom padding on the home-screen modal sheets.
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -389,6 +391,7 @@ export default function HomeScreen(): React.ReactElement {
   const { history, streak: historyStreak, isLoading: historyLoadingRaw, refetch } = useWorkoutHistory();
   const { theme, fontSize, fontWeight, radius, spacing: sp } = useTheme();
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets(); // UI-106: modal-sheet bottom padding
   const loggerRef = useRef<WorkoutLoggerRef>(null);
 
   // Fall back to the locale default (US → lbs, else kg) only when the user has
@@ -757,10 +760,24 @@ export default function HomeScreen(): React.ReactElement {
       const programId = bundledProgram;
       (async () => {
         let libIndex: LibraryNameIndex | undefined;
-        try {
-          libIndex = buildLibraryNameIndex(await getExercises());
-        } catch {
-          libIndex = undefined; // offline / API down -> name-only session
+        if (isLocalFirst(user)) {
+          // UI-108: free / local-first users make NO personal REST calls — build
+          // the name→id index from the on-device exercise_names cache instead.
+          // Unresolved names fall back to name-only entries (exerciseId '').
+          try {
+            const nameMap = await getExerciseNameMap();
+            const idx: LibraryNameIndex = new Map();
+            for (const [id, name] of nameMap) idx.set(name.toLowerCase(), id);
+            libIndex = idx.size > 0 ? idx : undefined;
+          } catch {
+            libIndex = undefined; // cache unavailable -> name-only session
+          }
+        } else {
+          try {
+            libIndex = buildLibraryNameIndex(await getExercises());
+          } catch {
+            libIndex = undefined; // offline / API down -> name-only session
+          }
         }
         const session = buildBundledSession(programId, dayIdx, libIndex);
         if (session) loggerRef.current?.startSession(session);
@@ -782,7 +799,7 @@ export default function HomeScreen(): React.ReactElement {
       router.setParams({ startWorkout: '' });
       return;
     }
-  }, [params, router]);
+  }, [params, router, user]);
 
   // ── TICKET-084: Forgot something prompt ──────────────────────────────────
   const [forgotPromptVisible, setForgotPromptVisible] = useState(false);
@@ -838,6 +855,7 @@ export default function HomeScreen(): React.ReactElement {
           <View style={[styles.modalSheet, {
             backgroundColor: theme.colors.bgSecondary,
             borderRadius: radius.lg,
+            paddingBottom: Math.max(insets.bottom, sp.s5),
           }]}>
             <Text style={{ fontSize: fontSize.heading2, fontWeight: fontWeight.bold, color: theme.colors.textPrimary, marginBottom: sp.s4 }}>
               {t('tabs:home.streakDetailsTitle')}
@@ -903,7 +921,7 @@ export default function HomeScreen(): React.ReactElement {
         onRequestClose={() => setForgotPromptVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheet, { backgroundColor: theme.colors.bgSecondary, borderRadius: radius.lg }]}>
+          <View style={[styles.modalSheet, { backgroundColor: theme.colors.bgSecondary, borderRadius: radius.lg, paddingBottom: Math.max(insets.bottom, sp.s5) }]}>
             <Text style={{ fontSize: fontSize.bodyLg, fontWeight: fontWeight.bold, color: theme.colors.textPrimary, marginBottom: sp.s2 }}>
               {t('tabs:home.whatDoYouNeed')}
             </Text>
@@ -950,7 +968,7 @@ export default function HomeScreen(): React.ReactElement {
         onRequestClose={() => setTodayLiftsVisible(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheet, { backgroundColor: theme.colors.bgSecondary, borderRadius: radius.lg, maxHeight: '80%' }]}>
+          <View style={[styles.modalSheet, { backgroundColor: theme.colors.bgSecondary, borderRadius: radius.lg, maxHeight: '80%', paddingBottom: Math.max(insets.bottom, sp.s5) }]}>
             <Text style={{ fontSize: fontSize.bodyLg, fontWeight: fontWeight.bold, color: theme.colors.textPrimary, marginBottom: sp.s4 }}>
               {t('tabs:home.todaysLifts')}
             </Text>
@@ -1575,7 +1593,8 @@ const styles = StyleSheet.create({
   },
   modalSheet: {
     padding: 24,
-    paddingBottom: 40,
+    // UI-106: paddingBottom applied inline per-sheet as
+    // Math.max(insets.bottom, sp.s5) — home-indicator aware.
   },
 });
 

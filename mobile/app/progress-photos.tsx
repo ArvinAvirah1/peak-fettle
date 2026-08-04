@@ -29,7 +29,6 @@ import {
   FlatList,
   Image,
   Modal,
-  PanResponder,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -40,6 +39,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { Ionicons } from '../src/components/Icon';
 import { useTheme } from '../src/theme/ThemeContext';
 import { ScreenLayout, PFButton } from '../src/components/ui';
@@ -154,27 +154,30 @@ function CompareView({
   const { width } = useWindowDimensions();
   const compareHeight = Math.round(width * 1.3);
 
-  // Divider position as a fraction (0..1) of the container width. Starts at
-  // the middle. PanResponder (already the pattern used by StepperLogger for
-  // drag gestures in this repo) drives it directly — no gesture-handler
-  // dependency needed for a single-axis drag.
+  // Divider position in px from the container's left edge. Starts at the
+  // middle. UI-128: RNGH Gesture.Pan() + GestureDetector (root view is mounted
+  // in app/_layout.tsx) replaces the legacy PanResponder. runOnJS(true) keeps
+  // the callbacks on the JS thread since they drive plain React state, and
+  // minDistance(0) preserves the old grab-on-touch behaviour
+  // (onStartShouldSetPanResponder: () => true).
   const [dividerX, setDividerX] = useState(width / 2);
+  const dividerXRef = React.useRef(width / 2);
   const dragStartRef = React.useRef(width / 2);
 
-  const panResponder = useMemo(
+  const panGesture = useMemo(
     () =>
-      PanResponder.create({
-        onStartShouldSetPanResponder: () => true,
-        onMoveShouldSetPanResponder: () => true,
-        onPanResponderGrant: () => {
-          dragStartRef.current = dividerX;
-        },
-        onPanResponderMove: (_evt, gesture) => {
-          const next = Math.min(Math.max(dragStartRef.current + gesture.dx, 24), width - 24);
+      Gesture.Pan()
+        .runOnJS(true)
+        .minDistance(0)
+        .onStart(() => {
+          dragStartRef.current = dividerXRef.current;
+        })
+        .onUpdate((e) => {
+          const next = Math.min(Math.max(dragStartRef.current + e.translationX, 24), width - 24);
+          dividerXRef.current = next;
           setDividerX(next);
-        },
-      }),
-    [dividerX, width],
+        }),
+    [width],
   );
 
   const leftUri = photoFileUri(left.file_name);
@@ -184,7 +187,9 @@ function CompareView({
     // Safe-area-in-Modal rule (CLAUDE.md §3): apply paddingTop directly to the
     // header row rather than relying on SafeAreaView propagation inside a Modal.
     <Modal visible animationType="slide" onRequestClose={onClose}>
-      <View style={[compareStyles.container, { backgroundColor: theme.colors.bgPrimary }]}>
+      {/* RNGH gestures don't see the app-root GestureHandlerRootView from
+          inside a native <Modal> — it needs its own root here. */}
+      <GestureHandlerRootView style={[compareStyles.container, { backgroundColor: theme.colors.bgPrimary }]}>
         <View style={[compareStyles.header, { paddingTop: Math.max(insets.top, 12), borderBottomColor: theme.colors.borderDefault }]}>
           <Text style={[compareStyles.headerTitle, { color: theme.colors.textPrimary }]}>{t('screens2:progressPhotos.compareTitle')}</Text>
           <TouchableOpacity onPress={onClose} accessibilityRole="button" accessibilityLabel={t('screens2:progressPhotos.closeCompareA11y')}>
@@ -192,7 +197,8 @@ function CompareView({
           </TouchableOpacity>
         </View>
 
-        <View style={[compareStyles.stage, { height: compareHeight }]} {...panResponder.panHandlers}>
+        <GestureDetector gesture={panGesture}>
+        <View style={[compareStyles.stage, { height: compareHeight }]}>
           {/* Right (newer/second) photo fills the frame; the left photo is
               clipped to the divider position, revealing it left-to-right as
               the user drags — a standard before/after slider layout. */}
@@ -233,11 +239,12 @@ function CompareView({
             </Text>
           </View>
         </View>
+        </GestureDetector>
 
         <Text style={[compareStyles.hint, { color: theme.colors.textTertiary }]}>
           {t('screens2:progressPhotos.dragHint', { left: poseLabel(left.pose, t), right: poseLabel(right.pose, t) })}
         </Text>
-      </View>
+      </GestureHandlerRootView>
     </Modal>
   );
 }

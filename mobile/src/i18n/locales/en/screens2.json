@@ -24,7 +24,8 @@
     "sessionCount_other": "{{count}} sessions",
     "emptyState": "No sessions logged for this routine yet.",
     "setsAndVolume_one": "{{count}} set · {{volume}}",
-    "setsAndVolume_other": "{{count}} sets · {{volume}}"
+    "setsAndVolume_other": "{{count}} sets · {{volume}}",
+    "loadError": "Couldn't load this routine's history. Check your connection and try again."
   },
   "measurements": {
     "trendKicker": "TREND",
@@ -595,5 +596,26 @@
     "selectPlanA11y": "Select the {{plan}} plan",
     "subscribeA11y": "Subscribe to Peak Fettle Pro",
     "restoreA11y": "Restore previous purchases"
+  },
+  "diagnostics": {
+    "refresh": "Refresh",
+    "shareReport": "Share report",
+    "clear": "Clear",
+    "shareTitle": "Peak Fettle diagnostics",
+    "summary": "SUMMARY",
+    "sessionUptime": "Session uptime",
+    "jsStalls": "JS stalls (>250 ms)",
+    "worstStall": "Worst stall",
+    "dbOps": "DB ops (slow / total)",
+    "worstDbOp": "Worst DB op",
+    "networkRequests": "Network requests",
+    "stallsSection": "JS STALLS — TAPS FEEL DEAD WHILE THESE HAPPEN ({{count}})",
+    "slowDbSection": "SLOW DB OPS ≥30 ms ({{count}})",
+    "networkSection": "NETWORK — EVERY REQUEST, NEWEST FIRST ({{count}})",
+    "noneRecorded": "None recorded.",
+    "noRequests": "No requests — as expected for a free-tier session.",
+    "secondsValue": "{{seconds}} s",
+    "msValue": "{{ms}} ms",
+    "netValue": "{{ms}} ms · {{status}}"
   }
 }

@@ -12,7 +12,9 @@
  */
 
 import React, { useCallback, useState } from 'react';
-import { ScrollView, Share, Text, TouchableOpacity, View } from 'react-native';
+import { Share, Text, TouchableOpacity, View } from 'react-native';
+import { useTranslation } from 'react-i18next';
+import { ScreenLayout } from '../src/components/ui';
 import { useTheme } from '../src/theme/ThemeContext';
 import { fontSize, spacing, radius } from '../src/theme/tokens';
 import {
@@ -31,6 +33,7 @@ function fmtClock(epochMs: number): string {
 
 export default function DiagnosticsScreen(): React.ReactElement {
   const { theme, fontWeight } = useTheme();
+  const { t } = useTranslation();
   const c = theme.colors;
   const [report, setReport] = useState<PerfReport>(() => getPerfReport());
 
@@ -39,13 +42,13 @@ export default function DiagnosticsScreen(): React.ReactElement {
   const share = useCallback(async () => {
     try {
       await Share.share({
-        title: 'Peak Fettle diagnostics',
+        title: t('screens2:diagnostics.shareTitle'),
         message: JSON.stringify(getPerfReport(), null, 2),
       });
     } catch {
       // user cancelled — fine
     }
-  }, []);
+  }, [t]);
 
   const clear = useCallback(() => {
     clearPerfReport();
@@ -123,22 +126,22 @@ export default function DiagnosticsScreen(): React.ReactElement {
     </TouchableOpacity>
   );
 
-  const t = report.totals;
+  const totals = report.totals;
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: c.bgPrimary }}
-      contentContainerStyle={{ padding: spacing.s4, paddingBottom: 48 }}
-    >
+    // NEW-02: ScreenLayout (scrollable, bottom edge) replaces the bare
+    // ScrollView so the content clears the home indicator — same pattern as
+    // measurements.tsx.
+    <ScreenLayout scrollable edges={['bottom']} horizontalPadding={false} contentStyle={{ padding: spacing.s4, paddingBottom: spacing.s12 }}>
       {/* Actions */}
       <View style={{ flexDirection: 'row', marginBottom: spacing.s3 }}>
-        {btn('Refresh', refresh)}
-        {btn('Share report', share, true)}
-        {btn('Clear', clear)}
+        {btn(t('screens2:diagnostics.refresh'), refresh)}
+        {btn(t('screens2:diagnostics.shareReport'), share, true)}
+        {btn(t('screens2:diagnostics.clear'), clear)}
       </View>
 
       {/* Summary */}
-      {sectionTitle('SUMMARY')}
+      {sectionTitle(t('screens2:diagnostics.summary'))}
       <View
         style={{
           backgroundColor: c.bgSecondary,
@@ -148,39 +151,39 @@ export default function DiagnosticsScreen(): React.ReactElement {
           padding: spacing.s3,
         }}
       >
-        {row('up', 'Session uptime', `${Math.round(report.uptimeMs / 1000)} s`, false)}
-        {row('st', 'JS stalls (>250 ms)', String(t.stalls), t.stalls > 0)}
-        {row('ws', 'Worst stall', `${t.worstStallMs} ms`, t.worstStallMs > 1000)}
-        {row('db', 'DB ops (slow / total)', `${t.slowDbOps} / ${t.dbOps}`, t.slowDbOps > 5)}
-        {row('wd', 'Worst DB op', `${t.worstDbMs} ms`, t.worstDbMs > 500)}
-        {row('nt', 'Network requests', String(t.netRequests), false)}
+        {row('up', t('screens2:diagnostics.sessionUptime'), t('screens2:diagnostics.secondsValue', { seconds: Math.round(report.uptimeMs / 1000) }), false)}
+        {row('st', t('screens2:diagnostics.jsStalls'), String(totals.stalls), totals.stalls > 0)}
+        {row('ws', t('screens2:diagnostics.worstStall'), t('screens2:diagnostics.msValue', { ms: totals.worstStallMs }), totals.worstStallMs > 1000)}
+        {row('db', t('screens2:diagnostics.dbOps'), `${totals.slowDbOps} / ${totals.dbOps}`, totals.slowDbOps > 5)}
+        {row('wd', t('screens2:diagnostics.worstDbOp'), t('screens2:diagnostics.msValue', { ms: totals.worstDbMs }), totals.worstDbMs > 500)}
+        {row('nt', t('screens2:diagnostics.networkRequests'), String(totals.netRequests), false)}
       </View>
 
       {/* Stalls */}
-      {sectionTitle(`JS STALLS — TAPS FEEL DEAD WHILE THESE HAPPEN (${report.stalls.length})`)}
+      {sectionTitle(t('screens2:diagnostics.stallsSection', { count: report.stalls.length }))}
       {report.stalls.length === 0 ? (
-        <Text style={{ color: c.textTertiary, fontSize: fontSize.bodySm }}>None recorded.</Text>
+        <Text style={{ color: c.textTertiary, fontSize: fontSize.bodySm }}>{t('screens2:diagnostics.noneRecorded')}</Text>
       ) : (
         report.stalls
           .slice(0, 25)
-          .map((s, i) => row(`s${i}`, fmtClock(s.at), `${s.ms} ms`, s.ms > 1000))
+          .map((s, i) => row(`s${i}`, fmtClock(s.at), t('screens2:diagnostics.msValue', { ms: s.ms }), s.ms > 1000))
       )}
 
       {/* Slow DB */}
-      {sectionTitle(`SLOW DB OPS ≥30 ms (${report.slowDb.length})`)}
+      {sectionTitle(t('screens2:diagnostics.slowDbSection', { count: report.slowDb.length }))}
       {report.slowDb.length === 0 ? (
-        <Text style={{ color: c.textTertiary, fontSize: fontSize.bodySm }}>None recorded.</Text>
+        <Text style={{ color: c.textTertiary, fontSize: fontSize.bodySm }}>{t('screens2:diagnostics.noneRecorded')}</Text>
       ) : (
         report.slowDb
           .slice(0, 25)
-          .map((d, i) => row(`d${i}`, `${fmtClock(d.at)}  ${d.sql}`, `${d.ms} ms`, d.ms > 500))
+          .map((d, i) => row(`d${i}`, `${fmtClock(d.at)}  ${d.sql}`, t('screens2:diagnostics.msValue', { ms: d.ms }), d.ms > 500))
       )}
 
       {/* Network */}
-      {sectionTitle(`NETWORK — EVERY REQUEST, NEWEST FIRST (${report.net.length})`)}
+      {sectionTitle(t('screens2:diagnostics.networkSection', { count: report.net.length }))}
       {report.net.length === 0 ? (
         <Text style={{ color: c.textTertiary, fontSize: fontSize.bodySm }}>
-          No requests — as expected for a free-tier session.
+          {t('screens2:diagnostics.noRequests')}
         </Text>
       ) : (
         report.net
@@ -189,11 +192,11 @@ export default function DiagnosticsScreen(): React.ReactElement {
             row(
               `n${i}`,
               `${fmtClock(n.at)}  ${n.method} ${n.url}`,
-              `${n.ms} ms · ${n.status}`,
+              t('screens2:diagnostics.netValue', { ms: n.ms, status: String(n.status) }),
               typeof n.status !== 'number' || n.status >= 400 || n.ms > 3000,
             ),
           )
       )}
-    </ScrollView>
+    </ScreenLayout>
   );
 }

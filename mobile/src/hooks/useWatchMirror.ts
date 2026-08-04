@@ -53,6 +53,7 @@ import { useEffect, useRef } from 'react';
 import { AppState, AppStateStatus, InteractionManager, Platform } from 'react-native';
 
 import { localDb } from '../db/localDb';
+import { toDateKey } from '../utils/dateHelpers';
 import { loadSchedule, resolveNextUp } from '../data/schedule';
 import { listRoutines } from '../data/routines';
 import type { Routine, RoutineExercise } from '../data/routines';
@@ -87,6 +88,16 @@ export { buildWatchMirrorPayload } from './watchMirrorPayload';
 interface TodaySetRow {
   exercise_id: string | null;
   weight_kg_val: number | null;
+  weight_centi: number | null;
+  weight_unit: string | null;
+}
+
+interface TodayProgressEntry {
+  count: number;
+  lastWeightKg: number | null;
+  /** v18 exact fixed-point entry mirrored from the set row (null on legacy rows). */
+  lastWeightCenti: number | null;
+  lastWeightUnit: string | null;
 }
 
 /** Best-effort match of today's logged sets against the resolved routine, by
@@ -98,26 +109,48 @@ interface TodaySetRow {
 async function loadTodayProgress(
   routineName: string,
   todayKey: string,
-): Promise<Map<string, { count: number; lastWeightKg: number | null }>> {
-  const out = new Map<string, { count: number; lastWeightKg: number | null }>();
+  userId: string,
+): Promise<Map<string, TodayProgressEntry>> {
+  const out = new Map<string, TodayProgressEntry>();
+  // WATCH-05: no user id -> no attribution. Never guess across accounts on a
+  // shared device; every exercise just shows done:false.
+  if (!userId) return out;
   try {
+    // WATCH-05: scoped by user_id like localWorkouts.ts. This is a read-only
+    // best-effort path, so legacy pre-scoping rows (NULL/'' user_id) are
+    // tolerated here instead of adopted (localWorkouts#adoptLegacyRows owns
+    // the write that claims them).
     const workout = await localDb.getFirst<{ id: string }>(
-      `SELECT id FROM workouts WHERE day_key = ? AND TRIM(LOWER(session_type)) = TRIM(LOWER(?)) ORDER BY created_at DESC LIMIT 1`,
-      [todayKey, routineName],
+      `SELECT id FROM workouts
+        WHERE day_key = ? AND TRIM(LOWER(session_type)) = TRIM(LOWER(?))
+          AND (user_id = ? OR user_id IS NULL OR user_id = '')
+        ORDER BY created_at DESC LIMIT 1`,
+      [todayKey, routineName, userId],
     );
     if (!workout?.id) return out;
     const rows = await localDb.getAll<TodaySetRow>(
-      `SELECT exercise_id, COALESCE(weight_kg, CAST(weight_raw AS REAL) / 8.0) AS weight_kg_val
+      `SELECT exercise_id, COALESCE(weight_kg, CAST(weight_raw AS REAL) / 8.0) AS weight_kg_val,
+              weight_centi, weight_unit
          FROM sets WHERE workout_id = ? AND kind = 'lift'`,
       [workout.id],
     );
     for (const r of rows) {
-      const key = (r.exercise_id ?? '').trim();
+      // WATCH-03: lowercase at insert so it matches the lowercased lookup in
+      // exerciseKey(). This also makes name-keyed rows (free-typed exercises
+      // whose id column carries the name, not a library UUID) hit the name
+      // fallback lookup. Rows with a truly NULL/blank exercise_id carry no
+      // name in the sets schema, so they remain unattributable and are skipped.
+      const key = (r.exercise_id ?? '').trim().toLowerCase();
       if (!key) continue;
       const prev = out.get(key);
+      const hasWeight = r.weight_kg_val != null;
       out.set(key, {
         count: (prev?.count ?? 0) + 1,
-        lastWeightKg: r.weight_kg_val ?? prev?.lastWeightKg ?? null,
+        lastWeightKg: hasWeight ? r.weight_kg_val : prev?.lastWeightKg ?? null,
+        // WATCH-07: carry the exact fixed-point entry alongside the kg value,
+        // keeping the centi/unit pair from the SAME row as the kg it describes.
+        lastWeightCenti: hasWeight ? r.weight_centi : prev?.lastWeightCenti ?? null,
+        lastWeightUnit: hasWeight ? r.weight_unit : prev?.lastWeightUnit ?? null,
       });
     }
   } catch {
@@ -146,6 +179,13 @@ export async function assembleWatchMirrorInput(
   if (!nextUp || nextUp.isRest || !nextUp.slot.routineId) {
     return { today: null, unitPref };
   }
+  // WATCH-06: the watch renders this payload under a hardcoded "Today", so a
+  // future weekly slot ('Tomorrow' / a weekday name) must NOT be mirrored as
+  // today's workout. 'Next up' (cycle schedules are day-agnostic -- the next
+  // slot IS what you'd do today) passes through.
+  if (nextUp.whenLabel !== 'Today' && nextUp.whenLabel !== 'Next up') {
+    return { today: null, unitPref };
+  }
 
   let routine: Routine | null = null;
   try {
@@ -156,8 +196,11 @@ export async function assembleWatchMirrorInput(
   }
   if (!routine) return { today: null, unitPref };
 
-  const todayKey = now.toISOString().slice(0, 10);
-  const progress = await loadTodayProgress(routine.name, todayKey);
+  // WATCH-04: local-day key (toDateKey), never UTC toISOString -- west-of-UTC
+  // evenings would otherwise match tomorrow's day_key (same family as UI-121).
+  const todayKey = toDateKey(now);
+  const userId = (user as { id?: string } | null | undefined)?.id ?? '';
+  const progress = await loadTodayProgress(routine.name, todayKey, userId);
 
   const exercises: WatchExerciseInput[] = routine.exercises.map((ex) => {
     const p = progress.get(exerciseKey(ex)) ?? progress.get((ex.name ?? '').trim().toLowerCase());
@@ -166,6 +209,8 @@ export async function assembleWatchMirrorInput(
       targetSets: ex.target_sets ?? 0,
       targetReps: ex.target_reps ?? null,
       targetWeightKg: p?.lastWeightKg ?? null,
+      targetWeightCenti: p?.lastWeightCenti ?? null,
+      targetWeightUnit: p?.lastWeightUnit ?? null,
       loggedSetCount: p?.count ?? 0,
     };
   });
@@ -219,6 +264,12 @@ export function useWatchMirror(user: TierUser | null | undefined): void {
   userRef.current = user;
   lastUser = user;
 
+  // WATCH-11: keying the effect by user id makes a sign-out/user-switch re-run
+  // it, so the mount-time pushWatchMirror() below re-pushes a cleared (signed
+  // out) or new-user payload instead of leaving the previous user's workout
+  // mirrored on the watch forever.
+  const userId = (user as { id?: string } | null | undefined)?.id ?? null;
+
   useEffect(() => {
     if (Platform.OS !== 'ios') return;
 
@@ -247,5 +298,5 @@ export function useWatchMirror(user: TierUser | null | undefined): void {
       unsubscribeMessages?.();
       appStateSub?.remove();
     };
-  }, []);
+  }, [userId]);
 }

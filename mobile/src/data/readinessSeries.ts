@@ -51,8 +51,13 @@ function addDays(date: Date, delta: number): Date {
   return new Date(date.getTime() + delta * DAY_MS);
 }
 
+// Local YYYY-MM-DD (NOT toISOString, which is UTC) — rows are keyed by local
+// day, so a UTC key shifts the series a day for west-of-UTC evening users.
 function toDateKey(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
 }
 
 // ---------------------------------------------------------------------------

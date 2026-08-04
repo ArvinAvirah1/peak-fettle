@@ -36,7 +36,6 @@ import {
   ActivityIndicator,
   Share,
   Modal,
-  SafeAreaView,
   KeyboardAvoidingView,
   Platform,
   Switch,
@@ -48,6 +47,7 @@ import Animated, {
   withSpring,
 } from 'react-native-reanimated';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '../../src/components/Icon';
 import { useAuth } from '../../src/hooks/useAuth';
 import { useLocalStreak } from '../../src/hooks/useStreak';
@@ -760,6 +760,9 @@ function AddConstraintModal({
   const { theme } = useTheme();
   const { t } = useTranslation();
   const reduceMotion = useReduceMotion();
+  // UI-105: RN-core SafeAreaView reports ZERO insets inside a <Modal> —
+  // pad the container manually (CLAUDE.md rule 3 / templates.tsx pattern).
+  const insets = useSafeAreaInsets();
   const [customNote, setCustomNote] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
@@ -816,7 +819,7 @@ function AddConstraintModal({
     >
       {/* P2-007: Animated.View provides the spring slide-up entry */}
       <Animated.View style={[{ flex: 1 }, sheetAnimStyle]}>
-        <SafeAreaView style={[addConstraintStyles.container, { backgroundColor: theme.colors.bgPrimary }]}>
+        <View style={[addConstraintStyles.container, { backgroundColor: theme.colors.bgPrimary, paddingTop: Math.max(insets.top, 12) }]}>
           <KeyboardAvoidingView
             style={addConstraintStyles.flex}
             behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -907,7 +910,7 @@ function AddConstraintModal({
               </TouchableOpacity>
             </ScrollView>
           </KeyboardAvoidingView>
-        </SafeAreaView>
+        </View>
       </Animated.View>
     </Modal>
   );

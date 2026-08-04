@@ -16,10 +16,9 @@
 // Actions: the "+15s" and "Skip" buttons are wired to App Intents defined in
 // AppIntents.swift (RestTimerAddIntent / RestTimerSkipIntent). Interactive
 // widget buttons require iOS 17+; on iOS 16.1-16.x (Live Activities exist,
-// interactive buttons do not) the buttons still render but iOS silently
-// treats them as regular non-interactive views — see the availability guard
-// below. There is no non-interactive fallback needed beyond that: the
-// countdown/progress are still fully visible without the buttons working.
+// interactive buttons do not) the lock screen shows a non-interactive
+// "open the app" hint in their place (WATCH-19) — the countdown/progress
+// are still fully visible either way.
 
 import ActivityKit
 import WidgetKit
@@ -49,12 +48,38 @@ struct RestTimerAttributes: ActivityAttributes {
 private extension RestTimerAttributes.ContentState {
     var endDate: Date { Date(timeIntervalSince1970: endEpochMs / 1000) }
     var startDate: Date { Date(timeIntervalSince1970: startEpochMs / 1000) }
+
+    /// True once the countdown is over — either JS marked it finished, or the
+    /// end date has already passed (timer expired while the app was suspended
+    /// and no update ever arrived). WATCH-01: every timer view must branch on
+    /// this instead of `finished` alone.
+    var isComplete: Bool { finished || endDate <= Date.now }
+
+    /// WATCH-01 crash guard: `Date.now...endDate` TRAPS (ClosedRange precondition)
+    /// when `endDate < now` — which happens whenever the countdown hits 0 while
+    /// the app is backgrounded. Clamp the lower bound so the range is always valid.
+    var countdownRange: ClosedRange<Date> { min(Date.now, endDate)...endDate }
+
+    /// Same clamp for the progress bar's start...end range.
+    var progressRange: ClosedRange<Date> { min(startDate, endDate)...endDate }
 }
 
 // MARK: - Colour helpers (mirrors targets/widget/index.swift's approach)
 
 private let accent = Color("$accent")
 private let activityBg = Color("$activityBackground")
+
+// WATCH-14: opacity for stale content. The host app sets a staleDate
+// (endDate + 30s grace) on every update; once the system flags the context
+// stale, dim the timer UI so it no longer reads as live. `isStale` is
+// iOS 16.2+ while this target deploys to 16.1, hence the availability guard
+// (pre-16.2 simply never dims).
+private func staleDim(_ context: ActivityViewContext<RestTimerAttributes>) -> Double {
+    if #available(iOSApplicationExtension 16.2, *), context.isStale {
+        return 0.55
+    }
+    return 1.0
+}
 
 // MARK: - Lock Screen / Banner UI
 
@@ -66,7 +91,7 @@ struct RestTimerLockScreenView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(state.finished ? "Rest complete" : "RESTING")
+                    Text(state.isComplete ? "Rest complete" : "RESTING")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundColor(.white.opacity(0.7))
                     Text(state.exerciseName)
@@ -75,12 +100,12 @@ struct RestTimerLockScreenView: View {
                         .lineLimit(1)
                 }
                 Spacer()
-                if state.finished {
+                if state.isComplete {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 28))
                         .foregroundColor(accent)
                 } else {
-                    Text(timerInterval: Date.now...state.endDate, countsDown: true)
+                    Text(timerInterval: state.countdownRange, countsDown: true)
                         .font(.system(size: 28, weight: .bold, design: .rounded))
                         .foregroundColor(accent)
                         .monospacedDigit()
@@ -88,8 +113,8 @@ struct RestTimerLockScreenView: View {
                 }
             }
 
-            if !state.finished {
-                ProgressView(timerInterval: state.startDate...state.endDate, countsDown: false)
+            if !state.isComplete {
+                ProgressView(timerInterval: state.progressRange, countsDown: false)
                     .tint(accent)
             }
 
@@ -106,9 +131,12 @@ struct RestTimerLockScreenView: View {
                 }
             }
 
-            if !state.finished {
-                HStack(spacing: 10) {
-                    if #available(iOSApplicationExtension 17.0, *) {
+            if !state.isComplete {
+                // WATCH-19: interactive widget buttons need iOS 17+. On 16.1-16.x
+                // the old guard-inside-the-HStack rendered an empty row; show a
+                // non-interactive hint instead of dead space.
+                if #available(iOSApplicationExtension 17.0, *) {
+                    HStack(spacing: 10) {
                         Button(intent: RestTimerAddIntent(activityId: context.activityID)) {
                             Label("+15s", systemImage: "plus.circle.fill")
                                 .font(.system(size: 13, weight: .semibold))
@@ -123,10 +151,17 @@ struct RestTimerLockScreenView: View {
                         .buttonStyle(.bordered)
                         .tint(.white.opacity(0.7))
                     }
+                } else {
+                    Text("Open Peak Fettle to add time or skip")
+                        .font(.system(size: 11))
+                        .foregroundColor(.white.opacity(0.5))
                 }
             }
         }
         .padding(16)
+        // WATCH-14: staleDate passed (endDate + grace) — once the system marks
+        // the content stale, dim the whole card so it no longer reads as live.
+        .opacity(staleDim(context))
         .activityBackgroundTint(activityBg)
         .activitySystemActionForegroundColor(.white)
     }
@@ -143,7 +178,7 @@ struct RestTimerLiveActivityWidget: Widget {
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(state.finished ? "Rest complete" : "Resting")
+                        Text(state.isComplete ? "Rest complete" : "Resting")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundColor(.secondary)
                         Text(state.exerciseName)
@@ -152,14 +187,15 @@ struct RestTimerLiveActivityWidget: Widget {
                     }
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    if state.finished {
+                    if state.isComplete {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundColor(accent)
                     } else {
-                        Text(timerInterval: Date.now...state.endDate, countsDown: true)
+                        Text(timerInterval: state.countdownRange, countsDown: true)
                             .font(.system(size: 22, weight: .bold, design: .rounded))
                             .foregroundColor(accent)
                             .monospacedDigit()
+                            .opacity(staleDim(context))
                     }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
@@ -171,8 +207,8 @@ struct RestTimerLiveActivityWidget: Widget {
                                 Text("Next: \(next)").font(.system(size: 12)).foregroundColor(.secondary).lineLimit(1)
                             }
                         }
-                        if !state.finished {
-                            ProgressView(timerInterval: state.startDate...state.endDate, countsDown: false)
+                        if !state.isComplete {
+                            ProgressView(timerInterval: state.progressRange, countsDown: false)
                                 .tint(accent)
                             if #available(iOSApplicationExtension 17.0, *) {
                                 HStack(spacing: 10) {
@@ -194,15 +230,16 @@ struct RestTimerLiveActivityWidget: Widget {
                 Image(systemName: "timer")
                     .foregroundColor(accent)
             } compactTrailing: {
-                if state.finished {
+                if state.isComplete {
                     Image(systemName: "checkmark")
                         .foregroundColor(accent)
                 } else {
-                    Text(timerInterval: Date.now...state.endDate, countsDown: true)
+                    Text(timerInterval: state.countdownRange, countsDown: true)
                         .font(.system(size: 14, weight: .semibold, design: .rounded))
                         .foregroundColor(accent)
                         .monospacedDigit()
                         .frame(maxWidth: 44)
+                        .opacity(staleDim(context))
                 }
             } minimal: {
                 Image(systemName: "timer")

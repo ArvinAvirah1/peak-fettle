@@ -6,7 +6,8 @@
  * storage. Everything the widget shows is computed from LOCAL data only (the
  * on-device SQLite store) — no network, no auth (free-path safe):
  *   • next split        — loadSchedule() + the shared resolveNextUp() resolver
- *   • PRs this week      — useWorkoutHistory.computePRIds (trailing 7d)
+ *   • PRs this week      — trailing-7d sets that strictly beat the all-time
+ *                          best per exercise:reps (UI-122)
  *   • goals this week    — exercise_goals achieved in the trailing 7 days
  *   • days trained       — distinct non-rest workout days in the CURRENT ISO week
  *                          (Mon–Sun), against the user's workouts-per-week goal
@@ -31,7 +32,7 @@
  * crash Android, Expo Go (no native module), or a logging flow.
  */
 
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { localDb } from '../db/localDb';
@@ -125,28 +126,41 @@ interface SetRow {
 }
 
 // ---------------------------------------------------------------------------
-// PR count (mirrors useWorkoutHistory.computePRIds over local sets)
+// PR count (per-exercise:reps rep-PRs over local sets)
 // ---------------------------------------------------------------------------
 
 export function countPRsThisWeek(rows: SetRow[], now: Date = new Date()): number {
   const weekCutoff = new Date(now.getTime() - 7 * DAY_MS).toISOString();
+  // UI-122: the baseline is the ALL-TIME best per exercise:reps from BEFORE
+  // the trailing-7d window — a set only counts as a PR when it STRICTLY beats
+  // everything logged before it, so repeats of an existing best (and pre-window
+  // history) no longer inflate the count.
   const bestWeight = new Map<string, number>();
+  const weekRows: SetRow[] = [];
   for (const s of rows) {
     if (!s.exercise_id || s.reps == null || s.weight_kg_val == null) continue;
     // S1 PR guard: drop rows (fatigue sets) never set or claim a PR. Cheap
     // string check on metrics_json — no JSON.parse in this hot path.
     if (isDropRow(s.metrics_json)) continue;
+    if (s.logged_at && s.logged_at >= weekCutoff) {
+      weekRows.push(s);
+      continue;
+    }
     const key = `${s.exercise_id}:${s.reps}`;
     const w = s.weight_kg_val;
     if (w > (bestWeight.get(key) ?? -Infinity)) bestWeight.set(key, w);
   }
+  // Walk this week's sets chronologically: each strict improvement is one PR
+  // (and raises the bar for the rest of the week).
+  weekRows.sort((a, b) => (a.logged_at ?? '').localeCompare(b.logged_at ?? ''));
   let count = 0;
-  for (const s of rows) {
-    if (!s.exercise_id || s.reps == null || s.weight_kg_val == null || !s.logged_at) continue;
-    if (isDropRow(s.metrics_json)) continue;
-    if (s.logged_at < weekCutoff) continue;
+  for (const s of weekRows) {
     const key = `${s.exercise_id}:${s.reps}`;
-    if (s.weight_kg_val >= (bestWeight.get(key) ?? -Infinity)) count++;
+    const w = s.weight_kg_val as number;
+    if (w > (bestWeight.get(key) ?? -Infinity)) {
+      count++;
+      bestWeight.set(key, w);
+    }
   }
   return count;
 }
@@ -279,16 +293,16 @@ export async function buildWidgetPayload(now: Date = new Date()): Promise<Widget
   const nextUp = resolveNextUp(schedule, now);
   const { monday, startKey, endKey, startInstant } = weekRange(now);
 
-  const monthCutoff = new Date(now.getTime() - 30 * DAY_MS).toISOString();
   // COALESCE(weight_kg, weight_raw/8.0) handles both v3 rows (exact kg) and
   // pre-v3 rows (weight_raw only). Aliased weight_kg_val to match SetRow.
+  // UI-122: no time window — the PR baseline must be the ALL-TIME best per
+  // exercise:reps, so fetch every lift set (narrow columns, local SQLite).
   const rows = await localDb.getAll<SetRow>(
     `SELECT id, exercise_id, reps,
             COALESCE(weight_kg, CAST(weight_raw AS REAL) / 8.0) AS weight_kg_val,
             metrics_json,
             logged_at
-       FROM sets WHERE kind = 'lift' AND logged_at >= ?`,
-    [monthCutoff],
+       FROM sets WHERE kind = 'lift'`,
   );
 
   // Days trained this week (distinct non-rest workout days, Mon–Sun) + per-day map.
@@ -439,6 +453,13 @@ export function startWidgetBridge(): void {
 
   // Initial publish (also covers day rollover since app launch).
   void refreshWidget();
+
+  // UI-111: re-publish on foreground (the day may have rolled over while the
+  // app was suspended) and on background (push the freshest data to the
+  // widget before iOS suspends the JS runtime).
+  AppState.addEventListener('change', (state) => {
+    if (state === 'active' || state === 'background') void refreshWidget();
+  });
 
   // Re-publish (debounced) whenever widget-relevant local tables change.
   localDb.subscribe((tables) => {

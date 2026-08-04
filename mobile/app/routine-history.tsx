@@ -60,12 +60,17 @@ export default function RoutineHistoryScreen(): React.ReactElement {
   const routineName = (name ?? '').trim();
 
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [sessions, setSessions] = useState<RoutineSessionRow[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadError(false);
     try {
       setSessions(await getRoutineSessions(user, routineName));
+    } catch {
+      // UI-118: without this, a failed read masqueraded as an empty history.
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -102,7 +107,7 @@ export default function RoutineHistoryScreen(): React.ReactElement {
         >
           {routineName || t('screens2:routineHistory.fallbackTitle')}
         </Text>
-        {!loading ? (
+        {!loading && !loadError ? (
           <Text style={{ fontSize: fontSize.bodySm, color: colors.textSecondary, marginTop: spacing.s1 }}>
 {t('screens2:routineHistory.sessionCount', { count: sessions.length })}
           </Text>
@@ -111,6 +116,13 @@ export default function RoutineHistoryScreen(): React.ReactElement {
 
       {loading ? (
         <ActivityIndicator color={colors.textTertiary} style={{ marginTop: spacing.s6 }} />
+      ) : loadError ? (
+        <View style={styles.centered}>
+          <Text style={{ fontSize: fontSize.bodyMd, color: colors.statusError, textAlign: 'center' }}>
+            {t('screens2:routineHistory.loadError')}
+          </Text>
+          <PFButton variant="ghost" label={t('common:retry')} onPress={load} style={{ marginTop: spacing.s4 }} />
+        </View>
       ) : sessions.length === 0 ? (
         <View style={styles.centered}>
           <Text style={{ fontSize: fontSize.bodyMd, color: colors.textSecondary, textAlign: 'center' }}>

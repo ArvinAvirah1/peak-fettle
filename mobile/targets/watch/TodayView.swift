@@ -18,7 +18,7 @@ struct TodayView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Color("watchBackground").ignoresSafeArea()
+                Color("$watchBackground").ignoresSafeArea()
                 content
             }
             .navigationTitle("Today")
@@ -33,14 +33,60 @@ struct TodayView: View {
     @ViewBuilder
     private var content: some View {
         if let payload = session.payload {
-            if let today = payload.today {
-                WorkoutList(today: today)
-            } else {
-                RestDayState()
+            VStack(spacing: 0) {
+                // WATCH-10: the mirror is pushed by the phone and can survive a
+                // midnight rollover — flag it when it was generated on an
+                // earlier day so "Today" isn't silently yesterday's plan.
+                if let staleDay = staleDayLabel(generatedAt: payload.generatedAt) {
+                    StalenessBanner(dayLabel: staleDay)
+                }
+                if let today = payload.today {
+                    WorkoutList(today: today)
+                } else {
+                    RestDayState()
+                }
             }
         } else {
             NoDataState()
         }
+    }
+
+    /// Returns a short "data from ..." day label when the payload's
+    /// `generatedAt` (ISO-8601, phone-generated) falls on a different calendar
+    /// day than today; nil when the payload is from today (no banner). Parsing
+    /// a timestamp is not display/unit logic — the phone still formats every
+    /// user-facing workout string.
+    private func staleDayLabel(generatedAt: String) -> String? {
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let parsed = iso.date(from: generatedAt) ?? {
+            let plain = ISO8601DateFormatter()
+            plain.formatOptions = [.withInternetDateTime]
+            return plain.date(from: generatedAt)
+        }()
+        guard let date = parsed else { return nil }
+        guard !Calendar.current.isDateInToday(date) else { return nil }
+        return date.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
+    }
+}
+
+/// WATCH-10: shown above the list when the last payload was generated on a
+/// previous day (phone hasn't pushed since midnight).
+private struct StalenessBanner: View {
+    let dayLabel: String
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "clock.arrow.circlepath")
+                .font(.caption2)
+            Text("Data from \(dayLabel)")
+                .font(.caption2)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .foregroundColor(.orange)
+        .padding(.vertical, 2)
+        .frame(maxWidth: .infinity)
+        .accessibilityLabel("Data from \(dayLabel). Open Peak Fettle on your iPhone to refresh.")
     }
 }
 
@@ -54,8 +100,8 @@ private struct ConnectivityDot: View {
     let reachable: Bool
     var body: some View {
         Circle()
-            .fill(reachable ? Color("accent") : Color.clear)
-            .strokeBorder(reachable ? Color("accent") : Color.gray.opacity(0.5), lineWidth: 1.5)
+            .fill(reachable ? Color("$accent") : Color.clear)
+            .strokeBorder(reachable ? Color("$accent") : Color.gray.opacity(0.5), lineWidth: 1.5)
             .frame(width: 8, height: 8)
             .accessibilityLabel(reachable ? "iPhone connected" : "iPhone not reachable")
     }
@@ -94,23 +140,26 @@ private struct ExerciseRow: View {
         HStack(alignment: .top, spacing: 6) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(exercise.name)
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.body.weight(.semibold))
                     .foregroundColor(.white)
                     .lineLimit(2)
+                    .minimumScaleFactor(0.8)
                 Text(setsRepsLabel)
-                    .font(.system(size: 12))
+                    .font(.caption2)
                     .foregroundColor(.gray)
+                    .minimumScaleFactor(0.8)
                 if let weightLabel = exercise.weightLabel {
                     Text(weightLabel)
-                        .font(.system(size: 12))
-                        .foregroundColor(Color("accent"))
+                        .font(.caption2)
+                        .foregroundColor(Color("$accent"))
+                        .minimumScaleFactor(0.8)
                 }
             }
             Spacer(minLength: 4)
             if exercise.done {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(Color("accent"))
-                    .font(.system(size: 16))
+                    .foregroundColor(Color("$accent"))
+                    .font(.body)
                     .accessibilityLabel("Done")
             }
         }
@@ -127,12 +176,13 @@ private struct NoDataState: View {
     var body: some View {
         VStack(spacing: 10) {
             Image(systemName: "iphone.gen3")
-                .font(.system(size: 28))
+                .font(.title2)
                 .foregroundColor(.gray)
             Text("Open Peak Fettle on your iPhone")
-                .font(.system(size: 13, weight: .medium))
+                .font(.footnote.weight(.medium))
                 .foregroundColor(.white)
                 .multilineTextAlignment(.center)
+                .minimumScaleFactor(0.8)
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -145,11 +195,12 @@ private struct RestDayState: View {
     var body: some View {
         VStack(spacing: 8) {
             Image(systemName: "moon.zzz.fill")
-                .font(.system(size: 26))
-                .foregroundColor(Color("accent"))
+                .font(.title3)
+                .foregroundColor(Color("$accent"))
             Text("Rest day")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.body.weight(.semibold))
                 .foregroundColor(.white)
+                .minimumScaleFactor(0.8)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

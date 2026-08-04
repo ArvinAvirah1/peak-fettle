@@ -135,6 +135,7 @@ export default function InsightsScreen(): React.ReactElement {
   const [recovery, setRecovery] = useState<RecoveryResponse | null>(null);
   const [deload, setDeload] = useState<DeloadResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [deloadAcking, setDeloadAcking] = useState(false);
 
@@ -161,18 +162,26 @@ export default function InsightsScreen(): React.ReactElement {
       setDeload(null);
       return;
     }
-    const [rd, rec, dl] = await Promise.all([
-      getReadiness(),
-      getRecovery(),
-      getDeload(),
-    ]);
-    // Guard against setState-after-unmount and against a stale concurrent
-    // load() (pull-to-refresh during an in-flight initial load) clobbering
-    // fresher state once it finally settles.
-    if (!mountedRef.current) return;
-    setReadiness(rd);
-    setRecovery(rec);
-    setDeload(dl);
+    try {
+      const [rd, rec, dl] = await Promise.all([
+        getReadiness(),
+        getRecovery(),
+        getDeload(),
+      ]);
+      // Guard against setState-after-unmount and against a stale concurrent
+      // load() (pull-to-refresh during an in-flight initial load) clobbering
+      // fresher state once it finally settles.
+      if (!mountedRef.current) return;
+      setReadiness(rd);
+      setRecovery(rec);
+      setDeload(dl);
+      setLoadError(false);
+    } catch {
+      // UI-117: a rejected fetch previously escaped this Promise.all unhandled
+      // — the screen showed empty cards with no way to retry.
+      if (!mountedRef.current) return;
+      setLoadError(true);
+    }
   }, [user?.is_paid]);
 
   useEffect(() => {
@@ -188,6 +197,13 @@ export default function InsightsScreen(): React.ReactElement {
     setRefreshing(true);
     await load();
     if (mountedRef.current) setRefreshing(false);
+  }, [load]);
+
+  const handleRetry = useCallback(() => {
+    setLoading(true);
+    load().finally(() => {
+      if (mountedRef.current) setLoading(false);
+    });
   }, [load]);
 
   const handleAckDeload = useCallback(async () => {
@@ -273,6 +289,35 @@ export default function InsightsScreen(): React.ReactElement {
             >
               <Text style={{ color: theme.components.buttonPrimaryText, fontSize: fs.bodyMd, fontWeight: fontWeight.semibold }}>
                 {t('screens:insights.seePlans')}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
+        {/* ── Load-error state (UI-117) ──────────────────────────────────── */}
+        {user?.is_paid && loadError && !loading && !refreshing ? (
+          <View
+            style={[
+              styles.errorCard,
+              {
+                backgroundColor: colors.statusError + '22',
+                borderColor: colors.statusError + '60',
+                borderRadius: r.md,
+                padding: sp.s4,
+                marginBottom: sp.s5,
+              },
+            ]}
+          >
+            <Text style={{ color: colors.statusError, fontSize: fs.bodySm }}>
+              {t('screens:insights.loadError')}
+            </Text>
+            <TouchableOpacity
+              onPress={handleRetry}
+              accessibilityRole="button"
+              accessibilityLabel={t('screens:insights.retryA11y')}
+            >
+              <Text style={{ color: colors.accentDefault, fontSize: fs.bodySm, fontWeight: fontWeight.semibold, marginTop: sp.s2 }}>
+                {t('common:retry')}
               </Text>
             </TouchableOpacity>
           </View>
@@ -390,6 +435,9 @@ const styles = StyleSheet.create({
   },
   pageTitle: {},
   deloadBanner: {
+    borderWidth: 1,
+  },
+  errorCard: {
     borderWidth: 1,
   },
   deloadCta: {

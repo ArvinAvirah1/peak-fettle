@@ -104,7 +104,9 @@
     "saving": "Saving…",
     "todaysReadiness": "Today's Readiness",
     "muscleRecovery": "Muscle Recovery",
-    "tapMuscleHint": "Tap a muscle to see recovery detail and suggest alternatives."
+    "tapMuscleHint": "Tap a muscle to see recovery detail and suggest alternatives.",
+    "loadError": "Couldn't load insights. Check your connection and try again.",
+    "retryA11y": "Retry loading insights"
   },
   "groups": {
     "noStreak": "No streak",
@@ -155,6 +157,7 @@
   },
   "groupDetail": {
     "goBack": "Go back",
+    "membersEmpty": "No members in this group yet.",
     "memberCount_one": "{{count}} member",
     "memberCount_other": "{{count}} members",
     "streakSuffix": "  ·  🔥 {{weeks}}-wk streak",

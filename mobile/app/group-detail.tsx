@@ -1141,7 +1141,12 @@ export default function GroupDetailScreen() {
                   onKick={handleKick}
                 />
               )}
-                            ItemSeparatorComponent={() => <View style={{ height: spacing.s2 }} />}
+              ItemSeparatorComponent={() => <View style={{ height: spacing.s2 }} />}
+              ListEmptyComponent={
+                <Text style={{ color: theme.colors.textSecondary, fontSize: fontSize.bodySm, textAlign: 'center', paddingVertical: spacing.s4 }}>
+                  {t('screens:groupDetail.membersEmpty')}
+                </Text>
+              }
             />
 
             {kickError && (

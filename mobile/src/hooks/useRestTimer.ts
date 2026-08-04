@@ -380,6 +380,10 @@ export function useRestTimer(initialDuration = REST_TIMER_DEFAULT): RestTimerCon
     const applySkip = () => cancelRef.current();
 
     const unsubIos = subscribeToRestActions((action) => {
+      // WATCH-20: only honor actions targeting the CURRENT activity — a tap
+      // on an orphaned/stale Live Activity (old session's lock-screen entry)
+      // must not extend or kill the rest period that's live right now.
+      if (action.activityId !== activityIdRef.current) return;
       if (action.type === 'add15') applyAdd15();
       else if (action.type === 'skip') applySkip();
     });

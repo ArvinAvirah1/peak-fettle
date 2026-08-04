@@ -23,9 +23,9 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  SafeAreaView,
   Alert,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { displayToKg, displayToCenti, formatWeight } from '../constants/units';
 import { Exercise, WorkoutSet, LogSetPayload } from '../types/api';
 import { PersonalBest } from '../api/sets';
@@ -124,6 +124,9 @@ export function SetEntryForm({
 }: SetEntryFormProps): React.ReactElement {
   const { theme } = useTheme();
   const { t } = useTranslation();
+  // UI-105: RN-core SafeAreaView reports ZERO insets inside a <Modal> —
+  // pad the container manually (CLAUDE.md rule 3 / templates.tsx pattern).
+  const insets = useSafeAreaInsets();
   const isLift = exercise.category === 'lift';
   const distanceLabel = unitPref === 'lbs' ? 'miles' : 'km';
 
@@ -406,7 +409,7 @@ export function SetEntryForm({
       presentationStyle="pageSheet"
       onRequestClose={onClose}
     >
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.bgPrimary }]}>
+      <View style={[styles.container, { backgroundColor: theme.colors.bgPrimary, paddingTop: Math.max(insets.top, 12) }]}>
         <KeyboardAvoidingView
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -418,7 +421,7 @@ export function SetEntryForm({
             {/* Header */}
             <View style={styles.header}>
               <View style={styles.headerText}>
-                <Text style={[styles.exerciseName, { color: theme.colors.textPrimary }]}>{exercise.name}</Text>
+                <Text style={[styles.exerciseName, { color: theme.colors.textPrimary }]} numberOfLines={2}>{exercise.name}</Text>
                 {setCount > 0 && (
                   <Text style={[styles.setCountLabel, { color: theme.colors.textTertiary }]}>
                     {t('logger:setEntryForm.setsLoggedCount', { count: setCount })}
@@ -523,7 +526,7 @@ export function SetEntryForm({
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 }

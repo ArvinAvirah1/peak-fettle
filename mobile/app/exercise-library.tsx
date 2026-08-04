@@ -44,7 +44,6 @@ import {
   Pressable,
   StyleSheet,
   ListRenderItemInfo,
-  Dimensions,
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -60,6 +59,8 @@ import { apiClient } from '../src/api/client';
 import { getExerciseGoal, setExerciseGoal, clearExerciseGoal, ExerciseGoal } from '../src/data/exerciseGoals'; // WIDGET-002
 import { isLocalFirst } from '../src/data/backup/tierPolicy'; // A4-01
 import { localDb } from '../src/db/localDb'; // A4-01
+import { getExerciseNameMap, ensureExerciseCatalogCached } from '../src/data/exerciseNames'; // UI-107
+import { BEGINNER_EXERCISE_CATALOG } from '../src/data/beginnerTemplates'; // UI-107
 import {
   displayToKg,
   parseWeightInput,
@@ -108,9 +109,6 @@ const SET_HISTORY_LIMIT = 100;
 
 /** Number of most-recent workout sessions shown in the volume chart. */
 const CHART_SESSION_COUNT = 8;
-
-/** Chart width — 90 % of screen so it fits with horizontal padding. */
-const CHART_WIDTH = Dimensions.get('window').width * 0.9;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -274,6 +272,54 @@ function computeSessionVolumes(sets: SetRecord[]): SessionVolume[] {
     const label = d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
     return { label, volume: Math.round(s.volume), timestamp: s.timestamp };
   });
+}
+
+/**
+ * UI-107 (Invariant 1): free / local-first users must NOT hit GET /exercises
+ * or /exercises/search on mount. Build the browse list from the on-device
+ * `exercise_names` cache (backfilled best-effort, at most once a day, from the
+ * global catalogue by ensureExerciseCatalogCached) plus the bundled beginner
+ * catalog, so a fresh offline install still has something to browse.
+ * muscle_groups are derived from the name via the same keyword fallback the
+ * MuscleMap uses, which keeps the category chips working.
+ */
+async function loadLocalExercises(searchQuery: string): Promise<Exercise[]> {
+  const nameById = await getExerciseNameMap();
+  const byName = new Map<string, Exercise>();
+
+  const add = (id: string, rawName: string, kind: 'lift' | 'cardio'): void => {
+    const name = rawName.trim();
+    const key = name.toLowerCase();
+    if (!key || byName.has(key)) return;
+    const groups = muscleGroupsForExercise(name, []);
+    byName.set(key, {
+      id,
+      name,
+      kind,
+      primary_muscle: groups[0] ?? kind,
+      muscle_groups: groups,
+    });
+  };
+
+  // Cached catalogue rows first — they carry real library UUIDs, so the detail
+  // modal's local set-history query resolves. The cache has no kind column;
+  // 'lift' is the safe default (cardio rows just skip the Cardio chip filter).
+  for (const [id, name] of nameById) add(id, name, 'lift');
+
+  // Bundled beginner catalog fills the gaps on a fresh install. Prefer a cached
+  // UUID when the same library name is already known; otherwise degrade to a
+  // name-only entry (id '') exactly like beginnerTemplates' offline path.
+  const cachedIdByName = new Map<string, string>();
+  for (const [id, name] of nameById) cachedIdByName.set(name.trim().toLowerCase(), id);
+  for (const meta of Object.values(BEGINNER_EXERCISE_CATALOG)) {
+    const id = cachedIdByName.get(meta.libraryName.trim().toLowerCase()) ?? '';
+    add(id, meta.display ?? meta.libraryName, meta.category);
+  }
+
+  let list = Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+  const q = searchQuery.trim().toLowerCase();
+  if (q) list = list.filter((e) => e.name.toLowerCase().includes(q));
+  return list;
 }
 
 // ---------------------------------------------------------------------------
@@ -1120,6 +1166,7 @@ function ExerciseDetailModal({ exercise, visible, onClose }: DetailModalProps): 
 export default function ExerciseLibraryScreen(): React.ReactElement {
   const { theme, fontSize, fontWeight, spacing, radius } = useTheme();
   const { t } = useTranslation();
+  const { user } = useAuth();
   const colors = theme.colors;
 
   // Search + filter state
@@ -1145,6 +1192,19 @@ export default function ExerciseLibraryScreen(): React.ReactElement {
   const fetchExercises = useCallback((searchQuery: string, cat: Category) => {
     setListLoading(true);
     setListError(null);
+
+    // UI-107 / A4-01 (Invariant 1): free (local-first) users browse an
+    // on-device catalogue — no REST call on mount, so a fresh offline install
+    // never dead-ends. The throttled global-catalogue backfill (shared with
+    // exerciseNames.ts) refreshes the cache in the background when online.
+    if (isLocalFirst(user)) {
+      ensureExerciseCatalogCached().catch(() => {});
+      loadLocalExercises(searchQuery)
+        .then((list) => setExercises(list))
+        .catch(() => setListError(t('screens:exerciseLibrary.couldNotLoadExercises')))
+        .finally(() => setListLoading(false));
+      return;
+    }
 
     if (searchQuery.trim()) {
       // ── Text search: use the scored alias-aware search endpoint ──────────
@@ -1178,7 +1238,7 @@ export default function ExerciseLibraryScreen(): React.ReactElement {
         .catch(() => setListError(t('screens:exerciseLibrary.couldNotLoadExercises')))
         .finally(() => setListLoading(false));
     }
-  }, []);
+  }, [user]);
 
   /**
    * Client-side category filter applied on top of the server-fetched list.
@@ -1203,13 +1263,14 @@ export default function ExerciseLibraryScreen(): React.ReactElement {
     fetchExercises('', 'All');
   }, []);
 
-  // Re-fetch when category changes (immediate)
+  // Re-fetch when category changes (immediate) or the tier resolves (UI-107 —
+  // fetchExercises identity changes with `user`, switching local/server source).
   useEffect(() => {
     fetchExercises(query, category);
     // We intentionally exclude `query` from deps here — query changes are
     // handled by the debounced handler below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [category]);
+  }, [category, fetchExercises]);
 
   // Debounced search handler
   function handleSearchChange(text: string): void {
@@ -1384,7 +1445,9 @@ export default function ExerciseLibraryScreen(): React.ReactElement {
       ) : (
         <FlatList<Exercise>
           data={filteredExercises}
-          keyExtractor={(item) => item.id}
+          // UI-107: bundled fallback entries can have id '' (name-only, same
+          // degrade path as beginnerTemplates) — key by name in that case.
+          keyExtractor={(item) => item.id || item.name}
           renderItem={renderItem}
           contentContainerStyle={{ paddingBottom: spacing.s6 }}
           keyboardShouldPersistTaps="handled"

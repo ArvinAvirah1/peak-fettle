@@ -22,8 +22,8 @@ import {
   TouchableOpacity,
   Pressable,
   StyleSheet,
-  SafeAreaView,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeContext';
 import { spacing, radius, fontSize, fontWeight } from '../theme/tokens';
 import { MuscleMap } from './MuscleMap';
@@ -62,6 +62,11 @@ export function TemplateDetailSheet({
 }: TemplateDetailSheetProps): React.ReactElement {
   const { theme } = useTheme();
   const { t } = useTranslation();
+  // UI-105: RN-core SafeAreaView reports ZERO insets inside a <Modal> —
+  // pad manually (CLAUDE.md rule 3 / templates.tsx pattern). This sheet is
+  // bottom-anchored, so the exposure is the home indicator: keep the CTA
+  // footer above it via insets.bottom.
+  const insets = useSafeAreaInsets();
   const resolvedStartLabel = startLabel ?? t('components:templateDetailSheet.startWorkout');
   // Compute aggregated muscle groups for the whole routine
   const routineMuscleGroups = muscleGroupsForRoutine(exercises);
@@ -82,7 +87,7 @@ export function TemplateDetailSheet({
       />
 
       {/* Sheet */}
-      <SafeAreaView
+      <View
         style={[
           styles.sheet,
           {
@@ -212,7 +217,15 @@ export function TemplateDetailSheet({
         </ScrollView>
 
         {/* CTA */}
-        <View style={[styles.footer, { borderTopColor: theme.colors.borderDefault }]}>
+        <View
+          style={[
+            styles.footer,
+            {
+              borderTopColor: theme.colors.borderDefault,
+              paddingBottom: Math.max(insets.bottom, spacing.s4),
+            },
+          ]}
+        >
           <TouchableOpacity
             onPress={onStart}
             disabled={exercises.length === 0}
@@ -244,7 +257,7 @@ export function TemplateDetailSheet({
             </Text>
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 }

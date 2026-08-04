@@ -17,6 +17,7 @@ import { apiClient } from './client';
 import { localDb } from '../db/localDb';
 import type { CardioMetrics } from '../data/cardioMetrics';
 import { getExerciseNameMap, displayExerciseName } from '../data/exerciseNames';
+import { toDateKey } from '../utils/dateHelpers';
 
 export interface DailyHealthMetric {
   id: string;
@@ -169,7 +170,7 @@ export async function getRecentCardioSessions(
     await localDb.init();
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - days);
-    const fromKey = cutoff.toISOString().slice(0, 10);
+    const fromKey = toDateKey(cutoff); // local day key — matches workouts.day_key
 
     // metrics_json is a v6 column; SELECT it directly. The whole read is wrapped
     // so a pre-migration install (column absent) falls back to [] below.

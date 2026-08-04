@@ -190,6 +190,12 @@ let subscribed = false;
 let listeners: ActionListener[] = [];
 let nativeSub: { remove: () => void } | null = null;
 
+// WATCH-12: a pending action read back from the App Group at subscribe time
+// can be arbitrarily old (written while the app was killed). Replaying an
+// hours-old +15s/Skip tap would restart/kill whatever rest period is current
+// now, so anything older than this is discarded instead of replayed.
+const PENDING_ACTION_MAX_AGE_MS = 2 * 60 * 1000;
+
 function parseAction(raw: string): RestActivityAction | null {
   try {
     const obj = JSON.parse(raw) as { action?: string; activityId?: string; ts?: number };
@@ -241,7 +247,12 @@ export function subscribeToRestActions(listener: ActionListener): () => void {
         .then((raw) => {
           if (!raw) return;
           const action = parseAction(raw);
-          if (action) fanOut(action);
+          if (!action) return;
+          // WATCH-12: freshness check — only replay a pending action that was
+          // written moments ago (e.g. the tap that woke this launch). A stale
+          // record from an old session is dropped silently.
+          if (Date.now() - action.ts > PENDING_ACTION_MAX_AGE_MS) return;
+          fanOut(action);
         })
         .catch(() => {});
     }

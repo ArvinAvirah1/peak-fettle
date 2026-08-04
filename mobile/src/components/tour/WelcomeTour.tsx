@@ -34,8 +34,8 @@ import {
   Modal,
   Pressable,
   StyleSheet,
-  Dimensions,
   TouchableOpacity,
+  useWindowDimensions,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
@@ -277,7 +277,9 @@ export function TourProvider({ children }: { children: React.ReactNode }): React
   );
 
   const step = TOUR_STEPS[stepIndex];
-  const { width: screenW, height: screenH } = Dimensions.get('window');
+  // UI-127: reactive dimensions (rotation / foldables) instead of a render-time
+  // Dimensions.get snapshot.
+  const { width: screenW, height: screenH } = useWindowDimensions();
   const PAD = 8;
   const TOOLTIP_W = Math.min(screenW - 32, 360);
 

@@ -51,8 +51,12 @@ import {
 } from '../src/constants/units';
 import { useBodyweight } from '../src/hooks/useBodyweight';
 import { formatWeight, UnitSystem } from '../src/constants/units';
+import { getSetting, setSetting } from '../src/data/appSettings';
 
 type LengthUnit = 'cm' | 'in';
+
+/** app_settings KV key for the persisted length-unit preference (NEW-05). */
+const LENGTH_PREF_KEY = 'length_pref';
 
 // ---------------------------------------------------------------------------
 // Trend chart — mirrors BodyweightChart's SVG polyline pattern (kept local so
@@ -163,10 +167,27 @@ export default function MeasurementsScreen(): React.ReactElement {
   const { t } = useTranslation();
   const { user } = useAuth();
   // The LENGTH unit defaults to cm for metric users, in for lbs (weight) users
-  // — a reasonable default; there is no separate server-side length pref field,
-  // so this stays a local UI toggle (persists for the session only).
+  // — a reasonable default; there is no server-side length pref field, so the
+  // choice persists in the device-local app_settings KV (NEW-05) and the
+  // stored value overrides the weight-pref-derived seed once loaded.
   const initialLengthUnit: LengthUnit = (user?.unit_pref as UnitSystem) === 'lbs' ? 'in' : 'cm';
   const [lengthUnit, setLengthUnit] = useState<LengthUnit>(initialLengthUnit);
+
+  // Seed from the persisted preference (best-effort; falls back to the seed).
+  useEffect(() => {
+    let cancelled = false;
+    getSetting(LENGTH_PREF_KEY)
+      .then((raw) => {
+        if (!cancelled && (raw === 'cm' || raw === 'in')) setLengthUnit(raw);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleSetLengthUnit = useCallback((u: LengthUnit) => {
+    setLengthUnit(u);
+    setSetting(LENGTH_PREF_KEY, u).catch(() => {}); // best-effort device config
+  }, []);
 
   const [loggedKeys, setLoggedKeys] = useState<string[]>([]);
   const [selectedMetric, setSelectedMetric] = useState<string>(PRESET_METRICS[0]!.key);
@@ -282,7 +303,7 @@ export default function MeasurementsScreen(): React.ReactElement {
           {(['cm', 'in'] as LengthUnit[]).map((u) => (
             <TouchableOpacity
               key={u}
-              onPress={() => setLengthUnit(u)}
+              onPress={() => handleSetLengthUnit(u)}
               style={[
                 styles.unitBtn,
                 {

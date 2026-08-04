@@ -23,6 +23,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from './useAuth';
 import { isLocalFirst } from '../data/backup/tierPolicy';
 import { localDb } from '../db/localDb';
+import { toDateKey } from '../utils/dateHelpers';
 import {
   getHealthMetrics,
   getHealthMetricsSummary,
@@ -78,7 +79,9 @@ function computeSummary(
 ): HealthMetricsSummary {
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() - windowDays);
-  const cut = cutoff.toISOString().slice(0, 10);
+  // Local day key (NOT toISOString, which is UTC) — rows are stored under
+  // local date keys, so a UTC cutoff shifts the window for west-of-UTC users.
+  const cut = toDateKey(cutoff);
   const window = metrics.filter((m) => m.date >= cut);
 
   const avg = (vals: (number | null)[]): number | null => {
@@ -166,7 +169,7 @@ export function useHealthMetrics(): UseHealthMetricsResult {
         await localDb.init();
         const cutoff = new Date();
         cutoff.setDate(cutoff.getDate() - 14);
-        const isoStr = cutoff.toISOString().slice(0, 10);
+        const isoStr = toDateKey(cutoff); // local day key, not UTC
 
         // Wearable metrics (HRV / resting HR / sleep / active kcal / source) live
         // in daily_health_metrics — NOT daily_health_log (that table is the

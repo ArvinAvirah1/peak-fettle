@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  WATCH-15: base Info.plist for the PeakFettleWatch target.
+
+  @bacons/apple-targets generates an EMPTY dict here when this file is absent
+  and relies on GENERATE_INFOPLIST_FILE=YES build-setting injection for the
+  rest. The plugin injects INFOPLIST_KEY_WKCompanionAppBundleIdentifier
+  (build/configuration-list.js createWatchAppConfigurationList) but never sets
+  WKApplication, which a single-target watchOS app REQUIRES or the install
+  fails. This checked-in file wins over the generated one (the plugin only
+  writes Info.plist if the path doesn't exist) and is merged with the
+  INFOPLIST_KEY_* settings at build time, so WKCompanionAppBundleIdentifier
+  still comes from the build setting - do not duplicate it here.
+-->
+<plist version="1.0">
+<dict>
+	<key>WKApplication</key>
+	<true/>
+</dict>
+</plist>

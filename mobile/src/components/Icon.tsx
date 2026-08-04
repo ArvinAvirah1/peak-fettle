@@ -20,7 +20,7 @@
  */
 
 import React from 'react';
-import { Text, StyleProp, TextStyle, TextProps } from 'react-native';
+import { PixelRatio, Text, StyleProp, TextStyle, TextProps } from 'react-native';
 
 import glyphMap from '../constants/ioniconsGlyphMap.json';
 
@@ -41,14 +41,18 @@ function IoniconsComponent({
   ...rest
 }: IoniconsProps): React.ReactElement {
   const codepoint = (glyphMap as Record<string, number>)[name as string];
+  // UI-125: icons scale WITH accessibility text, but clamped so they don't
+  // explode at AX sizes (labels can reach ~3.1×; icons cap at 1.4×). We scale
+  // manually via the current font scale and keep allowFontScaling={false} so
+  // Text doesn't apply the full multiplier on top.
+  const iconScale = Math.min(PixelRatio.getFontScale(), 1.4);
   return (
     <Text
       accessibilityElementsHidden
       importantForAccessibility="no"
       allowFontScaling={false}
-      maxFontSizeMultiplier={1}
       {...rest}
-      style={[{ fontFamily: 'Ionicons', fontSize: size, color }, style]}
+      style={[{ fontFamily: 'Ionicons', fontSize: size * iconScale, color }, style]}
     >
       {codepoint != null ? String.fromCodePoint(codepoint) : ''}
     </Text>

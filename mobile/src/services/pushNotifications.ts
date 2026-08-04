@@ -112,8 +112,7 @@ export function setForegroundNotificationHandler(): void {
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
       // SDK 54 shape: shouldShowBanner/shouldShowList replace the deprecated
-      // shouldShowAlert (kept for back-compat with older runtime checks).
-      shouldShowAlert: true,
+      // shouldShowAlert (removed — UI-129).
       shouldShowBanner: true,
       shouldShowList: true,
       shouldPlaySound: true,

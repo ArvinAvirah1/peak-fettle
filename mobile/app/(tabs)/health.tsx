@@ -26,6 +26,7 @@ import {
   Platform,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../../src/theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius, a11y } from '../../src/theme/tokens';
 import { PFCard, ScreenLayout } from '../../src/components/ui';
@@ -309,6 +310,9 @@ function WeekRow({ week }: { week: WeekBucket }): React.ReactElement {
 export default function HealthScreen(): React.ReactElement {
   const { theme } = useTheme();
   const { t } = useTranslation();
+  // NEW-01: edges={[]} means ScreenLayout applies no bottom inset here — keep
+  // the scroll content clear of the home indicator via insets.bottom.
+  const insets = useSafeAreaInsets();
   const c = theme.colors;
 
   const {
@@ -363,7 +367,7 @@ export default function HealthScreen(): React.ReactElement {
   return (
     <ScreenLayout horizontalPadding={false} edges={[]}>
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: Math.max(insets.bottom, spacing.s8) }]}
         refreshControl={
           <RefreshControl refreshing={isRefreshing} onRefresh={handleRefresh} tintColor={c.textTertiary} />
         }
@@ -617,7 +621,7 @@ function RingColumn({
 const styles = StyleSheet.create({
   scrollContent: {
     padding: 20,
-    paddingBottom: 40,
+    // paddingBottom applied inline: Math.max(insets.bottom, spacing.s8) (NEW-01)
   },
   section: {
     gap: 10,

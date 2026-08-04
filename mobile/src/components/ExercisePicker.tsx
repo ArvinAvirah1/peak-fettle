@@ -251,9 +251,9 @@ export function ExercisePicker({
           style={styles.exerciseRowMap}
         />
         <View style={styles.exerciseInfo}>
-          <Text style={[styles.exerciseName, { color: theme.colors.textPrimary }]}>{exercise.name}</Text>
+          <Text style={[styles.exerciseName, { color: theme.colors.textPrimary }]} numberOfLines={2}>{exercise.name}</Text>
           {muscleLabel ? (
-            <Text style={[styles.exerciseMeta, { color: theme.colors.textTertiary }]}>{muscleLabel}</Text>
+            <Text style={[styles.exerciseMeta, { color: theme.colors.textTertiary }]} numberOfLines={1}>{muscleLabel}</Text>
           ) : null}
         </View>
         {exercise.is_compound && (
@@ -411,8 +411,10 @@ export function ExercisePicker({
             <FlatList
               ref={listRef}
               data={listItems}
-              keyExtractor={(item, index) =>
-                item.type === 'header' ? `header-${item.category}` : `ex-${item.exercise.id}-${index}`
+              // UI-129: key by the stable server UUID — an index suffix breaks
+              // row recycling identity when the result set reorders (search).
+              keyExtractor={(item) =>
+                item.type === 'header' ? `header-${item.category}` : `ex-${item.exercise.id}`
               }
               renderItem={renderItem}
               contentContainerStyle={styles.listContent}

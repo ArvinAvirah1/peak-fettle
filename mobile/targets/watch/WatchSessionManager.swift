@@ -109,12 +109,24 @@ final class WatchSessionManager: NSObject, ObservableObject, WCSessionDelegate {
     }
 
     /// Sends the on-activate/reachability-change refresh handshake. Fire-and-
-    /// forget -- if the phone app isn't reachable right now, WCSession simply
-    /// fails this send silently; the next applicationContext push (or the next
-    /// reachability change) will catch the watch up regardless.
+    /// forget. WATCH-09: when the phone app isn't reachable (watch-first
+    /// launch, iPhone app not running), fall back to transferUserInfo -- a
+    /// QUEUED transfer WatchConnectivity delivers whenever the phone process
+    /// next runs -- so the watch still gets data without the user having to
+    /// open the iPhone app while the watch app is foregrounded.
     private func requestRefresh() {
-        guard WCSession.default.activationState == .activated else { return }
-        guard WCSession.default.isReachable else { return }
-        WCSession.default.sendMessage(["type": "refresh"], replyHandler: nil, errorHandler: nil)
+        let session = WCSession.default
+        guard session.activationState == .activated else { return }
+        if session.isReachable {
+            session.sendMessage(["type": "refresh"], replyHandler: nil, errorHandler: nil)
+        } else {
+            // Avoid piling up duplicate queued refreshes across launches.
+            let alreadyQueued = session.outstandingUserInfoTransfers.contains {
+                ($0.userInfo["type"] as? String) == "refresh"
+            }
+            if !alreadyQueued {
+                session.transferUserInfo(["type": "refresh"])
+            }
+        }
     }
 }

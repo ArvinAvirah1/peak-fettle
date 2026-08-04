@@ -11,14 +11,12 @@ import {
   StyleSheet,
   Pressable,
   ScrollView,
-  Dimensions,
+  useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { useTheme } from '../src/theme/ThemeContext';
 import { useTranslation } from 'react-i18next';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 interface IntroSlide {
   icon: string;
@@ -49,6 +47,9 @@ export default function IntroScreen(): React.ReactElement {
   const { theme, fontSize, fontWeight, spacing, radius } = useTheme();
   const { colors } = theme;
   const { t } = useTranslation();
+  // UI-127: reactive width (rotation / split view) instead of a module-scope
+  // Dimensions.get snapshot.
+  const { width: SCREEN_WIDTH } = useWindowDimensions();
   const [step, setStep] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
 

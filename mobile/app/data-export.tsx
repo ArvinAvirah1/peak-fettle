@@ -52,6 +52,7 @@ import { useRouter } from 'expo-router';
 import { useReduceMotion } from '../src/hooks/useReduceMotion';
 import { useTranslation } from 'react-i18next';
 import i18n from '../src/i18n';
+import { toDateKey } from '../src/utils/dateHelpers';
 
 // ---------------------------------------------------------------------------
 // Stagger helper
@@ -183,7 +184,7 @@ export default function DataExportScreen(): React.ReactElement {
   // 5 stagger slots: ownership card, export buttons, cloud card, cloud buttons, device card
   const staggerAnims = useStaggerFade(5, !reduceMotion);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = toDateKey(new Date()); // local day key, not UTC
 
   // Load cloud backup status on mount
   React.useEffect(() => {
