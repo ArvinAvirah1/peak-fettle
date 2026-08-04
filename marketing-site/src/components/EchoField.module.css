@@ -39,3 +39,14 @@
 
 .label { fill: var(--muted-2); }
 .leadLabel { fill: var(--accent-hi); }
+
+/* The echoes are composed for a wide hero, where they drift through the open
+   space beside the copy. At phone widths the copy is full-bleed, so there is no
+   open space left and the ghosts and their wk labels land on top of the
+   definition line. The layer is purely decorative, so drop it below the width
+   where that space exists. */
+@media (max-width: 768px) {
+    .layer {
+        display: none;
+    }
+}

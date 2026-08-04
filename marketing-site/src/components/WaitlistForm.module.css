@@ -207,3 +207,15 @@
 }
 
 .resetBtn:hover { opacity: 1; }
+
+/* iOS Safari zooms the whole page in whenever a focused text field renders
+   below 16px, and the zoom persists after the field is blurred — the page is
+   left scaled up and off-centre. Both email inputs sit just under the
+   threshold (0.95rem / 0.98rem), so hold them at exactly 16px on touch
+   devices. Desktop keeps its original scale. */
+@media (pointer: coarse) {
+    .input,
+    .inlineInput {
+        font-size: 16px;
+    }
+}
