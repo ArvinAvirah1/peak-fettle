@@ -30,6 +30,14 @@ Still all 3: `app/(tabs)/profile.tsx:39,819` (pageSheet), `src/components/SetEnt
 
 ## OPEN — P1
 
+### NEW-06 · Auth footer overflows both screen edges at large Dynamic Type (verified on-device)
+At accessibility text sizes (reproduced at AX5 / `accessibility-extra-extra-extra-large` on iPhone 17 Pro, iOS 26.5) the "Don't have an account? · Create one" row runs off **both** edges — the label is clipped on the left and the "Create one" button, the only route to registration, is cut off on the right.
+
+Cause: `app/(auth)/login.tsx:248-254` and `app/(auth)/register.tsx:262-268` — `footer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap }` with no `flexWrap` and no `flexShrink` on `footerText`. The row simply exceeds the viewport width and overflows symmetrically.
+**Fix:** `flexWrap: 'wrap'` on `footer` plus `flexShrink: 1` on `footerText`, or switch to a column stack once `PixelRatio.getFontScale() > 1.3`.
+
+Related observation (not a bug): the rest of both auth screens survives AX5 because `ScreenLayout scrollable` lets the user reach the Sign In button — verified by scrolling. Text-size changes only take effect after an app relaunch, not live.
+
 ### UI-107 · exercise-library: exercise search/list still unguarded REST
 Set-history path now correctly gated (`:614` `isLocalFirst` → localDb) — but raw `apiClient` remains at `:648`, `:1154`, `:1171` with no `isLocalFirst` branch and no bundled-catalog fallback. Fresh offline install dead-ends.
 **Fix:** gate + bundled catalog fallback.
@@ -50,7 +58,8 @@ Set-history path now correctly gated (`:614` `isLocalFirst` → localDb) — but
 **Fix:** listener → refresh on `active`/`background`.
 
 ### UI-113 · No iOS 18 tinted/accented widget handling
-Zero `.widgetAccentable()` in `index.swift`; asset colors `$accent`/`$widgetBackground` (declared `expo-target.config.js`) never read from Swift.
+Zero `.widgetAccentable()` in `index.swift`; asset colors `$accent`/`$widgetBackground` (declared in `expo-target.config.js`) never read from Swift.
+**Correction (verified 2026-08-04):** do NOT "just switch to `Color("$accent")`" — per WATCH-02, those colorsets compile to nothing and the widget appex ships no `Assets.car` at all. Add `.widgetAccentable()` first (that works today with the hardcoded literals); only move to catalog colors after the colorset generation is fixed.
 
 ### UI-114 · No explicit `SafeAreaProvider`
 Zero hits; `app/_layout.tsx:407-417` mounts GestureHandlerRootView → ThemeProvider → AuthProvider → PowerSyncProvider only. **Fix:** wrap root.
@@ -131,9 +140,18 @@ Files: `targets/watch/{PeakFettleWatchApp,WatchSessionManager,TodayView}.swift`,
 `RestTimerLiveActivity.swift:83,159,201` build `Date.now...state.endDate` — `ClosedRange` traps when `endDate < now`. Happens whenever countdown hits 0 while app backgrounded (JS interval suspended; `useRestTimer.ts:334-353` only ends the activity on a live JS tick).
 **Fix:** `let lo = min(Date.now, state.endDate)`, render `lo...state.endDate`; early-return "complete" branch when `endDate <= .now`.
 
-### WATCH-02 (P0) · Watch asset color names wrong — all accents/backgrounds resolve to nothing
-Assets are `$accent.colorset`/`$watchBackground.colorset` but `TodayView.swift:21,57,58,106,113,148` use `Color("accent")`/`Color("watchBackground")` (no `$`). Live-activity target does it right (`RestTimerLiveActivity.swift:56-57`).
-**Fix:** add `$` prefix.
+### WATCH-02 (P0) · Watch renders fully grayscale — colorsets are generated EMPTY (root cause corrected, verified on-device)
+**Confirmed visually on watchOS 26.5 sim (Apple Watch SE 3 40mm): zero brand teal anywhere — every label renders default white/gray.**
+
+The v3 diagnosis (name missing a `$`) was wrong. The real cause is upstream and affects two targets:
+
+1. `targets/watch/expo-target.config.js` correctly declares `colors: { $accent: {color:'#00D4C8'}, $watchBackground: {color:'#0A0E1A'} }`.
+2. `@bacons/apple-targets` generates the colorset directories but writes **`{"colors": []}`** — an empty array — into both `targets/watch/Assets.xcassets/$accent.colorset/Contents.json` and `targets/widget/Assets.xcassets/$accent.colorset/Contents.json`. The declared hex values never reach the catalog.
+3. Consequence in the built products: `PeakFettleWatch.app/Assets.car` contains **only `AppIcon`** (verified with `xcrun assetutil --info`), and `PeakFettleWidget.appex` ships **no `Assets.car` at all**.
+
+So every `Color("accent")` **and** `Color("$accent")` resolves to nothing in both targets. The widget escapes visual damage only because its Swift hardcodes literals (`index.swift:135-138`) and never reads the named colors; the watch reads them and goes gray.
+
+**Fix — adding a `$` prefix does NOT work.** Either (a) hardcode the palette in Swift for the watch exactly as the widget does, or (b) fix the colorset generation so `Contents.json` carries real color components, then reference `Color("$accent")`. (a) is the safe immediate fix; (b) unblocks WATCH-13/UI-113.
 
 ### WATCH-03 (P1) · "Done" detection broken (case + null-id rows)
 `useWatchMirror.ts:116` keys map by `exercise_id.trim()` (case kept) but lookup at :130 lowercases; :117 drops null-`exercise_id` rows so name fallback :163 never matches.
@@ -172,8 +190,8 @@ Assets are `$accent.colorset`/`$watchBackground.colorset` but `TodayView.swift:2
 ### WATCH-14 (P2) · `staleDate` set but `context.isStale` never handled
 `LiveActivityModule.swift:122,143` — stale activity looks live.
 
-### WATCH-15 (P2) · Watch Info.plist empty dict
-`targets/watch/Info.plist` — verify plugin injects `WKApplication`/`WKCompanionAppBundleIdentifier`; missing → install fails.
+### ~~WATCH-15~~ · CLOSED — Info.plist injection verified working
+Source `targets/watch/Info.plist` is an empty dict, but the built product has `WKApplication => true`, `WKCompanionAppBundleIdentifier => com.peakfettle.app`, `CFBundleIdentifier => com.peakfettle.app.watchapp`. Watch app installs and launches on watchOS 26.5 sim. No action.
 
 ### WATCH-16 (P2) · No Dynamic Type on watch
 `TodayView.swift:97-113` fixed `.system(size:)` throughout. **Fix:** semantic fonts + `minimumScaleFactor`.
@@ -224,3 +242,15 @@ Getting this repo onto an iPhone simulator needed four workarounds. None is an a
 4. **watchOS platform is required to build the iOS scheme.** With the watch target embedded, `xcodebuild` refuses outright: "This scheme builds an embedded Apple Watch app. watchOS 26.5 must be installed." Run `xcodebuild -downloadPlatform watchOS` first.
 
 Also: building with derived data inside an iCloud/OneDrive-synced folder makes `CodeSign` fail on the widget appex with "resource fork, Finder information, or similar detritus not allowed" (sync xattrs). Use a derived-data path outside the synced tree.
+
+### Simulator coverage actually exercised (2026-08-04)
+
+- **iOS 26.5** on iPhone 17 Pro — app builds, installs, launches; auth screens verified at default and AX5 text sizes, light and dark system appearance, portrait (app is `orientation: "portrait"`, so landscape is locked and needs no test).
+- **watchOS 26.5** on Apple Watch SE 3 40mm, paired to the iPhone 17 Pro — watch app installs and launches, renders its "Open Peak Fettle on your iPhone" empty state correctly. This is what surfaced WATCH-02.
+- `supportsTablet: false`, so iPad runs in iPhone compatibility mode — no separate iPad layout to test.
+- watchOS simulator **cannot** override text size (`simctl ui … content_size` → "Runtime does not support dynamic text"), so WATCH-16 stays a code-level finding.
+- Blocked behind auth: everything past the login screen, including WATCH-01 (needs a running rest timer) and the widget on the home screen.
+
+### iOS 27
+
+Not testable here. This machine has Xcode 26.6 (17F113), whose only SDKs are iOS 26.5 / watchOS 26.5, and `simctl runtime list` offers no newer image. An iOS 27 beta would require the Xcode 27 beta from the Apple Developer portal (manual download, paid account) — worth doing before Apple's autumn deadline, since the widget/watch targets are exactly the surfaces that break on major-version bumps.
