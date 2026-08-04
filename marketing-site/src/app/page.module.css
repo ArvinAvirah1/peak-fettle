@@ -39,7 +39,14 @@
 .methodNote a:hover { color: var(--accent-hi); }
 
 @media (max-width: 860px) {
-    .figGrid { grid-template-columns: 1fr; gap: 2.5rem; }
+    /* .figGrid is an <ol>, so each item still carries a default decimal
+       marker. list-style-position is `outside`, which draws the marker to the
+       left of the item's box — at desktop widths that lands in the container's
+       4rem gutter, but the gutter shrinks to 1.25rem on a phone and the "1."
+       "2." "3." render off the left edge of the screen. The figures are
+       already labelled by their own "fig. 01 —" kickers, so drop the markers
+       here rather than indenting the copy. */
+    .figGrid { grid-template-columns: 1fr; gap: 2.5rem; list-style: none; }
     .figItem { border-left: none; padding-inline: 0; border-top: 1px solid var(--line-hair); padding-top: 1.5rem; }
     .figItem:first-child { border-top: none; padding-top: 0; }
 }
