@@ -1756,6 +1756,10 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
         .catch(() => {});
     }, [workout?.id, sets.length, elapsedSeconds, routineSession?.name]);
 
+    // PF-R9 NOTE: this function (and the TICKET-131 share card it opens) is
+    // currently UNREACHABLE — the live finish path is confirmAndFinish →
+    // terminateSession, which now fires onFinish directly. Kept pending a
+    // founder decision on resurrecting vs deleting the share-card flow.
     const handleFinishWorkout = useCallback(() => {
       Alert.alert(
         t('logger:workoutLoggerHost.finishWorkoutTitle'),
@@ -1812,7 +1816,12 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
       setRestEndAt(null);
       restTimer.cancel();
       if (finishedRoutineId) markRoutineCompleted(finishedRoutineId).catch(() => {});
-    }, [restTimer]);
+      // PF-R9: this is the REAL terminating flow — onFinish previously fired
+      // only from the share card's onClose, which is unreachable (its setter,
+      // handleFinishWorkout, has no caller), so Home/workout-day never
+      // refetched even on explicit Finish. Fire it here.
+      onFinish?.();
+    }, [restTimer, onFinish]);
 
     // Confirm → finish-and-save → terminate. The ONE explicit terminating flow,
     // shared by (a) finishing normally past the last exercise (onFinish) and
@@ -1846,7 +1855,12 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
     const handleMinimize = useCallback(() => {
       setStepperVisible(false);
       setMinimized(true);
-    }, []);
+      // PF-R9(B): the logger is a Modal hosted BY Home, so minimizing fires no
+      // focus event — tell the host screen to refetch the sets logged so far.
+      // Pro Home has no table watch by design; this is its only mid-session
+      // refresh trigger.
+      onFinish?.();
+    }, [onFinish]);
 
     // Tapping the mini-bar restores the full stepper exactly where the user left off.
     const handleRestore = useCallback(() => {

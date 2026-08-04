@@ -196,6 +196,24 @@ router.put('/', async (req, res, next) => {
         const path = BLOB_PATH_FOR(userId);
         const fileBuffer = Buffer.from(serialised, 'utf8');
 
+        // PF-R7 backstop: keep exactly one previous generation. An upsert with
+        // no retention means a single bad client upload (e.g. an empty DB
+        // right after sign-out/sign-in) permanently destroys the user's only
+        // backup. Copy the current blob to <path>.prev before overwriting —
+        // best-effort: a copy failure (typically "not found" on first upload)
+        // must not block the upload itself.
+        try {
+            await supabaseAdmin.storage.from(BUCKET).remove([`${path}.prev`]);
+            const { error: copyError } = await supabaseAdmin.storage
+                .from(BUCKET)
+                .copy(path, `${path}.prev`);
+            if (copyError && !/not.?found/i.test(copyError.message ?? '')) {
+                console.warn('[backup] prev-generation copy failed:', copyError.message);
+            }
+        } catch (copyErr) {
+            console.warn('[backup] prev-generation copy threw:', copyErr?.message ?? copyErr);
+        }
+
         const { error: uploadError } = await supabaseAdmin.storage
             .from(BUCKET)
             .upload(path, fileBuffer, {

@@ -38,38 +38,143 @@ import {
   displayExerciseName,
 } from '../src/data/exerciseNames';
 
-function VictoryChart({
-  children,
-  height = 180,
+// ---------------------------------------------------------------------------
+// PF-R13: in-house react-native-svg charts. The old Victory stubs rendered
+// headers over ~200pt of blank space for every user (the victory-native import
+// was deleted in 965a6be and the stubs returned null). Pattern follows
+// LiftProgressChart/BodyweightChart: pure SVG, theme-driven, no dependency.
+// ---------------------------------------------------------------------------
+
+import Svg, { Rect, Line as SvgLine, Polyline, Circle, Text as SvgText } from 'react-native-svg';
+
+interface BarDatum {
+  x: string;
+  y: number;
+}
+
+/** Simple themed bar chart: 3 horizontal gridlines + labels, rounded bars. */
+function PFBarChart({
+  data,
+  width,
+  height,
+  color,
+  gridColor,
+  labelColor,
+  tickFormat = (v: number) => String(Math.round(v)),
 }: {
-  children?: React.ReactNode;
-  width?: number;
-  height?: number;
-  domainPadding?: unknown;
-  padding?: unknown;
-  style?: unknown;
+  data: BarDatum[];
+  width: number;
+  height: number;
+  color: string;
+  gridColor: string;
+  labelColor: string;
+  tickFormat?: (v: number) => string;
 }): React.ReactElement {
-  return <View style={{ height }}>{children}</View>;
+  const padLeft = 44;
+  const padRight = 8;
+  const padTop = 10;
+  const padBottom = 22;
+  const plotW = width - padLeft - padRight;
+  const plotH = height - padTop - padBottom;
+  const maxY = Math.max(1, ...data.map((d) => d.y));
+  const slot = data.length > 0 ? plotW / data.length : plotW;
+  const barW = Math.min(28, slot * 0.6);
+
+  return (
+    <Svg width={width} height={height}>
+      {[0, 0.5, 1].map((f) => {
+        const y = padTop + plotH * (1 - f);
+        return (
+          <React.Fragment key={f}>
+            <SvgLine x1={padLeft} y1={y} x2={width - padRight} y2={y} stroke={gridColor} strokeWidth={1} />
+            <SvgText x={padLeft - 6} y={y + 3} fontSize={9} fill={labelColor} textAnchor="end">
+              {tickFormat(maxY * f)}
+            </SvgText>
+          </React.Fragment>
+        );
+      })}
+      {data.map((d, i) => {
+        const h = maxY > 0 ? (d.y / maxY) * plotH : 0;
+        const cx = padLeft + slot * i + slot / 2;
+        return (
+          <React.Fragment key={`${d.x}-${i}`}>
+            {h > 0 ? (
+              <Rect x={cx - barW / 2} y={padTop + plotH - h} width={barW} height={h} rx={4} fill={color} />
+            ) : null}
+            <SvgText x={cx} y={height - 8} fontSize={9} fill={labelColor} textAnchor="middle">
+              {d.x}
+            </SvgText>
+          </React.Fragment>
+        );
+      })}
+    </Svg>
+  );
 }
 
-function VictoryAxis(_props: Record<string, unknown>): null {
-  return null;
+interface PaceDatum {
+  x: number;
+  y: number; // pace sec/km
+  xLabel: string;
 }
 
-function VictoryBar(_props: Record<string, unknown>): null {
-  return null;
-}
+/**
+ * Pace trend polyline. Y is INVERTED (faster = lower sec/km = plotted higher)
+ * so an ascending line reads as improvement, matching the old invertAxis.
+ */
+function PFPaceChart({
+  data,
+  width,
+  height,
+  color,
+  gridColor,
+  labelColor,
+  formatTick,
+}: {
+  data: PaceDatum[];
+  width: number;
+  height: number;
+  color: string;
+  gridColor: string;
+  labelColor: string;
+  formatTick: (paceSec: number) => string;
+}): React.ReactElement {
+  const padLeft = 52;
+  const padRight = 12;
+  const padTop = 14;
+  const padBottom = 22;
+  const plotW = width - padLeft - padRight;
+  const plotH = height - padTop - padBottom;
+  const ys = data.map((d) => d.y);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const span = Math.max(1, maxY - minY);
+  const px = (i: number): number =>
+    padLeft + (data.length > 1 ? (i / (data.length - 1)) * plotW : plotW / 2);
+  // Inverted: minY (fastest) at the top.
+  const py = (y: number): number => padTop + ((y - minY) / span) * plotH;
+  const points = data.map((d, i) => `${px(i)},${py(d.y)}`).join(' ');
 
-function VictoryLine(_props: Record<string, unknown>): null {
-  return null;
-}
-
-function VictoryScatter(_props: Record<string, unknown>): null {
-  return null;
-}
-
-function VictoryTooltip(_props: Record<string, unknown>): null {
-  return null;
+  return (
+    <Svg width={width} height={height}>
+      {[minY, maxY].map((v) => (
+        <React.Fragment key={v}>
+          <SvgLine x1={padLeft} y1={py(v)} x2={width - padRight} y2={py(v)} stroke={gridColor} strokeWidth={1} />
+          <SvgText x={padLeft - 6} y={py(v) + 3} fontSize={9} fill={labelColor} textAnchor="end">
+            {formatTick(v)}
+          </SvgText>
+        </React.Fragment>
+      ))}
+      <Polyline points={points} fill="none" stroke={color} strokeWidth={2.5} strokeLinejoin="round" />
+      {data.map((d, i) => (
+        <React.Fragment key={`${d.x}-${i}`}>
+          <Circle cx={px(i)} cy={py(d.y)} r={4} fill={color} />
+          <SvgText x={px(i)} y={height - 8} fontSize={9} fill={labelColor} textAnchor="middle">
+            {d.xLabel}
+          </SvgText>
+        </React.Fragment>
+      ))}
+    </Svg>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -549,20 +654,6 @@ export default function ProgressScreen(): React.ReactElement {
       }));
   }, [cardioData]);
 
-  // ── Shared Victory styles (derived from theme) ────────────────────────────
-  const axisStyle = useMemo(
-    () => ({
-      axis: { stroke: theme.colors.borderDefault },
-      tickLabels: {
-        fill: theme.colors.textTertiary,
-        fontSize: 10,
-        fontVariant: 'tabular-nums' as const,
-      },
-      grid: { stroke: 'transparent' },
-    }),
-    [theme],
-  );
-
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <ScreenLayout scrollable edges={['bottom']}>
@@ -698,35 +789,14 @@ export default function ProgressScreen(): React.ReactElement {
           {loading ? (
             <SkeletonRow height={chartHeight} />
           ) : (
-            <VictoryChart
+            <PFBarChart
               width={chartWidth}
               height={chartHeight}
-              padding={{ top: 10, bottom: 40, left: 40, right: 16 }}
-              style={{ background: { fill: 'transparent' } }}
-            >
-              <VictoryAxis
-                style={axisStyle}
-                tickValues={data?.weekBuckets.map((b) => b.label) ?? []}
-              />
-              <VictoryAxis
-                dependentAxis
-                style={axisStyle}
-                tickFormat={(v: number) => (Number.isInteger(v) ? String(v) : '')}
-              />
-              <VictoryBar
-                data={data?.weekBuckets.map((b) => ({
-                  x: b.label,
-                  y: b.workoutCount,
-                })) ?? []}
-                style={{
-                  data: {
-                    fill: theme.colors.accentDefault,
-                    width: 28,
-                  },
-                }}
-                cornerRadius={{ top: 4 }}
-              />
-            </VictoryChart>
+              data={data?.weekBuckets.map((b) => ({ x: b.label, y: b.workoutCount })) ?? []}
+              color={theme.colors.accentDefault}
+              gridColor={theme.colors.borderDefault}
+              labelColor={theme.colors.textTertiary}
+            />
           )}
         </>
       )}
@@ -738,35 +808,15 @@ export default function ProgressScreen(): React.ReactElement {
           {loading ? (
             <SkeletonRow height={chartHeight} />
           ) : (
-            <VictoryChart
+            <PFBarChart
               width={chartWidth}
               height={chartHeight}
-              padding={{ top: 10, bottom: 40, left: 48, right: 16 }}
-              style={{ background: { fill: 'transparent' } }}
-            >
-              <VictoryAxis
-                style={axisStyle}
-                tickValues={data?.weekBuckets.map((b) => b.label) ?? []}
-              />
-              <VictoryAxis
-                dependentAxis
-                style={axisStyle}
-                tickFormat={volumeTick}
-              />
-              <VictoryBar
-                data={data?.weekBuckets.map((b) => ({
-                  x: b.label,
-                  y: b.totalVolume,
-                })) ?? []}
-                style={{
-                  data: {
-                    fill: theme.colors.accentSecondary,
-                    width: 28,
-                  },
-                }}
-                cornerRadius={{ top: 4 }}
-              />
-            </VictoryChart>
+              data={data?.weekBuckets.map((b) => ({ x: b.label, y: b.totalVolume })) ?? []}
+              color={theme.colors.accentSecondary}
+              gridColor={theme.colors.borderDefault}
+              labelColor={theme.colors.textTertiary}
+              tickFormat={volumeTick}
+            />
           )}
         </>
       )}
@@ -875,32 +925,15 @@ accessibilityLabel={t('screens2:progress.tenPctWarningA11y')}
             </View>
           )}
 
-          <VictoryChart
+          <PFBarChart
             width={chartWidth}
             height={chartHeight}
-            padding={{ top: 10, bottom: 40, left: 48, right: 16 }}
-            style={{ background: { fill: 'transparent' } }}
-          >
-            <VictoryAxis
-              style={axisStyle}
-              tickValues={mileageBuckets.map((b) => b.x)}
-            />
-            <VictoryAxis
-              dependentAxis
-              style={axisStyle}
-              tickFormat={(v: number) => `${v}`}
-            />
-            <VictoryBar
-              data={mileageBuckets}
-              style={{
-                data: {
-                  fill: theme.colors.statusSuccess,
-                  width: 28,
-                },
-              }}
-              cornerRadius={{ top: 4 }}
-            />
-          </VictoryChart>
+            data={mileageBuckets}
+            color={theme.colors.statusSuccess}
+            gridColor={theme.colors.borderDefault}
+            labelColor={theme.colors.textTertiary}
+            tickFormat={(v: number) => `${Math.round(v * 10) / 10}`}
+          />
         </>
       )}
 
@@ -908,49 +941,15 @@ accessibilityLabel={t('screens2:progress.tenPctWarningA11y')}
       {!error && runPaceTrend.length >= 2 && (
         <>
           <SectionHeader label={t('screens2:progress.runningPaceTrend')} />
-          <VictoryChart
+          <PFPaceChart
             width={chartWidth}
             height={chartHeight}
-            padding={{ top: 16, bottom: 40, left: 56, right: 16 }}
-            style={{ background: { fill: 'transparent' } }}
-          >
-            <VictoryAxis
-              style={axisStyle}
-              tickValues={runPaceTrend.map((p) => p.x)}
-              tickFormat={(v: number) => runPaceTrend[v - 1]?.xLabel ?? ''}
-            />
-            <VictoryAxis
-              dependentAxis
-              style={axisStyle}
-              tickFormat={(v: number) => formatPace(v)}
-              invertAxis
-            />
-            <VictoryLine
-              data={runPaceTrend}
-              style={{
-                data: {
-                  stroke: theme.colors.accentDefault,
-                  strokeWidth: 2.5,
-                },
-              }}
-              interpolation="monotoneX"
-            />
-            <VictoryScatter
-              data={runPaceTrend}
-              size={4}
-              style={{ data: { fill: theme.colors.accentDefault } }}
-              labels={({ datum }: { datum: { label: string } }) => datum.label}
-              labelComponent={
-                <VictoryTooltip
-                  style={{ fontSize: 9, fill: theme.colors.textPrimary }}
-                  flyoutStyle={{
-                    fill: theme.colors.bgElevated,
-                    stroke: theme.colors.borderDefault,
-                  }}
-                />
-              }
-            />
-          </VictoryChart>
+            data={runPaceTrend}
+            color={theme.colors.accentDefault}
+            gridColor={theme.colors.borderDefault}
+            labelColor={theme.colors.textTertiary}
+            formatTick={formatPace}
+          />
           <Text
             style={{
               fontSize: fontSize.caption,

@@ -246,28 +246,36 @@ router.post('/rest-day', async (req, res, next) => {
         const userId = req.user.id;
         const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
 
-        const { rows: existing } = await pool.query(
-            `SELECT id FROM workouts
-             WHERE user_id = $1
-               AND session_type = 'rest_day'
-               AND day_key = $2
-             LIMIT 1`,
-            [userId, today]
-        );
-
-        if (existing.length > 0) {
-            return res.status(409).json({ error: 'Rest day already logged for today.' });
-        }
-
+        // PF-R6: the old racy pre-check + ON CONFLICT DO UPDATE silently
+        // CONVERTED a real logged workout row into a rest day — and the undo
+        // DELETE then cascade-deleted that workout's sets (sets.workout_id is
+        // ON DELETE CASCADE): log workout → tap rest day → tap undo = silent
+        // permanent loss of the day's sets. The insert itself is now the
+        // guard: DO NOTHING, and on conflict report WHAT already occupies the
+        // day so the client can show a specific message. DELETE below stays
+        // safe unchanged (it only matches session_type='rest_day').
         const { rows } = await pool.query(
             `INSERT INTO workouts (user_id, day_key, session_type)
              VALUES ($1, $2, 'rest_day')
-             ON CONFLICT (user_id, day_key) DO UPDATE
-                SET session_type = 'rest_day',
-                    updated_at = NOW()
+             ON CONFLICT (user_id, day_key) DO NOTHING
              RETURNING id, user_id, day_key, session_type, created_at, updated_at`,
             [userId, today]
         );
+
+        if (rows.length === 0) {
+            const { rows: occupied } = await pool.query(
+                `SELECT session_type FROM workouts
+                 WHERE user_id = $1 AND day_key = $2 LIMIT 1`,
+                [userId, today]
+            );
+            const isRest = occupied[0]?.session_type === 'rest_day';
+            return res.status(409).json({
+                error: isRest ? 'rest_day_already_logged' : 'workout_already_logged_today',
+                message: isRest
+                    ? 'Rest day already logged for today.'
+                    : 'A workout is already logged for today — not converting it to a rest day.',
+            });
+        }
 
         return res.status(201).json({ message: 'Rest day logged.', workout: rows[0] });
     } catch (err) { next(err); }

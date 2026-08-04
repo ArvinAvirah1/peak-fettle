@@ -196,6 +196,16 @@ export async function backupNow(
      * nothing and always runs to completion.
      */
     shouldAbort?: () => boolean;
+    /**
+     * PF-R7: true for auto-backup triggers. An AUTOMATIC backup of an
+     * empty-looking DB while the server already holds a blob is almost
+     * certainly the post-sign-out/sign-in race (logout wiped the local DB and
+     * last_backup_at; the launch trigger then fires before the user restores)
+     * — proceeding would overwrite their ONLY cloud copy with nothing.
+     * Automatic triggers skip in that case; manual "Back up now" (flag unset)
+     * remains an explicit user decision and proceeds.
+     */
+    automatic?: boolean;
   } = {},
 ): Promise<BackupNowResult> {
   const aborted = (): boolean => opts.shouldAbort?.() === true;
@@ -204,6 +214,30 @@ export async function backupNow(
     if (aborted()) return { ok: false, error: 'aborted: app became active' };
     const doc = await buildBackupFromDb(localDb);
     if (aborted()) return { ok: false, error: 'aborted: app became active' };
+
+    if (opts.automatic === true) {
+      const meaningfulRows =
+        (doc.tables.workouts?.length ?? 0) +
+        (doc.tables.sets?.length ?? 0) +
+        (doc.tables.routines?.length ?? 0);
+      if (meaningfulRows === 0) {
+        try {
+          const status = await apiClient.get<{ exists: boolean }>(
+            '/user/backup-blob/status',
+          );
+          if (status.data.exists) {
+            console.warn(
+              '[PF/backup] auto-backup skipped: local DB is empty but a cloud backup exists — refusing to overwrite it (restore first, or use manual Back up now).',
+            );
+            return { ok: false, error: 'skipped: empty local DB over existing cloud backup' };
+          }
+        } catch {
+          // Status unknown (offline) — err on the side of NOT uploading an
+          // empty DB automatically; the next trigger with data will succeed.
+          return { ok: false, error: 'skipped: empty local DB, backup status unknown' };
+        }
+      }
+    }
     // Chunked + yielding — byte-identical to canonicalize() but never blocks
     // tap handlers on a large history (see exportEngine.canonicalizeAsync).
     const plaintext = await canonicalizeAsync(doc);
@@ -385,8 +419,8 @@ export async function maybeAutoBackup(
 
     const result = await backupNow(
       reason === 'background'
-        ? { shouldAbort: () => AppState.currentState === 'active' }
-        : {},
+        ? { automatic: true, shouldAbort: () => AppState.currentState === 'active' }
+        : { automatic: true },
     );
     if (!result.ok) {
       console.warn('[PF/backup] maybeAutoBackup(' + reason + ') failed:', result.error);

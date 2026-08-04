@@ -27,6 +27,8 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
+import { useTableChange } from '../src/hooks/useTableChange';
 
 import { useTheme } from '../src/theme/ThemeContext';
 import { CalendarHeatmap } from '../src/components/CalendarHeatmap';
@@ -255,9 +257,25 @@ export default function WorkoutHistoryScreen(): React.ReactElement {
   }, [localFirst]);
 
   // Mount: load workouts
-  useEffect(() => {
-    fetchPage(0);
-  }, [fetchPage]);
+  // PF-R14: this was a one-shot mount load — edits/deletes made in
+  // workout-day (or a backdate added from this screen's own CTA) never showed
+  // on back-navigation. Mirror Home's pattern: throttled focus refetch for
+  // both tiers + a live table watch on the free/local-first path. The focus
+  // effect fires on initial focus, so it replaces the old mount effect (no
+  // double fetch).
+  const lastFocusRefetchRef = useRef(0);
+  useFocusEffect(
+    useCallback(() => {
+      const now = Date.now();
+      if (now - lastFocusRefetchRef.current < 2000) return;
+      lastFocusRefetchRef.current = now;
+      void fetchPage(0);
+    }, [fetchPage]),
+  );
+  useTableChange(['workouts', 'sets'], () => void fetchPage(0), {
+    enabled: isLocalFirst(user),
+    debounceMs: 900,
+  });
 
   // ── Load more (no-op — server returns all history in one call) ────────────
   const handleEndReached = useCallback(() => {}, []);

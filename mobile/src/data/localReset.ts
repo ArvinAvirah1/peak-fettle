@@ -56,6 +56,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { localDb } from '../db/localDb';
 import { BACKUP_TABLES } from './backup/exportEngine';
+import { clearDataKey, clearKeyWrap } from './backup/keyStore';
 
 /**
  * Session-scoped bookkeeping tables that are NOT in BACKUP_TABLES (they hold no
@@ -187,4 +188,24 @@ export async function clearAllLocalPersonalData(): Promise<void> {
   // 3. Pre-migration snapshot files on disk (device path of the same leak the
   //    migration_snapshots table covers). Best-effort, never throws.
   await deleteMigrationSnapshotFiles();
+
+  // 4. PF-R8: backup encryption key material. The iOS keychain survives
+  //    sign-out AND reinstall, so without this the NEXT account on the device
+  //    silently encrypts its cloud backups under the PREVIOUS user's key —
+  //    unrestorable by the new user, readable via the old user's recovery
+  //    code. Individually guarded: one keychain failure must not abort the
+  //    other, and neither may abort the teardown. Safe to clear now that
+  //    backupManager's automatic empty-DB guard (PF-R7) prevents the
+  //    post-re-login empty auto-backup from minting a fresh key over a real
+  //    blob.
+  try {
+    await clearDataKey();
+  } catch {
+    // best-effort
+  }
+  try {
+    await clearKeyWrap();
+  } catch {
+    // best-effort
+  }
 }
