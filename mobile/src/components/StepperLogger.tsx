@@ -662,6 +662,7 @@ function StepperControl({
   rightAccessory,
   unitSuffix,
   maxLength,
+  inputRef,
 }: {
   label: string;
   value: string;
@@ -673,6 +674,8 @@ function StepperControl({
   rightAccessory?: React.ReactNode;
   unitSuffix?: string | null;
   maxLength?: number;
+  /** Smart cursor default: lets the parent focus this field imperatively. */
+  inputRef?: React.RefObject<TextInput | null>;
 }): React.ReactElement {
   const { t } = useTranslation();
   return (
@@ -692,6 +695,7 @@ function StepperControl({
         </TouchableOpacity>
         <View style={stepperCtl.fieldWrap}>
           <TextInput
+            ref={inputRef}
             style={stepperCtl.field}
             value={value}
             onChangeText={onChangeText}
@@ -817,6 +821,31 @@ export default function StepperLogger({
   // ── Local form state — LIFT ──────────────────────────────────────────────
   const [weight, setWeight] = useState('');
   const [reps, setReps] = useState('');
+
+  // ── Smart cursor default (founder 2026-08-02) ─────────────────────────────
+  // On exercise switch and between sets: focus WEIGHT when the weight field is
+  // empty; focus REPS only when weight is already prefilled (drop chain,
+  // suggestion, copy-last, retained mid-set value). Weight is read through a
+  // ref inside a deferred timeout so prefill effects (which run in the same
+  // commit) win the race, and typing never re-triggers focus.
+  const weightInputRef = useRef<TextInput>(null);
+  const repsInputRef = useRef<TextInput>(null);
+  const weightValueRef = useRef(weight);
+  weightValueRef.current = weight;
+  const setCountForFocus = currentExerciseSets.length;
+  useEffect(() => {
+    if (isCardio) return;
+    const timer = setTimeout(() => {
+      if (weightValueRef.current.trim() === '') {
+        weightInputRef.current?.focus();
+      } else {
+        repsInputRef.current?.focus();
+      }
+    }, 350);
+    return () => clearTimeout(timer);
+    // Re-apply on exercise switch and after each logged set — not on keystrokes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentIndex, currentEx?.exerciseId, setCountForFocus, isCardio]);
   // `rir` always holds the STORED-shape string (RIR), even when the user is
   // typing in RPE display mode — see rirInputValue/handleRirInputChange below,
   // which are the ONLY places that convert. onLogSet/onUpdateSet always read
@@ -2250,6 +2279,7 @@ export default function StepperLogger({
                     accessibilityLabel={t('logger:stepperLogger.weightA11y')}
                     unitSuffix={unitLabel}
                     maxLength={7}
+                    inputRef={weightInputRef}
                     rightAccessory={
                       <TouchableOpacity
                         onPress={() => setPlateCalcVisible(true)}
@@ -2270,6 +2300,7 @@ export default function StepperLogger({
                     placeholder="—"
                     accessibilityLabel={t('logger:stepperLogger.repsA11y')}
                     maxLength={4}
+                    inputRef={repsInputRef}
                   />
                 </View>
 

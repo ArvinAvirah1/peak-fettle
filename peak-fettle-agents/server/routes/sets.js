@@ -404,6 +404,38 @@ router.get('/', async (req, res, next) => {
 // Returns { all_time_best: null, last_session: null } if the user has never
 // logged this exercise.
 // ---------------------------------------------------------------------------
+// Run a PB query that selects the exact-entry mirror columns
+// (weight_centi/weight_unit, migration 20260721); on 42703/42P01 drift,
+// re-run a legacy variant with those selects stripped so pre-migration prod
+// keeps working (CLAUDE.md §4). The legacy SQL is derived, not duplicated.
+async function pbQuery(sqlWithCenti, params) {
+    try {
+        return await pool.query(sqlWithCenti, params);
+    } catch (err) {
+        if (!isMissingSchema(err)) throw err;
+        return pool.query(
+            sqlWithCenti
+                .replace(/s\.weight_centi\s+AS weight_centi,\s*/g, '')
+                .replace(/s\.weight_unit\s+AS weight_unit,\s*/g, ''),
+            params
+        );
+    }
+}
+
+// Shape a PB row for the client: lossy canonical kg plus the exact typed
+// entry when the mirror columns exist (undefined otherwise — the client's
+// formatSetWeight falls back to kg). The exact entry is what stops "50"
+// coming back as "49.88" after the kg×8 round-trip.
+function pbEntry(row, extra = {}) {
+    return {
+        weight_kg: parseFloat(row.weight_kg),
+        weight_centi: row.weight_centi != null ? Number(row.weight_centi) : null,
+        weight_unit: row.weight_unit ?? null,
+        reps: row.reps,
+        ...extra,
+    };
+}
+
 router.get('/personal-best/:exerciseId', async (req, res, next) => {
     try {
         const { exerciseId } = req.params;
@@ -415,9 +447,11 @@ router.get('/personal-best/:exerciseId', async (req, res, next) => {
         }
 
         // All-time best: highest Epley e1rm across all sets for this exercise.
-        const atbResult = await pool.query(
+        const atbResult = await pbQuery(
             `SELECT
                 s.weight_raw / 8.0                                   AS weight_kg,
+                s.weight_centi                                       AS weight_centi,
+                s.weight_unit                                        AS weight_unit,
                 s.reps,
                 s.logged_at,
                 w.day_key,
@@ -439,7 +473,7 @@ router.get('/personal-best/:exerciseId', async (req, res, next) => {
 
         // Last session: most recent day that has a set for this exercise,
         // then the heaviest set from that day.
-        const lsResult = await pool.query(
+        const lsResult = await pbQuery(
             `WITH last_day AS (
                 SELECT MAX(w.day_key) AS day_key
                 FROM sets s
@@ -452,6 +486,8 @@ router.get('/personal-best/:exerciseId', async (req, res, next) => {
              )
              SELECT
                 s.weight_raw / 8.0 AS weight_kg,
+                s.weight_centi AS weight_centi,
+                s.weight_unit AS weight_unit,
                 s.reps,
                 s.logged_at,
                 w.day_key
@@ -472,18 +508,8 @@ router.get('/personal-best/:exerciseId', async (req, res, next) => {
         const ls  = lsResult.rows[0] ?? null;
 
         res.json({
-            all_time_best: atb ? {
-                weight_kg: parseFloat(atb.weight_kg),
-                reps:      atb.reps,
-                logged_at: atb.logged_at,
-                day_key:   atb.day_key,
-            } : null,
-            last_session: ls ? {
-                weight_kg: parseFloat(ls.weight_kg),
-                reps:      ls.reps,
-                logged_at: ls.logged_at,
-                day_key:   ls.day_key,
-            } : null,
+            all_time_best: atb ? pbEntry(atb, { logged_at: atb.logged_at, day_key: atb.day_key }) : null,
+            last_session:  ls  ? pbEntry(ls,  { logged_at: ls.logged_at,  day_key: ls.day_key  }) : null,
         });
     } catch (err) { next(err); }
 });
@@ -510,10 +536,12 @@ router.post('/personal-best/batch', async (req, res, next) => {
         }
 
         // ONE query: all-time best (highest Epley e1rm) lift set per exercise.
-        const { rows } = await pool.query(
+        const { rows } = await pbQuery(
             `SELECT DISTINCT ON (s.exercise_id)
                 s.exercise_id,
                 s.weight_raw / 8.0 AS weight_kg,
+                s.weight_centi AS weight_centi,
+                s.weight_unit AS weight_unit,
                 s.reps
              FROM sets s
              JOIN workouts w ON w.id = s.workout_id
@@ -529,7 +557,7 @@ router.post('/personal-best/batch', async (req, res, next) => {
         const result = {};
         for (const id of exerciseIds) result[id] = null;
         for (const row of rows) {
-            result[row.exercise_id] = { weight_kg: Number(row.weight_kg), reps: row.reps };
+            result[row.exercise_id] = pbEntry(row);
         }
         res.json(result);
     } catch (err) { next(err); }

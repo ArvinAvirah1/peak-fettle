@@ -75,7 +75,7 @@ import { loadLocalProfile } from '../data/profile';
 import { useTheme } from '../theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
 import { haptics } from '../utils/haptics';
-import { formatWeight, kgToLbs, roundToNearestQuarterLb, displayToKg, displayToCenti, parseWeightInput } from '../constants/units';
+import { formatWeight, formatSetWeight, centiToDisplayValue, kgToLbs, roundToNearestQuarterLb, displayToKg, displayToCenti, parseWeightInput } from '../constants/units';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getRoutine, type Routine } from '../data/routines';
 import { getRestTimerDefaultSec, getGroupRestMode, GroupRestMode } from '../data/appSettings'; // P1b — device-local rest default; TICKET-144 — grouped-set rest mode
@@ -610,7 +610,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           if (cancelled) return;
           const next: Record<string, string> = {};
           for (const [id, pb] of Object.entries(map)) {
-            if (pb) next[id] = `${formatWeight(pb.weight_kg, unitPref)} × ${pb.reps}`;
+            if (pb) next[id] = `${formatSetWeight(pb, unitPref)} × ${pb.reps}`;
           }
           setSugPbMap(next);
         })
@@ -2153,20 +2153,29 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
               onSaveAsRoutine={handleSaveAsRoutine}
               pbLabel={
                 (stepperPB ?? exercisePB)?.all_time_best
-                  ? `${formatWeight((stepperPB ?? exercisePB)!.all_time_best!.weight_kg, unitPref)} × ${(stepperPB ?? exercisePB)!.all_time_best!.reps}`
+                  ? `${formatSetWeight((stepperPB ?? exercisePB)!.all_time_best!, unitPref)} × ${(stepperPB ?? exercisePB)!.all_time_best!.reps}`
                   : null
               }
               lastSessionLabel={
                 (stepperPB ?? exercisePB)?.last_session
-                  ? `${formatWeight((stepperPB ?? exercisePB)!.last_session!.weight_kg, unitPref)} × ${(stepperPB ?? exercisePB)!.last_session!.reps}`
+                  ? `${formatSetWeight((stepperPB ?? exercisePB)!.last_session!, unitPref)} × ${(stepperPB ?? exercisePB)!.last_session!.reps}`
                   : null
               }
               lastTopSetDisplay={(() => {
                 const ls = (stepperPB ?? exercisePB)?.last_session;
                 if (!ls) return null;
-                // 2-decimal round (NOT quarter-lb): reproduces the entered value
-                // exactly — the old 0.25-lb snap displayed 186.7 as 186.75.
-                const w = unitPref === 'lbs' ? Number(kgToLbs(ls.weight_kg).toFixed(2)) : ls.weight_kg;
+                // Prefer the exact typed entry (weight_centi/weight_unit mirror):
+                // the kg-only path round-trips through the server's kg×8 column
+                // and turned a typed 50 lb into 49.88. Legacy rows without the
+                // mirror keep the 2-decimal round (NOT quarter-lb — the old
+                // 0.25-lb snap displayed 186.7 as 186.75).
+                const exact =
+                  ls.weight_centi != null && (ls.weight_unit === 'kg' || ls.weight_unit === 'lbs');
+                const w = exact
+                  ? centiToDisplayValue(ls.weight_centi!, ls.weight_unit as 'kg' | 'lbs', unitPref)
+                  : unitPref === 'lbs'
+                    ? Number(kgToLbs(ls.weight_kg).toFixed(2))
+                    : ls.weight_kg;
                 return { weight: w, reps: ls.reps };
               })()}
               repTarget={routineSession.exercises[routineSession.currentIndex]?.targetReps ?? null}

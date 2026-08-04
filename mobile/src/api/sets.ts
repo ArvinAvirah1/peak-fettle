@@ -72,6 +72,11 @@ export async function updateSetNoteFlags(
 
 export interface PersonalBestEntry {
   weight_kg: number;
+  /** Exact typed entry ×100 in its typed unit (20260721 mirror) — null on
+   *  legacy rows or a pre-migration server. Prefer over weight_kg for display:
+   *  weight_kg alone round-trips through kg×8 and shows 50 lb as 49.88. */
+  weight_centi?: number | null;
+  weight_unit?: string | null; // 'kg' | 'lbs'
   reps: number;
   logged_at: string;
   day_key: string; // YYYY-MM-DD
@@ -110,10 +115,10 @@ export async function getPersonalBest(exerciseId: string): Promise<PersonalBest>
  */
 export async function getPersonalBests(
   exerciseIds: string[],
-): Promise<Record<string, { weight_kg: number; reps: number } | null>> {
+): Promise<Record<string, { weight_kg: number; weight_centi?: number | null; weight_unit?: string | null; reps: number } | null>> {
   if (exerciseIds.length === 0) return {};
   try {
-    const response = await apiClient.post<Record<string, { weight_kg: number; reps: number } | null>>(
+    const response = await apiClient.post<Record<string, { weight_kg: number; weight_centi?: number | null; weight_unit?: string | null; reps: number } | null>>(
       '/sets/personal-best/batch',
       { exerciseIds },
     );
