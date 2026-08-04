@@ -12,13 +12,21 @@
 
 import SwiftUI
 
+// WATCH-02 correction (2026-08-04): the $-prefixed colorsets are generated
+// EMPTY by @bacons/apple-targets ({"colors": []} — verified with assetutil;
+// the built Assets.car carries only AppIcon), so catalog color lookups
+// resolve to nothing and the whole watch UI rendered grayscale. Hardcode the brand
+// palette exactly as the widget target does until colorset generation works.
+private let pfAccent = Color(red: 0x00 / 255, green: 0xD4 / 255, blue: 0xC8 / 255)
+private let pfBackground = Color(red: 0x0A / 255, green: 0x0E / 255, blue: 0x1A / 255)
+
 struct TodayView: View {
     @EnvironmentObject private var session: WatchSessionManager
 
     var body: some View {
         NavigationStack {
             ZStack {
-                Color("$watchBackground").ignoresSafeArea()
+                pfBackground.ignoresSafeArea()
                 content
             }
             .navigationTitle("Today")
@@ -100,8 +108,8 @@ private struct ConnectivityDot: View {
     let reachable: Bool
     var body: some View {
         Circle()
-            .fill(reachable ? Color("$accent") : Color.clear)
-            .strokeBorder(reachable ? Color("$accent") : Color.gray.opacity(0.5), lineWidth: 1.5)
+            .fill(reachable ? pfAccent : Color.clear)
+            .strokeBorder(reachable ? pfAccent : Color.gray.opacity(0.5), lineWidth: 1.5)
             .frame(width: 8, height: 8)
             .accessibilityLabel(reachable ? "iPhone connected" : "iPhone not reachable")
     }
@@ -151,14 +159,14 @@ private struct ExerciseRow: View {
                 if let weightLabel = exercise.weightLabel {
                     Text(weightLabel)
                         .font(.caption2)
-                        .foregroundColor(Color("$accent"))
+                        .foregroundColor(pfAccent)
                         .minimumScaleFactor(0.8)
                 }
             }
             Spacer(minLength: 4)
             if exercise.done {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(Color("$accent"))
+                    .foregroundColor(pfAccent)
                     .font(.body)
                     .accessibilityLabel("Done")
             }
@@ -196,7 +204,7 @@ private struct RestDayState: View {
         VStack(spacing: 8) {
             Image(systemName: "moon.zzz.fill")
                 .font(.title3)
-                .foregroundColor(Color("$accent"))
+                .foregroundColor(pfAccent)
             Text("Rest day")
                 .font(.body.weight(.semibold))
                 .foregroundColor(.white)

@@ -196,22 +196,41 @@ export default function LoginScreen(): React.ReactElement {
 // ---------------------------------------------------------------------------
 
 function extractErrorMessage(err: unknown, t: (key: string) => string): string {
-  // Axios error with a response body from the Peak Fettle API.
-  if (
-    typeof err === 'object' &&
-    err !== null &&
-    'response' in err
-  ) {
-    const axiosErr = err as { response?: { data?: { error?: string; message?: string } } };
-    const apiError = axiosErr.response?.data?.error;
-    if (apiError === 'invalid_credentials') {
+  if (typeof err === 'object' && err !== null) {
+    const axiosErr = err as {
+      request?: unknown;
+      response?: {
+        status?: number;
+        data?: { error?: string; message?: string; details?: { field?: string; message?: string }[] };
+      };
+    };
+    // AUTH-01: a request that never got an HTTP response (offline, server
+    // unreachable, timeout) must not read as a generic app error — it's the
+    // common failure for a beta user on a train.
+    if (('request' in err || 'response' in err) && axiosErr.response == null) {
+      return t('tabs:login.connectionError');
+    }
+    const data = axiosErr.response?.data;
+    if (data?.error === 'invalid_credentials') {
       return t('tabs:login.incorrectCredentials');
     }
-    if (axiosErr.response?.data?.message) {
-      return axiosErr.response.data.message;
+    if (data?.error === 'validation_failed') {
+      const detail = (data.details ?? [])
+        .map((d) => (d.field && d.message ? `${prettyField(d.field)}: ${d.message}` : d.message))
+        .filter(Boolean)
+        .join('\n');
+      return detail || t('tabs:login.validationFailed');
+    }
+    if (data?.message) {
+      return data.message;
     }
   }
   return t('tabs:login.genericError');
+}
+
+/** "email" → "Email"; "password" → "Password" (server detail field names). */
+function prettyField(field: string): string {
+  return field.charAt(0).toUpperCase() + field.slice(1).replace(/_/g, ' ');
 }
 
 // ---------------------------------------------------------------------------
@@ -247,6 +266,10 @@ const styles = StyleSheet.create({
   },
   footer: {
     flexDirection: 'row',
+    // NEW-06: at accessibility text sizes the row exceeded the viewport and
+    // clipped BOTH edges (including the only route to registration). Wrap
+    // instead of overflowing.
+    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: spacing.s4,
@@ -254,5 +277,6 @@ const styles = StyleSheet.create({
   },
   footerText: {
     fontSize: fontSize.bodySm,
+    flexShrink: 1,
   },
 });

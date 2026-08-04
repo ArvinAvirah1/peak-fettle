@@ -56,12 +56,14 @@ struct Palette {
     let ink: Color
 
     init(_ t: ThemeColors?) {
-        // UI-113: fall back to the target's declared asset colours
-        // ($widgetBackground / $accent, expo-target.config.js) before the
-        // hard-coded Deep Ocean hexes — same pattern as the live-activity target.
-        bg = Color(hexString: t?.bg) ?? Color("$widgetBackground")
+        // WATCH-02 correction (2026-08-04, verified via assetutil): the
+        // $-prefixed colorsets are generated EMPTY ({"colors": []}) and this
+        // appex ships no Assets.car — Color("$accent") resolves to nothing.
+        // Hardcoded Deep Ocean literals are the source of truth until the
+        // colorset generation in @bacons/apple-targets is fixed.
+        bg = pfColor(t?.bg, "#0A0E1A")
         tile = pfColor(t?.tile, "#151D35")
-        accent = Color(hexString: t?.accent) ?? Color("$accent")
+        accent = pfColor(t?.accent, "#00D4C8")
         text = pfColor(t?.text, "#FFFFFF")
         muted = pfColor(t?.muted, "#94A3B8")
         warn = pfColor(t?.warn, "#F59E0B")

@@ -25,7 +25,9 @@
     "noAccount": "Don't have an account?",
     "createOne": "Create one",
     "incorrectCredentials": "Incorrect email or password.",
-    "genericError": "Something went wrong. Please try again."
+    "genericError": "Something went wrong. Please try again.",
+    "connectionError": "Can't reach Peak Fettle — check your connection and try again.",
+    "validationFailed": "Please check your email and password and try again."
   },
   "register": {
     "emailRequired": "Email is required.",
@@ -43,7 +45,9 @@
     "haveAccount": "Already have an account?",
     "signIn": "Sign in",
     "emailTaken": "An account with this email already exists.",
-    "genericError": "Something went wrong. Please try again."
+    "genericError": "Something went wrong. Please try again.",
+    "connectionError": "Can't reach Peak Fettle — check your connection and try again.",
+    "validationFailed": "Please check the details you entered and try again."
   },
   "rankings": {
     "topPercent": "Top {{pct}}%",

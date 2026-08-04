@@ -216,17 +216,41 @@ export default function RegisterScreen(): React.ReactElement {
 // ---------------------------------------------------------------------------
 
 function extractErrorMessage(err: unknown, t: (key: string) => string): string {
-  if (typeof err === 'object' && err !== null && 'response' in err) {
-    const axiosErr = err as { response?: { status?: number; data?: { error?: string; message?: string } } };
+  if (typeof err === 'object' && err !== null) {
+    const axiosErr = err as {
+      request?: unknown;
+      response?: {
+        status?: number;
+        data?: { error?: string; message?: string; details?: { field?: string; message?: string }[] };
+      };
+    };
+    // AUTH-01: no HTTP response at all = offline / unreachable server —
+    // say so instead of the generic copy.
+    if (('request' in err || 'response' in err) && axiosErr.response == null) {
+      return t('tabs:register.connectionError');
+    }
     const status = axiosErr.response?.status;
-    if (status === 409 || axiosErr.response?.data?.error === 'email_taken') {
+    const data = axiosErr.response?.data;
+    if (status === 409 || data?.error === 'email_taken') {
       return t('tabs:register.emailTaken');
     }
-    if (axiosErr.response?.data?.message) {
-      return axiosErr.response.data.message;
+    if (data?.error === 'validation_failed') {
+      const detail = (data.details ?? [])
+        .map((d) => (d.field && d.message ? `${prettyField(d.field)}: ${d.message}` : d.message))
+        .filter(Boolean)
+        .join('\n');
+      return detail || t('tabs:register.validationFailed');
+    }
+    if (data?.message) {
+      return data.message;
     }
   }
   return t('tabs:register.genericError');
+}
+
+/** "email" → "Email"; "password" → "Password" (server detail field names). */
+function prettyField(field: string): string {
+  return field.charAt(0).toUpperCase() + field.slice(1).replace(/_/g, ' ');
 }
 
 // ---------------------------------------------------------------------------
@@ -261,6 +285,8 @@ const styles = StyleSheet.create({
   },
   footer: {
     flexDirection: 'row',
+    // NEW-06: wrap at accessibility text sizes instead of clipping both edges.
+    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: spacing.s4,
@@ -268,5 +294,6 @@ const styles = StyleSheet.create({
   },
   footerText: {
     fontSize: fontSize.bodySm,
+    flexShrink: 1,
   },
 });
