@@ -40,6 +40,10 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTheme } from '../src/theme/ThemeContext';
 import { useAuth } from '../src/hooks/useAuth';
 import { ScreenLayout, PFButton } from '../src/components/ui';
+// Continue-workout affordance (founder 2026-08-04): tier-branched routine reads
+// (local-first for free users) + the local day key for the today-only check.
+import { listRoutines, Routine } from '../src/data/routines';
+import { toDateKey } from '../src/utils/dateHelpers';
 import { apiClient } from '../src/api/client';
 import { localDb } from '../src/db/localDb';
 import { isLocalFirst } from '../src/data/backup/tierPolicy';
@@ -190,6 +194,12 @@ interface DayData {
   exerciseGroups: ExerciseGroup[];
   totalSets: number;
   totalVolumeKg: number;
+  /** v20 routine link for this day's session, when it had one (founder
+   *  2026-08-04) — drives the Continue / Start-again affordance. `routineId` is
+   *  null on sessions logged before v20; the name then resolves it, ambiguously
+   *  or not (see resolveRoutineForDay). */
+  routineId?: string | null;
+  routineName?: string | null;
 }
 
 async function fetchDayData(date: string): Promise<DayData> {
@@ -319,9 +329,10 @@ async function fetchLocalDayData(date: string): Promise<DayData> {
     day_key: string;
     session_type: string | null;
     routine_name: string | null;
+    routine_id: string | null;
     created_at: string;
   }>(
-    'SELECT id, day_key, session_type, routine_name, created_at FROM workouts WHERE day_key = ? ORDER BY created_at ASC',
+    'SELECT id, day_key, session_type, routine_name, routine_id, created_at FROM workouts WHERE day_key = ? ORDER BY created_at ASC',
     [date]
   );
 
@@ -395,7 +406,15 @@ async function fetchLocalDayData(date: string): Promise<DayData> {
   const totalSets = apiSets.length;
   const totalVolumeKg = apiSets.reduce((acc, s) => acc + setVolumeKg(s), 0);
 
-  return { workout: apiWorkout, isRestDay, exerciseGroups, totalSets, totalVolumeKg };
+  return {
+    workout: apiWorkout,
+    isRestDay,
+    exerciseGroups,
+    totalSets,
+    totalVolumeKg,
+    routineId: rep.routine_id ?? null,
+    routineName: rep.routine_name ?? null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -723,6 +742,42 @@ export default function WorkoutDayScreen(): React.ReactElement {
 
   const localFirst = isLocalFirst(user);
 
+  // -- Continue / start-again affordance (founder 2026-08-04) ----------------
+  // A logged session can be reopened as a full routine flow, but only when we
+  // can say WHICH routine it was. v20 stamps workouts.routine_id; sessions from
+  // before that fall back to a name match, and a name matching zero or MORE
+  // THAN ONE routine resolves to null so the button is hidden rather than
+  // opening the wrong routine.
+  const [resumeRoutineId, setResumeRoutineId] = useState<string | null>(null);
+  const isToday = (date ?? '').slice(0, 10) === toDateKey(new Date());
+
+  useEffect(() => {
+    let cancelled = false;
+    const routineId = dayData?.routineId ?? null;
+    const routineName = dayData?.routineName ?? null;
+    if (!routineId && !routineName) {
+      setResumeRoutineId(null);
+      return;
+    }
+    (async () => {
+      try {
+        const routines: Routine[] = await listRoutines(user);
+        if (cancelled) return;
+        if (routineId && routines.some((r) => r.id === routineId)) {
+          setResumeRoutineId(routineId);
+          return;
+        }
+        const byName = routineName
+          ? routines.filter((r) => r.name.trim() === routineName.trim())
+          : [];
+        setResumeRoutineId(byName.length === 1 ? byName[0]!.id : null);
+      } catch {
+        if (!cancelled) setResumeRoutineId(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [dayData?.routineId, dayData?.routineName, user]);
+
   const load = useCallback(async () => {
     if (!date) return;
     setLoading(true);
@@ -981,6 +1036,32 @@ export default function WorkoutDayScreen(): React.ReactElement {
           />
         ) : null}
       </View>
+
+      {/* Continue / start-again (founder 2026-08-04). TODAY resumes in place --
+          progress seeded from what is already logged, opening at the first
+          unfinished exercise. An OLDER day starts a FRESH session today
+          instead: the logger writes to today's workout, so a "continue" there
+          would silently misdate the sets (that is what backdate-workout is
+          for). Hidden entirely when the routine cannot be identified. */}
+      {!loading && !error && dayData && !dayData.isRestDay && resumeRoutineId ? (
+        <View style={{ paddingHorizontal: spacing.s5, paddingTop: spacing.s2 }}>
+          <PFButton
+            variant="primary"
+            label={
+              isToday
+                ? t('screens2:workoutDay.continueWorkout')
+                : t('screens2:workoutDay.startRoutineAgain')
+            }
+            onPress={() => {
+              if (isToday) {
+                loggerRef.current?.resumeRoutine(resumeRoutineId);
+              } else {
+                loggerRef.current?.startRoutine(resumeRoutineId, dayData.routineName ?? '');
+              }
+            }}
+          />
+        </View>
+      ) : null}
 
       {/* TICKET-131: share this workout as a summary card (user-initiated). */}
       {!loading && !error && dayData && !dayData.isRestDay && dayData.totalSets > 0 ? (

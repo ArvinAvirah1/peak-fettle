@@ -293,6 +293,8 @@
     "adopt": "Adopt"
   },
   "workoutDay": {
+    "continueWorkout": "Continue workout",
+    "startRoutineAgain": "Start this routine again",
     "collapseNote": "Collapse note",
     "expandNote": "Expand note",
     "quotedNote": "\"{{text}}\"",

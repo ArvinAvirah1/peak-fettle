@@ -989,3 +989,94 @@ export const SCHEMA_V18_STATEMENTS: MigrationStatement[] = [
   { type: 'alter_add_column', table: 'sets', column: 'weight_centi', definition: 'INTEGER' },
   { type: 'alter_add_column', table: 'sets', column: 'weight_unit', definition: 'TEXT' },
 ];
+
+// ---------------------------------------------------------------------------
+// v19 statements — DAILY weight check-in + per-routine weigh-in reminder
+// (founder 2026-08-04).
+//
+// Until v19 body weight was captured ONCE a week: the user typed their own
+// estimated median into the rankings prompt card. v19 adds a daily log so the
+// median can be COMPUTED from real readings instead of guessed.
+//
+//   • bodyweight_daily — one row per LOCAL calendar day (`day` = YYYY-MM-DD,
+//     UNIQUE so re-entering today's weight upserts rather than duplicating).
+//     Stores the exact typed entry the same way `sets` does since v18:
+//       weight_kg    REAL    — CANONICAL kilograms (what every computation reads)
+//       weight_centi INTEGER — typed value × 100 in the TYPED unit (exact)
+//       weight_unit  TEXT    — 'kg' | 'lbs' — the unit it was typed in
+//     plus `week_key` (denormalized ISO week, so the median query is an indexed
+//     equality scan) and `source` ('manual' | 'healthkit').
+//
+//   • bodyweight.source / bodyweight.sample_count — the existing WEEKLY table
+//     stays the single source of truth for the tier ladder, the on-device
+//     percentile model and the trends chart; these two columns just record HOW
+//     a given week's median got there ('manual' = typed on the rankings card,
+//     'derived' = median of `sample_count` daily readings). Once a week has
+//     >= DERIVED_MIN_SAMPLES dailies the derived value supersedes the typed one
+//     (founder rule: real readings beat a remembered estimate).
+//
+//   • routine_reminders — per-routine weigh-in reminder config, keyed by
+//     routine_id. Deliberately a SEPARATE local table rather than a column on
+//     `routines`: routines round-trip through the server for Pro users, and
+//     local notification identifiers are per-DEVICE, so pushing this through
+//     the REST shape would require a prod migration to store something that is
+//     meaningless on another device. Free and Pro both read it locally.
+//       in_app_timing    TEXT — 'start' | 'end' — when the in-logger prompt fires
+//       notify_days      TEXT — JSON number[] (0=Sun … 6=Sat)
+//       notification_ids TEXT — JSON string[] of scheduled expo-notifications ids
+//                               (kept so an edit can cancel exactly what it set)
+//
+// All three are CREATE ... IF NOT EXISTS / guarded ALTER — additive and
+// idempotent, same pattern as v12–v18.
+export const CREATE_BODYWEIGHT_DAILY = `
+CREATE TABLE IF NOT EXISTS bodyweight_daily (
+  id TEXT PRIMARY KEY,
+  day TEXT UNIQUE,
+  week_key TEXT,
+  weight_kg REAL,
+  weight_centi INTEGER,
+  weight_unit TEXT,
+  source TEXT,
+  logged_at TEXT
+)`;
+
+export const CREATE_BODYWEIGHT_DAILY_WEEK_IDX = `
+CREATE INDEX IF NOT EXISTS idx_bodyweight_daily_week ON bodyweight_daily(week_key)`;
+
+export const CREATE_ROUTINE_REMINDERS = `
+CREATE TABLE IF NOT EXISTS routine_reminders (
+  routine_id TEXT PRIMARY KEY,
+  enabled INTEGER NOT NULL DEFAULT 0,
+  in_app_timing TEXT NOT NULL DEFAULT 'start',
+  notify_enabled INTEGER NOT NULL DEFAULT 0,
+  notify_days TEXT,
+  notify_hour INTEGER,
+  notify_minute INTEGER,
+  notification_ids TEXT,
+  updated_at TEXT
+)`;
+
+export const SCHEMA_V19_STATEMENTS: MigrationStatement[] = [
+  CREATE_BODYWEIGHT_DAILY,
+  CREATE_BODYWEIGHT_DAILY_WEEK_IDX,
+  CREATE_ROUTINE_REMINDERS,
+  { type: 'alter_add_column', table: 'bodyweight', column: 'source', definition: 'TEXT' },
+  { type: 'alter_add_column', table: 'bodyweight', column: 'sample_count', definition: 'INTEGER' },
+];
+
+// ---------------------------------------------------------------------------
+// v20 statements — resumable sessions (founder report 2026-08-04, GL-1).
+//
+// `workouts` carried `routine_name` (v4) but no id, so nothing could reliably
+// map a logged session back to the routine that produced it: a rename orphaned
+// it and two routines sharing a name were ambiguous. That blocked the founder's
+// "pull up a past workout and continue the whole routine flow" request.
+//
+// v20 adds `workouts.routine_id`, written whenever a routine session stamps its
+// label. Sessions logged BEFORE this still fall back to a routine_name lookup —
+// so Continue works on existing history where the name is unambiguous, and is
+// hidden (never guessed) when it isn't. Guarded ALTER ADD COLUMN, additive, no
+// backfill (the id of a historical session is genuinely unknown).
+export const SCHEMA_V20_STATEMENTS: MigrationStatement[] = [
+  { type: 'alter_add_column', table: 'workouts', column: 'routine_id', definition: 'TEXT' },
+];

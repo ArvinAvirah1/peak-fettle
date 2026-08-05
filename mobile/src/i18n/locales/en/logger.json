@@ -265,6 +265,9 @@
     "summary_other": "{{count}} sets \u00b7 top {{weight}}\u00d7{{reps}}"
   },
   "stepperLogger": {
+    "chooseAlternativeShort": "Alternative",
+    "supersetWithShort": "Superset",
+    "unlinkSupersetShort": "Unlink",
     "closeStepperA11y": "Close stepper",
     "endWorkoutLabel": "End",
     "endWorkoutA11y": "End workout early and save",

@@ -66,6 +66,7 @@ import { localDb, genId } from '../../src/db/localDb';
 import { BrandLogo } from '../../src/components/BrandLogo'; // TICKET-063
 import { WorkoutLoggerHost, WorkoutLoggerRef } from '../../src/components/WorkoutLoggerHost';
 import { RoutineStrip } from '../../src/components/RoutineStrip';
+import { DailyWeightCard } from '../../src/components/DailyWeightCard';
 // TICKET-098: bundled beginner programs open in the stepper without a server call.
 import { getExercises } from '../../src/api/exercises';
 import {
@@ -1239,6 +1240,13 @@ export default function HomeScreen(): React.ReactElement {
           </Text>
         )}
       </TouchableOpacity>
+
+      {/* ── F2. Daily weight check-in (founder 2026-08-04) ──
+          Sits with the other "today" actions: three readings in an ISO week
+          make the weekly median self-computing instead of hand-typed on the
+          rankings tab. Local-first on every tier — the card reads and writes
+          on-device SQLite only (src/data/bodyweightDaily.ts). */}
+      <DailyWeightCard unitPref={unitPref} compact />
 
       {/* ── G. Recent history ── */}
       <SectionHeader label={t('tabs:home.recentActivitySectionLabel')} onViewAll={() => router.push('/workout-history')} />

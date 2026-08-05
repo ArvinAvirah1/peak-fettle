@@ -195,15 +195,15 @@ function eq(a, b, msg) {
     await runMigrations(db);
     const v2 = db._pragmas.user_version;
     eq(v1, v2, 'version changed on second run:');
-    eq(v1, 18, 'expected version 18:');
+    eq(v1, 20, 'expected version 20:');
   });
 
   // 2. Fresh install reaches the latest version
-  await test('fresh install reaches user_version 18', async () => {
+  await test('fresh install reaches user_version 20', async () => {
     const db = makeStubDb();
     eq(db._pragmas.user_version, 0, 'starts at 0:');
     await runMigrations(db);
-    eq(db._pragmas.user_version, 18, 'should be 18 after migration:');
+    eq(db._pragmas.user_version, 20, 'should be 20 after migration:');
   });
 
   // 3. v2 tables created (10 spot-checked)
@@ -319,7 +319,7 @@ function eq(a, b, msg) {
 
     await runMigrations(db);
 
-    eq(db._pragmas.user_version, 18, 'should reach 18 from a v10 baseline:');
+    eq(db._pragmas.user_version, 20, 'should reach 20 from a v10 baseline:');
     assert(db._tableColumns['sets'].has('note'), 'v10->v11 upgrade missing sets.note');
     assert(db._tableColumns['sets'].has('flags'), 'v10->v11 upgrade missing sets.flags');
     assert(db._createdTables.has('body_measurements'), 'v11->v12 upgrade missing body_measurements');
@@ -383,7 +383,7 @@ function eq(a, b, msg) {
     const db = makeStubDb();
     db._pragmas.user_version = 13;
     await runMigrations(db);
-    eq(db._pragmas.user_version, 18, 'should reach 18 from a v13 baseline:');
+    eq(db._pragmas.user_version, 20, 'should reach 20 from a v13 baseline:');
     assert(db._createdTables.has('badges_earned'), 'v13->v16 upgrade missing badges_earned');
     const cols = db._tableColumns['exercise_prefs'];
     assert(cols && cols.has('autoreg_muted'), 'v13->v16 upgrade missing exercise_prefs.autoreg_muted');
@@ -426,7 +426,7 @@ function eq(a, b, msg) {
     db._pragmas.user_version = 16;
     db._executedSql.length = 0;
     await runMigrations(db);
-    eq(db._pragmas.user_version, 18, 'should reach 18 from a v16 baseline:');
+    eq(db._pragmas.user_version, 20, 'should reach 20 from a v16 baseline:');
     assert(db._createdTables.has('exercise_substitutes'), 'v16->v17 upgrade missing exercise_substitutes');
     assert(
       !db._executedSql.some((s) => /CREATE TABLE IF NOT EXISTS badges_earned/i.test(s)),
@@ -448,18 +448,76 @@ function eq(a, b, msg) {
   // 3q. v17->v18 upgrade path — a DB already at user_version 17 applies ONLY
   // v18 and lands the two exact-weight columns (fresh-install AND vN->vN+1
   // upgrade DoD, same pattern as 3h/3l/3o).
-  await test('v17->v18 upgrade path applies only the new migration', async () => {
+  await test('v17->latest upgrade path applies only the new migrations', async () => {
     const db = makeStubDb();
     db._pragmas.user_version = 17;
     db._executedSql.length = 0;
     await runMigrations(db);
-    eq(db._pragmas.user_version, 18, 'should reach 18 from a v17 baseline:');
+    eq(db._pragmas.user_version, 20, 'should reach 20 from a v17 baseline:');
     const cols = db._tableColumns['sets'];
     assert(cols && cols.has('weight_centi'), 'v17->v18 upgrade missing sets.weight_centi');
     assert(cols && cols.has('weight_unit'), 'v17->v18 upgrade missing sets.weight_unit');
     assert(
       !db._executedSql.some((s) => /CREATE TABLE IF NOT EXISTS exercise_substitutes/i.test(s)),
       'v17->v18 upgrade re-ran an already-applied migration (exercise_substitutes)'
+    );
+  });
+
+  // 3r. Daily weight check-in + weigh-in reminder: v19 creates both tables on a
+  // fresh install and lands the two guarded ALTERs on `bodyweight`.
+  await test('fresh install creates bodyweight_daily + routine_reminders (v19)', async () => {
+    const db = makeStubDb();
+    await runMigrations(db);
+    assert(db._createdTables.has('bodyweight_daily'), 'bodyweight_daily table missing after v19 migration');
+    assert(db._createdTables.has('routine_reminders'), 'routine_reminders table missing after v19 migration');
+    const cols = db._tableColumns['bodyweight'];
+    assert(cols, 'bodyweight has no recorded columns');
+    assert(cols.has('source'), 'bodyweight.source column missing after v19 migration');
+    assert(cols.has('sample_count'), 'bodyweight.sample_count column missing after v19 migration');
+  });
+
+  // 3s. v18->v19 upgrade path — a DB already at user_version 18 applies ONLY
+  // v19 (fresh-install AND vN->vN+1 upgrade DoD, same pattern as 3h/3l/3o/3q).
+  await test('v18->latest upgrade path applies only the new migrations', async () => {
+    const db = makeStubDb();
+    db._pragmas.user_version = 18;
+    db._executedSql.length = 0;
+    await runMigrations(db);
+    eq(db._pragmas.user_version, 20, 'should reach 20 from a v18 baseline:');
+    assert(db._createdTables.has('bodyweight_daily'), 'v18->v19 upgrade missing bodyweight_daily');
+    assert(db._createdTables.has('routine_reminders'), 'v18->v19 upgrade missing routine_reminders');
+    const cols = db._tableColumns['bodyweight'];
+    assert(cols && cols.has('source'), 'v18->v19 upgrade missing bodyweight.source');
+    assert(cols && cols.has('sample_count'), 'v18->v19 upgrade missing bodyweight.sample_count');
+    assert(
+      !db._executedSql.some((sql) => /CREATE TABLE IF NOT EXISTS exercise_substitutes/i.test(sql)),
+      'v18->v19 upgrade re-ran an already-applied migration (exercise_substitutes)'
+    );
+  });
+
+  // 3t. Resumable sessions: v20 adds workouts.routine_id so Recent Activity can
+  // map a logged session back to its routine.
+  await test('fresh install adds workouts.routine_id (v20)', async () => {
+    const db = makeStubDb();
+    await runMigrations(db);
+    const cols = db._tableColumns['workouts'];
+    assert(cols, 'workouts has no recorded columns');
+    assert(cols.has('routine_id'), 'workouts.routine_id column missing after v20 migration');
+    assert(cols.has('routine_name'), 'v4 workouts.routine_name should still be present');
+  });
+
+  // 3u. v19->v20 upgrade path applies ONLY v20.
+  await test('v19->v20 upgrade path applies only the new migration', async () => {
+    const db = makeStubDb();
+    db._pragmas.user_version = 19;
+    db._executedSql.length = 0;
+    await runMigrations(db);
+    eq(db._pragmas.user_version, 20, 'should reach 20 from a v19 baseline:');
+    const cols = db._tableColumns['workouts'];
+    assert(cols && cols.has('routine_id'), 'v19->v20 upgrade missing workouts.routine_id');
+    assert(
+      !db._executedSql.some((sql) => /CREATE TABLE IF NOT EXISTS bodyweight_daily/i.test(sql)),
+      'v19->v20 upgrade re-ran an already-applied migration (bodyweight_daily)'
     );
   });
 
@@ -534,8 +592,8 @@ function eq(a, b, msg) {
     eq(BACKUP_SCHEMA_VERSION, 2, 'BACKUP_SCHEMA_VERSION:');
   });
 
-  // 9. BACKUP_TABLES contains all 26 tables
-  await test('BACKUP_TABLES contains all 26 registered tables', () => {
+  // 9. BACKUP_TABLES contains all 28 tables
+  await test('BACKUP_TABLES contains all 28 registered tables', () => {
     const expected = [
       'workouts', 'sets', 'schedule', 'avatar', 'bodyweight', 'exercise_prefs', 'exercise_goals',
       'plans', 'routines', 'streaks', 'streak_overrides', 'daily_health_log', 'daily_health_metrics',
@@ -546,6 +604,8 @@ function eq(a, b, msg) {
       'progress_photos', // v13 (TICKET-133)
       'badges_earned', // v14 (TICKET-143)
       'exercise_substitutes', // v17 (SUBS-001)
+      'bodyweight_daily', // v19 (daily weight check-in)
+      'routine_reminders', // v19 (per-routine weigh-in reminder)
     ];
     eq(BACKUP_TABLES.length, expected.length,
       'BACKUP_TABLES.length ' + BACKUP_TABLES.length + ' expected ' + expected.length + ':');

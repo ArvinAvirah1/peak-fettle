@@ -42,6 +42,13 @@ import { ExercisePicker } from './ExercisePicker';
 import { Exercise } from '../types/api';
 import { DropsetConfigSheet, DropsetConfig } from './routineEditor/DropsetConfigSheet';
 import { SupersetLinkSheet, SupersetLinkCandidate } from './routineEditor/SupersetLinkSheet';
+import { WeighInReminderSection } from './routineEditor/WeighInReminderSection';
+import {
+  DEFAULT_REMINDER,
+  RoutineReminder,
+  getRoutineReminderOrDefault,
+  saveRoutineReminder,
+} from '../data/routineReminders';
 import { SubstituteSwapSheet, SwapSelection } from './SubstituteSwapSheet';
 import {
   mergedSubstitutesFor,
@@ -176,6 +183,12 @@ export default function RoutineEditorSheet({
   const [swapSuggested, setSwapSuggested] = useState<SwapCandidate[]>([]);
   const [swapReason, setSwapReason] = useState<string | null>(null);
   const [swapLoading, setSwapLoading] = useState(false);
+  // Daily weigh-in reminder draft (founder 2026-08-04). Held here, not written
+  // on toggle, so it commits with the rest of the routine on "Save routine".
+  const [reminder, setReminder] = useState<RoutineReminder>({
+    routine_id: routine?.id ?? '',
+    ...DEFAULT_REMINDER,
+  });
 
   useEffect(() => {
     setName(routine?.name ?? '');
@@ -187,6 +200,25 @@ export default function RoutineEditorSheet({
     setPickerTargetGroup(null);
     setSwapForIndex(null);
     setAltForIndex(null);
+    setReminder({ routine_id: routine?.id ?? '', ...DEFAULT_REMINDER });
+  }, [routine]);
+
+  // Load the saved reminder for this routine. Separate from the reset effect
+  // above so an in-flight read for the PREVIOUS routine can't land on the new
+  // one: `cancelled` drops any response that resolves after the swap.
+  useEffect(() => {
+    if (!routine) return;
+    let cancelled = false;
+    getRoutineReminderOrDefault(routine.id)
+      .then((saved) => {
+        if (!cancelled) setReminder(saved);
+      })
+      .catch(() => {
+        // No row yet / DB not ready — the default (all off) already applies.
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [routine]);
 
   const blocks = useMemo(() => toBlocks(items), [items]);
@@ -667,6 +699,20 @@ export default function RoutineEditorSheet({
     try {
       // handleSave full-replaces exercises — the S2 fields ride along in `items`.
       const updated = await updateRoutine(user, routine.id, { name: trimmed, exercises: items });
+      // Weigh-in reminder is device-local (see data/routineReminders.ts) and is
+      // saved AFTER the routine so it can carry the freshly saved name into the
+      // notification body. Best-effort: a notification-permission refusal must
+      // not fail a routine save the user already committed to.
+      try {
+        await saveRoutineReminder({ ...reminder, routine_id: routine.id }, trimmed, {
+          title: t('components:weighInReminder.notificationTitle'),
+          body: (routineName: string) =>
+            t('components:weighInReminder.notificationBody', { name: routineName }),
+          channelName: t('components:weighInReminder.channelName'),
+        });
+      } catch {
+        // Reminder scheduling failed — the routine itself is already saved.
+      }
       onSaved(updated);
       setSavedFlash(true);
       setTimeout(() => {
@@ -678,7 +724,7 @@ export default function RoutineEditorSheet({
     } finally {
       setSaving(false);
     }
-  }, [routine, name, items, user, onSaved, onClose]);
+  }, [routine, name, items, user, onSaved, onClose, reminder, t]);
 
   const saveDisabled = saving || name.trim().length === 0;
 
@@ -814,6 +860,12 @@ export default function RoutineEditorSheet({
             >
               <Text style={styles.addLabel}>{t('components:routineEditorSheet.addExerciseButton')}</Text>
             </TouchableOpacity>
+
+            {/* Daily weigh-in reminder (founder 2026-08-04). Below the exercise
+                list because it's routine SETTINGS, not routine content — and
+                this editor is also what opens right after "New routine", so
+                this covers both the set-up and the edit path. */}
+            <WeighInReminderSection value={reminder} onChange={setReminder} />
           </ScrollView>
 
           <View style={[styles.saveBar, { paddingBottom: Math.max(insets.bottom, spacing.s3) }]}>

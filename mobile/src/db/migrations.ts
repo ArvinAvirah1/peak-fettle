@@ -24,7 +24,7 @@
  * SPEC-094A Agent L, 2026-06-12.
  */
 
-import { SCHEMA_V2_STATEMENTS, SCHEMA_V3_STATEMENTS, SCHEMA_V4_STATEMENTS, SCHEMA_V5_STATEMENTS, SCHEMA_V6_STATEMENTS, SCHEMA_V7_STATEMENTS, SCHEMA_V8_STATEMENTS, SCHEMA_V9_STATEMENTS, SCHEMA_V10_STATEMENTS, SCHEMA_V11_STATEMENTS, SCHEMA_V12_STATEMENTS, SCHEMA_V13_STATEMENTS, SCHEMA_V14_STATEMENTS, SCHEMA_V15_STATEMENTS, SCHEMA_V16_STATEMENTS, SCHEMA_V17_STATEMENTS, SCHEMA_V18_STATEMENTS, MigrationStatement } from './localSchema';
+import { SCHEMA_V2_STATEMENTS, SCHEMA_V3_STATEMENTS, SCHEMA_V4_STATEMENTS, SCHEMA_V5_STATEMENTS, SCHEMA_V6_STATEMENTS, SCHEMA_V7_STATEMENTS, SCHEMA_V8_STATEMENTS, SCHEMA_V9_STATEMENTS, SCHEMA_V10_STATEMENTS, SCHEMA_V11_STATEMENTS, SCHEMA_V12_STATEMENTS, SCHEMA_V13_STATEMENTS, SCHEMA_V14_STATEMENTS, SCHEMA_V15_STATEMENTS, SCHEMA_V16_STATEMENTS, SCHEMA_V17_STATEMENTS, SCHEMA_V18_STATEMENTS, SCHEMA_V19_STATEMENTS, SCHEMA_V20_STATEMENTS, MigrationStatement } from './localSchema';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -236,7 +236,25 @@ const MIGRATION_V18: MigrationVersion = {
   statements: SCHEMA_V18_STATEMENTS,
 };
 
-export const MIGRATIONS: MigrationVersion[] = [MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6, MIGRATION_V7, MIGRATION_V8, MIGRATION_V9, MIGRATION_V10, MIGRATION_V11, MIGRATION_V12, MIGRATION_V13, MIGRATION_V14, MIGRATION_V15, MIGRATION_V16, MIGRATION_V17, MIGRATION_V18];
+// v19: daily weight check-in + per-routine weigh-in reminder. Creates
+// `bodyweight_daily` (one row per local calendar day, exact typed entry +
+// canonical kg) and `routine_reminders` (per-routine, device-local), and adds
+// bodyweight.source / bodyweight.sample_count so a weekly median records
+// whether it was typed by the user or derived from daily readings.
+const MIGRATION_V19: MigrationVersion = {
+  v: 19,
+  statements: SCHEMA_V19_STATEMENTS,
+};
+
+// v20: workouts.routine_id — lets a logged session be mapped back to the
+// routine that produced it, so Recent Activity can offer "Continue". Guarded
+// ALTER, additive; historical rows fall back to a routine_name lookup.
+const MIGRATION_V20: MigrationVersion = {
+  v: 20,
+  statements: SCHEMA_V20_STATEMENTS,
+};
+
+export const MIGRATIONS: MigrationVersion[] = [MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6, MIGRATION_V7, MIGRATION_V8, MIGRATION_V9, MIGRATION_V10, MIGRATION_V11, MIGRATION_V12, MIGRATION_V13, MIGRATION_V14, MIGRATION_V15, MIGRATION_V16, MIGRATION_V17, MIGRATION_V18, MIGRATION_V19, MIGRATION_V20];
 
 // ---------------------------------------------------------------------------
 // Runner

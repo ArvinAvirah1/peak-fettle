@@ -18,20 +18,40 @@ export interface BodyweightEntry {
   week_key: string; // ISO week, e.g. "2026-W24"
   weight_kg: number;
   logged_at: string; // ISO datetime
+  /** v19: how this median got here — 'manual' (typed on the rankings card) or
+   *  'derived' (median of that week's daily check-ins). NULL on pre-v19 rows,
+   *  which were all manual by definition. */
+  source?: string | null;
+  /** v19: number of daily readings the derived median was computed from. */
+  sample_count?: number | null;
 }
 
 /** Tier gate freshness window: latest weekly median must be ≤ 14 days old
  *  (current or previous ISO week). Founder rule, 2026-06-10. */
 export const TIER_FRESHNESS_DAYS = 14;
 
-/** Upsert this week's median weight (kg). */
+/**
+ * Upsert this week's median weight (kg) from a HAND-TYPED value.
+ *
+ * v19 precedence guard: the `WHERE bodyweight.source IS NOT 'derived'` clause
+ * makes this a no-op against a week whose median was already computed from
+ * daily check-ins. Real readings beat a remembered estimate (founder rule,
+ * 2026-08-04), and the UI only offers manual entry below the daily threshold —
+ * this is the belt-and-braces version of that rule at the storage layer, so a
+ * stale mounted card can never overwrite a derived median.
+ */
 export async function logWeeklyBodyweight(weightKg: number, now: Date = new Date()): Promise<void> {
   if (!(weightKg > 0)) return;
   const week = isoWeekKey(now);
   await localDb.execute(
-    `INSERT INTO bodyweight (id, week_key, weight_kg, logged_at)
-     VALUES (?, ?, ?, ?)
-     ON CONFLICT(week_key) DO UPDATE SET weight_kg = excluded.weight_kg, logged_at = excluded.logged_at`,
+    `INSERT INTO bodyweight (id, week_key, weight_kg, logged_at, source, sample_count)
+     VALUES (?, ?, ?, ?, 'manual', NULL)
+     ON CONFLICT(week_key) DO UPDATE SET
+       weight_kg    = excluded.weight_kg,
+       logged_at    = excluded.logged_at,
+       source       = 'manual',
+       sample_count = NULL
+     WHERE bodyweight.source IS NOT 'derived'`,
     [genId(), week, weightKg, now.toISOString()],
     { tables: ['bodyweight'] },
   );
@@ -39,7 +59,8 @@ export async function logWeeklyBodyweight(weightKg: number, now: Date = new Date
 
 export async function getLatestBodyweight(): Promise<BodyweightEntry | null> {
   return localDb.getFirst<BodyweightEntry>(
-    `SELECT id, week_key, weight_kg, logged_at FROM bodyweight ORDER BY logged_at DESC LIMIT 1`,
+    `SELECT id, week_key, weight_kg, logged_at, source, sample_count
+       FROM bodyweight ORDER BY logged_at DESC LIMIT 1`,
   );
 }
 
@@ -51,7 +72,8 @@ export async function getBodyweightHistory(limit = 104): Promise<BodyweightEntry
   // lexicographically correctly for ISO weeks within a year and across years.
   // ASC directly yields oldest-first — no .reverse() needed.
   return localDb.getAll<BodyweightEntry>(
-    `SELECT id, week_key, weight_kg, logged_at FROM bodyweight ORDER BY week_key ASC LIMIT ?`,
+    `SELECT id, week_key, weight_kg, logged_at, source, sample_count
+       FROM bodyweight ORDER BY week_key ASC LIMIT ?`,
     [limit],
   );
 }

@@ -2336,41 +2336,68 @@ export default function StepperLogger({
               </>
             )}
 
-            {/* TICKET-082 Part B / SUBS-001: "Choose alternative exercise" —
-                opens the swap sheet for ALL tiers (user substitutes are free;
-                engine suggestions are Pro-gated inside the sheet). */}
-            {onChooseAlternative ? (
-              <TouchableOpacity
-                onPress={onChooseAlternative}
-                style={styles.altExerciseLink}
-                accessibilityRole="button"
-                accessibilityLabel={t('logger:stepperLogger.chooseAlternativeA11y')}
-              >
-                <Text style={styles.altExerciseLinkLabel}>{t('logger:stepperLogger.chooseAlternativeLabel')}</Text>
-              </TouchableOpacity>
-            ) : null}
+            {/* Swap / superset action pair (founder 2026-08-04). These were
+                small underlined text links and read as fine print next to the
+                solid Log Set bar; the founder asked for a real button —
+                "bigger, but not as large as Log set". Two half-width outlined
+                48pt buttons on one row: unmistakably tappable, visibly
+                secondary to the primary action below.
 
-            {/* S1: "Superset with…" (ungrouped, >=1 other pending) / "Unlink
-                superset" (grouped). Free feature — no Pro gating. Hidden entirely
-                in history-edit mode (parent passes no callbacks then). */}
-            {!isCardio && isGrouped && groupId && onUnlinkSuperset ? (
-              <TouchableOpacity
-                onPress={() => onUnlinkSuperset(groupId)}
-                style={styles.altExerciseLink}
-                accessibilityRole="button"
-                accessibilityLabel={t('logger:stepperLogger.unlinkSupersetA11y')}
-              >
-                <Text style={styles.altExerciseLinkLabel}>{t('logger:stepperLogger.unlinkSupersetLabel')}</Text>
-              </TouchableOpacity>
-            ) : !isCardio && !isGrouped && onSupersetWith && hasOtherPending ? (
-              <TouchableOpacity
-                onPress={onSupersetWith}
-                style={styles.altExerciseLink}
-                accessibilityRole="button"
-                accessibilityLabel={t('logger:stepperLogger.supersetWithA11y')}
-              >
-                <Text style={styles.altExerciseLinkLabel}>{t('logger:stepperLogger.supersetWithLabel')}</Text>
-              </TouchableOpacity>
+                Left  — "Choose alternative": opens the swap sheet for ALL tiers
+                        (user substitutes are free; engine suggestions are
+                        Pro-gated inside the sheet).
+                Right — "Superset with…" (ungrouped, >=1 other pending) or
+                        "Unlink superset" (already grouped). Free feature.
+
+                Either slot can be absent (cardio, history-edit, nothing to pair
+                with). A lone button keeps its half-width rather than stretching,
+                so the row never reflows into something that reads as primary. */}
+            {onChooseAlternative || (!isCardio && (isGrouped ? onUnlinkSuperset : onSupersetWith && hasOtherPending)) ? (
+              <View style={styles.actionPairRow}>
+                {onChooseAlternative ? (
+                  <TouchableOpacity
+                    onPress={onChooseAlternative}
+                    style={styles.actionPairBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('logger:stepperLogger.chooseAlternativeA11y')}
+                  >
+                    <Text style={styles.actionPairIcon}>⇄</Text>
+                    <Text style={styles.actionPairLabel} numberOfLines={1}>
+                      {t('logger:stepperLogger.chooseAlternativeShort')}
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={styles.actionPairSpacer} />
+                )}
+
+                {!isCardio && isGrouped && groupId && onUnlinkSuperset ? (
+                  <TouchableOpacity
+                    onPress={() => onUnlinkSuperset(groupId)}
+                    style={styles.actionPairBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('logger:stepperLogger.unlinkSupersetA11y')}
+                  >
+                    <Text style={styles.actionPairIcon}>⇤</Text>
+                    <Text style={styles.actionPairLabel} numberOfLines={1}>
+                      {t('logger:stepperLogger.unlinkSupersetShort')}
+                    </Text>
+                  </TouchableOpacity>
+                ) : !isCardio && !isGrouped && onSupersetWith && hasOtherPending ? (
+                  <TouchableOpacity
+                    onPress={onSupersetWith}
+                    style={styles.actionPairBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('logger:stepperLogger.supersetWithA11y')}
+                  >
+                    <Text style={styles.actionPairIcon}>⇄</Text>
+                    <Text style={styles.actionPairLabel} numberOfLines={1}>
+                      {t('logger:stepperLogger.supersetWithShort')}
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={styles.actionPairSpacer} />
+                )}
+              </View>
             ) : null}
 
             {/* P1a: the primary "Log set N" / "Save set N" action now lives in the
@@ -3539,6 +3566,43 @@ const styles = StyleSheet.create({
     fontSize: fontSize.caption,
     color: stepperPalette.muted,
     textDecorationLine: 'underline',
+  },
+
+  // ── Swap / superset action pair (founder 2026-08-04) ──────────────────────
+  // Outlined, accent-bordered, transparent fill: reads as a button without
+  // competing with the solid primary Log Set bar in the sticky footer.
+  actionPairRow: {
+    flexDirection: 'row',
+    gap: spacing.s2,
+    marginBottom: spacing.s3,
+  },
+  actionPairBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.s2,
+    minHeight: 48,
+    paddingHorizontal: spacing.s3,
+    borderWidth: 1,
+    borderColor: stepperPalette.accentLine,
+    backgroundColor: stepperPalette.accentSurface,
+    borderRadius: radius.md,
+  },
+  // Holds the empty half so a lone button stays half-width (see the render note).
+  actionPairSpacer: {
+    flex: 1,
+  },
+  actionPairIcon: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: fontSize.bodyMd,
+    color: stepperPalette.accent,
+  },
+  actionPairLabel: {
+    fontFamily: fontFamily.semiBold,
+    fontSize: fontSize.bodySm,
+    color: stepperPalette.accent,
+    flexShrink: 1,
   },
 });
 

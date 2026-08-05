@@ -38,6 +38,10 @@ import {
   HealthDayPoint,
   GoalProgress,
 } from '../../src/hooks/useHealthDashboard';
+import { DailyWeightCard } from '../../src/components/DailyWeightCard';
+import { useAuth } from '../../src/hooks/useAuth';
+import { UnitSystem } from '../../src/constants/units';
+import { defaultUnitForLocale } from '../../src/constants/locale';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -314,6 +318,10 @@ export default function HealthScreen(): React.ReactElement {
   // the scroll content clear of the home indicator via insets.bottom.
   const insets = useSafeAreaInsets();
   const c = theme.colors;
+  // Display unit only — useAuth reads the cached user from context, no network
+  // call, so this stays consistent with the tab's local-first guarantee.
+  const { user } = useAuth();
+  const unitPref = (user?.unit_pref as UnitSystem) ?? defaultUnitForLocale();
 
   const {
     days,
@@ -439,7 +447,18 @@ export default function HealthScreen(): React.ReactElement {
           </PFCard>
         </View>
 
-        {/* ── Section 2: Sync ── */}
+        {/* ── Section 2: Body weight (founder 2026-08-04) ──
+            Same component as the Home tab, same on-device write: a weight typed
+            here is immediately visible there (both subscribe to the
+            `bodyweight_daily` table via useDailyWeight). Three readings in an
+            ISO week and the weekly median that drives the rankings tier ladder
+            is computed rather than estimated. */}
+        <View style={styles.section}>
+          <SectionHeader text={t('screens:healthDashboard.bodyWeight')} />
+          <DailyWeightCard unitPref={unitPref} />
+        </View>
+
+        {/* ── Section 3: Sync ── */}
         {Platform.OS === 'ios' ? (
           <View style={styles.section}>
             <SectionHeader text={t('screens:healthDashboard.sync')} />
@@ -497,7 +516,7 @@ export default function HealthScreen(): React.ReactElement {
           </View>
         )}
 
-        {/* ── Section 3: Recent days ── */}
+        {/* ── Section 4: Recent days ── */}
         <View style={styles.section}>
           <SectionHeader text={t('screens:healthDashboard.recentDays')} />
 

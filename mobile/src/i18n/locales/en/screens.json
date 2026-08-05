@@ -51,6 +51,7 @@
     "recentCardio": "RECENT CARDIO"
   },
   "healthDashboard": {
+    "bodyWeight": "BODY WEIGHT",
     "goals": "GOALS",
     "sync": "SYNC",
     "recentDays": "RECENT DAYS",

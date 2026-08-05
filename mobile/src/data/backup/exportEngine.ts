@@ -81,6 +81,12 @@ export const BACKUP_TABLES: string[] = [
   'badges_earned',
   // v17 table (SUBS-001: global "all routines" exercise substitutes)
   'exercise_substitutes',
+  // v19 tables (daily weight check-in + per-routine weigh-in reminder).
+  // routine_reminders holds `notification_ids`, which are per-DEVICE handles —
+  // they are backed up for shape completeness but are meaningless on a restore
+  // to another device; saveRoutineReminder rewrites them on the next edit.
+  'bodyweight_daily',
+  'routine_reminders',
 ];
 
 export type Row = Record<string, unknown>;
@@ -108,6 +114,7 @@ const COLUMN_ALLOWLIST: Record<string, Set<string>> = {
   workouts: new Set([
     'id', 'user_id', 'day_key', 'notes', 'session_type', 'created_at', 'updated_at', 'synced',
     'routine_name', // v4
+    'routine_id', // v20 (resumable sessions - Continue from Recent Activity)
   ]),
   sets: new Set([
     'id', 'server_id', 'workout_id', 'user_id', 'exercise_id', 'kind', 'set_index', 'reps',
@@ -119,7 +126,17 @@ const COLUMN_ALLOWLIST: Record<string, Set<string>> = {
   ]),
   schedule: new Set(['id', 'mode', 'data', 'position', 'updated_at']),
   avatar: new Set(['id', 'data', 'updated_at']),
-  bodyweight: new Set(['id', 'week_key', 'weight_kg', 'logged_at']),
+  bodyweight: new Set([
+    'id', 'week_key', 'weight_kg', 'logged_at',
+    'source', 'sample_count', // v19 (manual vs daily-derived weekly median)
+  ]),
+  bodyweight_daily: new Set([
+    'id', 'day', 'week_key', 'weight_kg', 'weight_centi', 'weight_unit', 'source', 'logged_at',
+  ]),
+  routine_reminders: new Set([
+    'routine_id', 'enabled', 'in_app_timing', 'notify_enabled', 'notify_days',
+    'notify_hour', 'notify_minute', 'notification_ids', 'updated_at',
+  ]),
   exercise_prefs: new Set([
     'exercise_id', 'warmup_enabled', 'warmup_sets', 'base_weight_kg', 'pulley_id', 'updated_at',
     'autoreg_muted', // v15 (TICKET-141: in-session autoregulation suggestions)

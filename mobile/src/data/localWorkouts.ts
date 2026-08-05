@@ -211,15 +211,24 @@ export async function stampLocalRoutineName(
   dayKey: string,
   routineName: string,
   userId?: string,
+  routineId?: string,
 ): Promise<void> {
   if (!routineName?.trim()) return;
   try {
     await localDb.init();
     const userClause = userId ? ' AND user_id = ?' : '';
-    const params: unknown[] = [routineName.trim(), new Date().toISOString(), dayKey];
+    // v20: also stamp routine_id when the caller knows it, so Recent Activity
+    // can offer "Continue" without guessing from the (renameable, ambiguous)
+    // name. COALESCE keeps a previously written id if this call has none.
+    const params: unknown[] = [
+      routineName.trim(),
+      routineId ?? null,
+      new Date().toISOString(),
+      dayKey,
+    ];
     if (userId) params.push(userId);
     await localDb.execute(
-      `UPDATE workouts SET routine_name = ?, updated_at = ?
+      `UPDATE workouts SET routine_name = ?, routine_id = COALESCE(?, routine_id), updated_at = ?
         WHERE day_key = ? AND (session_type IS NULL OR session_type != 'rest_day')${userClause}`,
       params,
       { tables: ['workouts'] },

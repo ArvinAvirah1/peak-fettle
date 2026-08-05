@@ -56,6 +56,7 @@ import type { WorkoutTemplate } from '../../src/api/templates';
 import { getStarterSplits } from '../../src/data/starterSplits';
 import { TemplateDetailSheet, SheetExercise } from '../../src/components/TemplateDetailSheet';
 import RoutineEditorSheet from '../../src/components/RoutineEditorSheet';
+import { deleteRoutineReminder } from '../../src/data/routineReminders';
 import { useTourAnchor } from '../../src/components/tour/WelcomeTour'; // TICKET-095
 import ScheduleEditorSheet from '../../src/components/ScheduleEditorSheet'; // TICKET-097
 import { loadSchedule, resolveNextUp, skipToNext, Schedule, NextUp, ScheduleSlot } from '../../src/data/schedule';
@@ -293,6 +294,10 @@ export default function RoutinesPage(): React.ReactElement {
           onPress: async () => {
             try {
               await deleteRoutine(user, routine.id);
+              // Cancel any weigh-in reminder this routine had scheduled —
+              // otherwise its local notifications keep firing for a routine
+              // that no longer exists (they live in the OS, not the DB).
+              await deleteRoutineReminder(routine.id).catch(() => {});
               setRoutines((prev) => prev.filter((r) => r.id !== routine.id));
             } catch {
               Alert.alert(t('tabs:routines.errorTitle'), t('tabs:routines.couldNotDeleteRoutine'));

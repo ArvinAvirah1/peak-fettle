@@ -75,7 +75,7 @@ import { loadLocalProfile } from '../data/profile';
 import { useTheme } from '../theme/ThemeContext';
 import { fontSize, fontWeight, spacing, radius } from '../theme/tokens';
 import { haptics } from '../utils/haptics';
-import { formatWeight, formatSetWeight, centiToDisplayValue, kgToLbs, roundToNearestQuarterLb, displayToKg, displayToCenti, parseWeightInput } from '../constants/units';
+import { formatWeight, formatSetWeight, centiToDisplayValue, kgToLbs, roundToNearestQuarterLb, displayToKg, displayToCenti, parseWeightInput, setWeightToInputValue, UnitSystem } from '../constants/units';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getRoutine, type Routine } from '../data/routines';
 import { getRestTimerDefaultSec, getGroupRestMode, GroupRestMode } from '../data/appSettings'; // P1b — device-local rest default; TICKET-144 — grouped-set rest mode
@@ -87,7 +87,7 @@ import { createWorkout } from '../api/workouts';
 import { toDateKey } from '../utils/dateHelpers';
 import { getExercises } from '../api/exercises';
 import { getPersonalBest, getPersonalBests, PersonalBest } from '../api/sets';
-import { Exercise } from '../types/api';
+import { Exercise, LiftSet } from '../types/api';
 import { RoutineSession, RoutineSessionExercise, seedSessionExercise } from './RoutineStrip';
 import { suggestNextExercise, suggestNextExercises, SessionExercise, SuggestCandidate } from '../utils/smartSuggest';
 import PRToast, { PRToastData } from './PRToast';
@@ -109,6 +109,8 @@ import { useRestTimer, REST_TIMER_STEP } from '../hooks/useRestTimer';
 // Founder logger fixes #1/#2: the mini-bar (minimize-to-bubble) + the pure
 // timer helper that derives the countdown from an ABSOLUTE deadline (no drift).
 import { WorkoutMiniBar } from './WorkoutMiniBar';
+import { WeighInPromptSheet } from './WeighInPromptSheet';
+import { dismissWeighInPromptForToday, shouldPromptWeighIn } from '../data/routineReminders';
 import {
   restRemainingSec,
   restAfterSet,
@@ -234,6 +236,15 @@ export interface WorkoutLoggerRef {
    * local-first) to UPDATE the existing row. No new set is created.
    */
   startHistoryEdit: (args: HistoryEditArgs) => void;
+  /**
+   * RESUME today's in-progress routine (founder 2026-08-04). Unlike
+   * startRoutine, this seeds each exercise's progress from what has ALREADY
+   * been logged today and opens at the first unfinished exercise, so "Continue"
+   * from Recent Activity picks up where the session left off instead of
+   * restarting it. Today only — the logger writes to today's workout, so
+   * resuming an older day would silently misdate the sets.
+   */
+  resumeRoutine: (routineId: string) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -271,6 +282,28 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
     // effect, is the cancel signal. (S3-02 / unmount-guard.)
     const mountedRef = useRef(true);
     useEffect(() => () => { mountedRef.current = false; }, []);
+
+    // Daily weigh-in prompt (founder 2026-08-04). Shown when a session from a
+    // routine with the reminder enabled starts or ends — see
+    // data/routineReminders.ts shouldPromptWeighIn for the full gate (timing
+    // match, nothing logged today, not dismissed today).
+    //
+    // TWO React Native <Modal>s must never be presented at once: on iOS the
+    // second present() against an already-presented view controller is dropped
+    // silently. So the 'start' variant does NOT overlay the stepper — it holds
+    // the session in pendingSessionRef, shows the sheet first, and starts the
+    // stepper once the sheet closes. The 'end' variant has no such conflict
+    // (the stepper is already torn down) but still waits out the dismissal
+    // animation before presenting.
+    const [weighInPromptVisible, setWeighInPromptVisible] = useState(false);
+    const pendingSessionRef = useRef<RoutineSession | null>(null);
+    const endPromptTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    useEffect(
+      () => () => {
+        if (endPromptTimerRef.current) clearTimeout(endPromptTimerRef.current);
+      },
+      [],
+    );
 
     // Paywall
     const [showPaywall, setShowPaywall] = useState(false);
@@ -337,6 +370,20 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
     const [restEndAt, setRestEndAt] = useState<number | null>(null);
     const [restNow, setRestNow] = useState(() => Date.now());
     const restSecondsLeft = restEndAt == null ? null : restRemainingSec(restEndAt, restNow);
+
+    // ── Session surface state: ONE source of truth for three views ────────────
+    // GL-1 (founder report 2026-08-04): the stepper Modal, the mini-bar and the
+    // rest banner each computed their own visibility, and the three could
+    // disagree. `onBrowseLibrary` set stepperVisible=false WITHOUT setting
+    // minimized, which produced a state no view claimed: a live session with the
+    // stepper hidden, the mini-bar hidden (it required `minimized`) and the rest
+    // banner stranded on Home with no way back into the routine — exactly the
+    // reported "broke out of the routine with a glitchy rest timer".
+    //
+    // Deriving all three from one expression makes that state unrepresentable:
+    // whenever a session exists, EITHER the stepper or the mini-bar is showing.
+    const stepperShowing = stepperVisible && !minimized && !!routineSession;
+    const miniBarShowing = !!routineSession && !stepperShowing;
     const [restDefault, setRestDefault] = useState(REST_DEFAULT);
     // P1b: seed the rest default from the device-local app_settings store
     // (getRestTimerDefaultSec, built in Foundation — no REST, safe on mount,
@@ -556,7 +603,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           // server createWorkout() here just stalled on the free path (no token
           // round-trip succeeds), contributing to the "routine logging is laggy"
           // report, and never actually labelled the local session.
-          void stampLocalRoutineName(dayKey, session.name);
+          void stampLocalRoutineName(dayKey, session.name, undefined, session.routineId);
         } else {
           createWorkout(dayKey, undefined, {
             routineId: session.routineId,
@@ -567,6 +614,23 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
         }
       }
     }, [workout?.day_key, user]);
+
+    /**
+     * Start the session that the "at session start" weigh-in prompt was holding.
+     * No-op when nothing is pending (i.e. the "at session end" variant).
+     *
+     * The delay is the same iOS constraint as everywhere else in this flow: the
+     * prompt sheet is a <Modal> that is mid-dismissal at this point, and
+     * presenting the stepper Modal during that dismissal drops it silently.
+     */
+    const startPendingSession = useCallback(() => {
+      const pending = pendingSessionRef.current;
+      if (!pending) return;
+      pendingSessionRef.current = null;
+      endPromptTimerRef.current = setTimeout(() => {
+        if (mountedRef.current) handleStartStepper(pending);
+      }, 450);
+    }, [handleStartStepper]);
 
     const recomputeSuggestion = useCallback(() => {
       if (!routineSession || routineSession.source === 'routine') return;
@@ -639,7 +703,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
               const msPerWeek = 7 * 24 * 60 * 60 * 1000;
               wkNum = Math.max(1, Math.floor((Date.now() - created.getTime()) / msPerWeek) + 1);
             }
-            handleStartStepper({
+            const session: RoutineSession = {
               source: 'routine',
               routineId: routine.id,
               name: routine.name,
@@ -653,11 +717,104 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
                 category: (ex as { category?: string }).category as RoutineSessionExercise['category'] | undefined,
               })),
               currentIndex: 0,
-            });
+            };
+            // Weigh-in reminder, "at session start" variant: prompt BEFORE the
+            // stepper opens (never over it — see the pendingSessionRef note).
+            // Any failure here falls through to starting normally; a weigh-in
+            // nudge must never be able to block a workout.
+            shouldPromptWeighIn(routine.id, 'start')
+              .then((show) => {
+                if (!mountedRef.current) return;
+                if (show) {
+                  pendingSessionRef.current = session;
+                  setWeighInPromptVisible(true);
+                } else {
+                  handleStartStepper(session);
+                }
+              })
+              .catch(() => {
+                if (mountedRef.current) handleStartStepper(session);
+              });
           })
           .catch(() => {
             if (!mountedRef.current) return;
             Alert.alert(t('logger:workoutLoggerHost.couldNotLoadRoutineTitle'), t('logger:workoutLoggerHost.pleaseTryAgain'));
+          });
+      },
+
+      resumeRoutine(routineId: string) {
+        getRoutine(user, routineId)
+          .then((routine) => {
+            if (!mountedRef.current) return;
+            // How many sets each exercise already has TODAY. `sets` is the live
+            // today-scoped log from usePowerSyncLog, so no extra query and no
+            // chance of reading a different day.
+            const counts = new Map<string, number>();
+            for (const st of sets) {
+              if (st.kind !== 'lift') continue;
+              const id = (st as LiftSet).exercise_id;
+              counts.set(id, (counts.get(id) ?? 0) + 1);
+            }
+
+            const exercises = routine.exercises.map((ex) => {
+              const seeded = seedSessionExercise(ex);
+              const logged = counts.get(seeded.exerciseId) ?? 0;
+              const target = seeded.targetSets;
+              return {
+                ...seeded,
+                category: (ex as { category?: string }).category as RoutineSessionExercise['category'] | undefined,
+                loggedSetCount: logged,
+                // With a set target, "done" means the target is met. Without
+                // one, any logged set counts as done — the same rule the
+                // stepper's own progress check uses.
+                done: typeof target === 'number' && target > 0 ? logged >= target : logged > 0,
+              };
+            });
+
+            const firstUnfinished = exercises.findIndex((e) => !e.done);
+            let wkNum: number | undefined;
+            if ((routine as { created_at?: string }).created_at) {
+              const created = new Date((routine as { created_at: string }).created_at);
+              const msPerWeek = 7 * 24 * 60 * 60 * 1000;
+              wkNum = Math.max(1, Math.floor((Date.now() - created.getTime()) / msPerWeek) + 1);
+            }
+
+            handleStartStepper({
+              source: 'routine',
+              routineId: routine.id,
+              name: routine.name,
+              weekNumber: wkNum,
+              exercises,
+              // Every exercise already complete → land on the last one rather
+              // than bouncing to 0, so "Continue" on a finished session opens
+              // where the user actually stopped.
+              currentIndex:
+                firstUnfinished === -1 ? Math.max(0, exercises.length - 1) : firstUnfinished,
+            });
+
+            // Re-seed the set chips so a resumed exercise shows the sets it
+            // already has. handleStartStepper clears this map, so it must run
+            // after — the later setState wins within the same batch.
+            const seededSets = new Map<string, Array<{ weight: string; reps: string; rir?: string }>>();
+            for (const st of sets) {
+              if (st.kind !== 'lift') continue;
+              const lift = st as LiftSet;
+              const list = seededSets.get(lift.exercise_id) ?? [];
+              list.push({
+                weight: setWeightToInputValue(lift, unitPref as UnitSystem),
+                reps: String(lift.reps ?? ''),
+                ...(lift.rir != null ? { rir: String(lift.rir) } : {}),
+              });
+              seededSets.set(lift.exercise_id, list);
+            }
+            setStepperSets(seededSets);
+          })
+          .catch(() => {
+            if (!mountedRef.current) return;
+            Alert.alert(
+              t('logger:workoutLoggerHost.couldNotLoadRoutineTitle'),
+              t('logger:workoutLoggerHost.pleaseTryAgain'),
+            );
           });
       },
 
@@ -860,11 +1017,32 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           return;
         }
 
+        // Routine session: jump to the picked exercise if the routine already
+        // contains it. GL-1 (founder report 2026-08-04): when it did NOT, this
+        // used to `return prev` — a silent no-op. Combined with the old
+        // onBrowseLibrary hiding the stepper, picking anything outside the
+        // routine left a live session with nothing on screen. Now an unknown
+        // pick is APPENDED as an off-routine exercise for today and selected,
+        // which is what "choose another exercise" plainly means. The saved
+        // routine is untouched (founder 2026-07-18: the logger never rewrites
+        // it) — this is a today-only addition, same as handleStepperAddOffRoutine.
         setRoutineSession((prev) => {
           if (!prev) return prev;
-          const idx = prev.exercises.findIndex((ex) => ex.exerciseId === exercise.id);
-          if (idx === -1) return prev;
-          return { ...prev, currentIndex: idx };
+          const idx = prev.exercises.findIndex(
+            (ex) => ex.exerciseId === exercise.id || ex.name === exercise.name,
+          );
+          if (idx !== -1) return { ...prev, currentIndex: idx };
+          const exercises = [
+            ...prev.exercises,
+            {
+              exerciseId: exercise.id,
+              name: exercise.name,
+              loggedSetCount: 0,
+              done: false,
+              category: exercise.category as RoutineSessionExercise['category'],
+            },
+          ];
+          return { ...prev, exercises, currentIndex: exercises.length - 1 };
         });
       },
       [freeSessionPickerMode, routineSession, handleStartStepper, handleStepperAddOffRoutine],
@@ -1843,6 +2021,18 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
               writeFinishedWorkoutToHealth(); // TICKET-136
               runBadgeEvaluation(user?.id ?? 'local').catch(() => {}); // TICKET-143
               terminateSession(finishedRoutineId);
+              // Weigh-in reminder, "at session end" variant. terminateSession
+              // has already hidden the stepper Modal, but presenting a new one
+              // DURING that dismissal animation is the same iOS conflict — so
+              // wait for it to finish before showing the sheet.
+              shouldPromptWeighIn(finishedRoutineId, 'end')
+                .then((show) => {
+                  if (!show || !mountedRef.current) return;
+                  endPromptTimerRef.current = setTimeout(() => {
+                    if (mountedRef.current) setWeighInPromptVisible(true);
+                  }, 700);
+                })
+                .catch(() => {});
             },
           },
         ],
@@ -1889,8 +2079,11 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
     return (
       <>
         {/* Exercise picker modal */}
+        {/* Host-side picker — used to START a session (no stepper up yet).
+            Mutually exclusive with the stepper-side instance below, so only one
+            is ever presentable (GL-1). */}
         <ExercisePicker
-          visible={pickerVisible}
+          visible={pickerVisible && !stepperShowing}
           onSelect={handleExerciseSelect}
           onClose={() => {
             setPickerVisible(false);
@@ -1957,54 +2150,12 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           </Modal>
         )}
 
-        {/* Stage 3 + SUBS-001: mid-workout swap sheet (local-first, no network).
-            User substitutes first (free); engine suggestions Pro. TODAY only. */}
-        <SubstituteSwapSheet
-          visible={quickSwapVisible}
-          mode="session"
-          originalName={quickSwapOriginal?.name ?? t('logger:workoutLoggerHost.thisExerciseFallback')}
-          userSubs={quickSwapSubs}
-          suggested={quickSwapCandidates}
-          suggestedLocked={!user?.is_paid}
-          suggestedEmptyReason={quickSwapReason}
-          confirmation={quickSwapConfirmation}
-          canMakePermanent={quickSwapCanPermanent}
-          onSelect={handleQuickSwapSelect}
-          onAddSub={handleQuickSwapAddSub}
-          onNeverSuggest={handleQuickSwapNeverSuggest}
-          onViewDetails={(c) =>
-            setSwapDetailTarget({ id: c.id, name: c.name, equipment: c.equipment })
-          }
-          onUpgrade={() => {
-            setQuickSwapVisible(false);
-            setShowPaywall(true);
-          }}
-          onClose={() => setQuickSwapVisible(false)}
-        />
 
-        {/* TICKET-134: detail sheet for a quick-swap candidate. */}
-        <ExerciseDetailSheet
-          visible={swapDetailTarget !== null}
-          exercise={swapDetailTarget}
-          onClose={() => setSwapDetailTarget(null)}
-        />
-
-        {/* TICKET-129: per-set note + flags for the LIVE session (chip long-press). */}
-        <SetNoteSheet
-          visible={liveNoteTarget !== null}
-          onClose={() => setLiveNoteTarget(null)}
-          initialNote={liveNoteTarget?.note}
-          initialFlags={liveNoteTarget?.flags}
-          setLabel={liveNoteTarget?.label}
-          onSave={(patch) => {
-            if (!liveNoteTarget) return;
-            void saveSetNoteFlags(user, liveNoteTarget.setId, patch).catch(() => {});
-          }}
-        />
-
-        {/* Rest timer banner (hidden while minimized — the mini-bar shows the
-            rest chip instead; fix #2). */}
-        {restSecondsLeft !== null && !minimized && (
+        {/* Rest timer banner. Hidden whenever the mini-bar is up — the bar
+            carries its own rest chip, and showing both was how the "glitchy
+            rest timer with no way back" state looked (GL-1). A session that has
+            ENDED with rest still running keeps the banner, as before. */}
+        {restSecondsLeft !== null && !miniBarShowing && (
           <View style={[restStyles.banner, { backgroundColor: theme.colors.bgElevated }]}>
             <TouchableOpacity
               onPress={cycleRestDefault}
@@ -2049,9 +2200,10 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           </View>
         )}
 
-        {/* Paywall */}
+        {/* Paywall, host-side instance — see the stepper-side twin inside the
+            stepper Modal. Exactly one of the two is ever mounted-visible. */}
         <PaywallUpgradeModal
-          visible={showPaywall}
+          visible={showPaywall && !stepperShowing}
           onDismiss={() => setShowPaywall(false)}
           onUpgrade={() => {
             setShowPaywall(false);
@@ -2093,7 +2245,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
             showing ("buttons disappeared, only weird buttons at the top").
             Tying visibility to the session makes that state impossible. */}
         <Modal
-          visible={stepperVisible && !minimized && !!routineSession}
+          visible={stepperShowing}
           animationType="slide"
           presentationStyle="fullScreen"
           // Hardware-back / swipe-dismiss: minimize an active workout (keep it
@@ -2136,8 +2288,11 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
               // End the workout EARLY (leave before the routine is complete). Same
               // confirm → finish-and-save flow; hidden while correcting history.
               onEndWorkout={historyMode ? undefined : confirmAndFinish}
+              // GL-1: this used to setStepperVisible(false) so the sibling
+              // picker could present. The picker is nested now, so the session
+              // stays on screen — no more "browse library ejected me from the
+              // routine".
               onBrowseLibrary={() => {
-                setStepperVisible(false);
                 setPickerVisible(true);
               }}
               variant={
@@ -2273,47 +2428,127 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
               suppressAutoregSuggestions={historyMode}
             />
           )}
+
+          {/* Stepper-side picker — "Add exercise" / "Browse library" from
+              inside a live session. Nested so the stepper never has to be
+              hidden to show it; hiding it was what stranded the session (GL-1). */}
+          <ExercisePicker
+            visible={pickerVisible && stepperShowing}
+            onSelect={handleExerciseSelect}
+            onClose={() => {
+              setPickerVisible(false);
+              setFreeSessionPickerMode(false);
+            }}
+          />
+
+          {/* ── Sheets opened FROM the stepper live INSIDE its Modal ──────────
+              GL-1 (founder report 2026-08-04): these were siblings of the
+              stepper Modal. On iOS a <Modal> presented while another is already
+              presented is silently DROPPED, so "Choose alternative" and
+              "Superset with…" did nothing at all on a live routine. Nesting
+              them is the stacked-Modal pattern RoutineEditorSheet already uses
+              (and that SubstituteSwapSheet's own file header cites). */}
+          {/* Stage 3 + SUBS-001: mid-workout swap sheet (local-first, no network).
+              User substitutes first (free); engine suggestions Pro. TODAY only. */}
+          <SubstituteSwapSheet
+            visible={quickSwapVisible}
+            mode="session"
+            originalName={quickSwapOriginal?.name ?? t('logger:workoutLoggerHost.thisExerciseFallback')}
+            userSubs={quickSwapSubs}
+            suggested={quickSwapCandidates}
+            suggestedLocked={!user?.is_paid}
+            suggestedEmptyReason={quickSwapReason}
+            confirmation={quickSwapConfirmation}
+            canMakePermanent={quickSwapCanPermanent}
+            onSelect={handleQuickSwapSelect}
+            onAddSub={handleQuickSwapAddSub}
+            onNeverSuggest={handleQuickSwapNeverSuggest}
+            onViewDetails={(c) =>
+              setSwapDetailTarget({ id: c.id, name: c.name, equipment: c.equipment })
+            }
+            onUpgrade={() => {
+              setQuickSwapVisible(false);
+              setShowPaywall(true);
+            }}
+            onClose={() => setQuickSwapVisible(false)}
+          />
+          {/* S1: session-only superset pairing sheet (free feature). Lists the
+              session's OTHER pending exercises; the parent creates the group. */}
+          <SupersetPairSheet
+            visible={pairSheetVisible}
+            currentName={
+              routineSession?.exercises[routineSession?.currentIndex ?? 0]?.name ?? 'this exercise'
+            }
+            candidates={((): SupersetPairCandidate[] => {
+              if (!routineSession) return [];
+              const curIdx = routineSession.currentIndex;
+              const cur = routineSession.exercises[curIdx];
+              const out: SupersetPairCandidate[] = [];
+              routineSession.exercises.forEach((ex, i) => {
+                if (i === curIdx) return;
+                if (ex.groupId) return; // already grouped elsewhere
+                // Pending only: not yet completed this session.
+                const done =
+                  typeof ex.targetSets === 'number' && ex.targetSets > 0
+                    ? ex.loggedSetCount >= ex.targetSets
+                    : ex.done;
+                if (done) return;
+                out.push({
+                  index: i,
+                  exerciseId: ex.exerciseId,
+                  name: ex.name,
+                  targetSets: ex.targetSets,
+                });
+              });
+              return out;
+            })()}
+            onConfirm={pairExercises}
+            onClose={() => setPairSheetVisible(false)}
+          />
+          {/* TICKET-134: detail sheet for a quick-swap candidate. Opened FROM
+              the (now nested) swap sheet, so it must be nested too — same
+              dropped-presentation trap. */}
+          <ExerciseDetailSheet
+            visible={swapDetailTarget !== null}
+            exercise={swapDetailTarget}
+            onClose={() => setSwapDetailTarget(null)}
+          />
+
+          {/* TICKET-129: per-set note + flags for the LIVE session (chip
+              long-press). Only ever opened from the stepper. */}
+          <SetNoteSheet
+            visible={liveNoteTarget !== null}
+            onClose={() => setLiveNoteTarget(null)}
+            initialNote={liveNoteTarget?.note}
+            initialFlags={liveNoteTarget?.flags}
+            setLabel={liveNoteTarget?.label}
+            onSave={(patch) => {
+              if (!liveNoteTarget) return;
+              void saveSetNoteFlags(user, liveNoteTarget.setId, patch).catch(() => {});
+            }}
+          />
+
+          {/* Paywall, stepper-side instance. The paywall has TWO triggers: the
+              swap sheet's Pro teaser (inside the stepper) and the
+              `paywallTriggered` free-limit effect (which can fire with no
+              session at all). Mounting one instance on each side, mutually
+              exclusive on `stepperShowing`, keeps exactly one presentable. */}
+          <PaywallUpgradeModal
+            visible={showPaywall}
+            onDismiss={() => setShowPaywall(false)}
+            onUpgrade={() => {
+              setShowPaywall(false);
+              router.push('/(tabs)/plans');
+            }}
+          />
         </Modal>
 
-        {/* S1: session-only superset pairing sheet (free feature). Lists the
-            session's OTHER pending exercises; the parent creates the group. */}
-        <SupersetPairSheet
-          visible={pairSheetVisible}
-          currentName={
-            routineSession?.exercises[routineSession?.currentIndex ?? 0]?.name ?? 'this exercise'
-          }
-          candidates={((): SupersetPairCandidate[] => {
-            if (!routineSession) return [];
-            const curIdx = routineSession.currentIndex;
-            const cur = routineSession.exercises[curIdx];
-            const out: SupersetPairCandidate[] = [];
-            routineSession.exercises.forEach((ex, i) => {
-              if (i === curIdx) return;
-              if (ex.groupId) return; // already grouped elsewhere
-              // Pending only: not yet completed this session.
-              const done =
-                typeof ex.targetSets === 'number' && ex.targetSets > 0
-                  ? ex.loggedSetCount >= ex.targetSets
-                  : ex.done;
-              if (done) return;
-              out.push({
-                index: i,
-                exerciseId: ex.exerciseId,
-                name: ex.name,
-                targetSets: ex.targetSets,
-              });
-            });
-            return out;
-          })()}
-          onConfirm={pairExercises}
-          onClose={() => setPairSheetVisible(false)}
-        />
       {/* Fix #2: persistent minimized-workout bar. Shown ONLY while minimized with a
           live session; sits above the tab bar (Home is the host, a tabbed screen).
           Tapping restores the full stepper mid-session. The rest chip is fed the
           derived (drift-free) remaining from fix #1. */}
       <WorkoutMiniBar
-        visible={minimized && !!routineSession}
+        visible={miniBarShowing}
         title={miniBarTitle}
         progress={miniBarProgress}
         restSecondsLeft={restSecondsLeft}
@@ -2322,6 +2557,23 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
       />
       {/* PR celebration toast */}
       <PRToast data={prToast} onDismiss={() => setPrToast(null)} />
+      {/* Daily weigh-in prompt — opt-in per routine (founder 2026-08-04).
+          Dismissal is recorded for the whole day so a second session doesn't
+          re-ask after the user already said no. */}
+      <WeighInPromptSheet
+        visible={weighInPromptVisible}
+        unitPref={unitPref as UnitSystem}
+        onSaved={() => {
+          setWeighInPromptVisible(false);
+          startPendingSession();
+        }}
+        onDismiss={() => {
+          setWeighInPromptVisible(false);
+          // Only an explicit refusal silences the prompt for the rest of the day.
+          void dismissWeighInPromptForToday();
+          startPendingSession();
+        }}
+      />
       </>
     );
   },
