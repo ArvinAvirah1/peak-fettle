@@ -6,7 +6,7 @@
 export const SITE = {
     name: 'Peak Fettle',
     // Canonical origin. Swap by setting NEXT_PUBLIC_SITE_URL in Vercel.
-    url: (process.env.NEXT_PUBLIC_SITE_URL || 'https://peakfettle.com').replace(/\/$/, ''),
+    url: (process.env.NEXT_PUBLIC_SITE_URL || 'https://peakfettle.app').replace(/\/$/, ''),
     tagline: 'Train at peak. Measured.',
     // Long-form, used for hero copy and OpenGraph (length there is fine).
     description:
@@ -17,7 +17,11 @@ export const SITE = {
     metaDescription:
         'Peak Fettle is a workout tracker that turns every set into an estimated 1RM, a 0–1000 strength ' +
         'score, and an honest percentile against athletes at your level.',
-    email: 'hello@peakfettle.com',
+    // Routed via Cloudflare Email Routing on peakfettle.app -> the founder's
+    // inbox. Published on /privacy and /terms as the GDPR/CCPA contact, so it
+    // MUST be an address that actually receives mail (peakfettle.com is not
+    // ours - mail sent there is silently lost).
+    email: 'admin@peakfettle.app',
     twitter: '@peakfettle',
     // App store links. Empty string = not provided yet → CTAs fall back to the
     // "get notified" capture. Fill these in to flip the site to live-download.

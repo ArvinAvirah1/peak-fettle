@@ -6,7 +6,7 @@
 //
 // Requires env vars:
 //   RESEND_API_KEY     — https://resend.com/api-keys
-//   RESEND_FROM_EMAIL  — verified sender, e.g. "Peak Fettle <noreply@peakfettle.com>"
+//   RESEND_FROM_EMAIL  — verified sender, e.g. "Peak Fettle <noreply@peakfettle.app>"
 //   RESEND_WAITLIST_TO — internal notification address
 //
 // If RESEND_API_KEY is absent (e.g. a preview deploy before keys are set), the
@@ -64,8 +64,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ message: SUCCESS }, { status: 200 });
     }
 
-    const from = process.env.RESEND_FROM_EMAIL || 'Peak Fettle <noreply@peakfettle.com>';
-    const notifyTo = process.env.RESEND_WAITLIST_TO || 'founder@peakfettle.com';
+    const from = process.env.RESEND_FROM_EMAIL || 'Peak Fettle <noreply@peakfettle.app>';
+    const notifyTo = process.env.RESEND_WAITLIST_TO || 'admin@peakfettle.app';
 
     try {
         await sendEmail({
@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
   </p>
   <p style="color:#98ACC4;font-size:0.85rem;margin-top:2rem;border-top:1px solid rgba(45,212,191,0.15);
             padding-top:1rem">
-    You&rsquo;re receiving this because you signed up at peakfettle.com.
+    You&rsquo;re receiving this because you signed up at peakfettle.app.
   </p>
 </body>
 </html>`,
