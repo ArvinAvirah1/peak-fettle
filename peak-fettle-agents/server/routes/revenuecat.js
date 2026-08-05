@@ -6,10 +6,17 @@
 //     POST /revenuecat/webhook — RevenueCat server-to-server event receiver.
 //       • Verifies the Authorization header against REVENUECAT_WEBHOOK_AUTH
 //         (the exact value the founder pastes into the RevenueCat webhook
-//         config; a "Bearer <secret>" form is also accepted). If the env var
-//         is UNSET the webhook logs a warning and ACCEPTS — deliberate
-//         bootstrap behaviour so events aren't dropped before ops wiring, but
-//         the secret must be set in production.
+//         config; a "Bearer <secret>" form is also accepted).
+//         FAILS CLOSED when the env var is unset: the endpoint is a PUBLIC
+//         mount, so an unverified webhook would let anyone POST a forged
+//         INITIAL_PURCHASE/EXPIRATION and flip any user's tier (the client
+//         ships users.id, and group members can see peer UUIDs). Unset ⇒ 503
+//         `webhook_not_configured`, chosen over 401 so RevenueCat RETRIES and
+//         events delivered before ops wiring are re-delivered once the secret
+//         lands. Set REVENUECAT_WEBHOOK_AUTH on Railway BEFORE enabling the
+//         webhook in the RevenueCat dashboard.
+//         REVENUECAT_WEBHOOK_ALLOW_UNVERIFIED=true is a dev-only escape hatch
+//         that restores accept-without-verification — never set it in prod.
 //       • Entitlement-driving events (INITIAL_PURCHASE, RENEWAL,
 //         UNCANCELLATION, PRODUCT_CHANGE) → users.tier = 'paid'.
 //         EXPIRATION → users.tier = 'free' (comped users are NEVER
