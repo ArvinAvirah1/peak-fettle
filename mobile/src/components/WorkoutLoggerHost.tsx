@@ -540,8 +540,21 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
      */
     const currentQualifierValues = useMemo(() => {
       const defaults = defaultsForExercise(currentQualifierExercise?.name);
-      return mergeQualifiers(defaults, qualifiersByExercise[currentQualifierExId] ?? null);
-    }, [currentQualifierExercise?.name, qualifiersByExercise, currentQualifierExId]);
+      // Later wins: catalog default -> routine prescription -> what the user has
+      // actually chosen this session. The most recent ACTUAL beats the plan on
+      // purpose — if the routine says wide grip but you've done two sets close-
+      // grip today because the bar was taken, set three must not silently revert.
+      return mergeQualifiers(
+        defaults,
+        currentQualifierExercise?.qualifiers ?? null,
+        qualifiersByExercise[currentQualifierExId] ?? null,
+      );
+    }, [
+      currentQualifierExercise?.name,
+      currentQualifierExercise?.qualifiers,
+      qualifiersByExercise,
+      currentQualifierExId,
+    ]);
 
     // Resolve custom:<id> tokens to labels so an id never reaches the UI.
     useEffect(() => {
@@ -2358,6 +2371,7 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
               // the stepper is untouched for anyone who hasn't opted in.
               qualifierAxisIds={visibleQualifierAxes}
               qualifierValues={currentQualifierValues}
+              qualifierPrescription={currentQualifierExercise?.qualifiers ?? null}
               qualifierCustomLabels={qualifierCustomLabels}
               onPressQualifierAxis={setQualifierPickerAxis}
               // P1c: in history-edit mode the only write path is the chip-tap →

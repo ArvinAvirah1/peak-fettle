@@ -52,6 +52,36 @@ export function parseSubstitutes(v: unknown): SubstituteRef[] | undefined {
   return out.length > 0 ? out : undefined;
 }
 
+/**
+ * QUALIFIERS (v21) — the routine's PRESCRIPTION for a slot: "do this with a rope
+ * on the high pulley". Distinct from what a set actually records; the logger
+ * prefills from this and the user can deviate.
+ *
+ * Bounds mirror the server Zod QualifiersSchema so a value that survives here
+ * round-trips through the server strip UNCHANGED. Both keys and values are
+ * validated as short identifier-ish strings — this lands in routine JSON that
+ * the DATA-01 import path also parses, so a hostile file must not be able to
+ * smuggle a large or structured payload through.
+ *
+ * Deliberately NOT validated against the axis vocabulary: the catalog ships in
+ * JS and moves independently via OTA, so a routine written by a newer build must
+ * survive an older one rather than being silently stripped. Unknown ids render
+ * inertly (see constants/qualifiers.ts).
+ */
+export function parseQualifiers(v: unknown): Record<string, string> | undefined {
+  if (v == null || typeof v !== 'object' || Array.isArray(v)) return undefined;
+  const out: Record<string, string> = {};
+  let n = 0;
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    if (n >= 20) break; // far above the 13 real axes; a bound, not a limit
+    if (typeof k !== 'string' || k.length === 0 || k.length > 40) continue;
+    if (typeof val !== 'string' || val.length === 0 || val.length > 80) continue;
+    out[k] = val;
+    n++;
+  }
+  return n > 0 ? out : undefined;
+}
+
 /** superset_group: a short, non-empty string (group letter/id), else undefined. */
 export function parseSupersetGroup(v: unknown): string | undefined {
   if (typeof v === 'string' && v.length > 0 && v.length <= 40) return v;
@@ -114,6 +144,8 @@ export function allowlistExercise(e: Record<string, unknown>): RoutineExercise {
   if (dropset !== undefined) base.dropset = dropset;
   const substitutes = parseSubstitutes(e.substitutes);
   if (substitutes !== undefined) base.substitutes = substitutes;
+  const qualifiers = parseQualifiers(e.qualifiers);
+  if (qualifiers !== undefined) base.qualifiers = qualifiers;
   return base;
 }
 
@@ -130,6 +162,12 @@ export function allowlistExercise(e: Record<string, unknown>): RoutineExercise {
  * acceptable (the kept copy's subs survive), whereas including the field would
  * make the key sensitive to a server-side strip on older servers → duplicate
  * routines on Free→Pro migration. Do not add it here.
+ *
+ * v21 `qualifiers` is excluded for exactly the same reason, and the risk is
+ * live rather than theoretical: a device running a build newer than the server
+ * would send qualifiers the server strips, so including them here would make the
+ * local key differ from the server-echo key and duplicate the routine on
+ * Free→Pro migration. Do not add it here either.
  */
 export function canonicalizeExercise(e: RoutineExercise): Record<string, unknown> {
   return {

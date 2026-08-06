@@ -52,6 +52,15 @@ export interface RoutineExercise {
    * read time in the UI (never persisted merged).
    */
   substitutes?: SubstituteRef[] | null;
+  /**
+   * v21 PRESCRIPTION: how this slot is meant to be performed — e.g.
+   * { attachment: 'rope', pulley_height: 'high' }. The logger prefills the chips
+   * from this; the user can deviate, and a deviation is tinted rather than
+   * blocked. What the set actually was is recorded separately on `sets`.
+   *
+   * Additive + optional — absent means exactly today's behaviour.
+   */
+  qualifiers?: Record<string, string> | null;
 }
 
 export interface Routine {

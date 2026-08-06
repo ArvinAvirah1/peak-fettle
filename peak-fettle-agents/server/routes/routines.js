@@ -50,6 +50,21 @@ const ExerciseEntrySchema = z.object({
         })
         .nullable()
         .optional(),
+    // ── v21 exercise qualifiers (additive optional) ─────────────────────────
+    // The routine's PRESCRIPTION for this slot, e.g. { attachment: 'rope' }.
+    // Bounds mirror parseQualifiers in mobile/src/data/routineExerciseFields.ts
+    // so a value round-trips (client → server → client) UNCHANGED — which is
+    // what keeps canonicalRoutineKey stable across the Free→Pro upload.
+    //
+    // Values are NOT validated against the axis vocabulary on purpose: that
+    // catalog ships in the mobile JS bundle and moves independently via OTA, so
+    // the server must not reject ids from a build newer than itself. Shape and
+    // size are bounded; meaning is the client's business.
+    qualifiers: z
+        .record(z.string().min(1).max(40), z.string().min(1).max(80))
+        .refine((o) => Object.keys(o).length <= 20, { message: 'too many qualifiers' })
+        .nullable()
+        .optional(),
 });
 
 // TICKET-088: an empty exercises array is valid. The "+ New" flow creates a

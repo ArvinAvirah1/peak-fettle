@@ -39,6 +39,10 @@ import { stepperPalette, fontFamily, fontSize, spacing, radius } from '../theme/
 import { Routine, RoutineExercise, updateRoutine } from '../data/routines';
 import { useAuth } from '../hooks/useAuth';
 import { ExercisePicker } from './ExercisePicker';
+import { QualifierChipRow } from './qualifiers/QualifierChipRow';
+import { QualifierPickerSheet } from './qualifiers/QualifierPickerSheet';
+import { getEnabledQualifierAxes, visibleAxesForExercise } from '../data/qualifierSettings';
+import { qualifierSpecForExercise } from '../constants/exerciseQualifierMap';
 import { Exercise } from '../types/api';
 import { DropsetConfigSheet, DropsetConfig } from './routineEditor/DropsetConfigSheet';
 import { SupersetLinkSheet, SupersetLinkCandidate } from './routineEditor/SupersetLinkSheet';
@@ -177,6 +181,31 @@ export default function RoutineEditorSheet({
   // "Make alternative" (kebab → ExercisePicker): the item index the picked
   // exercise becomes a routine-scoped substitute FOR (null = closed).
   const [altForIndex, setAltForIndex] = useState<number | null>(null);
+  // v21 prescription editing: which row+axis the picker is open for.
+  const [qualifierTarget, setQualifierTarget] = useState<{ index: number; axisId: string } | null>(null);
+  const [enabledQualifierAxes, setEnabledQualifierAxes] = useState<string[]>([]);
+  useEffect(() => {
+    let alive = true;
+    getEnabledQualifierAxes()
+      .then((axes) => { if (alive) setEnabledQualifierAxes(axes); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
+
+  /** Axes offered for a slot: enabled in Settings ∩ applicable to that exercise. */
+  const axesForItem = useCallback((it: RoutineExercise): string[] => {
+    const spec = qualifierSpecForExercise(it.name);
+    if (!spec) return [];
+    return visibleAxesForExercise(spec.axes.map((a) => a.a), enabledQualifierAxes as never);
+  }, [enabledQualifierAxes]);
+
+  /** Write a prescribed value onto one slot. */
+  const setQualifierOnItem = useCallback((index: number, axisId: string, value: string) => {
+    setItems((prev) => prev.map((it, i) => (
+      i === index ? { ...it, qualifiers: { ...(it.qualifiers ?? {}), [axisId]: value } } : it
+    )));
+    setQualifierTarget(null);
+  }, []);
   // SUBS-001 swap sheet: the item index being swapped (null = closed) + its lists.
   const [swapForIndex, setSwapForIndex] = useState<number | null>(null);
   const [swapSubs, setSwapSubs] = useState<ScopedSubstitute[]>([]);
@@ -818,6 +847,8 @@ export default function RoutineEditorSheet({
                     onSupersetWith={() => openLink(block.index)}
                     onSwap={() => void openSwap(block.index)}
                     onMakeAlternative={() => openMakeAlternative(block.index)}
+                    qualifierAxisIds={axesForItem(block.item)}
+                    onPressQualifierAxis={(axisId) => setQualifierTarget({ index: block.index, axisId })}
                   />
                 ) : (
                   <GroupCard
@@ -885,6 +916,32 @@ export default function RoutineEditorSheet({
           </View>
         </KeyboardAvoidingView>
       </SafeAreaView>
+
+      {/* v21 prescription picker — NESTED inside this editor's <Modal>, like
+          every other sheet here. A sibling would be silently dropped on iOS. */}
+      <QualifierPickerSheet
+        visible={qualifierTarget !== null}
+        axisId={qualifierTarget?.axisId ?? ''}
+        applicableValues={
+          (qualifierTarget
+            ? qualifierSpecForExercise(items[qualifierTarget.index]?.name)?.axes
+                .find((a) => a.a === qualifierTarget.axisId)?.v
+            : null) ?? []
+        }
+        selectedValue={
+          qualifierTarget ? items[qualifierTarget.index]?.qualifiers?.[qualifierTarget.axisId] ?? null : null
+        }
+        allowsCustom={
+          (qualifierTarget
+            ? qualifierSpecForExercise(items[qualifierTarget.index]?.name)?.axes
+                .find((a) => a.a === qualifierTarget.axisId)?.c
+            : false) ?? false
+        }
+        exerciseId={qualifierTarget ? items[qualifierTarget.index]?.exercise_id ?? null : null}
+        exerciseName={qualifierTarget ? items[qualifierTarget.index]?.name : undefined}
+        onSelect={(v) => { if (qualifierTarget) setQualifierOnItem(qualifierTarget.index, qualifierTarget.axisId, v); }}
+        onClose={() => setQualifierTarget(null)}
+      />
 
       {/* Exercise picker (add inline / add into a group). */}
       <ExercisePicker
@@ -1116,11 +1173,14 @@ function ExerciseRow(props: {
   onSupersetWith: () => void;
   onSwap: () => void;
   onMakeAlternative: () => void;
+  /** v21: axes to offer for this slot (enabled ∩ applicable). */
+  qualifierAxisIds?: readonly string[];
+  onPressQualifierAxis?: (axisId: string) => void;
 }): React.ReactElement {
   const {
     item, isFirst, isLast, menuOpen, onToggleMenu, onRemove, onUpdateSets, onUpdateReps,
     onMoveUp, onMoveDown, onMakeDropsets, onRemoveDropsets, onSupersetWith, onSwap,
-    onMakeAlternative,
+    onMakeAlternative, qualifierAxisIds = [], onPressQualifierAxis,
   } = props;
   const { t } = useTranslation();
   const hasDropset = !!item.dropset;
@@ -1140,6 +1200,17 @@ function ExerciseRow(props: {
       ) : null}
 
       {altCount > 0 ? <AltBadge name={item.name} subs={item.substitutes ?? []} /> : null}
+
+      {/* v21: the slot's PRESCRIPTION — "do this with a rope on the high
+          pulley". The logger prefills from it and tints deviations rather than
+          blocking them. Renders nothing when tracking is off or nothing applies. */}
+      {onPressQualifierAxis ? (
+        <QualifierChipRow
+          axisIds={qualifierAxisIds}
+          values={item.qualifiers ?? {}}
+          onPressAxis={onPressQualifierAxis}
+        />
+      ) : null}
 
       <View style={styles.exRowBottom}>
         <View style={styles.targetGroup}>

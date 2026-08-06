@@ -261,5 +261,67 @@ test('TICKET-144: canonicalRoutineKey distinguishes a 4-exercise circuit from th
   );
 });
 
+
+// ── v21 qualifiers: the routine's PRESCRIPTION for a slot ────────────────────
+// Same choke point as substitutes: this is the DATA-01 import path, so a hostile
+// routine file must not be able to smuggle a large or structured payload in.
+test('allowlistExercise KEEPS a valid qualifiers map', () => {
+  const out = F.allowlistExercise({
+    name: 'Lat Pulldown',
+    qualifiers: { attachment: 'rope', grip_width: 'close' },
+  });
+  eq(out.qualifiers.attachment, 'rope', 'attachment kept:');
+  eq(out.qualifiers.grip_width, 'close', 'grip_width kept:');
+});
+
+test('allowlistExercise DROPS non-object qualifiers', () => {
+  for (const bad of ['rope', 42, true, ['a'], null]) {
+    const out = F.allowlistExercise({ name: 'X', qualifiers: bad });
+    eq(out.qualifiers, undefined, 'rejected ' + JSON.stringify(bad) + ':');
+  }
+});
+
+test('allowlistExercise DROPS non-string or oversized entries', () => {
+  const out = F.allowlistExercise({
+    name: 'X',
+    qualifiers: {
+      good: 'rope',
+      nested: { a: 1 },
+      numeric: 5,
+      empty: '',
+      ['k'.repeat(41)]: 'v',
+      tooLongValue: 'v'.repeat(81),
+    },
+  });
+  eq(out.qualifiers.good, 'rope', 'valid entry survives:');
+  eq(out.qualifiers.nested, undefined, 'nested object dropped:');
+  eq(out.qualifiers.numeric, undefined, 'numeric dropped:');
+  eq(out.qualifiers.empty, undefined, 'empty value dropped:');
+  eq(out.qualifiers.tooLongValue, undefined, 'oversized value dropped:');
+  eq(Object.keys(out.qualifiers).length, 1, 'only the valid entry survives:');
+});
+
+test('allowlistExercise bounds the number of qualifier entries', () => {
+  const many = {};
+  for (let i = 0; i < 50; i++) many['axis' + i] = 'v';
+  const out = F.allowlistExercise({ name: 'X', qualifiers: many });
+  assert(Object.keys(out.qualifiers).length <= 20, 'entry count must be bounded');
+});
+
+test('absent qualifiers add no key (back-compat)', () => {
+  const out = F.allowlistExercise({ name: 'X' });
+  assert(!('qualifiers' in out), 'no qualifiers key when absent');
+});
+
+// Excluded from the dedup identity for the same reason as substitutes: a device
+// on a newer build than the server would send qualifiers the server strips,
+// making the local key differ from the server echo and duplicating the routine
+// on the Free->Pro upload.
+test('qualifiers do NOT affect canonicalizeExercise (dedup identity)', () => {
+  const a = F.canonicalizeExercise(F.allowlistExercise({ name: 'X', qualifiers: { attachment: 'rope' } }));
+  const b = F.canonicalizeExercise(F.allowlistExercise({ name: 'X' }));
+  eq(JSON.stringify(a), JSON.stringify(b), 'qualifiers must not change the key:');
+});
+
 console.log('\n' + (passed + failed) + ' tests: ' + passed + ' passed, ' + failed + ' failed\n');
 if (failed > 0) process.exit(1);

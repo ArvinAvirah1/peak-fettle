@@ -83,6 +83,14 @@ export interface RoutineSessionExercise {
    * WorkoutLoggerHost (data/substitutes.ts). Session-only; never written back.
    */
   substitutes?: { exercise_id?: string | null; name: string }[] | null;
+  /**
+   * v21: the slot's PRESCRIBED qualifiers, carried from the saved routine so the
+   * logger can prefill the chips without re-reading the routine. Session-only
+   * and never written back — the prescription lives in the routine, what you
+   * actually did lives on the set. A chip differing from this is tinted, not
+   * blocked: deviating is normal, and the routine should not quietly win.
+   */
+  qualifiers?: Record<string, string> | null;
 }
 
 interface RoutineStripProps {
@@ -145,6 +153,9 @@ export function seedSessionExercise(ex: Routine['exercises'][number]): RoutineSe
     ...(dropsetPlan ? { dropsetPlan } : {}),
     // SUBS-001: carry the slot's preloaded substitutes into the session.
     ...(ex.substitutes && ex.substitutes.length > 0 ? { substitutes: ex.substitutes } : {}),
+    // v21: carry the slot's PRESCRIBED qualifiers so the logger can prefill the
+    // chips without re-reading the routine.
+    ...(ex.qualifiers && Object.keys(ex.qualifiers).length > 0 ? { qualifiers: ex.qualifiers } : {}),
   };
 }
 
