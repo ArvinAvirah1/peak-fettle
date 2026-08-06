@@ -480,7 +480,27 @@ export const SCHEMA_V2_STATEMENTS: string[] = [
 // guarded ALTER so the runner can apply the existence check.
 export type MigrationStatement =
   | string
-  | { type: 'alter_add_column'; table: string; column: string; definition: string };
+  | { type: 'alter_add_column'; table: string; column: string; definition: string }
+  /**
+   * An imperative step, for migrations that cannot be expressed as static SQL.
+   *
+   * Added for v22 (the variant collapse), which has to READ local state — the
+   * `exercise_names` cache — and branch on it per exercise before writing. No
+   * amount of SQL can do that, because the mapping from a variant to its base
+   * depends on which exercises this particular device has ever cached.
+   *
+   * Runs INSIDE the same transaction as the rest of its version, so a throw
+   * rolls the whole migration back and `user_version` is not advanced. Keep
+   * these rare: static SQL is easier to audit.
+   */
+  | { type: 'js'; label: string; run: (db: MigrationJsDb) => Promise<void> };
+
+/** The subset of the DB handle a `js` migration step may use. */
+export interface MigrationJsDb {
+  getAll<T = unknown>(sql: string, params?: unknown[]): Promise<T[]>;
+  getFirst<T = unknown>(sql: string, params?: unknown[]): Promise<T | null>;
+  execute(sql: string, params?: unknown[], opts?: { tables?: string[] }): Promise<void>;
+}
 
 export const SCHEMA_V3_STATEMENTS: MigrationStatement[] = [
   { type: 'alter_add_column', table: 'sets', column: 'weight_kg', definition: 'REAL' },

@@ -25,6 +25,7 @@
  */
 
 import { SCHEMA_V2_STATEMENTS, SCHEMA_V3_STATEMENTS, SCHEMA_V4_STATEMENTS, SCHEMA_V5_STATEMENTS, SCHEMA_V6_STATEMENTS, SCHEMA_V7_STATEMENTS, SCHEMA_V8_STATEMENTS, SCHEMA_V9_STATEMENTS, SCHEMA_V10_STATEMENTS, SCHEMA_V11_STATEMENTS, SCHEMA_V12_STATEMENTS, SCHEMA_V13_STATEMENTS, SCHEMA_V14_STATEMENTS, SCHEMA_V15_STATEMENTS, SCHEMA_V16_STATEMENTS, SCHEMA_V17_STATEMENTS, SCHEMA_V18_STATEMENTS, SCHEMA_V19_STATEMENTS, SCHEMA_V20_STATEMENTS, SCHEMA_V21_STATEMENTS, MigrationStatement } from './localSchema';
+import { runCollapse } from './collapseMigration';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -39,6 +40,16 @@ interface MigrationDb {
 export interface MigrationVersion {
   v: number;
   statements: MigrationStatement[];
+  /**
+   * True when this migration REWRITES or DELETES existing rows.
+   *
+   * Forces an awaited PRE-image snapshot before the transaction opens. The
+   * deferred snapshot at the end of runMigrations happens after COMMIT, which is
+   * fine for additive migrations but would record the already-changed data for a
+   * destructive one - a rollback file of the damage. A destructive migration
+   * refuses to run if its pre-image cannot be written.
+   */
+  destructive?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -55,8 +66,15 @@ async function writeMigrationSnapshot(
   db: MigrationDb,
   version: number,
   buildBackup: (() => Promise<string>) | null,
+  phase: 'pre' | 'post' = 'post',
 ): Promise<void> {
-  const payload = buildBackup ? await buildBackup().catch(() => '{}') : '{}';
+  // A 'pre' snapshot is a safety precondition, not a nicety: if it cannot be
+  // built we must NOT proceed, so the failure is allowed to propagate. 'post'
+  // stays best-effort (it is an optimisation, and swallowing keeps it off the
+  // first-paint path).
+  const payload = phase === 'pre'
+    ? await (buildBackup ? buildBackup() : Promise.resolve('{}'))
+    : (buildBackup ? await buildBackup().catch(() => '{}') : '{}');
   const createdAt = new Date().toISOString();
 
   // Try expo-file-system via dynamic require (no hard import — bundle-safe).
@@ -68,12 +86,32 @@ async function writeMigrationSnapshot(
       writeAsStringAsync(uri: string, contents: string): Promise<void>;
     };
     if (FS.documentDirectory) {
-      const uri = `${FS.documentDirectory}pf_premigration_v${version}.json`;
+      const uri = `${FS.documentDirectory}pf_${phase === 'pre' ? 'preimage' : 'premigration'}_v${version}.json`;
       await FS.writeAsStringAsync(uri, payload);
       fsWritten = true;
     }
   } catch {
     // expo-file-system not available (e.g. node test environment) — fall through.
+  }
+
+  if (!fsWritten && phase === 'pre') {
+    // No filesystem: fall back to the table, but do NOT swallow — the caller
+    // needs to know whether a real pre-image exists.
+    await db.execute(
+      `CREATE TABLE IF NOT EXISTS migration_snapshots (
+        version INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        payload TEXT NOT NULL
+      )`,
+      [],
+      { tables: ['migration_snapshots'] },
+    );
+    await db.execute(
+      `INSERT INTO migration_snapshots (version, created_at, payload) VALUES (?, ?, ?)`,
+      [version, createdAt, payload],
+      { tables: ['migration_snapshots'] },
+    );
+    return;
   }
 
   if (!fsWritten) {
@@ -271,7 +309,28 @@ const MIGRATION_V21: MigrationVersion = {
   statements: SCHEMA_V21_STATEMENTS,
 };
 
-export const MIGRATIONS: MigrationVersion[] = [MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6, MIGRATION_V7, MIGRATION_V8, MIGRATION_V9, MIGRATION_V10, MIGRATION_V11, MIGRATION_V12, MIGRATION_V13, MIGRATION_V14, MIGRATION_V15, MIGRATION_V16, MIGRATION_V17, MIGRATION_V18, MIGRATION_V19, MIGRATION_V20, MIGRATION_V21];
+// v22: the variant collapse. DESTRUCTIVE - the first migration in this app's
+// history that rewrites rows rather than only adding columns, so it is gated
+// behind an awaited pre-image snapshot it refuses to run without.
+//
+// Defined HERE rather than in localSchema because it is an imperative step, not
+// DDL: the variant->base mapping depends on which exercises THIS device has
+// cached in exercise_names, which no static SQL can express. localSchema stays
+// pure DDL. runCollapse itself is import-safe from node (it pulls only TS
+// constants and the pure qualifierKey module - no React Native).
+const MIGRATION_V22: MigrationVersion = {
+  v: 22,
+  destructive: true,
+  statements: [
+    {
+      type: 'js',
+      label: 'collapse variant exercises into base + qualifier',
+      run: (db) => runCollapse(db).then(() => undefined),
+    },
+  ],
+};
+
+export const MIGRATIONS: MigrationVersion[] = [MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6, MIGRATION_V7, MIGRATION_V8, MIGRATION_V9, MIGRATION_V10, MIGRATION_V11, MIGRATION_V12, MIGRATION_V13, MIGRATION_V14, MIGRATION_V15, MIGRATION_V16, MIGRATION_V17, MIGRATION_V18, MIGRATION_V19, MIGRATION_V20, MIGRATION_V21, MIGRATION_V22];
 
 // ---------------------------------------------------------------------------
 // Runner
@@ -306,6 +365,25 @@ export async function runMigrations(
       continue; // already applied
     }
 
+    // DESTRUCTIVE migrations get a real PRE-image, awaited, before BEGIN.
+    //
+    // The deferred snapshot at the bottom of this function runs AFTER the
+    // commit (a first-paint optimisation, see the file header). That is fine for
+    // every additive migration v2..v21, but it would be worse than useless as a
+    // rollback for one that REWRITES rows: it would faithfully record the
+    // already-changed data. So a migration that declares itself destructive pays
+    // the one-time startup cost of a genuine before-picture.
+    if (migration.destructive && buildBackup) {
+      try {
+        await writeMigrationSnapshot(db, migration.v, buildBackup, 'pre');
+      } catch {
+        // A destructive migration must not run without its safety net.
+        throw new Error(
+          `Pre-migration snapshot failed for v${migration.v}; refusing to run a destructive migration without it.`,
+        );
+      }
+    }
+
     // Apply all statements for this migration version inside a single
     // transaction so that a mid-migration crash leaves the DB unchanged.
     // PRAGMA user_version is set inside the same transaction — if anything
@@ -336,6 +414,10 @@ export async function runMigrations(
               { tables: [] },
             );
           }
+        } else if (stmt.type === 'js') {
+          // Imperative step (v22 collapse). Runs INSIDE this transaction, so a
+          // throw rolls the whole version back and user_version is not advanced.
+          await stmt.run(db);
         }
       }
       // Advance the version inside the transaction.

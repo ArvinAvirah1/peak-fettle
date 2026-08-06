@@ -65,10 +65,29 @@ function load(relPath, deps) {
 // exportEngine is standalone.
 // ---------------------------------------------------------------------------
 const localSchema = load('src/db/localSchema.ts');
+// v22 pulls in the collapse engine. Load it with its own pure deps so the
+// runner's `js` step is exercised for real rather than stubbed away.
+const _qualifiers = load('src/constants/qualifiers.ts');
+const _qk = load('src/lib/qualifierKey.ts', {
+  'constants/qualifiers': _qualifiers, '../constants/qualifiers': _qualifiers,
+});
+const _exMap = load('src/constants/exerciseQualifierMap.ts', {
+  qualifiers: _qualifiers, './qualifiers': _qualifiers,
+});
+const _collapseMap = load('src/constants/collapseMap.ts');
+const collapseMigration = load('src/db/collapseMigration.ts', {
+  'constants/collapseMap': _collapseMap, '../constants/collapseMap': _collapseMap,
+  'lib/qualifierKey': _qk, '../lib/qualifierKey': _qk,
+  'constants/exerciseQualifierMap': _exMap, '../constants/exerciseQualifierMap': _exMap,
+  localSchema: localSchema, './localSchema': localSchema,
+});
+
 const migrations = load('src/db/migrations.ts', {
   // Provide localSchema as the relative dep migrations.ts imports.
   './localSchema': localSchema,
   localSchema: localSchema,
+  './collapseMigration': collapseMigration,
+  collapseMigration: collapseMigration,
 });
 const exportEngine = load('src/data/backup/exportEngine.ts');
 
@@ -793,6 +812,43 @@ function eq(a, b, msg) {
         );
       }
     }
+  });
+
+  // 16. v22 is the first DESTRUCTIVE migration. The deferred snapshot this runner
+  // normally takes happens AFTER commit, which would record the already-changed
+  // data - useless as a rollback. So a destructive version must declare itself
+  // and must REFUSE to run when its pre-image cannot be written.
+  await test('v22: is flagged destructive', () => {
+    const v22 = MIGRATIONS.find((m) => m.v === 22);
+    assert(v22, 'MIGRATION_V22 should be registered');
+    eq(v22.destructive, true, 'must be flagged destructive:');
+    assert(
+      v22.statements.some((st) => typeof st === 'object' && st.type === 'js'),
+      'the collapse needs an imperative step - the variant->base mapping depends on ' +
+      'which exercises this device has cached, which static SQL cannot express',
+    );
+  });
+
+  await test('v22: refuses to run when the pre-image snapshot fails', async () => {
+    const db = makeStubDb();
+    db._pragmas.user_version = 21; // sitting right before the destructive one
+    let threw = null;
+    try {
+      await runMigrations(db, () => Promise.reject(new Error('disk full')));
+    } catch (e) {
+      threw = e;
+    }
+    assert(threw, 'a failed pre-image must abort the migration');
+    assert(/refusing to run a destructive migration/i.test(threw.message),
+      'and say why: ' + (threw && threw.message));
+    eq(db._pragmas.user_version, 21, 'user_version must NOT advance:');
+  });
+
+  await test('v22: runs when the pre-image succeeds', async () => {
+    const db = makeStubDb();
+    db._pragmas.user_version = 21;
+    await runMigrations(db, () => Promise.resolve('{"tables":{}}'));
+    eq(db._pragmas.user_version, 22, 'reaches v22 once the safety net exists:');
   });
 
   // ---------------------------------------------------------------------------

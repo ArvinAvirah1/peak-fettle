@@ -35,6 +35,7 @@ const REPO = path.resolve(__dirname, '..');
 const SRC = path.join(REPO, 'docs', 'archive', 'qualifiers', 'corrected.json');
 const OUT_MAP = path.join(REPO, 'docs', 'archive', 'qualifiers', 'collapse-map.json');
 const OUT_REPORT = path.join(REPO, 'docs', 'archive', 'qualifiers', 'collapse-report.md');
+const OUT_TS = path.join(REPO, 'mobile', 'src', 'constants', 'collapseMap.ts');
 
 const records = JSON.parse(fs.readFileSync(SRC, 'utf8'));
 const byName = new Map(records.map((e) => [e.name, e]));
@@ -274,6 +275,46 @@ for (const [n, i] of Object.entries(out).sort()) {
   lines.push(`| ${n} | \`${i.target}\` | ${q} |`);
 }
 fs.writeFileSync(OUT_REPORT, lines.join('\n') + '\n', 'utf8');
+
+// Ship the reconciled plan to the app as a TS constant. The v22 migration reads
+// it; it must be code, not JSON in docs/, because the app cannot read docs/ at
+// runtime and a TS constant rides the OTA bundle.
+const tsLines = [];
+tsLines.push(`/**
+ * collapseMap.ts — GENERATED FILE, DO NOT EDIT BY HAND.
+ *
+ *   Regenerate: node scripts/reconcile-collapse-map.js
+ *   Rationale:  docs/archive/qualifiers/collapse-report.md
+ *
+ * The reviewed variant->base collapse plan, consumed by the v22 migration.
+ * Keyed and targeted by NORMALIZED EXERCISE NAME, never by id: local sets carry
+ * server-assigned UUIDs that differ per environment, and a free device only
+ * caches ids for exercises the user has actually touched. Name is the only key
+ * that is guaranteed present on-device.
+ */
+
+export interface CollapseEntry {
+  /** Canonical display name of the variant being merged away. */
+  from: string;
+  /** Canonical display name of the surviving base. */
+  to: string;
+  /** Qualifiers that reconstruct the variant. Empty = pure rename merge. */
+  q: Record<string, string>;
+}
+
+/** Bases that do not exist as library rows yet and are created by the collapse. */
+export const COLLAPSE_CREATE_BASES: string[] = ${JSON.stringify(Object.keys(CREATE_BASES).sort())};
+
+export const COLLAPSE_ENTRIES: CollapseEntry[] = [`);
+for (const [n, i] of Object.entries(out).sort()) {
+  tsLines.push(`  { from: ${JSON.stringify(n)}, to: ${JSON.stringify(i.target)}, q: ${JSON.stringify(i.qualifiers || {})} },`);
+}
+tsLines.push(`];
+
+/** Old names that must stay searchable, base name -> aliases it now owns. */
+export const COLLAPSE_ALIASES: Record<string, string[]> = ${JSON.stringify(aliasesOut, null, 1)};
+`);
+fs.writeFileSync(OUT_TS, tsLines.join(String.fromCharCode(10)), 'utf8');
 
 console.log(`reconciled: ${Object.keys(out).length} collapses -> ${new Set(Object.values(out).map((o) => o.target)).size} bases`);
 console.log(`  overrides applied : ${decisions.length}`);
