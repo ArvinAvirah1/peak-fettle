@@ -19,7 +19,10 @@
  *      engine (planGen/quickSwap.ts). Pro-gated: free users see a locked
  *      teaser row (onUpgrade). Empty-state copy reuses misc:quickSwapSheet.
  *   3. Add substitute / Browse full library — both open the shared
- *      ExercisePicker (stacked-Modal pattern, same as RoutineEditorSheet).
+ *      ExercisePicker, which is rendered as a CHILD of this sheet's own
+ *      <Modal> (see GL-2 note at the mount site). It must never become a
+ *      sibling again: this sheet stays visible while the picker opens, and iOS
+ *      silently drops a <Modal> presented over an already-presented one.
  *
  * Presentational + callback-driven like QuickSwapSheet (which this supersedes
  * in the logger): the parent computes lists, performs the swap/persistence,
@@ -30,7 +33,7 @@
  * =============================================================================
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Modal,
   View,
@@ -143,6 +146,18 @@ export function SubstituteSwapSheet(props: SubstituteSwapSheetProps): React.Reac
   // Add-flow scope (editor only): unchecked = this routine, checked = global.
   const [addGlobal, setAddGlobal] = useState(false);
 
+  // GL-2: the deferred hand-up in handlePicked must never fire into an unmounted
+  // tree (the parent usually unmounts this sheet as a direct result of it).
+  const mountedRef = useRef(true);
+  const frameRef = useRef<ReturnType<typeof requestAnimationFrame> | null>(null);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (frameRef.current != null) cancelAnimationFrame(frameRef.current);
+    };
+  }, []);
+
   useEffect(() => {
     if (!visible) {
       setPickerIntent(null);
@@ -150,17 +165,33 @@ export function SubstituteSwapSheet(props: SubstituteSwapSheetProps): React.Reac
     }
   }, [visible]);
 
+  /**
+   * GL-2 dismissal ordering: the picker is now a CHILD modal of this sheet, and
+   * the parent's onSelect typically closes THIS sheet (WorkoutLoggerHost's
+   * handleQuickSwapSelect calls setQuickSwapVisible(false)). Tearing the parent
+   * modal down in the same tick that the child is dismissing is the glitchy
+   * nested-modal case this file's neighbours already work around.
+   *
+   * So: close the picker FIRST, then hand the pick up one frame later. A single
+   * frame (~16ms) is imperceptible — unlike the 450ms waits used elsewhere for
+   * full present-after-dismiss transitions — but it guarantees the child is
+   * dismissing before the parent can unmount it.
+   */
   const handlePicked = useCallback(
     (ex: Exercise) => {
       const picked = { exercise_id: ex.id || null, name: ex.name };
-      if (pickerIntent === 'add') {
-        const scope: SubstituteScope =
-          mode === 'session' || !allowRoutineScope || addGlobal ? 'global' : 'routine';
-        onAddSub(picked, scope);
-      } else {
-        onSelect({ ...picked, source: 'library' });
-      }
+      const isAdd = pickerIntent === 'add';
+      const scope: SubstituteScope =
+        mode === 'session' || !allowRoutineScope || addGlobal ? 'global' : 'routine';
+
       setPickerIntent(null);
+
+      frameRef.current = requestAnimationFrame(() => {
+        frameRef.current = null;
+        if (!mountedRef.current) return;
+        if (isAdd) onAddSub(picked, scope);
+        else onSelect({ ...picked, source: 'library' });
+      });
     },
     [pickerIntent, mode, allowRoutineScope, addGlobal, onAddSub, onSelect],
   );
@@ -422,14 +453,27 @@ export function SubstituteSwapSheet(props: SubstituteSwapSheetProps): React.Reac
             </Text>
           </TouchableOpacity>
         </View>
-      </Modal>
 
-      {/* Shared library picker (stacked-Modal pattern — same as RoutineEditorSheet). */}
-      <ExercisePicker
-        visible={pickerIntent != null}
-        onSelect={handlePicked}
-        onClose={() => setPickerIntent(null)}
-      />
+        {/* Shared library picker — NESTED inside this sheet's own <Modal>.
+            GL-2 (founder report 2026-08-05): this used to be a SIBLING of the
+            <Modal> above, inside the fragment. On iOS a <Modal> presented while
+            another is already presented is silently DROPPED — and this sheet
+            stays visible while the picker opens — so "Choose alternative" →
+            "Select from library" did nothing at all, in BOTH mount points
+            (logger and routine editor).
+
+            The file header always claimed this followed "the stacked-Modal
+            pattern — same as RoutineEditorSheet", but RoutineEditorSheet nests
+            its pickers INSIDE its Modal (RoutineEditorSheet.tsx:890, within the
+            Modal spanning 741-950). GL-1 nested this whole sheet into the
+            stepper's Modal but stopped one level too shallow, leaving this
+            picker stranded. Nesting it here is the actual fix. */}
+        <ExercisePicker
+          visible={pickerIntent != null}
+          onSelect={handlePicked}
+          onClose={() => setPickerIntent(null)}
+        />
+      </Modal>
     </>
   );
 }
