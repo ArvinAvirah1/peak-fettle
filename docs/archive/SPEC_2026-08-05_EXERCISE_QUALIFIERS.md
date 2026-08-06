@@ -310,16 +310,25 @@ JS/TS only → **`eas update`, no EAS rebuild.** `react-native-svg@15.12.1` is a
 the v21 migration is JS running on device. Server migration → `git push` (Railway auto-deploys),
 **deployed before the OTA**. No native config is touched.
 
-## 9. Build order
+## 9. Build order — ALL STEPS COMPLETE (2026-08-06)
 
-1. **Swap→library modal fix** — small, independent, verifiable, ships alone
-2. v21 migration + backup registry (§2.1, §2.3 together — never separately)
-3. `qualifiers.ts` catalog + `qualifierKey.ts` + i18n keys
-4. SVG graphic components
-5. Settings gate (§4) — before the logger UI, so the UI is built gated from day one
-6. Logger chips + picker sheet + `?` explainer
-7. Routine prescription
-8. Percentile filter (§3) via the one shared reader + tests
+Commits `d74bf5f`..`1aa2fcf`, all pushed to `origin/main`. Server migration applied to prod
+(Supabase `pf-main`, branch main) 2026-08-06 and verified: `sets.qualifiers_json` text +
+`sets.load_effective_raw` integer, both nullable.
+
+**NOT yet verified on a device.** Everything below passed the static gate (parse-sweep,
+invariant-sweep, 28 test suites, tsc at baseline), but no part of this has run on a real
+iPhone. The swap→library fix in particular is a founder-reported bug whose failure mode is
+invisible to static analysis, so it needs an `eas update` and a physical check.
+
+1. ✅ **Swap→library modal fix** — small, independent, verifiable, ships alone
+2. ✅ v21 migration + backup registry (§2.1, §2.3 together — never separately)
+3. ✅ `qualifiers.ts` catalog + `qualifierKey.ts` + i18n keys
+4. ✅ SVG graphic components
+5. ✅ Settings gate (§4) — before the logger UI, so the UI is built gated from day one
+6. ✅ Logger chips + picker sheet + `?` explainer
+7. ✅ Routine prescription
+8. ✅ Percentile filter (§3) via the one shared reader + tests
 
 **Parked, not abandoned:** the collapse migration (56 variants) and its global reconciliation pass —
 circular bases (`Bench Press` ⟷ `Barbell Bench Press`), 19 alias shadows, 9 phantom targets, 5 bases
