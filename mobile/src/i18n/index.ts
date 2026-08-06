@@ -34,6 +34,7 @@ import components from './locales/en/components.json';
 import logger from './locales/en/logger.json';
 import misc from './locales/en/misc.json';
 import engine from './locales/en/engine.json';
+import qualifiers from './locales/en/qualifiers.json';
 
 import { pseudoizeBundle, type Bundle } from './pseudo';
 import { getAppLanguage, setAppLanguage, type AppLanguage } from '../data/appSettings';
@@ -48,6 +49,7 @@ export const EN_RESOURCES = {
   logger,
   misc,
   engine,
+  qualifiers,
 } as const;
 
 export const I18N_NAMESPACES = Object.keys(EN_RESOURCES) as Array<keyof typeof EN_RESOURCES>;

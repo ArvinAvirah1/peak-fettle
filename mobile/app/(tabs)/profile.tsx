@@ -82,12 +82,23 @@ import {
   getEffortDisplay,
   getAutoregSuggestionsEnabled,
   setAutoregSuggestionsEnabled,
+  // NOTE: qualifier settings live in their own module (they carry level->axes
+  // resolution logic, not just a value), but they use the same app_settings KV.
   setEffortDisplay,
   EffortDisplay,
   getGroupRestMode,
   setGroupRestMode,
   GroupRestMode,
 } from '../../src/data/appSettings';
+import {
+  getQualifierTrackingLevel,
+  setQualifierTrackingLevel,
+  getCustomEnabledAxes,
+  setCustomEnabledAxes,
+  DEFAULT_LEVEL,
+  type QualifierTrackingLevel,
+} from '../../src/data/qualifierSettings';
+import { AXIS_ORDER, type QualifierAxisId } from '../../src/constants/qualifiers';
 import { BADGE_DEFS, BadgeDef } from '../../src/data/badges/badgeDefs'; // TICKET-143
 import { localDb as badgeLocalDb } from '../../src/db/localDb'; // TICKET-143 (badges_earned reads)
 import { useTranslation } from 'react-i18next';
@@ -984,6 +995,40 @@ export default function ProfileScreen(): React.ReactElement {
     getAutoregSuggestionsEnabled().then(setAutoregEnabled).catch(() => {});
   }, []);
 
+  // Exercise qualifiers (2026-08-05, founder decision D9): how much detail the
+  // logger asks for per set. Same optimistic-update / local-only pattern as the
+  // prefs above. DISPLAY-ONLY — changing this never alters stored sets and never
+  // changes anyone's percentile (see data/qualifierSettings.ts).
+  const [qualifierLevel, setQualifierLevel] = useState<QualifierTrackingLevel>(DEFAULT_LEVEL);
+  const [qualifierCustomAxes, setQualifierCustomAxes] = useState<QualifierAxisId[]>([]);
+  useEffect(() => {
+    getQualifierTrackingLevel().then(setQualifierLevel).catch(() => {});
+    getCustomEnabledAxes().then(setQualifierCustomAxes).catch(() => {});
+  }, []);
+
+  const handleQualifierLevelChange = useCallback(async (level: QualifierTrackingLevel) => {
+    const prev = qualifierLevel;
+    setQualifierLevel(level);
+    try {
+      await setQualifierTrackingLevel(level);
+    } catch {
+      setQualifierLevel(prev);
+    }
+  }, [qualifierLevel]);
+
+  const handleQualifierAxisToggle = useCallback(async (axisId: QualifierAxisId) => {
+    const prev = qualifierCustomAxes;
+    const next = prev.includes(axisId)
+      ? prev.filter((a) => a !== axisId)
+      : [...prev, axisId];
+    setQualifierCustomAxes(next);
+    try {
+      await setCustomEnabledAxes(next);
+    } catch {
+      setQualifierCustomAxes(prev);
+    }
+  }, [qualifierCustomAxes]);
+
   // TICKET-146: app language override — same optimistic-update / local-only
   // pattern as effortDisplayPref / groupRestModePref above. 'system' default;
   // 'pseudo' only ever offered in __DEV__ builds (see the chips row below).
@@ -1722,6 +1767,122 @@ export default function ProfileScreen(): React.ReactElement {
               </ScrollView>
             )}
           </View>
+
+          {/* Exercise detail (founder decision D9, 2026-08-05).
+              A cable exercise can legitimately have six applicable axes; showing
+              all of them turns the logger into a form. So it's a knob rather
+              than a compromise. DISPLAY-ONLY: this never changes what is stored
+              and never changes a percentile, so two people with identical
+              training and different settings still rank identically. */}
+          <View style={[
+            styles.settingRow,
+            styles.settingRowTop,
+            styles.restTimerRow,
+            { borderTopColor: theme.colors.borderDefault },
+          ]}>
+            <View style={[styles.settingLabelGroup, styles.restTimerLabelGroup]}>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>
+                {t('settings:profile.exerciseDetail')}
+              </Text>
+              <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
+                {t('settings:profile.exerciseDetailMeta')}
+              </Text>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.restTimerPresetsContent}
+              style={styles.restTimerPresets}
+              accessibilityLabel={t('settings:profile.exerciseDetailA11y')}
+            >
+              {([
+                { level: 'off' as QualifierTrackingLevel, labelKey: 'settings:profile.exerciseDetailOff' },
+                { level: 'essential' as QualifierTrackingLevel, labelKey: 'settings:profile.exerciseDetailEssential' },
+                { level: 'detailed' as QualifierTrackingLevel, labelKey: 'settings:profile.exerciseDetailDetailed' },
+                { level: 'everything' as QualifierTrackingLevel, labelKey: 'settings:profile.exerciseDetailEverything' },
+                { level: 'custom' as QualifierTrackingLevel, labelKey: 'settings:profile.exerciseDetailCustom' },
+              ]).map(({ level, labelKey }) => {
+                const selected = qualifierLevel === level;
+                const label = t(labelKey as any);
+                return (
+                  <TouchableOpacity
+                    key={level}
+                    style={[
+                      styles.restTimerChip,
+                      { borderColor: theme.colors.borderDefault },
+                      selected && { backgroundColor: theme.colors.accentDefault, borderColor: theme.colors.accentDefault },
+                    ]}
+                    onPress={() => { void handleQualifierLevelChange(level); }}
+                    accessibilityRole="button"
+                    accessibilityLabel={label}
+                    accessibilityState={{ selected }}
+                  >
+                    <Text style={[
+                      styles.restTimerChipText,
+                      { color: theme.colors.textTertiary },
+                      selected && { color: theme.components.buttonPrimaryText },
+                    ]}>
+                      {label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+
+          {/* What the chosen level actually means, in words. */}
+          <View style={[styles.settingRow, { paddingTop: 0 }]}>
+            <Text style={[styles.settingMeta, { color: theme.colors.textTertiary, flex: 1 }]}>
+              {t(({
+                off: 'settings:profile.exerciseDetailOffMeta',
+                essential: 'settings:profile.exerciseDetailEssentialMeta',
+                detailed: 'settings:profile.exerciseDetailDetailedMeta',
+                everything: 'settings:profile.exerciseDetailEverythingMeta',
+                custom: 'settings:profile.exerciseDetailCustomMeta',
+              } as Record<QualifierTrackingLevel, string>)[qualifierLevel] as any)}
+              {qualifierLevel === 'off' ? '' : ' ' + t('settings:profile.exerciseDetailKeepsData')}
+            </Text>
+          </View>
+
+          {/* Custom: the full axis list as toggles. Only rendered for 'custom' —
+              the presets exist precisely so most people never see this. */}
+          {qualifierLevel === 'custom' && (
+            <View style={[
+              styles.settingRow,
+              styles.settingRowTop,
+              { borderTopColor: theme.colors.borderDefault, flexDirection: 'column', alignItems: 'stretch' },
+            ]}>
+              <Text style={[styles.settingLabel, { color: theme.colors.textPrimary, marginBottom: 8 }]}>
+                {t('settings:profile.exerciseDetailCustomHeader')}
+              </Text>
+              {AXIS_ORDER.map((axisId) => {
+                const on = qualifierCustomAxes.includes(axisId);
+                const label = t(`qualifiers:axis.${axisId}.label` as any);
+                return (
+                  <View
+                    key={axisId}
+                    style={[styles.settingRow, { justifyContent: 'space-between', paddingVertical: 6 }]}
+                  >
+                    <View style={styles.settingLabelGroup}>
+                      <Text style={[styles.settingLabel, { color: theme.colors.textPrimary }]}>
+                        {label}
+                      </Text>
+                      <Text style={[styles.settingMeta, { color: theme.colors.textTertiary }]}>
+                        {t(`qualifiers:axis.${axisId}.desc` as any)}
+                      </Text>
+                    </View>
+                    <Switch
+                      value={on}
+                      onValueChange={() => { void handleQualifierAxisToggle(axisId); }}
+                      trackColor={{ false: theme.colors.borderDefault, true: theme.colors.accentDefault }}
+                      thumbColor={on ? theme.colors.accentDefault : theme.colors.textTertiary}
+                      accessibilityLabel={label}
+                    />
+                  </View>
+                );
+              })}
+            </View>
+          )}
         </View>
       </View>
 

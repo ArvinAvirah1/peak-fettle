@@ -1,0 +1,180 @@
+{
+  "axis": {
+    "grip_width": {
+      "label": "Grip width",
+      "desc": "How far apart your hands are, relative to your shoulders."
+    },
+    "grip_orientation": {
+      "label": "Grip",
+      "desc": "Which way your palms face on the bar or handle."
+    },
+    "attachment": {
+      "label": "Attachment",
+      "desc": "What's clipped to the cable or machine.",
+      "customHint": "e.g. angled tricep bar, revolving straight bar"
+    },
+    "pulley_height": {
+      "label": "Pulley height",
+      "desc": "Where the cable leaves the tower. Changes the resistance angle and which part of the movement is loaded."
+    },
+    "pulley_ratio": {
+      "label": "Pulley ratio",
+      "desc": "How the machine's pulleys change the weight you feel. The only setting here that changes a number rather than a label."
+    },
+    "stance": {
+      "label": "Stance",
+      "desc": "Where your feet are, including position on a leg-press platform."
+    },
+    "bench_angle": {
+      "label": "Bench angle",
+      "desc": "How far the bench is inclined or declined."
+    },
+    "bar_type": {
+      "label": "Bar",
+      "desc": "Which implement you used."
+    },
+    "body_position": {
+      "label": "Position",
+      "desc": "Your overall posture for the movement."
+    },
+    "load_mode": {
+      "label": "Loading",
+      "desc": "How the resistance is applied.",
+      "customHint": "e.g. plate on lap, reverse bands"
+    },
+    "rom": {
+      "label": "Range",
+      "desc": "A deliberate change to the range of motion.",
+      "customHint": "e.g. 2-inch deficit, mid-shin block"
+    },
+    "laterality": {
+      "label": "Limbs",
+      "desc": "How many limbs work at once."
+    },
+    "bar_position": {
+      "label": "Bar position",
+      "desc": "Where the bar sits on your back."
+    }
+  },
+  "value": {
+    "grip_width": {
+      "close": { "label": "Close", "desc": "Inside shoulder width" },
+      "shoulder": { "label": "Shoulder", "desc": "At shoulder width" },
+      "medium": { "label": "Medium", "desc": "Standard or competition width" },
+      "wide": { "label": "Wide", "desc": "Outside shoulder width" },
+      "extra_wide": { "label": "Extra wide", "desc": "The widest usable grip" }
+    },
+    "grip_orientation": {
+      "pronated": { "label": "Overhand", "desc": "Palms facing away from you" },
+      "supinated": { "label": "Underhand", "desc": "Palms facing toward you" },
+      "neutral": { "label": "Neutral", "desc": "Palms facing each other" },
+      "mixed": { "label": "Mixed", "desc": "One palm over, one under" },
+      "thumbless": { "label": "Thumbless", "desc": "False grip, thumb alongside the fingers" },
+      "hook": { "label": "Hook", "desc": "Thumb pinned under the fingers" }
+    },
+    "attachment": {
+      "straight_bar": { "label": "Straight bar", "desc": "Fixed straight handle" },
+      "ez_bar": { "label": "EZ / angled bar", "desc": "Cambered, easier on the wrists" },
+      "rope": { "label": "Rope", "desc": "Split ends, hands can rotate freely" },
+      "single_d": { "label": "Single D-handle", "desc": "One hand, full rotation" },
+      "dual_d": { "label": "Dual D-handles", "desc": "Two independent handles" },
+      "v_bar": { "label": "V-bar", "desc": "Close neutral triangle" },
+      "lat_bar_wide": { "label": "Wide lat bar", "desc": "Long bar with angled ends" },
+      "mag_grip": { "label": "MAG grip", "desc": "Contoured ergonomic grip" },
+      "ankle_strap": { "label": "Ankle strap", "desc": "Cuff for lower-body work" },
+      "head_harness": { "label": "Head harness", "desc": "Strap for neck work" },
+      "tricep_v_strap": { "label": "Tricep V-strap", "desc": "Fixed V, no splay" },
+      "stirrup": { "label": "Stirrup handle", "desc": "Rigid loop handle" },
+      "band": { "label": "Band", "desc": "Elastic, resistance rises through the range" },
+      "sled_strap": { "label": "Sled strap", "desc": "Harness for drags and pulls" }
+    },
+    "pulley_height": {
+      "floor": { "label": "Floor", "desc": "Lowest setting, cable at ground level" },
+      "knee": { "label": "Knee", "desc": "Just above the floor pin" },
+      "hip": { "label": "Hip", "desc": "Around waist height" },
+      "mid_chest": { "label": "Mid-chest", "desc": "Sternum height" },
+      "shoulder": { "label": "Shoulder", "desc": "Level with your shoulders" },
+      "high": { "label": "High", "desc": "Above head height" },
+      "overhead": { "label": "Overhead", "desc": "The topmost setting" }
+    },
+    "pulley_ratio": {
+      "1_1": { "label": "Direct (1:1)", "desc": "The pin weight is what you feel" },
+      "2_1": { "label": "2:1", "desc": "Movable pulley on the stack. Pin says 100, you feel 50" },
+      "4_1": { "label": "4:1", "desc": "Two movable pulleys. Pin says 100, you feel 25" },
+      "1_2": { "label": "1:2", "desc": "Movable pulley on the handle. Pin says 100, you feel 200" },
+      "unknown": { "label": "Not sure", "desc": "Logged exactly as you type it, and left out of cross-gym comparisons" }
+    },
+    "stance": {
+      "narrow": { "label": "Narrow", "desc": "Inside hip width" },
+      "shoulder": { "label": "Shoulder", "desc": "At shoulder width" },
+      "wide": { "label": "Wide", "desc": "Outside the shoulders" },
+      "sumo": { "label": "Sumo", "desc": "Very wide, toes turned out" },
+      "staggered": { "label": "Staggered", "desc": "One foot slightly back" },
+      "split": { "label": "Split", "desc": "Full split position" },
+      "feet_together": { "label": "Together", "desc": "Feet touching" },
+      "high_platform": { "label": "High on platform", "desc": "Feet high on the platform" },
+      "low_platform": { "label": "Low on platform", "desc": "Feet low on the platform" }
+    },
+    "bench_angle": {
+      "decline": { "label": "Decline", "desc": "Head below your hips" },
+      "flat": { "label": "Flat", "desc": "Horizontal" },
+      "incline_15": { "label": "15°", "desc": "Slight incline" },
+      "incline_30": { "label": "30°", "desc": "Standard incline" },
+      "incline_45": { "label": "45°", "desc": "Steep incline" },
+      "incline_60": { "label": "60°", "desc": "Near vertical" },
+      "upright_90": { "label": "Upright", "desc": "Seated vertical" }
+    },
+    "bar_type": {
+      "straight_barbell": { "label": "Barbell", "desc": "Standard straight bar" },
+      "ez_bar": { "label": "EZ bar", "desc": "Cambered curl bar" },
+      "trap_bar": { "label": "Trap bar", "desc": "Hex bar, neutral handles" },
+      "safety_squat_bar": { "label": "Safety squat bar", "desc": "Padded, with forward handles" },
+      "swiss_bar": { "label": "Swiss bar", "desc": "Football bar, neutral grips" },
+      "smith": { "label": "Smith machine", "desc": "Bar fixed to a guided track" },
+      "dumbbell": { "label": "Dumbbells", "desc": "Independent per hand" },
+      "kettlebell": { "label": "Kettlebell", "desc": "Offset weight below the handle" },
+      "machine": { "label": "Machine", "desc": "Fixed-path machine" },
+      "landmine": { "label": "Landmine", "desc": "Barbell anchored in a floor pivot" }
+    },
+    "body_position": {
+      "standing": { "label": "Standing", "desc": "On your feet" },
+      "seated": { "label": "Seated", "desc": "Sitting" },
+      "lying_supine": { "label": "Lying (face up)", "desc": "On your back" },
+      "lying_prone": { "label": "Lying (face down)", "desc": "On your front" },
+      "kneeling": { "label": "Kneeling", "desc": "On both knees" },
+      "half_kneeling": { "label": "Half kneeling", "desc": "One knee down" },
+      "bent_over": { "label": "Bent over", "desc": "Hinged at the hips" },
+      "chest_supported": { "label": "Chest supported", "desc": "Torso resting on a pad" },
+      "incline_supported": { "label": "Incline supported", "desc": "Braced on an inclined bench" }
+    },
+    "load_mode": {
+      "straight_weight": { "label": "Straight weight", "desc": "Plates or a stack, nothing added" },
+      "banded": { "label": "Banded", "desc": "Bands adding resistance" },
+      "chains": { "label": "Chains", "desc": "Chains adding weight through the range" },
+      "assisted": { "label": "Assisted", "desc": "Machine or band taking weight off" },
+      "weighted": { "label": "Weighted", "desc": "Added load from a belt or held plate" },
+      "weighted_vest": { "label": "Weighted vest", "desc": "Load carried in a vest" },
+      "bodyweight": { "label": "Bodyweight", "desc": "No added load" }
+    },
+    "rom": {
+      "full": { "label": "Full", "desc": "Complete range of motion" },
+      "partial_top": { "label": "Top partial", "desc": "Upper portion only" },
+      "partial_bottom": { "label": "Bottom partial", "desc": "Lower portion only" },
+      "lengthened_partial": { "label": "Lengthened partial", "desc": "Partials in the stretched position" },
+      "paused": { "label": "Paused", "desc": "Held still at one point in the rep" },
+      "deficit": { "label": "Deficit", "desc": "Standing higher to extend the range" },
+      "block": { "label": "Block", "desc": "Starting from blocks or pins" }
+    },
+    "laterality": {
+      "bilateral": { "label": "Both limbs", "desc": "Both sides together" },
+      "unilateral": { "label": "One limb", "desc": "One side at a time" },
+      "alternating": { "label": "Alternating", "desc": "Swapping sides each rep" },
+      "contralateral": { "label": "Opposite side", "desc": "Loaded on the side opposite the working limb" },
+      "ipsilateral": { "label": "Same side", "desc": "Loaded on the same side as the working limb" }
+    },
+    "bar_position": {
+      "high_bar": { "label": "High bar", "desc": "Resting on your traps" },
+      "low_bar": { "label": "Low bar", "desc": "Across your rear delts" }
+    }
+  }
+}
