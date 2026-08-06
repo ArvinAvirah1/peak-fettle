@@ -24,6 +24,17 @@
  * up-migration ensures that a v1 backup restores cleanly on a v2 app (missing
  * tables are filled in as empty arrays).
  *
+ * v3 (exercise qualifiers, schema v21, 2026-08-05): BACKUP_SCHEMA_VERSION 2→3.
+ * Adds the `custom_qualifier_values` table and three `sets` columns
+ * (qualifiers_json / qualifier_key / load_effective_kg).
+ *
+ * THIS FILE IS NOT OPTIONAL WHEN THE LOCAL SCHEMA GAINS A COLUMN. sanitizeRowColumns
+ * drops any column missing from COLUMN_ALLOWLIST — fail-safe by design (DATA-01),
+ * but it means a new column that is added to localSchema.ts and NOT added here is
+ * silently deleted by every backup→restore round trip, with no error. Adding the
+ * schema and forgetting the registry is a silent-data-loss bug, so the v21 change
+ * landed as a single commit covering both.
+ *
  * SECURITY (DATA-01, 2026-06-19): the manual-import / restore path builds INSERT
  * statements from a backup JSON document. The VALUES are parameterized, but the
  * COLUMN names came straight from the imported row's `Object.keys(...)` and were
@@ -39,7 +50,7 @@
 // Bumped whenever the on-device logical schema changes shape. Additive changes
 // stay backward/forward compatible; a breaking change needs an up-migration in
 // MIGRATIONS below.
-export const BACKUP_SCHEMA_VERSION = 2;
+export const BACKUP_SCHEMA_VERSION = 3;
 
 // The on-device logical tables that hold personal data. `outbox` is sync
 // bookkeeping, not user data, and is intentionally excluded. `migration_snapshots`
@@ -87,6 +98,12 @@ export const BACKUP_TABLES: string[] = [
   // to another device; saveRoutineReminder rewrites them on the next edit.
   'bodyweight_daily',
   'routine_reminders',
+  // v21 table (exercise qualifiers): the user's OWN attachment/grip options
+  // that the shipped catalog doesn't cover. This is authored user data — if it
+  // were left out, a backup/restore would silently drop every custom option the
+  // user ever added, and any historical set referencing one would render an
+  // unresolvable id.
+  'custom_qualifier_values',
 ];
 
 export type Row = Record<string, unknown>;
@@ -123,6 +140,12 @@ const COLUMN_ALLOWLIST: Record<string, Set<string>> = {
     'metrics_json', // v6
     'note', 'flags', // v11 (TICKET-129: per-set notes + flags)
     'weight_centi', 'weight_unit', // v18 (fixed-point exact weight entry)
+    // v21 (exercise qualifiers). These MUST be listed: sanitizeRowColumns drops
+    // any column missing from this allowlist fail-safe, so omitting them would
+    // make every backup->restore round trip silently strip how each set was
+    // performed — and that in turn would let percentile-EXCLUDED sets rejoin the
+    // strength model as if they were plain sets.
+    'qualifiers_json', 'qualifier_key', 'load_effective_kg',
   ]),
   schedule: new Set(['id', 'mode', 'data', 'position', 'updated_at']),
   avatar: new Set(['id', 'data', 'updated_at']),
@@ -136,6 +159,12 @@ const COLUMN_ALLOWLIST: Record<string, Set<string>> = {
   routine_reminders: new Set([
     'routine_id', 'enabled', 'in_app_timing', 'notify_enabled', 'notify_days',
     'notify_hour', 'notify_minute', 'notification_ids', 'updated_at',
+  ]),
+  // v21: user-authored qualifier options (e.g. an attachment the shipped
+  // catalog doesn't enumerate). `exercise_id` is nullable — NULL means the
+  // option is offered on every exercise that uses this axis.
+  custom_qualifier_values: new Set([
+    'id', 'axis_id', 'exercise_id', 'label', 'created_at', 'updated_at',
   ]),
   exercise_prefs: new Set([
     'exercise_id', 'warmup_enabled', 'warmup_sets', 'base_weight_kg', 'pulley_id', 'updated_at',
@@ -258,6 +287,19 @@ const MIGRATIONS: Record<number, Migration> = {
       if (!Array.isArray(upgraded[t])) {
         upgraded[t] = [];
       }
+    }
+    return upgraded;
+  },
+  2: (tables: TableMap): TableMap => {
+    // v3 (schema v21, exercise qualifiers): a v2 backup predates
+    // custom_qualifier_values — initialize it as empty so restore doesn't have
+    // to special-case a missing key. The new `sets` columns need no migration:
+    // they are nullable, and a NULL qualifiers_json correctly means "legacy /
+    // not recorded" (treated as passthrough by the percentile filter, so
+    // restoring an old backup never drops sets out of the strength model).
+    const upgraded = { ...tables };
+    if (!Array.isArray(upgraded.custom_qualifier_values)) {
+      upgraded.custom_qualifier_values = [];
     }
     return upgraded;
   },

@@ -14,9 +14,9 @@
  *   5. v1→v2 backup up-migration: missing v2 tables become empty arrays.
  *   6. parseImport rejects backup newer than app.
  *   7. parseImport accepts v2 doc and preserves rows.
- *   8. BACKUP_SCHEMA_VERSION is 2.
+ *   8. BACKUP_SCHEMA_VERSION is 3.
  *   9. BACKUP_TABLES contains all 21 registered tables.
- *  10. makeExportDoc sets schemaVersion 2.
+ *  10. makeExportDoc sets schemaVersion 3.
  */
 
 'use strict';
@@ -73,7 +73,13 @@ const migrations = load('src/db/migrations.ts', {
 const exportEngine = load('src/data/backup/exportEngine.ts');
 
 const { SCHEMA_V2_STATEMENTS } = localSchema;
-const { runMigrations } = migrations;
+const { runMigrations, MIGRATIONS } = migrations;
+
+// Derived, NOT hardcoded: every added migration used to break 8 separate
+// assertions that each spelled out the then-current version. The intent of
+// those tests is "a baseline of vN reaches the LATEST version", so express
+// exactly that and let the number follow the migration list.
+const LATEST_VERSION = Math.max.apply(null, MIGRATIONS.map(function (m) { return m.v; }));
 const {
   parseImport,
   makeExportDoc,
@@ -195,15 +201,15 @@ function eq(a, b, msg) {
     await runMigrations(db);
     const v2 = db._pragmas.user_version;
     eq(v1, v2, 'version changed on second run:');
-    eq(v1, 20, 'expected version 20:');
+    eq(v1, LATEST_VERSION, 'expected latest version:');
   });
 
   // 2. Fresh install reaches the latest version
-  await test('fresh install reaches user_version 20', async () => {
+  await test('fresh install reaches the latest user_version', async () => {
     const db = makeStubDb();
     eq(db._pragmas.user_version, 0, 'starts at 0:');
     await runMigrations(db);
-    eq(db._pragmas.user_version, 20, 'should be 20 after migration:');
+    eq(db._pragmas.user_version, LATEST_VERSION, 'should be at latest after migration:');
   });
 
   // 3. v2 tables created (10 spot-checked)
@@ -319,7 +325,7 @@ function eq(a, b, msg) {
 
     await runMigrations(db);
 
-    eq(db._pragmas.user_version, 20, 'should reach 20 from a v10 baseline:');
+    eq(db._pragmas.user_version, LATEST_VERSION, 'should reach latest from a v10 baseline:');
     assert(db._tableColumns['sets'].has('note'), 'v10->v11 upgrade missing sets.note');
     assert(db._tableColumns['sets'].has('flags'), 'v10->v11 upgrade missing sets.flags');
     assert(db._createdTables.has('body_measurements'), 'v11->v12 upgrade missing body_measurements');
@@ -383,7 +389,7 @@ function eq(a, b, msg) {
     const db = makeStubDb();
     db._pragmas.user_version = 13;
     await runMigrations(db);
-    eq(db._pragmas.user_version, 20, 'should reach 20 from a v13 baseline:');
+    eq(db._pragmas.user_version, LATEST_VERSION, 'should reach latest from a v13 baseline:');
     assert(db._createdTables.has('badges_earned'), 'v13->v16 upgrade missing badges_earned');
     const cols = db._tableColumns['exercise_prefs'];
     assert(cols && cols.has('autoreg_muted'), 'v13->v16 upgrade missing exercise_prefs.autoreg_muted');
@@ -426,7 +432,7 @@ function eq(a, b, msg) {
     db._pragmas.user_version = 16;
     db._executedSql.length = 0;
     await runMigrations(db);
-    eq(db._pragmas.user_version, 20, 'should reach 20 from a v16 baseline:');
+    eq(db._pragmas.user_version, LATEST_VERSION, 'should reach latest from a v16 baseline:');
     assert(db._createdTables.has('exercise_substitutes'), 'v16->v17 upgrade missing exercise_substitutes');
     assert(
       !db._executedSql.some((s) => /CREATE TABLE IF NOT EXISTS badges_earned/i.test(s)),
@@ -453,7 +459,7 @@ function eq(a, b, msg) {
     db._pragmas.user_version = 17;
     db._executedSql.length = 0;
     await runMigrations(db);
-    eq(db._pragmas.user_version, 20, 'should reach 20 from a v17 baseline:');
+    eq(db._pragmas.user_version, LATEST_VERSION, 'should reach latest from a v17 baseline:');
     const cols = db._tableColumns['sets'];
     assert(cols && cols.has('weight_centi'), 'v17->v18 upgrade missing sets.weight_centi');
     assert(cols && cols.has('weight_unit'), 'v17->v18 upgrade missing sets.weight_unit');
@@ -483,7 +489,7 @@ function eq(a, b, msg) {
     db._pragmas.user_version = 18;
     db._executedSql.length = 0;
     await runMigrations(db);
-    eq(db._pragmas.user_version, 20, 'should reach 20 from a v18 baseline:');
+    eq(db._pragmas.user_version, LATEST_VERSION, 'should reach latest from a v18 baseline:');
     assert(db._createdTables.has('bodyweight_daily'), 'v18->v19 upgrade missing bodyweight_daily');
     assert(db._createdTables.has('routine_reminders'), 'v18->v19 upgrade missing routine_reminders');
     const cols = db._tableColumns['bodyweight'];
@@ -512,7 +518,7 @@ function eq(a, b, msg) {
     db._pragmas.user_version = 19;
     db._executedSql.length = 0;
     await runMigrations(db);
-    eq(db._pragmas.user_version, 20, 'should reach 20 from a v19 baseline:');
+    eq(db._pragmas.user_version, LATEST_VERSION, 'should reach latest from a v19 baseline:');
     const cols = db._tableColumns['workouts'];
     assert(cols && cols.has('routine_id'), 'v19->v20 upgrade missing workouts.routine_id');
     assert(
@@ -587,9 +593,9 @@ function eq(a, b, msg) {
     assert(!result.tables['not_a_real_table'], 'unknown tables should be stripped');
   });
 
-  // 8. BACKUP_SCHEMA_VERSION is 2
-  await test('BACKUP_SCHEMA_VERSION is 2', () => {
-    eq(BACKUP_SCHEMA_VERSION, 2, 'BACKUP_SCHEMA_VERSION:');
+  // 8. BACKUP_SCHEMA_VERSION is 3 (bumped for schema v21 qualifiers)
+  await test('BACKUP_SCHEMA_VERSION is 3', () => {
+    eq(BACKUP_SCHEMA_VERSION, 3, 'BACKUP_SCHEMA_VERSION:');
   });
 
   // 9. BACKUP_TABLES contains all 28 tables
@@ -606,6 +612,7 @@ function eq(a, b, msg) {
       'exercise_substitutes', // v17 (SUBS-001)
       'bodyweight_daily', // v19 (daily weight check-in)
       'routine_reminders', // v19 (per-routine weigh-in reminder)
+      'custom_qualifier_values', // v21 (exercise qualifiers — user-authored options)
     ];
     eq(BACKUP_TABLES.length, expected.length,
       'BACKUP_TABLES.length ' + BACKUP_TABLES.length + ' expected ' + expected.length + ':');
@@ -614,10 +621,10 @@ function eq(a, b, msg) {
     }
   });
 
-  // 10. makeExportDoc sets schemaVersion 2
-  await test('makeExportDoc produces schemaVersion 2', () => {
+  // 10. makeExportDoc sets schemaVersion 3 (bumped for schema v21 qualifiers)
+  await test('makeExportDoc produces schemaVersion 3', () => {
     const doc = makeExportDoc({});
-    eq(doc.schemaVersion, 2, 'schemaVersion:');
+    eq(doc.schemaVersion, 3, 'schemaVersion:');
     eq(doc.format, 'peak-fettle-backup', 'format:');
     assert(typeof doc.exportedAt === 'string', 'exportedAt should be string');
   });
@@ -673,6 +680,119 @@ function eq(a, b, msg) {
     eq(result.tables['progress_photos'][0].pose, 'front', 'progress_photos.pose survives round-trip:');
     eq(result.tables['badges_earned'].length, 1, 'badges_earned row survives round-trip:');
     eq(result.tables['badges_earned'][0].badge_id, 'workouts_10', 'badges_earned.badge_id survives round-trip:');
+  });
+
+  // 13. v21 (exercise qualifiers): the three new `sets` columns and the new
+  // custom_qualifier_values table must survive an export->import round trip.
+  //
+  // This is THE regression test for the silent-data-loss path that review found:
+  // sanitizeRowColumns drops any column missing from COLUMN_ALLOWLIST fail-safe
+  // (DATA-01), so shipping schema v21 without the exportEngine registry entries
+  // would delete every set's qualifiers on restore with no error at all. Worse,
+  // stripped qualifiers would let percentile-EXCLUDED sets silently rejoin the
+  // strength model. If someone adds a v22 column and forgets the registry, this
+  // test is what should fail.
+  await test('v21: export->import round-trip preserves set qualifiers + custom options', () => {
+    const tables = {
+      sets: [
+        {
+          id: 's-q1', workout_id: 'w1', user_id: 'u1', exercise_id: 'e-pulldown', kind: 'lift',
+          set_index: 0, reps: 10, weight_kg: 60, weight_centi: 6000, weight_unit: 'kg',
+          qualifiers_json: '{"attachment":"rope","grip_width":"close"}',
+          qualifier_key: 'attachment=rope|grip_width=close',
+          load_effective_kg: 30, // 2:1 pulley — felt load is half the pin weight
+          logged_at: '2026-08-05T00:00:00.000Z', synced: 0,
+        },
+      ],
+      custom_qualifier_values: [
+        {
+          id: 'cq1', axis_id: 'attachment', exercise_id: null, label: 'angled tricep bar',
+          created_at: '2026-08-05T00:00:00.000Z', updated_at: '2026-08-05T00:00:00.000Z',
+        },
+      ],
+    };
+    const doc = makeExportDoc(tables);
+    const roundTripped = JSON.parse(JSON.stringify(doc));
+    const result = parseImport(roundTripped, BACKUP_SCHEMA_VERSION);
+    assert(result.ok, 'round-trip parseImport failed');
+
+    const s = result.tables['sets'][0];
+    eq(result.tables['sets'].length, 1, 'qualifier set survives round-trip:');
+    eq(s.qualifiers_json, '{"attachment":"rope","grip_width":"close"}', 'sets.qualifiers_json survives:');
+    eq(s.qualifier_key, 'attachment=rope|grip_width=close', 'sets.qualifier_key survives:');
+    eq(s.load_effective_kg, 30, 'sets.load_effective_kg survives:');
+    // The typed entry must be untouched by any of this (v18 invariant).
+    eq(s.weight_centi, 6000, 'sets.weight_centi still exact:');
+    eq(s.weight_unit, 'kg', 'sets.weight_unit still exact:');
+
+    const c = result.tables['custom_qualifier_values'][0];
+    eq(result.tables['custom_qualifier_values'].length, 1, 'custom option survives round-trip:');
+    eq(c.label, 'angled tricep bar', 'custom_qualifier_values.label survives:');
+    eq(c.axis_id, 'attachment', 'custom_qualifier_values.axis_id survives:');
+  });
+
+  // 14. A v2 backup (pre-qualifiers) must still restore on a v3 app. The 2->3
+  // up-migration fills in custom_qualifier_values as empty; the new `sets`
+  // columns need no migration because NULL legitimately means "legacy / not
+  // recorded" — and the percentile filter treats NULL as passthrough, so
+  // restoring an old backup never drops sets out of the strength model.
+  await test('v21: a v2 backup restores cleanly on a v3 app', () => {
+    const legacyDoc = {
+      format: 'peak-fettle-backup',
+      schemaVersion: 2,
+      exportedAt: '2026-07-01T00:00:00.000Z',
+      tables: {
+        sets: [
+          {
+            id: 's-old', workout_id: 'w0', user_id: 'u1', exercise_id: 'e1', kind: 'lift',
+            set_index: 0, reps: 5, weight_kg: 100,
+            logged_at: '2026-07-01T00:00:00.000Z', synced: 1,
+          },
+        ],
+      },
+    };
+    const result = parseImport(legacyDoc, BACKUP_SCHEMA_VERSION);
+    assert(result.ok, 'v2 backup should restore on a v3 app: ' + (result.error || ''));
+    eq(result.tables['sets'].length, 1, 'legacy set survives the 2->3 migration:');
+    assert(
+      Array.isArray(result.tables['custom_qualifier_values']),
+      'custom_qualifier_values should be initialized as an array by the 2->3 migration',
+    );
+    eq(result.tables['custom_qualifier_values'].length, 0, 'custom options start empty:');
+    // Legacy sets carry no qualifiers — NULL/undefined, never a fabricated default.
+    assert(
+      result.tables['sets'][0].qualifiers_json == null,
+      'a legacy set must NOT gain a fabricated qualifiers_json',
+    );
+  });
+
+  // 15. v21 migration statement shape: the ALTERs must precede the index that
+  // depends on the new column, or the CREATE INDEX fails on a real device.
+  await test('v21: statements order ALTERs before the dependent index', () => {
+    const v21 = MIGRATIONS.find((m) => m.v === 21);
+    assert(v21, 'MIGRATION_V21 should be registered');
+    const stmts = v21.statements;
+    const keyColIdx = stmts.findIndex(
+      (s) => typeof s === 'object' && s.column === 'qualifier_key',
+    );
+    const idxIdx = stmts.findIndex(
+      (s) => typeof s === 'string' && s.includes('idx_sets_ex_qualkey'),
+    );
+    assert(keyColIdx >= 0, 'qualifier_key ALTER should be present');
+    assert(idxIdx >= 0, 'idx_sets_ex_qualkey CREATE INDEX should be present');
+    assert(
+      keyColIdx < idxIdx,
+      'ALTER adding qualifier_key must come BEFORE the index that uses it',
+    );
+    // Every ALTER in v21 must be additive (nullable, no NOT NULL/DEFAULT rewrite).
+    for (const s of stmts) {
+      if (typeof s === 'object' && s.type === 'alter_add_column') {
+        assert(
+          !/NOT NULL/i.test(s.definition),
+          'v21 is forward-only and must not add a NOT NULL column: ' + s.column,
+        );
+      }
+    }
   });
 
   // ---------------------------------------------------------------------------

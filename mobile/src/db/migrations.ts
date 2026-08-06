@@ -24,7 +24,7 @@
  * SPEC-094A Agent L, 2026-06-12.
  */
 
-import { SCHEMA_V2_STATEMENTS, SCHEMA_V3_STATEMENTS, SCHEMA_V4_STATEMENTS, SCHEMA_V5_STATEMENTS, SCHEMA_V6_STATEMENTS, SCHEMA_V7_STATEMENTS, SCHEMA_V8_STATEMENTS, SCHEMA_V9_STATEMENTS, SCHEMA_V10_STATEMENTS, SCHEMA_V11_STATEMENTS, SCHEMA_V12_STATEMENTS, SCHEMA_V13_STATEMENTS, SCHEMA_V14_STATEMENTS, SCHEMA_V15_STATEMENTS, SCHEMA_V16_STATEMENTS, SCHEMA_V17_STATEMENTS, SCHEMA_V18_STATEMENTS, SCHEMA_V19_STATEMENTS, SCHEMA_V20_STATEMENTS, MigrationStatement } from './localSchema';
+import { SCHEMA_V2_STATEMENTS, SCHEMA_V3_STATEMENTS, SCHEMA_V4_STATEMENTS, SCHEMA_V5_STATEMENTS, SCHEMA_V6_STATEMENTS, SCHEMA_V7_STATEMENTS, SCHEMA_V8_STATEMENTS, SCHEMA_V9_STATEMENTS, SCHEMA_V10_STATEMENTS, SCHEMA_V11_STATEMENTS, SCHEMA_V12_STATEMENTS, SCHEMA_V13_STATEMENTS, SCHEMA_V14_STATEMENTS, SCHEMA_V15_STATEMENTS, SCHEMA_V16_STATEMENTS, SCHEMA_V17_STATEMENTS, SCHEMA_V18_STATEMENTS, SCHEMA_V19_STATEMENTS, SCHEMA_V20_STATEMENTS, SCHEMA_V21_STATEMENTS, MigrationStatement } from './localSchema';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -254,7 +254,24 @@ const MIGRATION_V20: MigrationVersion = {
   statements: SCHEMA_V20_STATEMENTS,
 };
 
-export const MIGRATIONS: MigrationVersion[] = [MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6, MIGRATION_V7, MIGRATION_V8, MIGRATION_V9, MIGRATION_V10, MIGRATION_V11, MIGRATION_V12, MIGRATION_V13, MIGRATION_V14, MIGRATION_V15, MIGRATION_V16, MIGRATION_V17, MIGRATION_V18, MIGRATION_V19, MIGRATION_V20];
+// v21: exercise qualifiers (grip / attachment / pulley config per set) +
+// custom_qualifier_values. Additive and FORWARD-ONLY: nullable columns and one
+// new table, no rewrite of any existing row. The variant-collapse migration is
+// deliberately NOT part of this — see SPEC_2026-08-05_EXERCISE_QUALIFIERS.md.
+//
+// NOTE for whoever writes the first destructive migration: the safety snapshot
+// this runner takes is written AFTER the migrations commit (see the file header
+// — it is deferred off the first-paint path). That is fine for v2..v21 because
+// every one of them is additive, but a migration that REWRITES or DELETES rows
+// cannot rely on pf_premigration_v<N>.json as a rollback: it would contain the
+// already-changed data. Such a migration must take its own awaited pre-image
+// first.
+const MIGRATION_V21: MigrationVersion = {
+  v: 21,
+  statements: SCHEMA_V21_STATEMENTS,
+};
+
+export const MIGRATIONS: MigrationVersion[] = [MIGRATION_V2, MIGRATION_V3, MIGRATION_V4, MIGRATION_V5, MIGRATION_V6, MIGRATION_V7, MIGRATION_V8, MIGRATION_V9, MIGRATION_V10, MIGRATION_V11, MIGRATION_V12, MIGRATION_V13, MIGRATION_V14, MIGRATION_V15, MIGRATION_V16, MIGRATION_V17, MIGRATION_V18, MIGRATION_V19, MIGRATION_V20, MIGRATION_V21];
 
 // ---------------------------------------------------------------------------
 // Runner

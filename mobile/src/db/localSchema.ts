@@ -1080,3 +1080,56 @@ export const SCHEMA_V19_STATEMENTS: MigrationStatement[] = [
 export const SCHEMA_V20_STATEMENTS: MigrationStatement[] = [
   { type: 'alter_add_column', table: 'workouts', column: 'routine_id', definition: 'TEXT' },
 ];
+
+// ---------------------------------------------------------------------------
+// v21 statements — exercise qualifiers (SPEC_2026-08-05_EXERCISE_QUALIFIERS.md).
+//
+// Per-set record of HOW a set was performed: grip width, cable attachment,
+// pulley height/ratio, stance, and so on. FORWARD-ONLY — v21 adds nullable
+// columns and one new table, and rewrites NOTHING. The variant-collapse
+// migration (Close-Grip Lat Pulldown -> Lat Pulldown + grip_width:close) is
+// deliberately deferred; every silent-data-loss blocker found in review lived
+// in that history rewrite, not here.
+//
+//   • qualifiers_json   — the raw map, e.g. {"attachment":"rope","grip_width":"close"}.
+//   • qualifier_key     — canonical, sorted, DEFAULTS OMITTED (see lib/qualifierKey.ts).
+//                         Stored rather than derived so PR/history grouping stays an
+//                         indexed scan instead of JSON parsing in SQL on a 10k-set DB.
+//                         NULL === '' === all-defaults: ONE group. If defaults were
+//                         serialized instead, every lift's PR history would split into
+//                         pre-feature (NULL) and post-feature (default-key) buckets.
+//   • load_effective_kg — canonical kg AFTER the pulley ratio (D4). Stored, unlike the
+//                         strength coefficients, because the ratio is a physical
+//                         property of the machine used that day and is unrecoverable
+//                         later; coefficients are our editorial estimate and are applied
+//                         at READ time so a correction reshapes history via eas update.
+//
+// The typed entry (weight_centi / weight_unit, v18) and canonical kg (weight_kg, v3)
+// are untouched: what the user typed is never rewritten.
+export const CREATE_CUSTOM_QUALIFIER_VALUES = `
+CREATE TABLE IF NOT EXISTS custom_qualifier_values (
+  id TEXT PRIMARY KEY,
+  axis_id TEXT NOT NULL,
+  exercise_id TEXT,
+  label TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+)`;
+
+// Grouping index for "best set for this exercise under these qualifiers".
+export const CREATE_SETS_QUALIFIER_IDX = `
+CREATE INDEX IF NOT EXISTS idx_sets_ex_qualkey ON sets(exercise_id, qualifier_key)`;
+
+// Lookup for "which custom options apply to this exercise/axis".
+export const CREATE_CUSTOM_QUALIFIER_AXIS_IDX = `
+CREATE INDEX IF NOT EXISTS idx_custom_qual_axis ON custom_qualifier_values(axis_id, exercise_id)`;
+
+export const SCHEMA_V21_STATEMENTS: MigrationStatement[] = [
+  { type: 'alter_add_column', table: 'sets', column: 'qualifiers_json', definition: 'TEXT' },
+  { type: 'alter_add_column', table: 'sets', column: 'qualifier_key', definition: 'TEXT' },
+  { type: 'alter_add_column', table: 'sets', column: 'load_effective_kg', definition: 'REAL' },
+  CREATE_CUSTOM_QUALIFIER_VALUES,
+  // Index creation MUST follow the ALTERs above — the column has to exist first.
+  CREATE_SETS_QUALIFIER_IDX,
+  CREATE_CUSTOM_QUALIFIER_AXIS_IDX,
+];
