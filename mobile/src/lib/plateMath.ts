@@ -12,8 +12,24 @@
 
 // ── Pulley configurations ────────────────────────────────────────────────────
 // factor = effective resistance per kg of stack moved.
-// A 2:1 stack pulley halves the felt load (you pull twice the cable distance
-// at half the force); 1:2 doubles it.
+//
+// Read these as "where is the movable pulley?":
+//   • on the STACK  — the load is shared between strands, so you feel LESS
+//                     (2:1 = two strands = half; 4:1 = four strands = a quarter)
+//   • on the HANDLE — the stack hangs at full tension while you oppose two
+//                     strands, so you feel DOUBLE (1:2)
+//   • neither       — direct (1:1)
+// Cable travel always moves opposite to force: lighter = longer pull.
+//
+// 1:2 is a real mechanical-DISadvantage arrangement, not a typo for 2:1 (USPTO
+// weight-machine patents describe pulley advantage as "positive, negative, or
+// neutral"). Manufacturer pages list only the reducing ratios because "feels
+// lighter" is the selling point — that is a sampling bias in the sources, not
+// evidence the hardware doesn't exist.
+//
+// KEEP IN SYNC with PULLEY_FACTORS in constants/qualifiers.ts, which uses
+// underscore ids ('2_1') for the per-set qualifier axis. PULLEY_AXIS_TO_LEGACY_ID
+// there is the ONLY bridge between the two spellings — do not add a third.
 
 export interface PulleyOption {
   id: string;
@@ -24,6 +40,8 @@ export interface PulleyOption {
 export const PULLEY_OPTIONS: PulleyOption[] = [
   { id: '1:1', label: 'Direct (1:1)', factor: 1 },
   { id: '2:1', label: '2:1 — feels half the stack', factor: 0.5 },
+  // 4:1 is common on functional trainers and was missing entirely (2026-08-05).
+  { id: '4:1', label: '4:1 — feels a quarter of the stack', factor: 0.25 },
   { id: '1:2', label: '1:2 — feels double the stack', factor: 2 },
 ];
 
