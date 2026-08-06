@@ -23,6 +23,7 @@ import {
   SexInput,
 } from '../strengthModelV3';
 import { epley1Rm } from '../oneRm';
+import { qualifiedLoadForSet, bestQualifiedE1rm } from '../qualifierPercentile';
 
 // ---------------------------------------------------------------------------
 // Exercise name → competition lift mapping
@@ -69,11 +70,21 @@ export interface FlexLiftSetInput {
   reps: number | null | undefined;
   /** True for a drop-chain / fatigue set (S1) — excluded from PR/e1RM comparisons. */
   isDrop?: boolean;
+  /**
+   * v21 raw `sets.qualifiers_json`. Routed through the SAME filter the rankings
+   * screen uses (lib/qualifierPercentile), because the share card is the second
+   * consumer of percentile logic and the two disagreeing would be worse than
+   * either being wrong: the user would see one number on screen and post another.
+   */
+  qualifiersJson?: string | null;
 }
 
 /** Best e1RM per recognised competition lift across the supplied sets. */
 export function bestLiftE1rms(sets: FlexLiftSetInput[]): Partial<Record<LiftId, number>> {
-  const best: Partial<Record<LiftId, number>> = {};
+  // Collect candidates per lift so the inflation guard can distinguish an actual
+  // lift from a normalized estimate (a generously-normalized variant must never
+  // out-rank the real PR it is standing in for).
+  const candidates = new Map<LiftId, { e1rm: number; estimated: boolean }[]>();
   for (const s of sets) {
     if (s.isDrop) continue;
     const lift = exerciseNameToLift(s.exerciseName);
@@ -81,9 +92,21 @@ export function bestLiftE1rms(sets: FlexLiftSetInput[]): Partial<Record<LiftId, 
     const kg = s.weightKg ?? 0;
     const reps = s.reps ?? 0;
     if (!(kg > 0) || !(reps > 0)) continue;
-    const e1rm = epley1Rm(kg, Math.min(reps, 12));
+
+    const resolved = qualifiedLoadForSet(s.exerciseName, s.qualifiersJson, kg);
+    if (resolved.kg == null) continue; // excluded from ranking (still a PR)
+
+    const e1rm = epley1Rm(resolved.kg, Math.min(reps, 12));
     if (!(e1rm > 0)) continue;
-    if ((best[lift] ?? 0) < e1rm) best[lift] = e1rm;
+    const list = candidates.get(lift) ?? [];
+    list.push({ e1rm, estimated: resolved.estimated });
+    candidates.set(lift, list);
+  }
+
+  const best: Partial<Record<LiftId, number>> = {};
+  for (const [lift, list] of candidates) {
+    const chosen = bestQualifiedE1rm(list);
+    if (chosen) best[lift] = chosen.e1rm;
   }
   return best;
 }

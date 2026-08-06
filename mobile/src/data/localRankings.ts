@@ -21,6 +21,7 @@
 
 import { localDb } from '../db/localDb';
 import { getExerciseNameMap } from './exerciseNames';
+import { qualifiedLoadForSet, bestQualifiedE1rm } from '../lib/qualifierPercentile';
 import { epley1Rm } from '../lib/oneRm';
 import { MODEL_VERSION } from '../lib/strengthModelV3';
 import type { PercentileRanking } from '../types/api';
@@ -103,6 +104,8 @@ interface SetRow {
   reps: number | null;
   kg: number | null;
   logged_at: string | null;
+  /** v21: raw qualifiers column, resolved through lib/qualifierPercentile. */
+  qualifiers_json: string | null;
 }
 
 /**
@@ -118,7 +121,7 @@ export async function getLocalRankings(userId: string | null | undefined): Promi
     const rows = await localDb.getAll<SetRow>(
       `SELECT exercise_id, reps,
               COALESCE(weight_kg, weight_raw / 8.0) AS kg,
-              logged_at
+              logged_at, qualifiers_json
          FROM sets
         WHERE reps > 0
           AND COALESCE(weight_kg, weight_raw / 8.0) > 0
@@ -128,18 +131,37 @@ export async function getLocalRankings(userId: string | null | undefined): Promi
     if (rows.length === 0) return [];
 
     const nameMap = await getExerciseNameMap();
-    const best = new Map<CompetitionLiftId, { e1rm: number; loggedAt: string }>();
+
+    // v21: collect CANDIDATES per lift rather than reducing to a max inline, so
+    // the inflation guard in bestQualifiedE1rm can see actual vs estimated
+    // separately. Excluded sets never enter the list at all — and if a lift ends
+    // up with no candidates, it contributes NOTHING rather than a depressed
+    // value. That null is the founder's "never penalised" guarantee.
+    const candidates = new Map<
+      CompetitionLiftId,
+      { e1rm: number; estimated: boolean; loggedAt: string }[]
+    >();
 
     for (const row of rows) {
       if (!row.reps || !row.kg || row.kg <= 0) continue;
-      const lift = classifyCompetitionLift(row.exercise_id, nameMap.get(row.exercise_id ?? ''));
+      const name = nameMap.get(row.exercise_id ?? '');
+      const lift = classifyCompetitionLift(row.exercise_id, name);
       if (!lift) continue;
-      const e1rm = epley1Rm(row.kg, row.reps);
+
+      const resolved = qualifiedLoadForSet(name, row.qualifiers_json, row.kg);
+      if (resolved.kg == null) continue; // excluded: tracked for PRs, not ranked
+
+      const e1rm = epley1Rm(resolved.kg, row.reps);
       if (!Number.isFinite(e1rm) || e1rm <= 0) continue;
-      const prev = best.get(lift);
-      if (!prev || e1rm > prev.e1rm) {
-        best.set(lift, { e1rm, loggedAt: row.logged_at ?? '' });
-      }
+      const list = candidates.get(lift) ?? [];
+      list.push({ e1rm, estimated: resolved.estimated, loggedAt: row.logged_at ?? '' });
+      candidates.set(lift, list);
+    }
+
+    const best = new Map<CompetitionLiftId, { e1rm: number; loggedAt: string }>();
+    for (const [lift, list] of candidates) {
+      const chosen = bestQualifiedE1rm(list);
+      if (chosen) best.set(lift, { e1rm: chosen.e1rm, loggedAt: chosen.loggedAt });
     }
 
     return COMPETITION_LIFTS.filter((lift) => best.has(lift)).map((lift) => {

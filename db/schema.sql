@@ -7086,3 +7086,22 @@ DO $$ BEGIN
         ALTER TABLE sets VALIDATE CONSTRAINT sets_weight_unit_check;
     END IF;
 END $$;
+
+-- ---------------------------------------------------------------------------
+-- FOLD (2026-08-05) — SOURCE: migrations/20260805_sets_qualifiers.sql
+-- Exercise qualifiers (schema v21): HOW a set was performed — grip width, cable
+-- attachment, pulley height/ratio. Additive, forward-only; no historical row is
+-- rewritten (the variant-collapse migration is deliberately deferred — see
+-- docs/archive/SPEC_2026-08-05_EXERCISE_QUALIFIERS.md).
+--
+-- qualifiers_json is TEXT, not JSONB, on purpose: the server never looks inside
+-- it. Every interpretation (coefficients, exclusions, the percentile filter)
+-- happens on-device in the shipped TS catalog, which moves independently over
+-- the air; parsing here would create a second source of truth that drifts.
+--
+-- load_effective_raw follows weight_raw's kg x 8 integer convention. `sets` has
+-- NO weight_kg column (weight_kg is an API alias for weight_raw/8.0), so do not
+-- reference s.weight_kg in server SQL — it 42703s even inside a COALESCE.
+-- ---------------------------------------------------------------------------
+ALTER TABLE sets ADD COLUMN IF NOT EXISTS qualifiers_json    TEXT;
+ALTER TABLE sets ADD COLUMN IF NOT EXISTS load_effective_raw INTEGER;
