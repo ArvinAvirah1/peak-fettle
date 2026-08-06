@@ -45,6 +45,7 @@ import {
 } from '../theme/tokens';
 import { RoutineSession, RoutineSessionExercise } from './RoutineStrip';
 import MuscleMapBase, { MuscleMapProps } from '../components/MuscleMap';
+import { QualifierChipRow } from './qualifiers/QualifierChipRow';
 import { muscleGroupsForExercise } from '../data/muscleRegions';
 import { useAuth } from '../hooks/useAuth';
 
@@ -258,6 +259,23 @@ interface Props {
    * means "not recorded" and the parent should send rir = -1 to the server.
    */
   onLogSet: (exerciseId: string, weight: string, reps: string, rir?: string) => void | Promise<void>;
+  /**
+   * Exercise qualifiers (schema v21) for the CURRENT exercise. The host owns
+   * resolution — it holds the routine prescription, the session, and the user's
+   * Settings gate — so this component only renders what it is handed.
+   *
+   * `qualifierAxisIds` is already enabled ∩ applicable, so an empty array (the
+   * default) means "render nothing": tracking off, or no axis applies to this
+   * exercise. Omitting all of these leaves the stepper exactly as it was.
+   */
+  qualifierAxisIds?: readonly string[];
+  qualifierValues?: Record<string, string>;
+  /** The routine's prescription, used only to tint deviations. */
+  qualifierPrescription?: Record<string, string> | null;
+  /** Labels for `custom:<id>` tokens, so an id never reaches the user. */
+  qualifierCustomLabels?: Record<string, string>;
+  /** Opens the host-owned picker sheet (which must be NESTED in this Modal). */
+  onPressQualifierAxis?: (axisId: string) => void;
   /**
    * Called when the user taps a logged LIFT-set chip and saves a correction
    * (e.g. a mistyped weight). `setIndex` is 0-based within the current exercise.
@@ -726,6 +744,11 @@ function StepperControl({
 export default function StepperLogger({
   routineSession,
   onLogSet,
+  qualifierAxisIds = [],
+  qualifierValues = {},
+  qualifierPrescription = null,
+  qualifierCustomLabels = {},
+  onPressQualifierAxis,
   onUpdateSet,
   onLogCardioSet,
   onAdvance,
@@ -1797,6 +1820,19 @@ export default function StepperLogger({
                 <MuscleMap groups={exMuscleGroups} size={64} view={muscleView} sex={muscleSex} />
               ) : null}
             </View>
+
+            {/* Exercise qualifiers (v21). Renders nothing at all when tracking
+                is off or no axis applies, so the stepper is unchanged for anyone
+                who hasn't opted in. */}
+            {onPressQualifierAxis ? (
+              <QualifierChipRow
+                axisIds={qualifierAxisIds}
+                values={qualifierValues}
+                prescription={qualifierPrescription}
+                customLabels={qualifierCustomLabels}
+                onPressAxis={onPressQualifierAxis}
+              />
+            ) : null}
 
             {(pbLabel || repTarget || lastSessionLabel) && (
               <View style={styles.pbCard}>

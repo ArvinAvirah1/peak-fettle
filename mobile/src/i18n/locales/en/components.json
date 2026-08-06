@@ -539,5 +539,18 @@
     "noRoutinesYet": "No routines yet — create one first, then assign it here.",
     "decreaseAccessibilityLabel": "Decrease {{label}}",
     "increaseAccessibilityLabel": "Increase {{label}}"
+  },
+  "qualifierPicker": {
+    "dismissA11y": "Dismiss",
+    "close": "Close",
+    "add": "Add",
+    "addYourOwn": "Not listed? Add your own",
+    "yourOption": "Your option",
+    "customNotRanked": "Options you add are tracked for your own records, but aren't used in strength rankings.",
+    "explainA11y": "Show what each {{axis}} option means"
+  },
+  "qualifierChips": {
+    "chipA11y": "{{axis}}: {{value}}. Tap to change.",
+    "notSet": "not set"
   }
 }

@@ -171,6 +171,32 @@ export interface LogLiftSetPayload {
   /** Unit the user typed the weight in ('kg' | 'lbs'). */
   weightUnit?: 'kg' | 'lbs';
   rir?: number;
+  /**
+   * Exercise qualifiers (schema v21): HOW the set was performed — grip width,
+   * cable attachment, pulley height/ratio, and so on. Axis id -> value id, where
+   * a value may be `custom:<id>` for a user-authored option.
+   *
+   * Optional and additive: an omitted map means "not recorded", which is exactly
+   * what every set logged before v21 means, and the percentile filter treats it
+   * as passthrough so legacy sets never drop out of the strength model.
+   *
+   * The caller passes the RAW map; the data layer derives qualifier_key (via the
+   * single canonicalQualifierKey) and load_effective_kg. Do not pre-compute
+   * either at the call site — one inconsistent writer splits PR history.
+   */
+  qualifiers?: Record<string, string>;
+  /**
+   * Display name of the exercise, used ONLY to resolve that exercise's default
+   * qualifier values when deriving qualifier_key (defaults are omitted from the
+   * key — see lib/qualifierKey.ts).
+   *
+   * Pass it whenever `qualifiers` is set. It is not read for anything else, and
+   * surfaces that log without qualifiers (CSV import, Siri, backdating) can omit
+   * both. Resolving the name from exercise_names instead would put an extra
+   * SQLite round trip on the set-write path for no benefit — the logger already
+   * has the name in hand.
+   */
+  exerciseName?: string;
   /** TICKET-129: optional free-text note (max 500 chars server-side). */
   note?: string;
   /** TICKET-129: quick-tap flag bitmask (0-31). */

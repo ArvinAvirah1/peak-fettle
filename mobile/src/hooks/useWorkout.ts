@@ -15,6 +15,12 @@ import { useAuth } from './useAuth';
 import { useTableChange } from './useTableChange';
 import { isLocalFirst } from '../data/backup/tierPolicy';
 import { localDb, genId } from '../db/localDb';
+import {
+  canonicalQualifierKey,
+  serializeQualifiers,
+  effectiveLoadKg,
+} from '../lib/qualifierKey';
+import { defaultsForExercise } from '../constants/exerciseQualifierMap';
 import { ensureLocalWorkoutForDay } from '../data/localWorkouts';
 import { createWorkout } from '../api/workouts';
 import {
@@ -193,7 +199,22 @@ export function useWorkout(): UseWorkoutResult {
         const COLS =
           `(id, server_id, workout_id, user_id, exercise_id, kind, set_index, ` +
           `reps, weight_raw, weight_kg, weight_centi, weight_unit, rir, duration_sec, distance_m, avg_pace_sec_per_km, ` +
+          `qualifiers_json, qualifier_key, load_effective_kg, ` +
           `logged_at, synced)`;
+
+        // v21 qualifiers. Derived HERE, never at the call site: qualifier_key
+        // must come from the single canonicalQualifierKey (an inconsistent
+        // writer silently splits PR history), and load_effective_kg captures the
+        // pulley ratio, which is a physical property of the machine used that
+        // day and is unrecoverable afterwards.
+        const qualifiers = 'qualifiers' in payload ? payload.qualifiers : undefined;
+        const exerciseName = 'exerciseName' in payload ? payload.exerciseName : undefined;
+        const qualifiersJson = serializeQualifiers(qualifiers ?? null);
+        const qualifierKey = qualifiers
+          ? canonicalQualifierKey(qualifiers, defaultsForExercise(exerciseName))
+          : null;
+        const loadEffectiveKg =
+          payload.kind === 'lift' ? effectiveLoadKg(payload.weightKg, qualifiers ?? null) : null;
 
         let newSet: WorkoutSet;
         if (payload.kind === 'lift') {
@@ -201,11 +222,13 @@ export function useWorkout(): UseWorkoutResult {
             // weight_centi/weight_unit = EXACT typed entry (v18); weight_kg =
             // exact kg for computation; weight_raw derived (legacy percentile).
             `INSERT INTO sets ${COLS}
-             VALUES (?, NULL, ?, ?, ?, 'lift', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, 0)`,
+             VALUES (?, NULL, ?, ?, ?, 'lift', ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, ?, ?, ?, 0)`,
             [localId, workout.id, userId, payload.exerciseId, payload.setIndex,
              payload.reps, encodeWeightRaw(payload.weightKg), payload.weightKg,
              payload.weightCenti ?? null, payload.weightUnit ?? null,
-             payload.rir ?? null, loggedAt],
+             payload.rir ?? null,
+             qualifiersJson, qualifierKey, loadEffectiveKg,
+             loggedAt],
             { tables: ['sets'] }
           );
           newSet = {
@@ -221,10 +244,16 @@ export function useWorkout(): UseWorkoutResult {
         } else {
           await localDb.execute(
             `INSERT INTO sets ${COLS}
-             VALUES (?, NULL, ?, ?, ?, 'cardio', ?, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?, ?, ?, 0)`,
+             VALUES (?, NULL, ?, ?, ?, 'cardio', ?, NULL, NULL, NULL, NULL, NULL, NULL, ?, ?, ?, ?, ?, ?, ?, 0)`,
             [localId, workout.id, userId, payload.exerciseId, payload.setIndex,
              payload.durationSec, payload.distanceM ?? null,
-             payload.avgPaceSecPerKm ?? null, loggedAt],
+             payload.avgPaceSecPerKm ?? null,
+             // Cardio carries no qualifiers today (the vocabulary is equipment
+             // and grip; cardio intensity lives in metrics_json — see the
+             // rejected 13th-axis decision in the spec). Written as NULL rather
+             // than omitted so the column list stays identical for both kinds.
+             qualifiersJson, qualifierKey, loadEffectiveKg,
+             loggedAt],
             { tables: ['sets'] }
           );
           newSet = {

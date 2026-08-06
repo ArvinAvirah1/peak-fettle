@@ -212,9 +212,24 @@ thing that was asked for. The four essential axes are precisely the founder's st
 (attachments, pulley configuration, grip width).
 
 ### [R] Gate invariants — these must be tests
-1. **The gate is display-only.** It never changes what is stored, and never changes a
-   `percentile_treatment`. Two users with identical training and different settings get identical
-   rankings.
+1. **The gate never re-interprets recorded data.** It cannot change a `percentile_treatment`, and
+   two sets carrying the same qualifiers always rank identically regardless of either user's
+   settings.
+
+   **Refined 2026-08-05 during step 6 — the original wording ("never changes what is stored") was
+   imprecise and would have been wrong to implement literally.** Only *visible* axes are written.
+   Recording a hidden axis's catalog default would fabricate a claim the user never made — asserting
+   "medium grip" for someone who hid grip width and may have been close-gripping — which would
+   pollute their own PR history and feed the strength model a guess dressed as a statement.
+
+   So the honest rule is: the gate controls what gets **recorded** (you cannot record what you never
+   saw), and never how recorded data is **read**. A hidden axis is simply absent, and absent reads as
+   "legacy / not recorded" → passthrough, exactly as every pre-v21 set does.
+
+   Accepted consequence, stated so nobody rediscovers it as a bug: two users doing genuinely
+   identical training can rank differently if one records a percentile-excluded qualifier and the
+   other has that axis switched off. That is not the gate distorting anything — the second user
+   never told us what they did, and guessing on their behalf is the worse failure.
 2. **Disabling an axis never deletes data.** Previously logged values persist and reappear if
    re-enabled; they still render in history detail (read-only) while the axis is off.
 3. **An exercise only ever shows axes that are both enabled AND applicable to it.**

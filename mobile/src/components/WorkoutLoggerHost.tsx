@@ -57,6 +57,11 @@ import StepperLogger, { LoggedSet } from './StepperLogger';
 // Session mode: a swap here applies to TODAY only — the saved routine is never
 // touched (founder decision 2026-07-18); permanent swaps live in the editor.
 import { SubstituteSwapSheet, type SwapSelection } from './SubstituteSwapSheet';
+import { QualifierPickerSheet } from './qualifiers/QualifierPickerSheet';
+import { getEnabledQualifierAxes, visibleAxesForExercise } from '../data/qualifierSettings';
+import { qualifierSpecForExercise, defaultsForExercise } from '../constants/exerciseQualifierMap';
+import { mergeQualifiers, visibleQualifiers } from '../lib/qualifierKey';
+import { resolveCustomLabels } from '../data/customQualifiers';
 import {
   mergedSubstitutesFor,
   addGlobalSubstitute,
@@ -491,6 +496,73 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
 
     // TICKET-134: detail sheet for a quick-swap candidate.
     const [swapDetailTarget, setSwapDetailTarget] = useState<ExerciseDetailTarget | null>(null);
+
+    // ── Exercise qualifiers (schema v21) ─────────────────────────────────────
+    // The host owns resolution because only it holds all four prefill layers:
+    // catalog default -> routine prescription -> last session -> previous set
+    // this session (later wins). The stepper renders what it is handed.
+    const [enabledQualifierAxes, setEnabledQualifierAxes] = useState<string[]>([]);
+    // Per-exercise CURRENT values, keyed by exerciseId. Keyed per exercise so a
+    // mid-session swap can never leak the old exercise's attachment onto the
+    // replacement (SPEC §5.1).
+    const [qualifiersByExercise, setQualifiersByExercise] = useState<Record<string, Record<string, string>>>({});
+    const [qualifierPickerAxis, setQualifierPickerAxis] = useState<string | null>(null);
+    const [qualifierCustomLabels, setQualifierCustomLabels] = useState<Record<string, string>>({});
+
+    useEffect(() => {
+      let alive = true;
+      getEnabledQualifierAxes()
+        .then((axes) => { if (alive) setEnabledQualifierAxes(axes); })
+        .catch(() => {});
+      return () => { alive = false; };
+    }, []);
+
+    const currentQualifierExercise = routineSession?.exercises[routineSession.currentIndex] ?? null;
+    const currentQualifierExId = currentQualifierExercise?.exerciseId ?? '';
+    const currentQualifierSpec = useMemo(
+      () => qualifierSpecForExercise(currentQualifierExercise?.name),
+      [currentQualifierExercise?.name],
+    );
+
+    /** Axes to show: enabled in Settings ∩ applicable to this exercise. */
+    const visibleQualifierAxes = useMemo(() => {
+      if (!currentQualifierSpec) return [];
+      return visibleAxesForExercise(
+        currentQualifierSpec.axes.map((a) => a.a),
+        enabledQualifierAxes as never,
+      );
+    }, [currentQualifierSpec, enabledQualifierAxes]);
+
+    /**
+     * Values for the current exercise, resolved through the prefill chain.
+     * Catalog defaults are the floor so a chip is never blank; anything the user
+     * has touched this session sits on top.
+     */
+    const currentQualifierValues = useMemo(() => {
+      const defaults = defaultsForExercise(currentQualifierExercise?.name);
+      return mergeQualifiers(defaults, qualifiersByExercise[currentQualifierExId] ?? null);
+    }, [currentQualifierExercise?.name, qualifiersByExercise, currentQualifierExId]);
+
+    // Resolve custom:<id> tokens to labels so an id never reaches the UI.
+    useEffect(() => {
+      const tokens = Object.values(currentQualifierValues).filter((v) => v.startsWith('custom:'));
+      if (tokens.length === 0) return;
+      let alive = true;
+      resolveCustomLabels(tokens)
+        .then((map) => { if (alive) setQualifierCustomLabels((prev) => ({ ...prev, ...map })); })
+        .catch(() => {});
+      return () => { alive = false; };
+    }, [currentQualifierValues]);
+
+    const handleQualifierSelect = useCallback((value: string) => {
+      const axisId = qualifierPickerAxis;
+      if (!axisId || !currentQualifierExId) { setQualifierPickerAxis(null); return; }
+      setQualifiersByExercise((prev) => ({
+        ...prev,
+        [currentQualifierExId]: { ...(prev[currentQualifierExId] ?? {}), [axisId]: value },
+      }));
+      setQualifierPickerAxis(null);
+    }, [qualifierPickerAxis, currentQualifierExId]);
 
     // TICKET-129: note/flags sheet for a live-session set chip (long-press).
     const [liveNoteTarget, setLiveNoteTarget] = useState<{
@@ -1073,6 +1145,25 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
             setIndex,
             reps: parseInt(reps, 10) || 0,
             weightKg,
+            // v21: what the chips say right now, for THIS exercise.
+            //
+            // ONLY the axes the user can actually see are recorded. Writing a
+            // hidden axis's catalog default would fabricate a claim they never
+            // made — asserting "medium grip" for someone who hid grip width and
+            // may well have been close-gripping. A fabricated qualifier is worse
+            // than an absent one: it would pollute their own PR history and let
+            // the strength model treat a guess as a statement.
+            //
+            // The consequence, stated plainly: a hidden axis is NOT RECORDED, so
+            // those sets read as "legacy / not recorded" and pass through to the
+            // strength model unchanged — exactly as every pre-v21 set does. The
+            // gate therefore controls what gets RECORDED (you cannot record what
+            // you never saw), but it never re-interprets what HAS been recorded.
+            // Two users whose sets carry the same qualifiers always rank alike.
+            qualifiers: visibleQualifiers(currentQualifierValues, visibleQualifierAxes),
+            // Lets the data layer resolve THIS exercise's defaults when deriving
+            // qualifier_key (defaults are omitted from the key).
+            exerciseName: currentQualifierExercise?.name,
             weightCenti: displayToCenti(weightDisplay),
             weightUnit: unitPref,
             ...(rirNum !== undefined && !Number.isNaN(rirNum) ? { rir: rirNum } : {}),
@@ -2263,6 +2354,12 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
           {routineSession && (
             <StepperLogger
               routineSession={routineSession}
+              // Exercise qualifiers (v21). Empty axis list = render nothing, so
+              // the stepper is untouched for anyone who hasn't opted in.
+              qualifierAxisIds={visibleQualifierAxes}
+              qualifierValues={currentQualifierValues}
+              qualifierCustomLabels={qualifierCustomLabels}
+              onPressQualifierAxis={setQualifierPickerAxis}
               // P1c: in history-edit mode the only write path is the chip-tap →
               // "Save set" correction, routed to the in-place UPDATE. We never
               // append to a past workout through the today-keyed logSet, so
@@ -2448,6 +2545,26 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
               "Superset with…" did nothing at all on a live routine. Nesting
               them is the stacked-Modal pattern RoutineEditorSheet already uses
               (and that SubstituteSwapSheet's own file header cites). */}
+          {/* Exercise qualifier picker — NESTED inside the stepper's Modal for
+              the same reason as every sheet below it: a Modal presented over an
+              already-presented Modal is silently dropped on iOS. Do not lift
+              this out to be a sibling. */}
+          <QualifierPickerSheet
+            visible={qualifierPickerAxis !== null}
+            axisId={qualifierPickerAxis ?? ''}
+            applicableValues={
+              currentQualifierSpec?.axes.find((a) => a.a === qualifierPickerAxis)?.v ?? []
+            }
+            selectedValue={qualifierPickerAxis ? currentQualifierValues[qualifierPickerAxis] ?? null : null}
+            allowsCustom={
+              currentQualifierSpec?.axes.find((a) => a.a === qualifierPickerAxis)?.c ?? false
+            }
+            exerciseId={currentQualifierExId || null}
+            exerciseName={currentQualifierExercise?.name}
+            onSelect={handleQualifierSelect}
+            onClose={() => setQualifierPickerAxis(null)}
+          />
+
           {/* Stage 3 + SUBS-001: mid-workout swap sheet (local-first, no network).
               User substitutes first (free); engine suggestions Pro. TODAY only. */}
           <SubstituteSwapSheet
