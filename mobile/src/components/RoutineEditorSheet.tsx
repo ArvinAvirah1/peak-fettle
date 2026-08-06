@@ -43,6 +43,7 @@ import { QualifierChipRow } from './qualifiers/QualifierChipRow';
 import { QualifierPickerSheet } from './qualifiers/QualifierPickerSheet';
 import { getEnabledQualifierAxes, visibleAxesForExercise } from '../data/qualifierSettings';
 import { qualifierSpecForExercise } from '../constants/exerciseQualifierMap';
+import { QUALIFIER_UNSPECIFIED } from '../constants/qualifiers';
 import { Exercise } from '../types/api';
 import { DropsetConfigSheet, DropsetConfig } from './routineEditor/DropsetConfigSheet';
 import { SupersetLinkSheet, SupersetLinkCandidate } from './routineEditor/SupersetLinkSheet';
@@ -201,9 +202,16 @@ export default function RoutineEditorSheet({
 
   /** Write a prescribed value onto one slot. */
   const setQualifierOnItem = useCallback((index: number, axisId: string, value: string) => {
-    setItems((prev) => prev.map((it, i) => (
-      i === index ? { ...it, qualifiers: { ...(it.qualifiers ?? {}), [axisId]: value } } : it
-    )));
+    setItems((prev) => prev.map((it, i) => {
+      if (i !== index) return it;
+      const next = { ...(it.qualifiers ?? {}) };
+      // "Not specified" removes the prescription for that axis rather than
+      // storing a sentinel — an unprescribed slot must look exactly like one
+      // that was never configured.
+      if (value === QUALIFIER_UNSPECIFIED) delete next[axisId];
+      else next[axisId] = value;
+      return { ...it, qualifiers: Object.keys(next).length > 0 ? next : undefined };
+    }));
     setQualifierTarget(null);
   }, []);
   // SUBS-001 swap sheet: the item index being swapped (null = closed) + its lists.

@@ -247,5 +247,39 @@ test('bestQualifiedE1rm ignores non-finite and non-positive candidates', () => {
   eq(chosen.e1rm, 100);
 });
 
+
+// ── "Not specified" (founder request 2026-08-06) ────────────────────────────
+// The sentinel is never stored: choosing it REMOVES the axis. So an explicitly
+// unspecified axis, an untouched chip, an axis hidden by the Settings gate, and
+// every set logged before v21 must all be the SAME state with the SAME meaning.
+// If these ever diverge, the app has three flavours of "we don't know" and every
+// reader has to handle all three.
+test('UNSPECIFIED: explicit, untouched, gated-off and legacy are one state', () => {
+  const legacy = qualifiedLoadForSet('Bench Press', null, 100);
+  const untouched = qualifiedLoadForSet('Bench Press', '{}', 100);
+  const emptyJson = qualifiedLoadForSet('Bench Press', '', 100);
+  eq(legacy.kg, 100, 'legacy set:');
+  eq(untouched.kg, 100, 'untouched chip:');
+  eq(emptyJson.kg, 100, 'empty json:');
+  eq(legacy.verdict.kind, untouched.verdict.kind, 'same verdict as untouched:');
+  eq(legacy.verdict.kind, emptyJson.verdict.kind, 'same verdict as empty:');
+  eq(legacy.estimated, false, 'never an estimate:');
+});
+
+test('UNSPECIFIED: the sentinel must never reach a stored qualifier map', () => {
+  // If it ever did, this is what would happen — it is not a catalog value, so it
+  // has no coefficient, and the set would pass through unchanged rather than
+  // corrupting anything. Defence in depth: the parents delete the key instead.
+  const r = qualifiedLoadForSet('Bench Press', '{"grip_width":"__unspecified__"}', 100);
+  eq(r.kg, 100, 'degrades safely to passthrough:');
+});
+
+test('UNSPECIFIED: one specified axis still applies while others are unset', () => {
+  const r = qualifiedLoadForSet('Bench Press', '{"grip_width":"close"}', 100);
+  near(r.kg, 105.26, 'the specified axis is honoured:');
+});
+
 console.log('\n' + (passed + failed) + ' tests: ' + passed + ' passed, ' + failed + ' failed\n');
 if (failed > 0) process.exit(1);
+
+

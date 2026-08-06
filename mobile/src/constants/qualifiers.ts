@@ -280,6 +280,21 @@ export function legacyPulleyIdToAxisValue(id: string | null | undefined): string
 // Lookups (total, never throwing — an unknown id is data, not a crash)
 // ---------------------------------------------------------------------------
 
+/**
+ * Sentinel for "not specified" (founder request, 2026-08-06).
+ *
+ * NOT a vocabulary value, and deliberately so: it is never stored. Picking it
+ * REMOVES the axis from the set's qualifier map, so an unspecified axis is
+ * byte-identical to one the user never touched, to one hidden by the Settings
+ * gate, and to every set logged before v21. One state, one meaning, one code
+ * path — instead of three different flavours of "we don't know" that would each
+ * have to be handled everywhere.
+ *
+ * This is what makes existing history coherent for free: every historical set is
+ * ALREADY unspecified on every axis, with nothing to migrate.
+ */
+export const QUALIFIER_UNSPECIFIED = '__unspecified__';
+
 export function isKnownAxis(id: string): id is QualifierAxisId {
   return Object.prototype.hasOwnProperty.call(QUALIFIER_AXES, id);
 }

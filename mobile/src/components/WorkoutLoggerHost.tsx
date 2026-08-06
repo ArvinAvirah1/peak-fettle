@@ -61,6 +61,7 @@ import { QualifierPickerSheet } from './qualifiers/QualifierPickerSheet';
 import { getEnabledQualifierAxes, visibleAxesForExercise } from '../data/qualifierSettings';
 import { qualifierSpecForExercise, defaultsForExercise } from '../constants/exerciseQualifierMap';
 import { mergeQualifiers, visibleQualifiers } from '../lib/qualifierKey';
+import { QUALIFIER_UNSPECIFIED } from '../constants/qualifiers';
 import { resolveCustomLabels } from '../data/customQualifiers';
 import {
   mergedSubstitutesFor,
@@ -539,18 +540,24 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
      * has touched this session sits on top.
      */
     const currentQualifierValues = useMemo(() => {
-      const defaults = defaultsForExercise(currentQualifierExercise?.name);
-      // Later wins: catalog default -> routine prescription -> what the user has
-      // actually chosen this session. The most recent ACTUAL beats the plan on
-      // purpose — if the routine says wide grip but you've done two sets close-
-      // grip today because the bar was taken, set three must not silently revert.
+      // NO CATALOG DEFAULT FLOOR (founder correction, 2026-08-06).
+      //
+      // This used to seed catalog defaults "so a chip is never blank", which
+      // meant an untouched chip displayed "Medium" and wrote grip_width:medium
+      // into the set. That fabricates a claim the user never made — the exact
+      // reason hidden axes are not recorded — so doing it for visible axes was
+      // inconsistent and wrong. An unset chip now reads as unset, and nothing is
+      // written until the user actually chooses.
+      //
+      // Later wins: routine prescription -> what the user has chosen this
+      // session. The most recent ACTUAL beats the plan on purpose — if the
+      // routine says wide grip but you've done two sets close-grip today because
+      // the bar was taken, set three must not silently revert.
       return mergeQualifiers(
-        defaults,
         currentQualifierExercise?.qualifiers ?? null,
         qualifiersByExercise[currentQualifierExId] ?? null,
       );
     }, [
-      currentQualifierExercise?.name,
       currentQualifierExercise?.qualifiers,
       qualifiersByExercise,
       currentQualifierExId,
@@ -570,10 +577,18 @@ export const WorkoutLoggerHost = forwardRef<WorkoutLoggerRef, WorkoutLoggerHostP
     const handleQualifierSelect = useCallback((value: string) => {
       const axisId = qualifierPickerAxis;
       if (!axisId || !currentQualifierExId) { setQualifierPickerAxis(null); return; }
-      setQualifiersByExercise((prev) => ({
-        ...prev,
-        [currentQualifierExId]: { ...(prev[currentQualifierExId] ?? {}), [axisId]: value },
-      }));
+      setQualifiersByExercise((prev) => {
+        const forEx = { ...(prev[currentQualifierExId] ?? {}) };
+        if (value === QUALIFIER_UNSPECIFIED) {
+          // "Not specified" is never STORED — it removes the axis, so the set is
+          // byte-identical to one where the chip was never touched. That keeps a
+          // single meaning for "we don't know" instead of a third flavour of it.
+          delete forEx[axisId];
+        } else {
+          forEx[axisId] = value;
+        }
+        return { ...prev, [currentQualifierExId]: forEx };
+      });
       setQualifierPickerAxis(null);
     }, [qualifierPickerAxis, currentQualifierExId]);
 

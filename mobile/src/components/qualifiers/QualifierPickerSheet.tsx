@@ -42,7 +42,13 @@ import { useTranslation } from 'react-i18next';
 import { Ionicons } from '../Icon';
 import { useTheme } from '../../theme/ThemeContext';
 import { QualifierGraphic, hasGraphic } from './QualifierGraphic';
-import { getAxis, valueLabelKey, valueDescKey, type QualifierAxis } from '../../constants/qualifiers';
+import {
+  getAxis,
+  valueLabelKey,
+  valueDescKey,
+  QUALIFIER_UNSPECIFIED,
+  type QualifierAxis,
+} from '../../constants/qualifiers';
 import {
   listCustomValues,
   addCustomValue,
@@ -145,7 +151,11 @@ export function QualifierPickerSheet(props: QualifierPickerSheetProps): React.Re
   const axisLabel = t(axis.labelKey as never);
 
   function renderOption(value: string, label: string, desc: string | null, key: string) {
-    const selected = selectedValue === value;
+    // An absent value IS "not specified", so that card shows as selected when
+    // nothing is set — the user can see the current state rather than inferring
+    // it from an empty chip.
+    const selected =
+      value === QUALIFIER_UNSPECIFIED ? !selectedValue : selectedValue === value;
     return (
       <TouchableOpacity
         key={key}
@@ -162,7 +172,7 @@ export function QualifierPickerSheet(props: QualifierPickerSheetProps): React.Re
         accessibilityState={{ selected }}
         accessibilityLabel={label}
       >
-        {hasGraphic(axisId) ? (
+        {hasGraphic(axisId) && value !== QUALIFIER_UNSPECIFIED ? (
           <View style={styles.cardArt}>
             <QualifierGraphic axisId={axisId} valueId={value} size={104} />
           </View>
@@ -237,6 +247,17 @@ export function QualifierPickerSheet(props: QualifierPickerSheetProps): React.Re
 
         <ScrollView style={{ maxHeight: 400 }} keyboardShouldPersistTaps="handled">
           <View style={styles.grid}>
+            {/* "Not specified" comes FIRST and is not a stored value — choosing
+                it removes the axis from the set, so it is indistinguishable from
+                never having touched the chip. Present on every axis, because
+                "I didn't note it" is an honest answer that the app should let
+                you give rather than guessing a default on your behalf. */}
+            {renderOption(
+              QUALIFIER_UNSPECIFIED,
+              t('components:qualifierPicker.notSpecified'),
+              t('components:qualifierPicker.notSpecifiedDesc'),
+              '__unspecified__',
+            )}
             {shipped.map((v) =>
               renderOption(v, t(valueLabelKey(axisId, v) as never), t(valueDescKey(axisId, v) as never), v),
             )}

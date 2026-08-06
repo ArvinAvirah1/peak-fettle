@@ -547,10 +547,12 @@
     "addYourOwn": "Not listed? Add your own",
     "yourOption": "Your option",
     "customNotRanked": "Options you add are tracked for your own records, but aren't used in strength rankings.",
-    "explainA11y": "Show what each {{axis}} option means"
+    "explainA11y": "Show what each {{axis}} option means",
+    "notSpecified": "Not specified",
+    "notSpecifiedDesc": "Leave it unrecorded"
   },
   "qualifierChips": {
     "chipA11y": "{{axis}}: {{value}}. Tap to change.",
-    "notSet": "not set"
+    "notSet": "Not specified"
   }
 }
