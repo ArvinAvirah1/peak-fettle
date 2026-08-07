@@ -58,7 +58,11 @@ export function ScreenLog({ unit = 'kg' }: { unit?: Unit }) {
             <g transform="translate(24 480)">
                 <rect width="342" height="120" rx="18" fill={CARD} />
                 <text x="20" y="40" fill={MUT} fontSize="13" fontFamily="sans-serif">ESTIMATED 1RM</text>
-                <text x="20" y="76" fill={TXT} fontSize="30" fontWeight="700" fontFamily="sans-serif">{PLATE_WEEK.e1rm.toFixed(1)} kg</text>
+                {/* Was hardcoded `{PLATE_WEEK.e1rm.toFixed(1)} kg`, ignoring the
+                    `unit` prop entirely — so a US reader saw lb sets stacked above
+                    a kg summary on the same phone screen. Goes through the same
+                    formatter as the sets above it now. */}
+                <text x="20" y="76" fill={TXT} fontSize="30" fontWeight="700" fontFamily="sans-serif">{fmtKg(PLATE_WEEK.e1rm, unit)}</text>
                 <text x="200" y="40" fill={MUT} fontSize="13" fontFamily="sans-serif">STRENGTH SCORE</text>
                 <text x="200" y="76" fill={A} fontSize="30" fontWeight="700" fontFamily="sans-serif">{PLATE_WEEK.score}</text>
                 <rect x="20" y="92" width="302" height="6" rx="3" fill={SUB} />
