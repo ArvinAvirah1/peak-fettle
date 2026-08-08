@@ -13,6 +13,7 @@ import WaitlistForm from './WaitlistForm';
 import EchoField from './EchoField';
 import { STORY, LANDMARKS, HERO_FRAME, readout } from './heroChartGeometry';
 import { noteFor } from '@/lib/story';
+import { e1rmFor } from '@/lib/story';
 import { weight, weightValue, type Unit } from '@/lib/units';
 import styles from './HeroLedger.module.css';
 
@@ -86,7 +87,7 @@ export default function HeroLedger({ unit = 'kg' }: { unit?: Unit }) {
                         <em className={styles.payoff}>Peak Fettle: actualizing your potential.</em>
                         <span className={styles.baseline} aria-hidden="true">
                             <i className={styles.baselineRule} />
-                            <b className={styles.baselineLabel}>{weight(LANDMARKS.end.e1rm, unit)} — wk 26</b>
+                            <b className={styles.baselineLabel}>{e1rmFor(LANDMARKS.end, unit)} {unit} — wk 26</b>
                         </span>
                     </span>
                 </h1>
@@ -124,7 +125,7 @@ export default function HeroLedger({ unit = 'kg' }: { unit?: Unit }) {
                     aria-valuemin={1}
                     aria-valuemax={26}
                     aria-valuenow={week.wk}
-                    aria-valuetext={`Week ${week.wk}: estimated 1RM ${weightValue(week.e1rm, unit)} ${unit === 'lb' ? 'pounds' : 'kilograms'}, strength score ${week.score}`}
+                    aria-valuetext={`Week ${week.wk}: estimated 1RM ${e1rmFor(week, unit)} ${unit === 'lb' ? 'pounds' : 'kilograms'}, strength score ${week.score}`}
                     onPointerMove={onPointerMove}
                     onPointerDown={(e) => snapToPointer(e.clientX)}
                     onKeyDown={onKeyDown}
@@ -207,7 +208,7 @@ export default function HeroLedger({ unit = 'kg' }: { unit?: Unit }) {
                         {noteFor(LANDMARKS.pr, unit)}
                     </span>
                     <span className={`${styles.note} ${styles.noteEnd}`} style={{ left: pct.x(26), top: pct.y(107.5) }}>
-                        wk 26 — e1RM {weight(LANDMARKS.end.e1rm, unit)}<br />score 612 → 678
+                        wk 26 — e1RM {e1rmFor(LANDMARKS.end, unit)} {unit}<br />score 612 → 678
                     </span>
 
                     {/* crosshair */}

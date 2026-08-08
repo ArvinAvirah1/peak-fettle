@@ -15,7 +15,10 @@
 // programmed deload, one PR, then slow grinding. Nobody posts the plateau.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { weightValue, type Unit } from './units';
+import { weightValue, toLb, type Unit } from './units';
+
+/** Round to the nearest 5 — the granularity gyms actually plate in. */
+const round5 = (v: number): number => Math.round(v / 5) * 5;
 
 export type StoryWeek = {
     wk: number;
@@ -119,6 +122,76 @@ export const PLATE_SETS = [
  * 72 × (1 + 5/30) = 84.0 kg — exactly A.R.'s week-1 e1RM.
  */
 export const METHOD_SET = { weightKg: 72, reps: 5, e1rm: 84.0 } as const;
+
+// ─── THE POUND EDITION ───────────────────────────────────────────────────────
+// The constitution above is authored in kilograms, and every pound figure used
+// to be a live conversion of it — which is why a US reader saw "158.7 lb × 5"
+// and "185.2 lb". Arithmetically correct, but nobody has ever loaded 158.7 lb.
+//
+// So pounds are now authored natively: round numbers a lifter would actually
+// plate, with the Epley arithmetic exactly true in the unit being displayed.
+// The narrative shape is unchanged — the same fast start, the same five-week
+// plateau, the same deload and PR — because the series is derived from the
+// kilogram one and rounded to the nearest 5 lb.
+//
+// The honest caveat, stated rather than buried: A.R. is a COMPOSITE, and the
+// two editions are therefore the same lifter told in two units, not the same
+// numbers converted. Every value below is within ~2.5 lb of the true conversion
+// except week 6, noted where it happens.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Week-6 is pinned to 210 rather than the rounded 205.
+ *
+ * 205 lb is not reachable as an Epley result from any multi-rep set at a plated
+ * weight (205 = W × (1 + r/30) has no solution where W is divisible by 5 and
+ * r > 1). Since the phone mockup shows this week's actual logged sets, the week
+ * has to land somewhere a real set can produce. 210 costs 3.9 lb of drift on one
+ * week of a composite; showing sets that don't add up would cost the whole point.
+ */
+const LB_OVERRIDES: Record<number, number> = { 6: 210 };
+
+/** e1RM for a week in the reader's unit: real kilos, or native round pounds. */
+export function e1rmFor(week: StoryWeek, unit: Unit): number {
+    if (unit === 'kg') return week.e1rm;
+    return LB_OVERRIDES[week.wk] ?? round5(toLb(week.e1rm));
+}
+
+/**
+ * Fig. 01 — the worked example, per unit.
+ *
+ * kg: 72 × (1 + 5/30) = 84.0 — exactly A.R.'s week-1 e1RM.
+ * lb: 150 × (1 + 7/30) = 185 — exactly A.R.'s week-1 e1RM in pounds, and both
+ *     numbers are ones you could actually load. The rep count differs because
+ *     that is what makes the arithmetic land whole in each unit.
+ */
+export const METHOD_SET_LB = { weightLb: 150, reps: 7, e1rm: 185 } as const;
+
+/** Fig. 01's numbers in the reader's unit. */
+export function methodSetFor(unit: Unit): { weight: number; reps: number; e1rm: number } {
+    return unit === 'lb'
+        ? { weight: METHOD_SET_LB.weightLb, reps: METHOD_SET_LB.reps, e1rm: METHOD_SET_LB.e1rm }
+        : { weight: METHOD_SET.weightKg, reps: METHOD_SET.reps, e1rm: METHOD_SET.e1rm };
+}
+
+/**
+ * The plate week's logged sets in pounds. Each is Epley-exact and plateable:
+ *   180 × (1 + 5/30) = 210   ← the PR, and the week's e1RM
+ *   175 × (1 + 6/30) = 210
+ *   150 × (1 + 8/30) = 190
+ */
+export const PLATE_SETS_LB = [
+    { weightLb: 180, reps: 5, e1rm: 210, pr: true },
+    { weightLb: 175, reps: 6, e1rm: 210, pr: false },
+    { weightLb: 150, reps: 8, e1rm: 190, pr: false },
+] as const;
+
+/** The plate week's sets in the reader's unit, as {weight, reps, pr}. */
+export function plateSetsFor(unit: Unit): { weight: number; reps: number; pr: boolean }[] {
+    return unit === 'lb'
+        ? PLATE_SETS_LB.map((s) => ({ weight: s.weightLb, reps: s.reps, pr: s.pr }))
+        : PLATE_SETS.map((s) => ({ weight: s.weightKg, reps: s.reps, pr: s.pr }));
+}
 
 /**
  * Fig. 04 a/b/c — the cohort small-multiples proof. The SAME final score

@@ -7,6 +7,7 @@ import {
     STORY,
     LANDMARKS,
     METHOD_SET,
+    methodSetFor,
     COHORT_MULTIPLES,
     linePath,
     xAt,
@@ -43,21 +44,34 @@ const ord = (n: number) => {
 
 /* ─── Fig. 01 — Estimate: one logged set becomes an e1RM ─────────────────── */
 
+/** Epley's multiplier as a reduced fraction, e.g. 5 reps -> "7/6", 7 -> "37/30". */
+function epleyFraction(reps: number): string {
+    const gcd = (a: number, b: number): number => (b === 0 ? a : gcd(b, a % b));
+    const num = 30 + reps;
+    const g = gcd(num, 30);
+    return `${num / g}/${30 / g}`;
+}
+
+/** Already-in-unit values are printed as-is — converting them again would undo
+ *  the whole point of authoring pounds natively. */
+const plain = (v: number): string => (Number.isInteger(v) ? String(v) : v.toFixed(1));
+
 export function FigEstimate({ unit = 'kg' }: { unit?: Unit }) {
-    const w = weightValue(METHOD_SET.weightKg, unit, unit === 'lb' ? 1 : 0);
-    const e = weightValue(METHOD_SET.e1rm, unit);
+    const set = methodSetFor(unit);
+    const w = plain(set.weight);
+    const e = plain(set.e1rm);
     return (
         <svg viewBox="0 0 360 210" className={styles.fig} role="img"
-            aria-label={`A logged set of ${w} ${unit === 'lb' ? 'pounds' : 'kilograms'} for ${METHOD_SET.reps} reps becomes an estimated one-rep max of ${e} ${unit === 'lb' ? 'pounds' : 'kilograms'}`}>
+            aria-label={`A logged set of ${w} ${unit === 'lb' ? 'pounds' : 'kilograms'} for ${set.reps} reps becomes an estimated one-rep max of ${e} ${unit === 'lb' ? 'pounds' : 'kilograms'}`}>
             <rect x="22" y="42" width="138" height="60" rx="6" className={styles.panel} />
             <text x="38" y="66" className={styles.tinyMuted}>SET 01 — BENCH</text>
-            <text x="38" y="90" className={styles.monoStrong}>{w} {unit} × {METHOD_SET.reps}</text>
+            <text x="38" y="90" className={styles.monoStrong}>{w} {unit} × {set.reps}</text>
             <path d="M160 72 H 232 V 128" className={styles.leader} />
             <text x="244" y="116" className={styles.tinyMuted}>e1RM</text>
             <text x="244" y="142" className={styles.accentBig}>{e} {unit}</text>
             {/* Epley is unit-agnostic, so the worked example is shown in the
                 reader's own unit — the identity holds either way. */}
-            <text x="22" y="192" className={styles.formula}>epley — w × (1 + r/30) · {w} × 7/6 = {e}</text>
+            <text x="22" y="192" className={styles.formula}>epley — w × (1 + r/30) · {w} × {epleyFraction(set.reps)} = {e}</text>
         </svg>
     );
 }

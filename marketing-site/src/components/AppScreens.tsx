@@ -7,7 +7,7 @@
 // page's chart visibly continues inside the product (see the data
 // constitution in story.ts).
 
-import { STORY, PLATE_WEEK, PLATE_SETS, PLATE_PERCENTILE, LIFTER, STREAK_DAYS } from '@/lib/story';
+import { STORY, PLATE_WEEK, plateSetsFor, e1rmFor, PLATE_PERCENTILE, LIFTER, STREAK_DAYS } from '@/lib/story';
 import { weightTrim, weightValue, type Unit } from '@/lib/units';
 
 const W = 390;
@@ -35,11 +35,13 @@ export function ScreenLog({ unit = 'kg' }: { unit?: Unit }) {
         <Frame>
             <text x="24" y="92" fill={MUT} fontSize="14" fontFamily="sans-serif">Week 6 · Push day</text>
             <text x="24" y="120" fill={TXT} fontSize="26" fontWeight="700" fontFamily="sans-serif">Bench Press</text>
-            {PLATE_SETS.map((s, i) => (
+            {plateSetsFor(unit).map((s, i) => (
                 <g key={i} transform={`translate(24 ${150 + i * 76})`}>
                     <rect width="342" height="62" rx="14" fill={CARD} />
                     <text x="20" y="38" fill={MUT} fontSize="15" fontFamily="sans-serif">Set {i + 1}</text>
-                    <text x="110" y="38" fill={TXT} fontSize="18" fontWeight="600" fontFamily="sans-serif">{fmtKg(s.weightKg, unit)}</text>
+                    {/* Already in the reader's unit (story.plateSetsFor) — converting
+                        again would reintroduce the 176.4 lb decimals this replaced. */}
+                    <text x="110" y="38" fill={TXT} fontSize="18" fontWeight="600" fontFamily="sans-serif">{s.weight} {unit}</text>
                     <text x="220" y="38" fill={MUT} fontSize="16" fontFamily="sans-serif">× {s.reps}</text>
                     {s.pr && (
                         <g transform="translate(270 16)">
@@ -62,7 +64,7 @@ export function ScreenLog({ unit = 'kg' }: { unit?: Unit }) {
                     `unit` prop entirely — so a US reader saw lb sets stacked above
                     a kg summary on the same phone screen. Goes through the same
                     formatter as the sets above it now. */}
-                <text x="20" y="76" fill={TXT} fontSize="30" fontWeight="700" fontFamily="sans-serif">{fmtKg(PLATE_WEEK.e1rm, unit)}</text>
+                <text x="20" y="76" fill={TXT} fontSize="30" fontWeight="700" fontFamily="sans-serif">{e1rmFor(PLATE_WEEK, unit)} {unit}</text>
                 <text x="200" y="40" fill={MUT} fontSize="13" fontFamily="sans-serif">STRENGTH SCORE</text>
                 <text x="200" y="76" fill={A} fontSize="30" fontWeight="700" fontFamily="sans-serif">{PLATE_WEEK.score}</text>
                 <rect x="20" y="92" width="302" height="6" rx="3" fill={SUB} />

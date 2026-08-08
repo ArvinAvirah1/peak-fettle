@@ -18,7 +18,7 @@ import {
 } from '@/components/Figures';
 import { FEATURES, DISCIPLINES, FAQS, PLANS } from '@/lib/content';
 import { SITE, ASSETS } from '@/lib/site';
-import { LANDMARKS, PLATE_WEEK, METHOD_SET, noteFor } from '@/lib/story';
+import { LANDMARKS, PLATE_WEEK, methodSetFor, noteFor } from '@/lib/story';
 import { weightValue } from '@/lib/units';
 import { getUnit } from '@/lib/unitServer';
 import styles from './page.module.css';
@@ -61,6 +61,8 @@ export default function Home() {
     // Pounds for US readers, kilos for everyone else — resolved from the
     // request so the first paint is already in the reader's unit.
     const unit = getUnit();
+    // Fig. 01's numbers, authored natively per unit (see story.ts).
+    const methodSet = methodSetFor(unit);
     return (
         <>
             <JsonLd data={[softwareSchema, faqSchema]} />
@@ -91,8 +93,8 @@ export default function Home() {
                             <p className={styles.figBody}>
                                 From reps and weight we estimate a one-rep max for every lift using
                                 established strength formulas — no maxing out required. A.R.&rsquo;s
-                                {' '}{weightValue(METHOD_SET.weightKg, unit, unit === 'lb' ? 1 : 0)}&nbsp;{unit} ×{' '}
-                                {METHOD_SET.reps} opens the ledger at {weightValue(METHOD_SET.e1rm, unit)}.
+                                {' '}{methodSet.weight}&nbsp;{unit} ×{' '}
+                                {methodSet.reps} opens the ledger at {methodSet.e1rm}.
                             </p>
                         </Reveal>
                         <Reveal as="li" delay={2} className={styles.figItem}>
